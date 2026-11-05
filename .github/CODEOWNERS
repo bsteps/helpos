@@ -1,2 +1,5 @@
-# Every change needs a review from a code owner before it can merge.
+# Code owners are requested automatically as reviewers on every PR.
+# Required approvals are 0 while there is a single maintainer (GitHub doesn't
+# allow approving your own PR). Raise to 1 in the ruleset when a second
+# maintainer joins.
 * @bsteps

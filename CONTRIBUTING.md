@@ -19,7 +19,7 @@ pnpm verify             # runs every check, which should pass on a fresh clone
 ## 2. Find something to work on
 
 - Issues labelled **`good first issue`** are a good start.
-- All work is tracked in **GitHub Issues**, grouped into milestones (phases) and shown on the project board. Accepted work has a "Done when" checklist.
+- All work is tracked in **GitHub Issues**, grouped into milestones (phases) and shown on the [HelpOS Roadmap board](https://github.com/users/bsteps/projects/1). Accepted work has a "Done when" checklist.
 - For anything bigger than a small fix, **comment on the issue first**, so nobody duplicates work.
 
 ## 3. Make your change
@@ -44,7 +44,7 @@ Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
 
 - PR title in [Conventional Commits](https://www.conventionalcommits.org) form: `feat: …`, `fix: …`, `docs: …`.
 - Fill in the PR template: what, why, how you tested it.
-- **First PR?** The CLA bot will ask you to sign [CLA.md](CLA.md) by posting a comment. It takes 10 seconds.
+- **First PR?** The CLA Assistant bot will ask you to sign [CLA.md](CLA.md). It takes one click.
 - CI must be green. A maintainer (and an automated review agent) will review your PR.
 - We **squash-merge**, so your PR becomes one clean commit on `main`.
 

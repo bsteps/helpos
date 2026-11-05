@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-06
-- Reviews: three independent reviews (6.5 → 7.5 → 7.0/10; the last drop came from scope, not architecture). Their fixes are included below.
+- Reviewed by three independent architecture reviews; their fixes are included below.
 
 ## Context
 

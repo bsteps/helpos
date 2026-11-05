@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Supply-chain safety: never install a package version published less than
+# 3 days ago (4320 minutes). Most malicious releases are caught by then.
+minimumReleaseAge: 4320

@@ -127,8 +127,8 @@ Why bother? Release notes and version numbers are generated **automatically** fr
 | `docs/adr/`                        | Architecture Decision Records: _why_ we chose things                                |
 | `.github/ISSUE_TEMPLATE/`          | Forms that make bug reports useful                                                  |
 | `.github/pull_request_template.md` | Checklist shown on every PR                                                         |
-| `.github/CODEOWNERS`               | Who must review changes                                                             |
-| `.github/workflows/`               | CI robots: tests, CLA, dependency review                                            |
+| `.github/CODEOWNERS`               | Who is asked to review                                                              |
+| `.github/workflows/`               | CI robots: tests, dependency review                                                 |
 | `.github/dependabot.yml`           | Opens PRs automatically to update dependencies                                      |
 
 ---
@@ -136,7 +136,7 @@ Why bother? Release notes and version numbers are generated **automatically** fr
 ## 7. Licence and CLA in one minute
 
 - **AGPL-3.0:** anyone may use, modify and self-host HelpOS for free. If they run a _modified_ version as a service for others, they must publish their changes. This stops someone taking HelpOS closed and competing with it.
-- **CLA:** contributors keep their copyright but let the maintainers also license their code in other ways (for example a commercial licence). The bot asks on your first PR; you sign by commenting one sentence.
+- **CLA:** contributors keep their copyright but let the maintainers also license their code in other ways (for example a commercial licence). The CLA Assistant bot asks on your first PR; you sign with one click.
 - **Our hosted billing code** lives in a separate private repo (`helpos-cloud`). The helpdesk itself is fully open.
 
 ---
