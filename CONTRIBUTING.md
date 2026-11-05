@@ -52,6 +52,18 @@ Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
 
 Welcome and encouraged. You are still responsible for every line you submit: read it, understand it, and make sure it's tested. Point your agent at [AGENTS.md](AGENTS.md).
 
+### The maintainers' loop with T3 Code
+
+One issue = one T3 Code thread = one worktree = one PR.
+
+1. Open an issue and click **▶ Work on this in T3 Code** in the bot's comment. Maintainers' issues get the link automatically; other issues get it when a maintainer adds the `ready` label.
+2. T3 Code opens a new thread with the task ready. Set the project to start threads in a **new worktree**, so every issue gets its own branch and parallel threads never collide. Press Send.
+3. The agent reads the issue, builds the change with tests, and opens a PR that says `Closes #<n>`.
+4. Review the diff and the checks (not the app by hand, see ADR 0005), then squash-merge.
+5. Archive the thread. Threads are an inbox: done means cleared.
+
+Run several threads in parallel, but merge PRs that touch the database or security one at a time.
+
 ## Code of Conduct
 
 By taking part you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
