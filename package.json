@@ -17,7 +17,7 @@
     "rename-brand": "node scripts/rename-brand.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.5",
+    "@biomejs/biome": "2.6.4",
     "@types/node": "24.19.2",
     "turbo": "2.11.10",
     "typescript": "6.0.3",
