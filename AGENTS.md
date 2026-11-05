@@ -9,7 +9,7 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 ## Before you change anything
 
 1. Read the ADRs that touch your area: `docs/adr/`. **Never contradict an accepted ADR.** If you think one is wrong, stop and say so, or propose a new ADR.
-2. Work on a branch named after the Linear issue: `hos-<number>-<short-slug>`. Never commit to `main`.
+2. Work on a branch named after the GitHub issue: `<issue-number>-<short-slug>` (e.g. `7-tenant-wrapper`). Never commit to `main`.
 3. Keep the PR to one issue and one idea.
 
 ## Commands
@@ -47,7 +47,7 @@ pnpm verify            # everything CI runs. Must pass before you open a PR
 ## Commits and PRs
 
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
-- PR description: what, why, how it was tested, and `Closes HOS-<n>` (Linear).
+- PR description: what, why, how it was tested, and `Closes #<issue-number>`, which closes the issue automatically on merge.
 - Fill in the PR template checklist honestly.
 
 ## Repo map
