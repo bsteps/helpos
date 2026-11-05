@@ -1,0 +1,45 @@
+name: 🐛 Bug report
+description: Something isn't working as expected
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Security problems? Don't file them here.** See SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect to see?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Where are you running HelpOS?
+      options:
+        - Hosted (helpos cloud)
+        - Self-hosted (Docker)
+        - Local development
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Remove any personal data first.
+      render: shell

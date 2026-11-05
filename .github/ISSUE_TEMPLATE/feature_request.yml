@@ -1,0 +1,24 @@
+name: ✨ Feature request
+description: Suggest an idea or improvement
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the problem first, not the solution. "I can't do X, so I have to do Y by hand."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+  - type: textarea
+    id: agents
+    attributes:
+      label: How should agents use this?
+      description: HelpOS is agent-first. Should this be available through the API, MCP or webhooks? Does it need a human approval step?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered

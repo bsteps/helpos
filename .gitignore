@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+build/
+.turbo/
+.wrangler/
+coverage/
+
+# env and secrets: never commit these
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+
+# local data
+*.db
+*.sqlite
+*.sqlite-*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# local AI/agent memory
+.remember/

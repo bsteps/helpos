@@ -1,0 +1,15 @@
+{
+  "name": "@helpos/brand",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Single source of truth for the product name and brand. Rename the product here.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

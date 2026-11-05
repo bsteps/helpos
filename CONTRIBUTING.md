@@ -1,0 +1,57 @@
+# Contributing to HelpOS
+
+Thanks for helping! This guide gets you from zero to a merged pull request.
+
+New to open source? Read [docs/OPEN_SOURCE_101.md](docs/OPEN_SOURCE_101.md) first. It explains issues, branches, PRs and reviews.
+
+## 1. Set up (about 5 minutes)
+
+You need **Node.js 24+**, **Git**, and **Docker** (for the database, once Phase 0 adds it).
+
+```bash
+git clone https://github.com/bsteps/helpos.git
+cd helpos
+corepack enable        # uses the pnpm version pinned in package.json
+pnpm install
+pnpm verify             # runs every check, which should pass on a fresh clone
+```
+
+## 2. Find something to work on
+
+- Issues labelled **`good first issue`** are a good start.
+- Planning happens in **Linear**. GitHub issues are the public intake, and maintainers copy accepted ones into Linear as `HOS-<number>`.
+- For anything bigger than a small fix, **comment on the issue first**, so nobody duplicates work.
+
+## 3. Make your change
+
+```bash
+git switch -c hos-42-short-description    # branch named after the issue
+# …make changes…
+pnpm check:fix                            # format + lint
+pnpm verify                                # typecheck + tests
+git commit -m "fix: keep Outlook replies in the same thread"
+git push -u origin hos-42-short-description
+```
+
+Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
+
+- **Every change ships with tests.** We don't rely on manual testing ([ADR 0005](docs/adr/0005-verification-over-manual-testing.md)).
+- **Tenant data only through `withTenant()`** ([ADR 0003](docs/adr/0003-tenant-isolation.md)).
+- **Agent and API actions are scoped, policy-checked and audit-logged** ([ADR 0004](docs/adr/0004-security-baseline.md)).
+- Changing architecture? Write an ADR in `docs/adr/` first.
+
+## 4. Open a pull request
+
+- PR title in [Conventional Commits](https://www.conventionalcommits.org) form: `feat: …`, `fix: …`, `docs: …`.
+- Fill in the PR template: what, why, how you tested it.
+- **First PR?** The CLA bot will ask you to sign [CLA.md](CLA.md) by posting a comment. It takes 10 seconds.
+- CI must be green. A maintainer (and an automated review agent) will review your PR.
+- We **squash-merge**, so your PR becomes one clean commit on `main`.
+
+## Using AI coding agents
+
+Welcome and encouraged. You are still responsible for every line you submit: read it, understand it, and make sure it's tested. Point your agent at [AGENTS.md](AGENTS.md).
+
+## Code of Conduct
+
+By taking part you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
