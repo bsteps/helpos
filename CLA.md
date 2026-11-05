@@ -1,10 +1,10 @@
 # HelpOS Contributor License Agreement (CLA)
 
-> **Plain-language summary (not part of the agreement):** You keep the copyright to your contribution. You give the HelpOS maintainers a broad licence to use it, including under licences other than AGPL-3.0 (for example a commercial licence). This lets the project fund itself and change its licence in future without tracking down every past contributor. You confirm that the work is yours to give.
+> **Plain-language summary (not part of the agreement):** You keep the copyright to your contribution. You give the project owner, Nishant Tadvi, a broad licence to use it, including under licences other than AGPL-3.0 (for example a commercial licence). This lets the project fund itself and change its licence in future without tracking down every past contributor. You confirm that the work is yours to give.
 >
 > ⚠️ This text is modelled on the Apache Software Foundation's Individual CLA. It has **not yet been reviewed by a lawyer**. The maintainers must get it reviewed before accepting significant outside contributions.
 
-By signing (commenting the sign-off phrase on your pull request), you ("You") agree to the following terms with the HelpOS maintainers ("We") for your present and future Contributions to the HelpOS project.
+By signing (through the CLA Assistant check on your pull request), you ("You") agree to the following terms with **Nishant Tadvi**, the owner of the HelpOS project, and his successors and assigns ("We" or "Us"), for your present and future Contributions to the HelpOS project.
 
 1. **Definitions.** "Contribution" means any original work of authorship, including modifications or additions to existing work, that You intentionally submit to Us for inclusion in the project, by any means, including pull requests, issues and comments containing code.
 
@@ -21,3 +21,5 @@ By signing (commenting the sign-off phrase on your pull request), you ("You") ag
 7. **You keep your copyright.** Nothing in this agreement transfers ownership of Your Contribution to Us.
 
 8. **Notification.** You agree to tell Us if any of the above stops being accurate.
+
+9. **Transfer.** We may assign or transfer this agreement, and all rights granted under it, to a successor, including a company that takes over the HelpOS project. This agreement then binds You and that successor in the same way.

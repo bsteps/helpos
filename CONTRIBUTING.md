@@ -19,7 +19,7 @@ pnpm verify             # runs every check, which should pass on a fresh clone
 ## 2. Find something to work on
 
 - Issues labelled **`good first issue`** are a good start.
-- All work is tracked in **GitHub Issues**, grouped into milestones (phases). Accepted work has a "Done when" checklist.
+- All work is tracked in **GitHub Issues**, grouped into milestones (phases) and shown on the [HelpOS Roadmap board](https://github.com/users/bsteps/projects/1). Accepted work has a "Done when" checklist.
 - For anything bigger than a small fix, **comment on the issue first**, so nobody duplicates work.
 
 ## 3. Make your change

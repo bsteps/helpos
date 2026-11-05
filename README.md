@@ -44,4 +44,4 @@ Please report vulnerabilities privately. See [SECURITY.md](SECURITY.md).
 
 ## License
 
-[AGPL-3.0](LICENSE). Contributions require signing our [CLA](CLA.md); a bot asks on your first pull request. The HelpOS name and logo are covered by our [trademark policy](TRADEMARK.md).
+Copyright © 2026 Nishant Tadvi and HelpOS contributors. Licensed under [AGPL-3.0](LICENSE). Contributions require signing our [CLA](CLA.md); a bot asks on your first pull request. The HelpOS name and logo are covered by our [trademark policy](TRADEMARK.md).
