@@ -19,18 +19,18 @@ pnpm verify             # runs every check, which should pass on a fresh clone
 ## 2. Find something to work on
 
 - Issues labelled **`good first issue`** are a good start.
-- Planning happens in **Linear**. GitHub issues are the public intake, and maintainers copy accepted ones into Linear as `HOS-<number>`.
+- All work is tracked in **GitHub Issues**, grouped into milestones (phases) and shown on the project board. Accepted work has a "Done when" checklist.
 - For anything bigger than a small fix, **comment on the issue first**, so nobody duplicates work.
 
 ## 3. Make your change
 
 ```bash
-git switch -c hos-42-short-description    # branch named after the issue
+git switch -c 42-short-description    # branch named after the issue
 # …make changes…
 pnpm check:fix                            # format + lint
 pnpm verify                                # typecheck + tests
 git commit -m "fix: keep Outlook replies in the same thread"
-git push -u origin hos-42-short-description
+git push -u origin 42-short-description
 ```
 
 Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
