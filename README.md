@@ -6,10 +6,10 @@
 
 ## Why HelpOS?
 
-<!--
-  TODO (first PR): write the vision here in your own words, 3-6 short lines.
-  Who is it for, what's broken about today's helpdesks, and what HelpOS does differently.
--->
+Small support teams drown in repetitive tickets, and most helpdesks still treat AI as a bolt-on chatbot.
+HelpOS flips that: AI agents do the routine support work, and humans approve risky actions, handle the exceptions and teach the agents.
+Agents are first-class users, so anything you can do in the UI, an agent can do through the public API, and every action is scoped and audit-logged.
+It's open source (AGPL-3.0) and self-hostable, so you own your data and your support stack.
 
 ## What makes it different
 
