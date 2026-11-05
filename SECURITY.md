@@ -26,7 +26,7 @@ We'll credit you in the release notes unless you'd rather stay anonymous.
 
 ## Supported versions
 
-HelpOS is pre-1.0. Only the latest release gets security fixes.
+HelpOS is pre-1.0 and has no releases yet. Security fixes land on `main`. After the first release, only the latest release gets security fixes.
 
 ## Scope
 

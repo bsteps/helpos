@@ -45,7 +45,7 @@ Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
 - PR title in [Conventional Commits](https://www.conventionalcommits.org) form: `feat: …`, `fix: …`, `docs: …`.
 - Fill in the PR template: what, why, how you tested it.
 - **First PR?** The CLA Assistant bot will ask you to sign [CLA.md](CLA.md). It takes one click.
-- CI must be green. A maintainer (and an automated review agent) will review your PR.
+- CI must be green, and a maintainer will review your PR. (An automated AI review is planned in #42.)
 - We **squash-merge**, so your PR becomes one clean commit on `main`.
 
 ## Using AI coding agents

@@ -9,7 +9,7 @@ Incumbent helpdesks are widely seen as slow. Speed is a feature we want to keep,
 
 ## Decision
 
-CI fails a PR that breaks a budget:
+CI will fail a PR that breaks a budget (enforcement lands with issue #22):
 
 | Budget                              | Limit                                                 |
 | ----------------------------------- | ----------------------------------------------------- |
