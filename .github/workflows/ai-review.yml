@@ -84,9 +84,24 @@ jobs:
           cp trusted/.github/ai-review/prompt.md "$RUNNER_TEMP/prompt.md"
           printf '\nReview the changes in git range %s...%s (run `git diff %s...%s`).\n' \
             "$BASE_SHA" "$HEAD_SHA" "$BASE_SHA" "$HEAD_SHA" >> "$RUNNER_TEMP/prompt.md"
+      # Codex reads agent config and instructions from its working directory. The PR must not
+      # control them: a PR-added .codex/config.toml could start an MCP server outside the sandbox,
+      # and a PR-edited AGENTS.md or ADR could weaken the review. Use the base branch's versions.
+      - name: Replace agent config and policy files with trusted copies
+        shell: bash
+        run: |
+          set -euo pipefail
+          find pr -type d -name .codex -prune -exec rm -rf {} +
+          find pr \( -name AGENTS.md -o -name AGENTS.override.md \) -type f -delete
+          rm -rf pr/docs/adr pr/docs/architecture
+          mkdir -p pr/docs "$RUNNER_TEMP/codex-home"
+          cp trusted/AGENTS.md pr/AGENTS.md
+          cp -r trusted/docs/adr trusted/docs/architecture pr/docs/
       - uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # Empty, trusted Codex home: no user config or MCP servers.
+          codex-home: ${{ runner.temp }}/codex-home
           # Empty uses Codex's default model. Set the repo variable to pin one.
           model: ${{ vars.AI_REVIEW_MODEL }}
           working-directory: pr
