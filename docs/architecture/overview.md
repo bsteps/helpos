@@ -69,29 +69,33 @@ sequenceDiagram
   Q->>L: customer text passed as quoted data
   Q->>DB: save draft (pending) + audit event
   H->>S: POST /v1/drafts/:id/approve (session or hos_ token)
-  S->>DB: audit event, same transaction
-  S->>P: send via SMTP, threaded (In-Reply-To / References)
+  S->>DB: one transaction: draft → approved, audit event, enqueue send-reply
+  Q->>DB: withTenant(tenantId): load approved draft
+  Q->>P: send via SMTP, threaded (In-Reply-To / References)
+  Q->>DB: draft → sent + audit event (failure: stays approved, retried)
 ```
+
+Only the worker sends email, so only the worker role needs SMTP settings. An SMTP send can't be part of a database transaction, so approving doesn't send directly. Because pg-boss lives in Postgres, the approval, its audit event and the `send-reply` job commit together: either all three happen or none do. The job retries a failed send, and the draft stays `approved` until the send succeeds.
 
 The full MVP loop adds one more step (#37): a ticket becomes a GitHub issue, and when that issue is closed, a "fixed" draft goes through the same approve-and-send flow.
 
 ## Core data model
 
-Every row below except `tenants` has `tenant_id` with RLS enabled and forced (ADR 0003). IDs are UUIDv7. Every table has `created_at`/`updated_at`.
+Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in ADR 0009 (#36), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
 
-| Table                  | What it is                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| `tenants`              | A workspace (the UI says "workspace")                                                                  |
-| `users`, `memberships` | Humans and which workspaces they belong to (Better Auth tables, protected as decided in ADR 0009, #36) |
-| `mailboxes`            | Support addresses. Inbound mail is routed to a tenant by address                                       |
-| `customers`            | People who write in                                                                                    |
-| `tickets`              | A conversation with a customer                                                                         |
-| `messages`             | Inbound and outbound emails on a ticket                                                                |
-| `attachments`          | Metadata; the bytes live in the files adapter                                                          |
-| `drafts`               | AI-written replies: `pending → approved → sent`, or `discarded`                                        |
-| `api_tokens`           | Agent tokens: hashed, scoped, revocable (`hos_…`)                                                      |
-| `audit_events`         | Append-only log of every human and agent action                                                        |
-| `integrations`         | e.g. the linked GitHub repo and its encrypted token                                                    |
+| Table                  | What it is                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `tenants`              | A workspace (the UI says "workspace")                                           |
+| `users`, `memberships` | Humans (Better Auth tables, no `tenant_id`) and which workspaces they belong to |
+| `mailboxes`            | Support addresses. Inbound mail is routed to a tenant by address                |
+| `customers`            | People who write in                                                             |
+| `tickets`              | A conversation with a customer                                                  |
+| `messages`             | Inbound and outbound emails on a ticket                                         |
+| `attachments`          | Metadata; the bytes live in the files adapter                                   |
+| `drafts`               | AI-written replies: `pending → approved → sent`, or `discarded`                 |
+| `api_tokens`           | Agent tokens: hashed, scoped, revocable (`hos_…`)                               |
+| `audit_events`         | Append-only log of every human and agent action                                 |
+| `integrations`         | e.g. the linked GitHub repo and its encrypted token                             |
 
 ## Trust boundaries
 
