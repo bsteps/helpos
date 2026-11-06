@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
-import { type AuthStore, createAuthStore, createDatabase, type Database, schema } from "@helpos/db";
+import {
+  type AuthStore,
+  createAuthStore,
+  createDatabase,
+  type Database,
+  eq,
+  schema,
+} from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
-import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";

@@ -64,5 +64,7 @@ describe("migrations", () => {
       join pg_namespace n on n.oid = p.pronamespace
       where p.prosecdef and n.nspname not in ('pg_catalog', 'information_schema')`;
     for (const { name } of found) expect(allowlist).toContain(name);
+    // Guards against the query silently finding nothing (e.g. jobs not installed).
+    expect(found.map((f) => f.name)).toContain("jobs_api.app_enqueue");
   });
 });
