@@ -132,6 +132,25 @@ describe("POST /v1/inbound/email: email → ticket", () => {
     expect(after).toHaveLength(before.length);
   });
 
+  it("two concurrent deliveries of one email store it once", async () => {
+    const raw = fixture("plain.eml").toString().replace("<plain-1@", "<race-1@");
+    const results = await Promise.all([post(raw), post(raw), post(raw)]);
+    const bodies = (await Promise.all(results.map((r) => r.json()))) as {
+      status: string;
+      messageId: string;
+    }[];
+    expect(results.every((r) => r.status === 200 || r.status === 201)).toBe(true);
+    expect(bodies.filter((b) => b.status !== "duplicate")).toHaveLength(1);
+    expect(new Set(bodies.map((b) => b.messageId)).size).toBe(1);
+    const stored = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.messageIdHeader, "<race-1@customer.test>")),
+    );
+    expect(stored).toHaveLength(1);
+  });
+
   it("a later email can't rename an existing customer", async () => {
     const raw = fixture("plain.eml")
       .toString()
