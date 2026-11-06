@@ -12,7 +12,9 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d helpos"]
+      # -h forces TCP: during first-run init, Postgres answers only on its unix socket,
+      # so without it "healthy" could be reported before init.sql has finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d helpos"]
       interval: 2s
       timeout: 5s
       retries: 30

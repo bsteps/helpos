@@ -29,8 +29,13 @@ async function shutdown(signal: string): Promise<void> {
     process.exit(1);
   }, shutdownTimeoutMs).unref();
   // Stop accepting connections and let in-flight requests finish before closing the pool.
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  await db.close();
+  try {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await db.close();
+  } catch (err) {
+    logger.error({ err }, "shutdown failed");
+    process.exit(1);
+  }
   process.exit(0);
 }
 
