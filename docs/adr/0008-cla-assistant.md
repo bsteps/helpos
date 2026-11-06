@@ -10,7 +10,7 @@ ADR 0007 used `contributor-assistant/github-action` (CLA Assistant Lite). That r
 
 ## Decision
 
-- Use the hosted **cla-assistant.io** GitHub App (actively maintained). The CLA text lives in `CLA.md` and in a gist that the app reads.
+- Use the hosted **cla-assistant.io** GitHub App. It is still maintained, though with low activity; signatures can be exported, so we can switch tools if needed. The CLA text lives in `CLA.md` and in a gist that the app reads.
 - Its status check (`license/cla`) is a **required** check on `main`, so an unsigned contribution can't be merged.
 - Remove the archived workflow and the `cla-signatures` branch.
 

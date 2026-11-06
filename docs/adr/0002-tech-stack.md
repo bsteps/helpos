@@ -2,7 +2,6 @@
 
 - Status: Accepted
 - Date: 2026-11-06
-- Reviewed by three independent architecture reviews; their fixes are included below.
 
 ## Context
 
@@ -25,7 +24,7 @@ HelpOS must be self-hostable **free or cheaply on any infrastructure** (any VPS,
 | AI             | Vercel AI SDK, provider-agnostic                                         | Cheap default model, bring your own key, swap models in one line                                                                       |
 | Dashboard      | React + Vite SPA, TanStack Router/Query, shadcn/ui                       | Fast, sits behind a login so it doesn't need SSR. Optimistic updates                                                                   |
 | Help center    | Server-rendered with Hono JSX + CDN cache                                | SEO and near-instant pages                                                                                                             |
-| Widget         | Web component (Preact/Lit), ≤ 20 KB gzipped                              | Never slows customers' sites                                                                                                           |
+| Widget         | ≤ 20 KB web-component loader; chat UI in a sandboxed iframe (ADR 0004)   | Never slows customers' sites                                                                                                           |
 | Human auth     | Better Auth (sessions only)                                              | Open source, runs inside our app                                                                                                       |
 | Agent/API auth | **Our own** scoped, hashed, prefixed, revocable tokens                   | Core to agent-first, and Better Auth's API-key plugin has a CVE history                                                                |
 | Tooling        | pnpm 12 (pinned), Turborepo, Biome, Vitest, Playwright, **TypeScript 6** | TS 7 has no stable JS API until 7.1, which breaks type-aware tooling. Move to 7 once 7.1 ships                                         |
