@@ -1,4 +1,4 @@
-// Turns the AI reviewer's findings (JSON from Codex) into a PR review body, and
+// Turns the AI reviewer's findings (structured JSON from Claude) into a PR review body, and
 // decides whether the required check fails. Used by .github/workflows/ai-review.yml.
 //
 // Usage: node scripts/ai-review.mjs <findings.json> <review-out.json>

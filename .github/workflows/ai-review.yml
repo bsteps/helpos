@@ -1,17 +1,17 @@
 name: AI review
 
 # Independent AI security review for PRs labelled `security` or `area:db` (issue #42).
-# The reviewer is OpenAI Codex, a different model from the one that writes our code.
+# The reviewer is Claude on a different model from the one that writes our code (Opus).
 # High or critical findings fail the `AI review result` check. Make that check required.
 #
 # Security model (pull_request_target runs with secrets, so this matters):
 # - The workflow file, prompt, schema and scripts always come from the base branch. The PR's
-#   code is checked out into ./pr only to be READ by Codex in a read-only sandbox. It is never
-#   installed, built or run.
+#   files never touch disk: Claude reads them as git objects with read-only tools. PR code is
+#   never installed, built or run, and can't supply agent config (CLAUDE.md, hooks, MCP).
 # - Only people with triage rights can add labels, so the label is the maintainer's approval.
 # - Fork PRs: the review runs only on the `labeled` event. A new push to a fork PR fails the
 #   check until a maintainer re-adds the label after looking at the new commits.
-# - Jobs are split so no job holds both the OpenAI key and a write token.
+# - Jobs are split so no job holds both the Claude credential and a write token.
 
 on:
   pull_request_target:
@@ -53,7 +53,7 @@ jobs:
           fi
 
   review:
-    name: Codex review
+    name: Claude review
     needs: gate
     if: needs.gate.outputs.state == 'review'
     runs-on: ubuntu-latest
@@ -63,52 +63,76 @@ jobs:
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR: ${{ github.event.pull_request.number }}
     steps:
-      # Trusted copy (base branch): prompt and schema come from here.
+      # Claude runs in the TRUSTED base checkout. The PR's files are never written to disk: they
+      # are only fetched as git objects and read with `git diff` / `git show <sha>:<path>`.
+      # So a PR can't plant CLAUDE.md, .claude/settings.json hooks, .mcp.json or symlinks
+      # that Claude Code would load. No denylist to keep up to date.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: trusted
-          persist-credentials: false
-      # Untrusted PR code, read-only for the reviewer. Never executed.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: pr
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Build prompt
+      - name: Fetch PR commits as objects only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" \
+            fetch --no-tags origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+          [ "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" ] || { echo "::error::PR head moved, re-run"; exit 1; }
+          git cat-file -e "$BASE_SHA"
+      # Claude gets no shell (even `git show --output=` can write files). Instead, write the diff
+      # and the PR's version of each changed file OUTSIDE the checkout. Blobs only, so symlinks
+      # become plain text, and Claude Code never loads config from there (not its cwd).
+      - name: Export PR diff and changed files
         shell: bash
         run: |
           set -euo pipefail
-          git -C pr cat-file -e "$BASE_SHA" # base must be present for the diff
-          cp trusted/.github/ai-review/prompt.md "$RUNNER_TEMP/prompt.md"
-          printf '\nReview the changes in git range %s...%s (run `git diff %s...%s`).\n' \
-            "$BASE_SHA" "$HEAD_SHA" "$BASE_SHA" "$HEAD_SHA" >> "$RUNNER_TEMP/prompt.md"
-      # Codex reads agent config and instructions from its working directory. The PR must not
-      # control them: a PR-added .codex/config.toml could start an MCP server outside the sandbox,
-      # and a PR-edited AGENTS.md or ADR could weaken the review. Use the base branch's versions.
-      - name: Replace agent config and policy files with trusted copies
+          out="$RUNNER_TEMP/pr"
+          mkdir -p "$out/files"
+          git -c core.fsmonitor=false diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > "$out/pr.diff"
+          git diff --name-only -z --diff-filter=d "$BASE_SHA...$HEAD_SHA" | while IFS= read -r -d '' f; do
+            [ "$(git cat-file -t "$HEAD_SHA:$f")" = blob ] || continue # skip submodules
+            mkdir -p "$out/files/$(dirname "$f")"
+            git cat-file blob "$HEAD_SHA:$f" > "$out/files/$f"
+          done
+      - name: Build prompt and schema
+        id: prep
         shell: bash
         run: |
           set -euo pipefail
-          find pr -type d -name .codex -prune -exec rm -rf {} +
-          find pr \( -name AGENTS.md -o -name AGENTS.override.md \) -type f -delete
-          rm -rf pr/docs/adr pr/docs/architecture
-          mkdir -p pr/docs "$RUNNER_TEMP/codex-home"
-          cp trusted/AGENTS.md pr/AGENTS.md
-          cp -r trusted/docs/adr trusted/docs/architecture pr/docs/
-      - uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+          {
+            cat .github/ai-review/prompt.md
+            printf '\nThe PR range is %s...%s.\n' "$BASE_SHA" "$HEAD_SHA"
+            printf 'The full diff is %s/pr/pr.diff. The PR version of each changed file is under %s/pr/files/.\n' "$RUNNER_TEMP" "$RUNNER_TEMP"
+          } > "$RUNNER_TEMP/prompt.md"
+          {
+            echo 'prompt<<PROMPT_EOF'; cat "$RUNNER_TEMP/prompt.md"; echo 'PROMPT_EOF'
+            echo "schema=$(jq -c . .github/ai-review/findings.schema.json)"
+          } >> "$GITHUB_OUTPUT"
+      - id: claude
+        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1
         with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          # Empty, trusted Codex home: no user config or MCP servers.
-          codex-home: ${{ runner.temp }}/codex-home
-          # Empty uses Codex's default model. Set the repo variable to pin one.
-          model: ${{ vars.AI_REVIEW_MODEL }}
-          working-directory: pr
-          sandbox: read-only
-          prompt-file: ${{ runner.temp }}/prompt.md
-          output-schema-file: ${{ github.workspace }}/trusted/.github/ai-review/findings.schema.json
-          output-file: ${{ runner.temp }}/findings.json
+          # Set ONE of these secrets. A Claude Pro/Max subscription works: run `claude setup-token`.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.prep.outputs.prompt }}
+          # A different model from the code author (Opus). Override with the repo variable.
+          # Read-only tools: no shell, no edits, no network.
+          claude_args: >-
+            --model ${{ vars.AI_REVIEW_MODEL || 'claude-sonnet-5-5' }}
+            --add-dir ${{ runner.temp }}/pr
+            --allowedTools "Read,Grep,Glob"
+            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
+            --json-schema '${{ steps.prep.outputs.schema }}'
+      - name: Save findings
+        shell: bash
+        env:
+          FINDINGS: ${{ steps.claude.outputs.structured_output }}
+        run: printf '%s' "$FINDINGS" > "$RUNNER_TEMP/findings.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ai-review-findings
