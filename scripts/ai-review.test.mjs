@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clean, isBlocking, parseFindings, renderReview } from "./ai-review.mjs";
+import { clean, isBlocking, parseFindings, redactSecrets, renderReview } from "./ai-review.mjs";
 
 const finding = (severity, extra = {}) => ({
   severity,
@@ -52,4 +52,20 @@ test("a huge review still fits GitHub's 65,536-character body limit", () => {
     finding("high", { title: long, file: long, explanation: long }),
   );
   assert.ok(renderReview({ summary: long, findings }).length < 65_536);
+});
+
+test("redacts credentials a prompt-injected reviewer might echo", () => {
+  // Built at runtime so secret scanners don't flag the test file.
+  const fakes = [
+    `sk-ant-oat01-${"A".repeat(40)}`,
+    `ghs_${"b".repeat(36)}`,
+    `github_pat_${"C".repeat(30)}`,
+    `eyJ${"d".repeat(20)}.${"e".repeat(20)}.${"f".repeat(20)}`,
+  ];
+  for (const fake of fakes) {
+    const out = redactSecrets(`token is ${fake} ok`);
+    assert.equal(out, "token is [redacted] ok");
+  }
+  const body = renderReview({ summary: `leak ${fakes[0]}`, findings: [] });
+  assert.equal(body.includes(fakes[0] ?? ""), false);
 });

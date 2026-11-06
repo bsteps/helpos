@@ -29,6 +29,8 @@ jobs:
     name: Decide whether to review
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      pull-requests: read
     outputs:
       state: ${{ steps.decide.outputs.state }}
     steps:
@@ -40,13 +42,25 @@ jobs:
           ADDED_LABEL: ${{ github.event.label.name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          is_fork=false; [ "$HEAD_REPO" != "$BASE_REPO" ] && is_fork=true
+          # Fork approval = a maintainer adds OUR label now, or this exact commit was already
+          # approved (the bot posted a review pinned to it). Fork authors can't post as the bot.
+          approved=false
+          if [ "$ACTION" = "labeled" ] && { [ "$ADDED_LABEL" = "security" ] || [ "$ADDED_LABEL" = "area:db" ]; }; then
+            approved=true
+          elif [ "$is_fork" = true ] && gh api "repos/$BASE_REPO/pulls/$PR/reviews" --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .commit_id' | grep -qxF "$HEAD_SHA"; then
+            approved=true
+          fi
           if ! jq -e 'index("security") or index("area:db")' <<<"$LABELS" >/dev/null; then
             echo "Not labelled security or area:db. No review needed."
             echo "state=skip" >> "$GITHUB_OUTPUT"
-          # Fork PRs: only adding one of OUR labels counts as approval, not any label.
-          elif [ "$HEAD_REPO" != "$BASE_REPO" ] && ! { [ "$ACTION" = "labeled" ] && { [ "$ADDED_LABEL" = "security" ] || [ "$ADDED_LABEL" = "area:db" ]; }; }; then
+          elif [ "$is_fork" = true ] && [ "$approved" = false ]; then
             echo "state=stale" >> "$GITHUB_OUTPUT"
           else
             echo "state=review" >> "$GITHUB_OUTPUT"
@@ -91,16 +105,20 @@ jobs:
           out="$RUNNER_TEMP/pr"
           mkdir -p "$out/files"
           git -c core.fsmonitor=false diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > "$out/pr.diff"
+          # Neutral names (files/<n>.txt), never the PR's paths: a PR-named .claude/skills/...,
+          # CLAUDE.md or .mcp.json must not look like agent config anywhere. index.tsv maps n → path.
+          n=0
           git diff --name-only -z --diff-filter=d "$BASE_SHA...$HEAD_SHA" | while IFS= read -r -d '' f; do
             [ "$(git cat-file -t "$HEAD_SHA:$f")" = blob ] || continue # skip submodules
-            mkdir -p "$out/files/$(dirname "$f")"
-            git cat-file blob "$HEAD_SHA:$f" > "$out/files/$f"
+            n=$((n + 1))
+            git cat-file blob "$HEAD_SHA:$f" > "$out/files/$n.txt"
+            printf '%s\t%s\n' "$n" "$f" >> "$out/index.tsv"
           done
+          touch "$out/index.tsv"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ai-review-pr-content
           path: ${{ runner.temp }}/pr
-          include-hidden-files: true
           retention-days: 1
 
   review:
@@ -135,7 +153,8 @@ jobs:
           {
             cat .github/ai-review/prompt.md
             printf '\nThe PR range is %s...%s.\n' "$BASE_SHA" "$HEAD_SHA"
-            printf 'The full diff is %s/pr/pr.diff. The PR version of each changed file is under %s/pr/files/.\n' "$RUNNER_TEMP" "$RUNNER_TEMP"
+            printf 'The full diff is %s/pr/pr.diff. The PR version of each changed file is %s/pr/files/<n>.txt;\n' "$RUNNER_TEMP" "$RUNNER_TEMP"
+            printf '%s/pr/index.tsv maps each <n> to its repository path. Report findings with the repository path.\n' "$RUNNER_TEMP"
           } > "$RUNNER_TEMP/prompt.md"
           {
             echo 'prompt<<PROMPT_EOF'; cat "$RUNNER_TEMP/prompt.md"; echo 'PROMPT_EOF'
@@ -150,12 +169,15 @@ jobs:
           github_token: ${{ github.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           # A different model from the code author (Opus). Override with the repo variable.
-          # Read-only tools: no shell, no edits, no network.
+          # Read-only tools, scoped to the checkout and the PR folder: no shell, no edits, no
+          # network. Reads are denied where secrets live (/proc/*/environ, Claude's own config),
+          # so a prompt-injected reviewer can't copy the credential into the public review.
+          # (The leading "/" makes "//abs/path", Claude Code's absolute-path rule syntax.)
           claude_args: >-
             --model ${{ vars.AI_REVIEW_MODEL || 'claude-sonnet-5-5' }}
             --add-dir ${{ runner.temp }}/pr
-            --allowedTools "Read,Grep,Glob"
-            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
+            --allowedTools "Read(/${{ github.workspace }}/**),Read(/${{ runner.temp }}/pr/**),Grep,Glob"
+            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(~/.claude/**),Read(//home/runner/.claude/**)"
             --json-schema '${{ steps.prep.outputs.schema }}'
       - name: Save findings
         shell: bash
@@ -212,11 +234,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -uo pipefail
           node scripts/ai-review.mjs "$RUNNER_TEMP/findings.json" "$RUNNER_TEMP/review.json"
           gate=$?
           if [ -f "$RUNNER_TEMP/review.json" ]; then
-            gh api "repos/$REPO/pulls/$PR/reviews" --method POST --input "$RUNNER_TEMP/review.json" >/dev/null || exit 1
+            # Pin the review to the reviewed commit: the gate treats it as the fork approval record.
+            jq --arg c "$HEAD_SHA" '. + {commit_id: $c}' "$RUNNER_TEMP/review.json" > "$RUNNER_TEMP/review-pinned.json" || exit 1
+            gh api "repos/$REPO/pulls/$PR/reviews" --method POST --input "$RUNNER_TEMP/review-pinned.json" >/dev/null || exit 1
           fi
           exit $gate

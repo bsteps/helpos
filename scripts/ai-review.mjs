@@ -47,9 +47,23 @@ export function isBlocking(findings) {
   return findings.some((f) => BLOCKING.has(f.severity));
 }
 
-/** Model text goes into a GitHub comment: stop it pinging people or breaking out of code spans. */
+// Last line of defence if a prompt-injected reviewer echoes a credential: Anthropic keys and
+// OAuth tokens (sk-ant-…), GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_/github_pat_), and JWT-shaped strings.
+const SECRET_PATTERNS = [
+  /sk-ant-[A-Za-z0-9_-]{10,}/g,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+];
+
+export function redactSecrets(text) {
+  return SECRET_PATTERNS.reduce((t, re) => t.replace(re, "[redacted]"), text);
+}
+
+/** Model text goes into a GitHub comment: redact secrets, stop pings, cap length. */
 export function clean(text) {
-  const capped = text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}…` : text;
+  const redacted = redactSecrets(text);
+  const capped = redacted.length > MAX_TEXT ? `${redacted.slice(0, MAX_TEXT)}…` : redacted;
   return capped.replaceAll("@", "@​");
 }
 
