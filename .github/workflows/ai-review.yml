@@ -1,0 +1,154 @@
+name: AI review
+
+# Independent AI security review for PRs labelled `security` or `area:db` (issue #42).
+# The reviewer is OpenAI Codex, a different model from the one that writes our code.
+# High or critical findings fail the `AI review result` check. Make that check required.
+#
+# Security model (pull_request_target runs with secrets, so this matters):
+# - The workflow file, prompt, schema and scripts always come from the base branch. The PR's
+#   code is checked out into ./pr only to be READ by Codex in a read-only sandbox. It is never
+#   installed, built or run.
+# - Only people with triage rights can add labels, so the label is the maintainer's approval.
+# - Fork PRs: the review runs only on the `labeled` event. A new push to a fork PR fails the
+#   check until a maintainer re-adds the label after looking at the new commits.
+# - Jobs are split so no job holds both the OpenAI key and a write token.
+
+on:
+  pull_request_target:
+    # unlabeled: removing the label clears the required check instead of leaving it red.
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Decide whether to review
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      state: ${{ steps.decide.outputs.state }}
+    steps:
+      - id: decide
+        shell: bash
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          ACTION: ${{ github.event.action }}
+          ADDED_LABEL: ${{ github.event.label.name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! jq -e 'index("security") or index("area:db")' <<<"$LABELS" >/dev/null; then
+            echo "Not labelled security or area:db. No review needed."
+            echo "state=skip" >> "$GITHUB_OUTPUT"
+          # Fork PRs: only adding one of OUR labels counts as approval, not any label.
+          elif [ "$HEAD_REPO" != "$BASE_REPO" ] && ! { [ "$ACTION" = "labeled" ] && { [ "$ADDED_LABEL" = "security" ] || [ "$ADDED_LABEL" = "area:db" ]; }; }; then
+            echo "state=stale" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=review" >> "$GITHUB_OUTPUT"
+          fi
+
+  review:
+    name: Codex review
+    needs: gate
+    if: needs.gate.outputs.state == 'review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      # Trusted copy (base branch): prompt and schema come from here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: trusted
+          persist-credentials: false
+      # Untrusted PR code, read-only for the reviewer. Never executed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: pr
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build prompt
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C pr cat-file -e "$BASE_SHA" # base must be present for the diff
+          cp trusted/.github/ai-review/prompt.md "$RUNNER_TEMP/prompt.md"
+          printf '\nReview the changes in git range %s...%s (run `git diff %s...%s`).\n' \
+            "$BASE_SHA" "$HEAD_SHA" "$BASE_SHA" "$HEAD_SHA" >> "$RUNNER_TEMP/prompt.md"
+      - uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # Empty uses Codex's default model. Set the repo variable to pin one.
+          model: ${{ vars.AI_REVIEW_MODEL }}
+          working-directory: pr
+          sandbox: read-only
+          prompt-file: ${{ runner.temp }}/prompt.md
+          output-schema-file: ${{ github.workspace }}/trusted/.github/ai-review/findings.schema.json
+          output-file: ${{ runner.temp }}/findings.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-review-findings
+          path: ${{ runner.temp }}/findings.json
+          retention-days: 7
+
+  report:
+    # Make THIS check required in the ruleset. It always runs, so it never stays pending.
+    name: AI review result
+    needs: [gate, review]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      STATE: ${{ needs.gate.outputs.state }}
+      REVIEW_RESULT: ${{ needs.review.result }}
+    steps:
+      - name: Skipped or stale
+        if: needs.gate.outputs.state != 'review'
+        shell: bash
+        run: |
+          if [ "$STATE" = "skip" ]; then echo "No review needed."; exit 0; fi
+          echo "::error::New commits on a fork PR. A maintainer must check them and re-add the label to run the review."
+          exit 1
+      - name: Review job must have succeeded
+        if: needs.gate.outputs.state == 'review' && needs.review.result != 'success'
+        shell: bash
+        run: |
+          echo "::error::The review job ended with '$REVIEW_RESULT', so there are no findings to check."
+          exit 1
+      # Base branch only (the default for pull_request_target): the script below must be trusted.
+      - if: needs.gate.outputs.state == 'review'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: needs.gate.outputs.state == 'review'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-review-findings
+          path: ${{ runner.temp }}
+      - name: Post review and apply the severity gate
+        if: needs.gate.outputs.state == 'review'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          node scripts/ai-review.mjs "$RUNNER_TEMP/findings.json" "$RUNNER_TEMP/review.json"
+          gate=$?
+          if [ -f "$RUNNER_TEMP/review.json" ]; then
+            gh api "repos/$REPO/pulls/$PR/reviews" --method POST --input "$RUNNER_TEMP/review.json" >/dev/null || exit 1
+          fi
+          exit $gate
