@@ -15,10 +15,12 @@ export interface Database {
    * `app.tenant_id` set transaction-locally, so it never leaks to the next pooled request.
    */
   withTenant<T>(tenantId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T>;
-  /** True if the database answers a trivial query. Never throws. */
-  ping(): Promise<boolean>;
+  /** Checks the database answers a trivial query. Never throws: failures come back as a result. */
+  ping(): Promise<PingResult>;
   close(): Promise<void>;
 }
+
+export type PingResult = { ok: true } | { ok: false; error: unknown };
 
 const tenantIdSchema = z.uuid();
 
@@ -38,10 +40,10 @@ export function createDatabase(url: string): Database {
     async ping() {
       try {
         await db.execute(sql`select 1`);
-        return true;
-      } catch {
-        // Health checks report "down" instead of crashing; the caller decides what to log.
-        return false;
+        return { ok: true };
+      } catch (error) {
+        // Health checks report "down" instead of crashing; the caller logs the error.
+        return { ok: false, error };
       }
     },
     close: () => client.end({ timeout: 5 }),

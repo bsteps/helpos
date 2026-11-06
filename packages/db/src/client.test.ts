@@ -73,13 +73,15 @@ describe("withTenant", () => {
 
 describe("ping", () => {
   it("is true when the database is reachable", async () => {
-    expect(await db.ping()).toBe(true);
+    expect(await db.ping()).toEqual({ ok: true });
   });
 
   it("is false, without throwing, when it is not", async () => {
     const down = createDatabase("postgres://nobody:nothing@127.0.0.1:1/none");
     try {
-      expect(await down.ping()).toBe(false);
+      const result = await down.ping();
+      expect(result.ok).toBe(false);
+      expect(result.ok ? undefined : result.error).toBeInstanceOf(Error);
     } finally {
       await down.close();
     }
