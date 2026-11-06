@@ -37,8 +37,14 @@ Each item names the test that proves it. "Leak suite" means the cross-tenant sui
 
 ### 3. pg-boss's own tables
 
-- pg-boss's schema (`pgboss`) is owned by the pg-boss maintenance role from ADR 0003 (named `jobs`). The app role and the `auth` role have **no privileges** on it. The one exception is enqueueing. The app role gets `INSERT` (and nothing else) on the pg-boss job table, so `enqueue()` can add the job inside the same `withTenant()` transaction as the action and its audit event (the atomic approve-and-send in the architecture overview). Only the `jobs` role can read, update or delete jobs.
-- Test: `leak: app role cannot select, update or delete pgboss jobs` and `enqueue commits atomically with the action` (#44).
+- pg-boss's schema (`pgboss`) is owned by the pg-boss maintenance role from ADR 0003 (named `jobs`). The app role and the `auth` role have **no privileges** on it. The one exception is enqueueing, through a single function, `app_enqueue(queue, payload, options)`:
+  - It's `SECURITY DEFINER`, owned by the `jobs` role, with `search_path` pinned. It's the first entry in the section 6 allowlist.
+  - The app role gets `EXECUTE` on it, and nothing on the pg-boss tables. A plain `INSERT` grant isn't enough: pg-boss enqueues with `INSERT … ON CONFLICT … RETURNING id` for singleton and dedupe keys, and those clauses need `SELECT`, which would let the app read every tenant's jobs.
+  - It accepts only the options `enqueue()` uses (singleton key, start time, retries) and returns the job ID. It never returns other rows.
+  - Because it runs in the caller's transaction, `enqueue()` still adds the job inside the same `withTenant()` transaction as the action and its audit event (the atomic approve-and-send in the architecture overview).
+  - Its SQL is checked against the pinned pg-boss version, and a pg-boss upgrade must re-run its tests.
+- Only the `jobs` role can read, update or delete jobs.
+- Test: `leak: app role cannot select, update or delete pgboss jobs` and `enqueue commits atomically with the action`, `app_enqueue returns the existing job ID for a duplicate singleton key` (#44).
 
 ### 4. pgvector under RLS
 
