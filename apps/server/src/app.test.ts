@@ -67,4 +67,8 @@ describe("errorSummary", () => {
     expect(JSON.stringify(summary)).not.toContain("secret@customer.test");
     expect(summary.stack).toMatch(/app\.test\.ts/);
   });
+
+  it.each([null, undefined, "text"])("handles a thrown %j without crashing", (thrown) => {
+    expect(errorSummary(thrown)).toMatchObject({ name: typeof thrown });
+  });
 });

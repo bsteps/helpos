@@ -61,7 +61,10 @@ function stackFrames(err: Error): string | undefined {
  */
 export function errorSummary(err: unknown): Record<string, unknown> {
   const cause = err instanceof Error ? err.cause : undefined;
-  const pg = (typeof cause === "object" && cause !== null ? cause : err) as Record<string, unknown>;
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null;
+  // `throw null` is legal JS: the error handler must never crash on it.
+  const pg = isObject(cause) ? cause : isObject(err) ? err : {};
   return {
     name: err instanceof Error ? err.name : typeof err,
     code: typeof pg.code === "string" ? pg.code : undefined,
