@@ -4,17 +4,14 @@ name: AI review
 # The reviewer is Claude on a different model from the one that writes our code (Opus).
 # High or critical findings fail the `AI review result` check. Make that check required.
 #
-# Security model (pull_request_target runs with secrets, so this matters):
-# - The workflow file, prompt, schema and scripts always come from the base branch. The PR's
-#   files never touch disk: Claude reads them as git objects with read-only tools. PR code is
-#   never installed, built or run, and can't supply agent config (CLAUDE.md, hooks, MCP).
-# - Only people with triage rights can add labels, so the label is the maintainer's approval.
-# - Fork PRs: the review runs only on the `labeled` event. A new push to a fork PR fails the
-#   check until a maintainer re-adds the label after looking at the new commits.
-# - Jobs are split so no job holds both the Claude credential and a write token.
+# Deliberately simple: plain `pull_request`, so GitHub never gives secrets to fork PRs.
+# Only same-repo branches (pushed by maintainers) are reviewed here. Fork and Dependabot PRs
+# skip with a notice, and the maintainer runs `/security-review` locally before merging.
+# When outside contributors arrive, see PR #58's history for a fork-safe pull_request_target
+# version.
 
 on:
-  pull_request_target:
+  pull_request:
     # unlabeled: removing the label clears the required check instead of leaving it red.
     types: [opened, reopened, synchronize, labeled, unlabeled]
 
@@ -25,142 +22,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gate:
-    name: Decide whether to review
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    permissions:
-      pull-requests: read
-    outputs:
-      state: ${{ steps.decide.outputs.state }}
-    steps:
-      - id: decide
-        shell: bash
-        env:
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          ACTION: ${{ github.event.action }}
-          ADDED_LABEL: ${{ github.event.label.name }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          is_fork=false; [ "$HEAD_REPO" != "$BASE_REPO" ] && is_fork=true
-          # Fork approval = a maintainer adds OUR label now, or this exact commit was already
-          # approved (the bot posted a review pinned to it). Fork authors can't post as the bot.
-          approved=false
-          if [ "$ACTION" = "labeled" ] && { [ "$ADDED_LABEL" = "security" ] || [ "$ADDED_LABEL" = "area:db" ]; }; then
-            approved=true
-          elif [ "$is_fork" = true ] && gh api "repos/$BASE_REPO/pulls/$PR/reviews" --paginate \
-              --jq '.[] | select(.user.login == "github-actions[bot]") | .commit_id' | grep -qxF "$HEAD_SHA"; then
-            approved=true
-          fi
-          if ! jq -e 'index("security") or index("area:db")' <<<"$LABELS" >/dev/null; then
-            echo "Not labelled security or area:db. No review needed."
-            echo "state=skip" >> "$GITHUB_OUTPUT"
-          elif [ "$is_fork" = true ] && [ "$approved" = false ]; then
-            echo "state=stale" >> "$GITHUB_OUTPUT"
-          else
-            echo "state=review" >> "$GITHUB_OUTPUT"
-          fi
-
-  export:
-    # Unprivileged: no secrets and a read-only token. This is the ONLY job that touches PR
-    # commits, and it never runs them. It only reads git objects and writes plain files.
-    name: Export PR content
-    needs: gate
-    if: needs.gate.outputs.state == 'review'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      PR: ${{ github.event.pull_request.number }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Fetch PR commits as objects only
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" \
-            fetch --no-tags origin "+refs/pull/$PR/head:refs/remotes/pr/head"
-          [ "$(git rev-parse refs/remotes/pr/head)" = "$HEAD_SHA" ] || { echo "::error::PR head moved, re-run"; exit 1; }
-          git cat-file -e "$BASE_SHA"
-      # Claude gets no shell (even `git show --output=` can write files). Instead, write the diff
-      # and the PR's version of each changed file OUTSIDE the checkout. Blobs only, so symlinks
-      # become plain text, and Claude Code never loads config from there (not its cwd).
-      - name: Export PR diff and changed files
-        shell: bash
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/pr"
-          mkdir -p "$out/files"
-          git -c core.fsmonitor=false diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > "$out/pr.diff"
-          # Neutral names (files/<n>.txt), never the PR's paths: a PR-named .claude/skills/...,
-          # CLAUDE.md or .mcp.json must not look like agent config anywhere. index.tsv maps n → path.
-          n=0
-          git diff --name-only -z --diff-filter=d "$BASE_SHA...$HEAD_SHA" | while IFS= read -r -d '' f; do
-            [ "$(git cat-file -t "$HEAD_SHA:$f")" = blob ] || continue # skip submodules
-            n=$((n + 1))
-            git cat-file blob "$HEAD_SHA:$f" > "$out/files/$n.txt"
-            printf '%s\t%s\n' "$n" "$f" >> "$out/index.tsv"
-          done
-          touch "$out/index.tsv"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ai-review-pr-content
-          path: ${{ runner.temp }}/pr
-          retention-days: 1
-
   review:
-    name: Claude review
-    needs: [gate, export]
-    if: needs.gate.outputs.state == 'review'
+    name: AI review result
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+      pull-requests: write
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      # Privileged job (holds the Claude credential). It never fetches or checks out PR commits.
-      # Claude runs in the TRUSTED base checkout, and the PR's content arrives only as plain
-      # files outside it. So a PR can't plant CLAUDE.md, .claude/settings.json hooks, .mcp.json
-      # or symlinks that Claude Code would load. No denylist to keep up to date.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: gate
+        shell: bash
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if ! jq -e 'index("security") or index("area:db")' <<<"$LABELS" >/dev/null; then
+            echo "Not labelled security or area:db. No review needed."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [ "$HEAD_REPO" != "$BASE_REPO" ] || [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "::notice::Fork or Dependabot PR: no secrets here. Maintainer, run /security-review locally before merging."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      # PR content comes from the unprivileged export job, as plain files outside the checkout.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ai-review-pr-content
-          path: ${{ runner.temp }}/pr
-      - name: Build prompt and schema
+      - name: Prepare diff and prompt
+        if: steps.gate.outputs.run == 'true'
         id: prep
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr"
+          git diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/pr/pr.diff"
           {
+            echo 'prompt<<PROMPT_EOF'
             cat .github/ai-review/prompt.md
-            printf '\nThe PR range is %s...%s.\n' "$BASE_SHA" "$HEAD_SHA"
-            printf 'The full diff is %s/pr/pr.diff. The PR version of each changed file is %s/pr/files/<n>.txt;\n' "$RUNNER_TEMP" "$RUNNER_TEMP"
-            printf '%s/pr/index.tsv maps each <n> to its repository path. Report findings with the repository path.\n' "$RUNNER_TEMP"
-          } > "$RUNNER_TEMP/prompt.md"
-          {
-            echo 'prompt<<PROMPT_EOF'; cat "$RUNNER_TEMP/prompt.md"; echo 'PROMPT_EOF'
+            printf '\nThe PR range is %s...%s. The full diff is %s/pr/pr.diff.\n' "$BASE_SHA" "$HEAD_SHA" "$RUNNER_TEMP"
+            echo 'PROMPT_EOF'
             echo "schema=$(jq -c . .github/ai-review/findings.schema.json)"
           } >> "$GITHUB_OUTPUT"
       - id: claude
+        if: steps.gate.outputs.run == 'true'
         uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1
         with:
           # Set ONE of these secrets. A Claude Pro/Max subscription works: run `claude setup-token`.
@@ -168,81 +80,27 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
-          # A different model from the code author (Opus). Override with the repo variable.
-          # Read only, path-scoped to the checkout and the PR folder. No Grep/Glob (their path
-          # scoping is best-effort), no shell, no edits, no
-          # network. Reads are denied where secrets live (/proc/*/environ, Claude's own config),
-          # so a prompt-injected reviewer can't copy the credential into the public review.
-          # (The leading "/" makes "//abs/path", Claude Code's absolute-path rule syntax.)
+          # Read-only reviewer: no shell, no edits, no network. Override the model with the repo variable.
           claude_args: >-
             --model ${{ vars.AI_REVIEW_MODEL || 'claude-sonnet-5-5' }}
             --add-dir ${{ runner.temp }}/pr
-            --allowedTools "Read(/${{ github.workspace }}/**),Read(/${{ runner.temp }}/pr/**)"
-            --disallowedTools "Bash,Grep,Glob,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(~/.claude/**),Read(//home/runner/.claude/**)"
+            --allowedTools "Read,Grep,Glob"
+            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
             --json-schema '${{ steps.prep.outputs.schema }}'
-      - name: Save findings
+      - name: Post review and apply the severity gate
+        if: steps.gate.outputs.run == 'true'
         shell: bash
         env:
           FINDINGS: ${{ steps.claude.outputs.structured_output }}
-        run: printf '%s' "$FINDINGS" > "$RUNNER_TEMP/findings.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ai-review-findings
-          path: ${{ runner.temp }}/findings.json
-          retention-days: 7
-
-  report:
-    # Make THIS check required in the ruleset. It always runs, so it never stays pending.
-    name: AI review result
-    needs: [gate, export, review]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
-    env:
-      STATE: ${{ needs.gate.outputs.state }}
-      REVIEW_RESULT: ${{ needs.review.result }}
-    steps:
-      - name: Skipped or stale
-        if: needs.gate.outputs.state != 'review'
-        shell: bash
-        run: |
-          if [ "$STATE" = "skip" ]; then echo "No review needed."; exit 0; fi
-          echo "::error::New commits on a fork PR. A maintainer must check them and re-add the label to run the review."
-          exit 1
-      - name: Review job must have succeeded
-        if: needs.gate.outputs.state == 'review' && needs.review.result != 'success'
-        shell: bash
-        run: |
-          echo "::error::The review job ended with '$REVIEW_RESULT', so there are no findings to check."
-          exit 1
-      # Base branch only (the default for pull_request_target): the script below must be trusted.
-      - if: needs.gate.outputs.state == 'review'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - if: needs.gate.outputs.state == 'review'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ai-review-findings
-          path: ${{ runner.temp }}
-      - name: Post review and apply the severity gate
-        if: needs.gate.outputs.state == 'review'
-        shell: bash
-        env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -uo pipefail
+          printf '%s' "$FINDINGS" > "$RUNNER_TEMP/findings.json"
           node scripts/ai-review.mjs "$RUNNER_TEMP/findings.json" "$RUNNER_TEMP/review.json"
           gate=$?
           if [ -f "$RUNNER_TEMP/review.json" ]; then
-            # Pin the review to the reviewed commit: the gate treats it as the fork approval record.
-            jq --arg c "$HEAD_SHA" '. + {commit_id: $c}' "$RUNNER_TEMP/review.json" > "$RUNNER_TEMP/review-pinned.json" || exit 1
-            gh api "repos/$REPO/pulls/$PR/reviews" --method POST --input "$RUNNER_TEMP/review-pinned.json" >/dev/null || exit 1
+            gh api "repos/$REPO/pulls/$PR/reviews" --method POST --input "$RUNNER_TEMP/review.json" >/dev/null || exit 1
           fi
           exit $gate
