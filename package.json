@@ -14,7 +14,8 @@
     "test": "turbo run test",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "verify": "biome ci . && turbo run typecheck test build",
+    "verify": "biome ci . && turbo run typecheck test build && pnpm eval",
+    "eval": "pnpm --filter @helpos/ai eval",
     "rename-brand": "node scripts/rename-brand.mjs"
   },
   "devDependencies": {

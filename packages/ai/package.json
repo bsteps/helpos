@@ -1,0 +1,23 @@
+{
+  "name": "@helpos/ai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The one place that builds the AI model (Vercel AI SDK), plus the mock model and eval runner.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "eval": "node --env-file-if-exists=../../.env src/eval-cli.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.96",
+    "@ai-sdk/openai": "4.0.108",
+    "ai": "7.0.162",
+    "zod": "4.6.7"
+  }
+}
