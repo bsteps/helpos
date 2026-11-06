@@ -8,7 +8,7 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 
 ## Before you change anything
 
-1. Read the ADRs that touch your area: `docs/adr/`. **Never contradict an accepted ADR.** If you think one is wrong, stop and say so, or propose a new ADR.
+1. Read [docs/architecture/overview.md](docs/architecture/overview.md), then the ADRs that touch your area: `docs/adr/`. **Never contradict an accepted ADR.** If you think one is wrong, stop and say so, or propose a new ADR.
 2. Work on a branch named after the GitHub issue: `<issue-number>-<short-slug>` (e.g. `7-tenant-wrapper`). Never commit to `main`.
 3. Keep the PR to one issue and one idea.
 
@@ -56,6 +56,7 @@ pnpm verify            # everything CI runs. Must pass before you open a PR
 apps/          deployable apps (server, web dashboard, widget), added in Phase 0/1
 packages/      shared libraries (brand, db, sdk, …)
 docs/adr/      architecture decisions (read these)
+docs/architecture/overview.md   how the pieces fit together (read first)
 docs/          guides, including OPEN_SOURCE_101.md
 scripts/       repo tooling (e.g. rename-brand)
 ```

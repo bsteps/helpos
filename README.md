@@ -30,7 +30,7 @@ It's open source (AGPL-3.0) and self-hostable, so you own your data and your sup
 
 ## Contributing
 
-We'd love your help. Start with [CONTRIBUTING.md](CONTRIBUTING.md). New to open source? Read [docs/OPEN_SOURCE_101.md](docs/OPEN_SOURCE_101.md).
+We'd love your help. Start with [CONTRIBUTING.md](CONTRIBUTING.md). New to open source? Read [docs/OPEN_SOURCE_101.md](docs/OPEN_SOURCE_101.md). To see how the system fits together, read [docs/architecture/overview.md](docs/architecture/overview.md).
 
 Using an AI coding agent? It should read [AGENTS.md](AGENTS.md) first.
 
