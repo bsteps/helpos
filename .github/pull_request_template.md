@@ -17,4 +17,5 @@
 - [ ] No secrets, personal data or customer data in code, tests or logs
 - [ ] Touches tenant data? It goes through `withTenant()`, and a cross-tenant test covers it
 - [ ] New agent or API action? It's scoped by token permissions, checked by the policy layer, and written to the audit log
+- [ ] Labelled `security` or `area:db`? I ran `/security-review` locally and fixed or answered every finding
 - [ ] Docs updated if behaviour changed
