@@ -81,11 +81,14 @@ jobs:
           github_token: ${{ github.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           # Read-only reviewer: no shell, no edits, no network. Override the model with the repo variable.
+          # Reads are path-scoped and denied where secrets live (/proc/*/environ, Claude's config),
+          # so injected text in a PR (e.g. a pasted email fixture) can't leak the credential.
+          # No Grep/Glob: their path scoping is best-effort. "//abs/path" is the absolute-path syntax.
           claude_args: >-
             --model ${{ vars.AI_REVIEW_MODEL || 'claude-sonnet-5-5' }}
             --add-dir ${{ runner.temp }}/pr
-            --allowedTools "Read,Grep,Glob"
-            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
+            --allowedTools "Read(/${{ github.workspace }}/**),Read(/${{ runner.temp }}/pr/**)"
+            --disallowedTools "Bash,Grep,Glob,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(~/.claude/**),Read(//home/runner/.claude/**)"
             --json-schema '${{ steps.prep.outputs.schema }}'
       - name: Post review and apply the severity gate
         if: steps.gate.outputs.run == 'true'
