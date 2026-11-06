@@ -105,14 +105,14 @@ Every row below except `tenants` has `tenant_id` with RLS enabled and forced (AD
 
 The MVP (milestone **MVP**) is a demo to learn from, **not a release**. To stay small, it takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before any public release or hosted signup:
 
-| MVP shortcut                               | Required before release                        |
-| ------------------------------------------ | ---------------------------------------------- |
-| Sender identity is just the `From` address | SPF/DKIM/DMARC checks (#31)                    |
-| Approve endpoint + scopes only             | Policy layer, caps, kill switch (#13)          |
-| One env key encrypts the GitHub token      | Envelope encryption (#15)                      |
-| No rate limits                             | Rate limiting (#29)                            |
-| Basic per-table leak tests                 | Full leak harness (#8)                         |
-| Plain-text AI drafts                       | Output sanitisation and PII masking (ADR 0004) |
+| MVP shortcut                               | Required before release                   |
+| ------------------------------------------ | ----------------------------------------- |
+| Sender identity is just the `From` address | SPF/DKIM/DMARC checks (#31)               |
+| Approve endpoint + scopes only             | Policy layer, caps, kill switch (#13)     |
+| One env key encrypts the GitHub token      | Envelope encryption (#15)                 |
+| No rate limits                             | Rate limiting (#29)                       |
+| Basic per-table leak tests                 | Full leak harness (#8)                    |
+| Plain-text AI drafts                       | Output sanitisation and PII masking (#52) |
 
 ## Where to read more
 
