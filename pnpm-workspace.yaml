@@ -16,3 +16,5 @@ allowBuilds:
 overrides:
   # drizzle-kit's legacy loader pins esbuild 0.18 (GHSA-67mh-4wv8-2f99). Use the patched line.
   "@esbuild-kit/core-utils>esbuild": 0.25.12
+  # testcontainers -> archiver pins glob 10 (GHSA-3g3m-2fjr-6pw4). Same named-export API.
+  "archiver-utils>glob": 14.0.2
