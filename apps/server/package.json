@@ -8,15 +8,20 @@
   "scripts": {
     "dev": "node --watch --env-file-if-exists=../../.env src/main.ts",
     "start": "node --env-file-if-exists=../../.env src/main.ts",
+    "init": "node --env-file-if-exists=../../.env src/cli/init.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@helpos/brand": "workspace:*",
     "@helpos/db": "workspace:*",
+    "@helpos/files": "workspace:*",
     "@hono/node-server": "2.1.6",
+    "@hono/zod-openapi": "1.6.3",
+    "drizzle-orm": "0.45.4",
     "hono": "4.13.16",
     "pino": "10.4.0",
+    "postal-mime": "4.2.0",
     "zod": "4.6.7"
   },
   "devDependencies": {

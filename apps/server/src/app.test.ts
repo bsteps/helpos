@@ -1,7 +1,11 @@
 import { createDatabase, type Database } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createApp } from "./app.ts";
+import { createApp, errorSummary } from "./app.ts";
+
+const files = createMemoryFileStore();
+const logger = () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() });
 
 describe("GET /health", () => {
   let testDb: TestDatabase;
@@ -18,7 +22,9 @@ describe("GET /health", () => {
   });
 
   it("returns 200 OK when the database is reachable", async () => {
-    const res = await createApp({ db, logger: { error: vi.fn() } }).request("/health");
+    const res = await createApp({ db, files, logger: logger(), inboundSecret: undefined }).request(
+      "/health",
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "ok", database: "ok" });
   });
@@ -26,14 +32,43 @@ describe("GET /health", () => {
   it("returns 503 when the database is unreachable", async () => {
     const down = createDatabase("postgres://nobody:nothing@127.0.0.1:1/none");
     try {
-      const logger = { error: vi.fn() };
-      const res = await createApp({ db: down, logger }).request("/health");
+      const log = logger();
+      const res = await createApp({
+        db: down,
+        files,
+        logger: log,
+        inboundSecret: undefined,
+      }).request("/health");
       expect(res.status).toBe(503);
       // No error details leak into the response, but they are logged.
       expect(await res.json()).toEqual({ status: "error", database: "unreachable" });
-      expect(logger.error).toHaveBeenCalledOnce();
+      expect(log.error).toHaveBeenCalledOnce();
     } finally {
       await down.close();
     }
+  });
+});
+
+describe("errorSummary", () => {
+  it("never includes the message, where Drizzle puts query parameters", () => {
+    const pgError = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+      constraint_name: "messages_tenant_message_id",
+    });
+    const err = new Error("Failed query: insert ...\n    at secret@customer.test,private body", {
+      cause: pgError,
+    });
+    const summary = errorSummary(err);
+    expect(summary).toMatchObject({
+      name: "Error",
+      code: "23505",
+      constraint: "messages_tenant_message_id",
+    });
+    expect(JSON.stringify(summary)).not.toContain("secret@customer.test");
+    expect(summary.stack).toMatch(/app\.test\.ts/);
+  });
+
+  it.each([null, undefined, "text"])("handles a thrown %j without crashing", (thrown) => {
+    expect(errorSummary(thrown)).toMatchObject({ name: typeof thrown });
   });
 });

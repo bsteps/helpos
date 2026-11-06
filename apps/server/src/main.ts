@@ -1,5 +1,6 @@
 import { brand } from "@helpos/brand";
 import { createDatabase } from "@helpos/db";
+import { createLocalFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
 import pino from "pino";
 import { createApp } from "./app.ts";
@@ -9,7 +10,12 @@ const env = envSchema.parse(process.env);
 const logger = pino({ level: env.HELPOS_LOG_LEVEL, base: { app: brand.slug } });
 
 const db = createDatabase(env.HELPOS_DATABASE_URL);
-const server = serve({ fetch: createApp({ db, logger }).fetch, port: env.HELPOS_PORT }, (info) => {
+const files = createLocalFileStore(env.HELPOS_FILES_DIR);
+const inboundSecret = env.HELPOS_INBOUND_SECRET;
+if (!inboundSecret) logger.warn("HELPOS_INBOUND_SECRET is not set: inbound email is disabled");
+
+const app = createApp({ db, files, logger, inboundSecret });
+const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(
     { port: info.port },
     `${brand.name} server listening on http://localhost:${info.port}`,

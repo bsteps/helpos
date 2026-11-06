@@ -1,0 +1,44 @@
+// `pnpm helpos:init --workspace "Acme" --mailbox support@acme.test --owner you@acme.test`
+// Creates a workspace with its support mailbox and owner. Safe to run again.
+import { parseArgs } from "node:util";
+import { createAuthStore, createDatabase } from "@helpos/db";
+import { z } from "zod";
+import { initWorkspace } from "../workspaces/init-workspace.ts";
+
+const env = z
+  .object({ HELPOS_DATABASE_URL: z.url(), HELPOS_DATABASE_AUTH_URL: z.url() })
+  .parse(process.env);
+
+const { values } = parseArgs({
+  options: {
+    workspace: { type: "string" },
+    mailbox: { type: "string" },
+    owner: { type: "string" },
+  },
+});
+
+const input = z
+  .object({ workspace: z.string(), mailbox: z.string(), owner: z.string() })
+  .safeParse(values);
+if (!input.success) {
+  process.stderr.write(
+    "Usage: pnpm helpos:init --workspace <name> --mailbox <address> --owner <email>\n",
+  );
+  process.exit(2);
+}
+
+const db = createDatabase(env.HELPOS_DATABASE_URL);
+const auth = createAuthStore(env.HELPOS_DATABASE_AUTH_URL);
+try {
+  const result = await initWorkspace({ db, auth }, input.data);
+  if (!result.ok) {
+    process.stderr.write(`The mailbox ${input.data.mailbox} is not available.\n`);
+    process.exitCode = 1;
+  } else {
+    const verb = result.created ? "Created" : "Already set up:";
+    process.stdout.write(`${verb} workspace ${result.tenantId} (${input.data.mailbox}).\n`);
+  }
+} finally {
+  await db.close();
+  await auth.close();
+}

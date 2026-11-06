@@ -194,15 +194,27 @@ importers:
       '@helpos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@helpos/files':
+        specifier: workspace:*
+        version: link:../../packages/files
       '@hono/node-server':
         specifier: 2.1.6
         version: 2.1.6(hono@4.13.16)
+      '@hono/zod-openapi':
+        specifier: 1.6.3
+        version: 1.6.3(hono@4.13.16)(zod@4.6.7)
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(postgres@4.0.0)
       hono:
         specifier: 4.13.16
         version: 4.13.16
       pino:
         specifier: 10.4.0
         version: 10.4.0
+      postal-mime:
+        specifier: 4.2.0
+        version: 4.2.0
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -247,6 +259,8 @@ importers:
         specifier: 0.31.11
         version: 0.31.11
 
+  packages/files: {}
+
 packages:
 
   '@ai-sdk/anthropic@4.0.96':
@@ -276,6 +290,11 @@ packages:
   '@ai-sdk/provider@4.0.35':
     resolution: {integrity: sha512-yBz6fmLS8MSCIzy7NiHEUAq56ZLD4ZA1GR6bpXBxgbwUacP1La7LuwAr/xy9jSzthem4F8Xu2OrhvU/JrE9fYA==}
     engines: {node: '>=22'}
+
+  '@asteasolutions/zod-to-openapi@9.1.0':
+    resolution: {integrity: sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw==}
+    peerDependencies:
+      zod: ^4.0.0
 
   '@balena/dockerignore@1.0.2':
     resolution: {integrity: sha512-wMue2Sy4GAVTk6Ic4tJVcnfdau+gx2EnG7S+uAEe+TWJFqE4YoWN4/H8MSLj4eYJKxGg26lZwboEniNiNwZQ6Q==}
@@ -691,6 +710,19 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4 || ^5.0.0-0
+
+  '@hono/zod-openapi@1.6.3':
+    resolution: {integrity: sha512-VYR82Y60plu8g3pN60OUXMVKpmxh3R04Qs++3DY9vtwZ9/sA/BRY0PcRIR+Z37/3itWtM7pYwT9bKiH9JhqV6Q==}
+    engines: {node: '>=16.0.0'}
+    peerDependencies:
+      hono: '>=4.10.0'
+      zod: ^4.0.0
+
+  '@hono/zod-validator@0.9.1':
+    resolution: {integrity: sha512-iiv6w0qrIc0arfvCtUqBWsvl4fXjzaTcQcCJTTtCnkawF9HHGE+KjEl0ox3gQJ6rKZEgE3mLExlQCF72M+mNuw==}
+    peerDependencies:
+      hono: '>=4.11.2'
+      zod: ^3.25.0 || ^4.0.0
 
   '@isaacs/nonrecursive-glob-match@1.0.3':
     resolution: {integrity: sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA==}
@@ -1471,6 +1503,9 @@ packages:
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
 
+  openapi3-ts@4.6.2:
+    resolution: {integrity: sha512-gyyil3DweqhXiEhTqtAs9wwRLfWHmetwhI4kmM5Rn0d6gtmK863Ki7qqbQnp9+Wwlqoe3B1LFWj7kMp5ctE4rQ==}
+
   path-scurry@3.0.0:
     resolution: {integrity: sha512-1pTbQqH1wIwMi/eleQ5leFTTCkzFsPcgXNjwOA8YGGW/W4/kHT3dssE7Z6NH+zuqNLOzOB0uaD61yl7cAcVhgg==}
     engines: {node: 18 || 20 || >=22}
@@ -1491,6 +1526,10 @@ packages:
   pino@10.4.0:
     resolution: {integrity: sha512-bk1ZMTwG/Vymx+zPoa28MhNzucFvXJWp3csrSuxuHPSMeUettaCoQ5Jvg07mtC4JGNpcfTwz41oVCnNgBK9+vA==}
     hasBin: true
+
+  postal-mime@4.2.0:
+    resolution: {integrity: sha512-QG5Rh8wY/zjwFF1lKWcBbwWcAWR5jWodmMPL4gMik43XDLebtWoAAPyG0lrE2kYYZ5IHTASrepGuGO0YIwNKAg==}
+    engines: {node: '>=20'}
 
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
@@ -1855,6 +1894,11 @@ snapshots:
     dependencies:
       json-schema: 0.4.0
 
+  '@asteasolutions/zod-to-openapi@9.1.0(zod@4.6.7)':
+    dependencies:
+      openapi3-ts: 4.6.2
+      zod: 4.6.7
+
   '@balena/dockerignore@1.0.2': {}
 
   '@biomejs/biome@2.6.4':
@@ -2090,6 +2134,19 @@ snapshots:
   '@hono/node-server@2.1.6(hono@4.13.16)':
     dependencies:
       hono: 4.13.16
+
+  '@hono/zod-openapi@1.6.3(hono@4.13.16)(zod@4.6.7)':
+    dependencies:
+      '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.6.7)
+      '@hono/zod-validator': 0.9.1(hono@4.13.16)(zod@4.6.7)
+      hono: 4.13.16
+      openapi3-ts: 4.6.2
+      zod: 4.6.7
+
+  '@hono/zod-validator@0.9.1(hono@4.13.16)(zod@4.6.7)':
+    dependencies:
+      hono: 4.13.16
+      zod: 4.6.7
 
   '@isaacs/nonrecursive-glob-match@1.0.3': {}
 
@@ -2697,6 +2754,10 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
+  openapi3-ts@4.6.2:
+    dependencies:
+      yaml: 2.9.1
+
   path-scurry@3.0.0:
     dependencies:
       lru-cache: 11.5.3
@@ -2725,6 +2786,8 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.1
+
+  postal-mime@4.2.0: {}
 
   postcss@8.5.32:
     dependencies:
