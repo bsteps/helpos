@@ -55,7 +55,7 @@ describe("errorSummary", () => {
       code: "23505",
       constraint_name: "messages_tenant_message_id",
     });
-    const err = new Error("Failed query: insert ...\nparams: secret@customer.test,private body", {
+    const err = new Error("Failed query: insert ...\n    at secret@customer.test,private body", {
       cause: pgError,
     });
     const summary = errorSummary(err);
@@ -65,5 +65,6 @@ describe("errorSummary", () => {
       constraint: "messages_tenant_message_id",
     });
     expect(JSON.stringify(summary)).not.toContain("secret@customer.test");
+    expect(summary.stack).toMatch(/app\.test\.ts/);
   });
 });

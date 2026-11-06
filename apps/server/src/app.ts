@@ -43,13 +43,15 @@ export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAP
   return app;
 }
 
-/** Only "at ..." frames: a multi-line message also appears in the stack text, above them. */
-function stackFrames(stack: string | undefined): string | undefined {
-  return stack
-    ?.split("\n")
-    .filter((line) => /^\s+at /.test(line))
-    .slice(0, 5)
-    .join("\n");
+/**
+ * The frames after the message. The message (which may span lines and contain anything) is
+ * cut off by position, not recognised by content. If the stack doesn't start with it, as
+ * V8 normally does, nothing is returned rather than risk logging it.
+ */
+function stackFrames(err: Error): string | undefined {
+  const header = `${err.name}: ${err.message}\n`;
+  if (!err.stack?.startsWith(header)) return undefined;
+  return err.stack.slice(header.length).split("\n").slice(0, 5).join("\n");
 }
 
 /**
@@ -64,6 +66,6 @@ export function errorSummary(err: unknown): Record<string, unknown> {
     name: err instanceof Error ? err.name : typeof err,
     code: typeof pg.code === "string" ? pg.code : undefined,
     constraint: typeof pg.constraint_name === "string" ? pg.constraint_name : undefined,
-    stack: err instanceof Error ? stackFrames(err.stack) : undefined,
+    stack: err instanceof Error ? stackFrames(err) : undefined,
   };
 }
