@@ -30,7 +30,7 @@ export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAP
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.
   app.onError((err, c) => {
-    logger.error({ err, path: c.req.path }, "unhandled error");
+    logger.error({ err: errorSummary(err), path: c.req.path }, "unhandled error");
     return c.json({ error: "internal_error" }, 500);
   });
 
@@ -41,4 +41,20 @@ export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAP
   });
 
   return app;
+}
+
+/**
+ * What is safe to log about an unexpected error. Drizzle query errors carry the SQL
+ * parameters (email bodies, addresses) in their message, so those are never logged; only the
+ * error type, the Postgres SQLSTATE and constraint name, and the stack frames.
+ */
+export function errorSummary(err: unknown): Record<string, unknown> {
+  const cause = err instanceof Error ? err.cause : undefined;
+  const pg = (typeof cause === "object" && cause !== null ? cause : err) as Record<string, unknown>;
+  return {
+    name: err instanceof Error ? err.name : typeof err,
+    code: typeof pg.code === "string" ? pg.code : undefined,
+    constraint: typeof pg.constraint_name === "string" ? pg.constraint_name : undefined,
+    stack: err instanceof Error ? err.stack?.split("\n").slice(1, 6).join("\n") : undefined,
+  };
 }

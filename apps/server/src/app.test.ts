@@ -2,7 +2,7 @@ import { createDatabase, type Database } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createApp } from "./app.ts";
+import { createApp, errorSummary } from "./app.ts";
 
 const files = createMemoryFileStore();
 const logger = () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() });
@@ -46,5 +46,24 @@ describe("GET /health", () => {
     } finally {
       await down.close();
     }
+  });
+});
+
+describe("errorSummary", () => {
+  it("never includes the message, where Drizzle puts query parameters", () => {
+    const pgError = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+      constraint_name: "messages_tenant_message_id",
+    });
+    const err = new Error("Failed query: insert ... params: secret@customer.test,private body", {
+      cause: pgError,
+    });
+    const summary = errorSummary(err);
+    expect(summary).toMatchObject({
+      name: "Error",
+      code: "23505",
+      constraint: "messages_tenant_message_id",
+    });
+    expect(JSON.stringify(summary)).not.toContain("secret@customer.test");
   });
 });
