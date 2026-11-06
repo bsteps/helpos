@@ -12,3 +12,7 @@ allowBuilds:
   cpu-features: false # optional ssh2 speedup (via testcontainers), not needed
   ssh2: false # optional native crypto, falls back to JS
   protobufjs: false # postinstall only prints a version notice
+
+overrides:
+  # drizzle-kit's legacy loader pins esbuild 0.18 (GHSA-67mh-4wv8-2f99). Use the patched line.
+  "@esbuild-kit/core-utils>esbuild": 0.25.12

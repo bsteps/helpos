@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type Database } from "./client.ts";
+import { tenants } from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 
 let testDb: TestDatabase;
@@ -82,5 +83,22 @@ describe("ping", () => {
     } finally {
       await down.close();
     }
+  });
+});
+
+describe("tenants table RLS (ADR 0003)", () => {
+  const tenantB = "00000000-0000-4000-8000-00000000000b";
+
+  it("lets a tenant create and read only its own row", async () => {
+    await db.withTenant(tenantA, (tx) => tx.insert(tenants).values({ id: tenantA, name: "A" }));
+
+    // Acting as A, writing B's row is refused by the database itself.
+    await expect(
+      db.withTenant(tenantA, (tx) => tx.insert(tenants).values({ id: tenantB, name: "B" })),
+    ).rejects.toThrow();
+
+    await db.withTenant(tenantB, (tx) => tx.insert(tenants).values({ id: tenantB, name: "B" }));
+    const seenByA = await db.withTenant(tenantA, (tx) => tx.select().from(tenants));
+    expect(seenByA.map((t) => t.id)).toEqual([tenantA]);
   });
 });
