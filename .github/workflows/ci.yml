@@ -32,3 +32,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
       - run: pnpm exec turbo run typecheck test build
+      # Proves the one-command local setup works from a fresh clone (issue #5).
+      # Tests above already use real Postgres via Testcontainers (ADR 0005).
+      - name: Smoke test `pnpm dev`
+        run: |
+          pnpm dev > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/health; then exit 0; fi
+            sleep 2
+          done
+          cat dev.log
+          exit 1

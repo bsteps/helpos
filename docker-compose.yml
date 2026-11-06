@@ -1,0 +1,35 @@
+# Local development services. Start with `pnpm dev` (or `docker compose up -d --wait`).
+name: helpos
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_PASSWORD: postgres # dev only
+    ports:
+      - "127.0.0.1:5432:5432" # loopback only: never expose dev DB to the network
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # -h forces TCP: during first-run init, Postgres answers only on its unix socket,
+      # so without it "healthy" could be reported before init.sql has finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d helpos"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Catches every email the app sends. Web UI: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres-data:

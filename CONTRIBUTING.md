@@ -6,20 +6,23 @@ New to open source? Read [docs/OPEN_SOURCE_101.md](docs/OPEN_SOURCE_101.md) firs
 
 ## 1. Set up (about 5 minutes)
 
-You need **Node.js 24+**, **Git**, and **Docker** (for the database, once Phase 0 adds it).
+You need **Node.js 24+**, **Git**, and **Docker** (it runs Postgres and Mailpit locally).
 
 ```bash
 git clone https://github.com/bsteps/helpos.git
 cd helpos
 corepack enable        # uses the pnpm version pinned in package.json
 pnpm install
-pnpm verify             # runs every check, which should pass on a fresh clone
+pnpm verify             # runs every check, which should pass on a fresh clone (Docker must be running)
+pnpm dev                # starts Postgres + Mailpit, applies migrations, runs the server
 ```
+
+Then open <http://localhost:3000/health> (should say `ok`) and <http://localhost:8025> (Mailpit, catches every email the app sends). Settings live in `.env`, created from `.env.example` on first run.
 
 ## 2. Find something to work on
 
 - Issues labelled **`good first issue`** are a good start.
-- All work is tracked in **GitHub Issues**, grouped into milestones (phases) and shown on the [HelpOS Roadmap board](https://github.com/users/bsteps/projects/1). Accepted work has a "Done when" checklist.
+- All work is tracked in **GitHub Issues**, grouped into the **MVP** milestone (what we build now) and **Later**, and shown on the [HelpOS Roadmap board](https://github.com/users/bsteps/projects/1). Accepted work has a "Done when" checklist.
 - For anything bigger than a small fix, **comment on the issue first**, so nobody duplicates work.
 
 ## 3. Make your change
