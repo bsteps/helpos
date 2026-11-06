@@ -52,12 +52,14 @@ jobs:
             echo "state=review" >> "$GITHUB_OUTPUT"
           fi
 
-  review:
-    name: Claude review
+  export:
+    # Unprivileged: no secrets and a read-only token. This is the ONLY job that touches PR
+    # commits, and it never runs them. It only reads git objects and writes plain files.
+    name: Export PR content
     needs: gate
     if: needs.gate.outputs.state == 'review'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       contents: read
     env:
@@ -65,10 +67,6 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       PR: ${{ github.event.pull_request.number }}
     steps:
-      # Claude runs in the TRUSTED base checkout. The PR's files are never written to disk: they
-      # are only fetched as git objects and read with `git diff` / `git show <sha>:<path>`.
-      # So a PR can't plant CLAUDE.md, .claude/settings.json hooks, .mcp.json or symlinks
-      # that Claude Code would load. No denylist to keep up to date.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -98,6 +96,37 @@ jobs:
             mkdir -p "$out/files/$(dirname "$f")"
             git cat-file blob "$HEAD_SHA:$f" > "$out/files/$f"
           done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-review-pr-content
+          path: ${{ runner.temp }}/pr
+          include-hidden-files: true
+          retention-days: 1
+
+  review:
+    name: Claude review
+    needs: [gate, export]
+    if: needs.gate.outputs.state == 'review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      # Privileged job (holds the Claude credential). It never fetches or checks out PR commits.
+      # Claude runs in the TRUSTED base checkout, and the PR's content arrives only as plain
+      # files outside it. So a PR can't plant CLAUDE.md, .claude/settings.json hooks, .mcp.json
+      # or symlinks that Claude Code would load. No denylist to keep up to date.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # PR content comes from the unprivileged export job, as plain files outside the checkout.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-review-pr-content
+          path: ${{ runner.temp }}/pr
       - name: Build prompt and schema
         id: prep
         shell: bash
@@ -142,7 +171,7 @@ jobs:
   report:
     # Make THIS check required in the ruleset. It always runs, so it never stays pending.
     name: AI review result
-    needs: [gate, review]
+    needs: [gate, export, review]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
