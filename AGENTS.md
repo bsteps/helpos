@@ -16,6 +16,7 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 
 ```bash
 pnpm install          # install (pnpm version is pinned in package.json)
+pnpm dev              # Postgres + Mailpit (Docker), migrations, server on :3000
 pnpm check            # lint + format check (Biome)
 pnpm check:fix        # auto-fix lint + format
 pnpm typecheck        # TypeScript, all packages
@@ -53,7 +54,7 @@ pnpm verify            # everything CI runs. Must pass before you open a PR
 ## Repo map
 
 ```
-apps/          deployable apps (server, web dashboard, widget), added in Phase 0/1
+apps/          deployable apps: server (Hono API) now; dashboard and widget come with the MVP
 packages/      shared libraries (brand, db, sdk, …)
 docs/adr/      architecture decisions (read these)
 docs/architecture/overview.md   how the pieces fit together (read first)

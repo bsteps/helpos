@@ -5,3 +5,10 @@ packages:
 # Supply-chain safety: never install a package version published less than
 # 3 days ago (4320 minutes). Most malicious releases are caught by then.
 minimumReleaseAge: 4320
+
+# Packages allowed to run install scripts. Everything else is blocked (supply-chain safety).
+allowBuilds:
+  esbuild: true # drizzle-kit needs its native binary
+  cpu-features: false # optional ssh2 speedup (via testcontainers), not needed
+  ssh2: false # optional native crypto, falls back to JS
+  protobufjs: false # postinstall only prints a version notice

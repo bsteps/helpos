@@ -1,0 +1,25 @@
+{
+  "name": "@helpos/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The API server (Hono).",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "node --env-file-if-exists=../../.env src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@helpos/brand": "workspace:*",
+    "@helpos/db": "workspace:*",
+    "@hono/node-server": "2.1.6",
+    "hono": "4.13.16",
+    "pino": "10.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.1"
+  }
+}

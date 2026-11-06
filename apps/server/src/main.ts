@@ -1,0 +1,27 @@
+import { brand } from "@helpos/brand";
+import { createDatabase } from "@helpos/db";
+import { serve } from "@hono/node-server";
+import pino from "pino";
+import { createApp } from "./app.ts";
+import { envSchema } from "./env.ts";
+
+const env = envSchema.parse(process.env);
+const logger = pino({ level: env.HELPOS_LOG_LEVEL, base: { app: brand.slug } });
+
+const db = createDatabase(env.HELPOS_DATABASE_URL);
+const server = serve({ fetch: createApp({ db }).fetch, port: env.HELPOS_PORT }, (info) => {
+  logger.info(
+    { port: info.port },
+    `${brand.name} server listening on http://localhost:${info.port}`,
+  );
+});
+
+async function shutdown(signal: string): Promise<void> {
+  logger.info({ signal }, "shutting down");
+  server.close();
+  await db.close();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

@@ -45,5 +45,25 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["**", "!packages/db/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "postgres": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
+                  "drizzle-orm/postgres-js": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

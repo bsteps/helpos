@@ -1,0 +1,27 @@
+{
+  "name": "@helpos/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Database access: Drizzle schema, migrations and withTenant(). The only package allowed to touch the raw client.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "migrate": "node --env-file-if-exists=../../.env src/migrate-cli.ts",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "postgres": "4.0.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.1",
+    "drizzle-kit": "0.31.11"
+  }
+}
