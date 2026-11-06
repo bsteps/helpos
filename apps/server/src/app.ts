@@ -43,6 +43,15 @@ export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAP
   return app;
 }
 
+/** Only "at ..." frames: a multi-line message also appears in the stack text, above them. */
+function stackFrames(stack: string | undefined): string | undefined {
+  return stack
+    ?.split("\n")
+    .filter((line) => /^\s+at /.test(line))
+    .slice(0, 5)
+    .join("\n");
+}
+
 /**
  * What is safe to log about an unexpected error. Drizzle query errors carry the SQL
  * parameters (email bodies, addresses) in their message, so those are never logged; only the
@@ -55,6 +64,6 @@ export function errorSummary(err: unknown): Record<string, unknown> {
     name: err instanceof Error ? err.name : typeof err,
     code: typeof pg.code === "string" ? pg.code : undefined,
     constraint: typeof pg.constraint_name === "string" ? pg.constraint_name : undefined,
-    stack: err instanceof Error ? err.stack?.split("\n").slice(1, 6).join("\n") : undefined,
+    stack: err instanceof Error ? stackFrames(err.stack) : undefined,
   };
 }

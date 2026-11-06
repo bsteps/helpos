@@ -55,7 +55,7 @@ describe("errorSummary", () => {
       code: "23505",
       constraint_name: "messages_tenant_message_id",
     });
-    const err = new Error("Failed query: insert ... params: secret@customer.test,private body", {
+    const err = new Error("Failed query: insert ...\nparams: secret@customer.test,private body", {
       cause: pgError,
     });
     const summary = errorSummary(err);
