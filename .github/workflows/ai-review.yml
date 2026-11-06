@@ -169,15 +169,16 @@ jobs:
           github_token: ${{ github.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           # A different model from the code author (Opus). Override with the repo variable.
-          # Read-only tools, scoped to the checkout and the PR folder: no shell, no edits, no
+          # Read only, path-scoped to the checkout and the PR folder. No Grep/Glob (their path
+          # scoping is best-effort), no shell, no edits, no
           # network. Reads are denied where secrets live (/proc/*/environ, Claude's own config),
           # so a prompt-injected reviewer can't copy the credential into the public review.
           # (The leading "/" makes "//abs/path", Claude Code's absolute-path rule syntax.)
           claude_args: >-
             --model ${{ vars.AI_REVIEW_MODEL || 'claude-sonnet-5-5' }}
             --add-dir ${{ runner.temp }}/pr
-            --allowedTools "Read(/${{ github.workspace }}/**),Read(/${{ runner.temp }}/pr/**),Grep,Glob"
-            --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(~/.claude/**),Read(//home/runner/.claude/**)"
+            --allowedTools "Read(/${{ github.workspace }}/**),Read(/${{ runner.temp }}/pr/**)"
+            --disallowedTools "Bash,Grep,Glob,Edit,Write,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(~/.claude/**),Read(//home/runner/.claude/**)"
             --json-schema '${{ steps.prep.outputs.schema }}'
       - name: Save findings
         shell: bash
