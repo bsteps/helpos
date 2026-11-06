@@ -1,0 +1,16 @@
+From: "Sam Shopper" <sam@customer.test>
+To: support@acme.test
+Subject: =?utf-8?Q?Order_=E2=84=9612?=
+Message-ID: <html-1@customer.test>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+Where is my order?
+--b1
+Content-Type: text/html; charset=utf-8
+
+<p>Where is my <b>order</b>?</p><script>alert(1)</script>
+--b1--

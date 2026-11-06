@@ -5,6 +5,9 @@
 
 CREATE ROLE helpos_owner LOGIN PASSWORD 'helpos_owner' NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE helpos_app LOGIN PASSWORD 'helpos_app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+-- ADR 0009: users span tenants, so they live in the `auth` schema, which only this role can use.
+-- The app role gets no privileges there. Migrations create the schema and grant access to it.
+CREATE ROLE helpos_auth LOGIN PASSWORD 'helpos_auth' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 
 CREATE DATABASE helpos OWNER helpos_owner;
 

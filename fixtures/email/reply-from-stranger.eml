@@ -1,0 +1,10 @@
+From: Bob <bob@other.test>
+To: support@acme.test
+Subject: Re: Cannot log in
+Message-ID: <hijack-1@other.test>
+In-Reply-To: <plain-1@customer.test>
+References: <plain-1@customer.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+A stranger who knows the Message-ID must not join Jane's ticket.

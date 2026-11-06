@@ -1,0 +1,15 @@
+{
+  "name": "@helpos/files",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Files adapter (ADR 0002): where raw email and attachment bytes are stored. Local disk now, S3 later.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

@@ -9,6 +9,8 @@ export interface TestDatabase {
   /** URL for the app role (no BYPASSRLS), same as the server uses. */
   appUrl: string;
   ownerUrl: string;
+  /** URL for the auth role, the only one that can use the `auth` schema (ADR 0009). */
+  authUrl: string;
 }
 
 /**
@@ -22,5 +24,10 @@ export async function startTestDatabase(): Promise<TestDatabase> {
   const hostPort = `${container.getHost()}:${container.getPort()}`;
   const ownerUrl = `postgres://helpos_owner:helpos_owner@${hostPort}/helpos`;
   await runMigrations(ownerUrl);
-  return { container, ownerUrl, appUrl: `postgres://helpos_app:helpos_app@${hostPort}/helpos` };
+  return {
+    container,
+    ownerUrl,
+    appUrl: `postgres://helpos_app:helpos_app@${hostPort}/helpos`,
+    authUrl: `postgres://helpos_auth:helpos_auth@${hostPort}/helpos`,
+  };
 }

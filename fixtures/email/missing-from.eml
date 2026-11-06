@@ -1,0 +1,5 @@
+To: support@acme.test
+Subject: No sender
+Message-ID: <nofrom-1@customer.test>
+
+This email has no From header.

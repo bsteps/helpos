@@ -15,6 +15,20 @@
       "when": 1793945632829,
       "tag": "0001_tenants-rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793994043407,
+      "tag": "0002_email-to-ticket",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793994054671,
+      "tag": "0003_force-rls-and-auth-grants",
+      "breakpoints": true
     }
   ]
 }

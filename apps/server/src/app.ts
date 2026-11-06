@@ -1,14 +1,20 @@
+import { brand } from "@helpos/brand";
 import type { Database } from "@helpos/db";
-import { Hono } from "hono";
+import type { FileStore } from "@helpos/files";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Logger } from "pino";
+import { registerInboundEmail } from "./inbound-email/route.ts";
 
 export interface AppDeps {
-  db: Pick<Database, "ping">;
-  logger: Pick<Logger, "error">;
+  db: Pick<Database, "ping" | "withTenant" | "resolveMailbox">;
+  files: FileStore;
+  logger: Pick<Logger, "error" | "warn" | "info">;
+  /** HELPOS_INBOUND_SECRET. When unset, the inbound email endpoint refuses every request. */
+  inboundSecret: string | undefined;
 }
 
-export function createApp({ db, logger }: AppDeps): Hono {
-  const app = new Hono();
+export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAPIHono {
+  const app = new OpenAPIHono();
 
   // Liveness + readiness in one: the server is only useful if it can reach Postgres.
   // The body stays minimal on purpose, so it reveals nothing about the setup.
@@ -18,6 +24,20 @@ export function createApp({ db, logger }: AppDeps): Hono {
     // The details go to the log, never to the (unauthenticated) response.
     logger.error({ err: ping.error }, "health check: database unreachable");
     return c.json({ status: "error", database: "unreachable" }, 503);
+  });
+
+  registerInboundEmail(app, { db, files, logger, inboundSecret });
+
+  // Unexpected errors are logged with details; the caller gets nothing it could use.
+  app.onError((err, c) => {
+    logger.error({ err, path: c.req.path }, "unhandled error");
+    return c.json({ error: "internal_error" }, 500);
+  });
+
+  // The public API contract. The dashboard, SDK and MCP tools are generated from it.
+  app.doc31("/openapi.json", {
+    openapi: "3.1.0",
+    info: { title: `${brand.name} API`, version: "0.0.0" },
   });
 
   return app;

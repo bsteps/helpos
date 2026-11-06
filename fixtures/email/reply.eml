@@ -1,0 +1,13 @@
+From: Jane Customer <jane@customer.test>
+To: support@acme.test
+Subject: Re: Cannot log in
+Message-ID: <reply-1@customer.test>
+In-Reply-To: <plain-1@customer.test>
+References: <plain-1@customer.test>
+Date: Fri, 06 Nov 2026 11:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Still broken, any news?
+
+> Hi, I cannot log in since this morning.

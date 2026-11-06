@@ -17,6 +17,7 @@ coverage/
 *.pem
 
 # local data
+.data/
 *.db
 *.sqlite
 *.sqlite-*
