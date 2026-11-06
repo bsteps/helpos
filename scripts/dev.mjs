@@ -24,4 +24,5 @@ run("pnpm --filter @helpos/db migrate");
 
 process.stdout.write("Mailpit (caught emails): http://localhost:8025\n");
 const server = spawn("pnpm --filter @helpos/server dev", { stdio: "inherit", shell: true });
-server.on("exit", (code) => process.exit(code ?? 0));
+// Killed by a signal means `code` is null: report failure, not success.
+server.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));

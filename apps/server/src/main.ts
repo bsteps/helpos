@@ -18,7 +18,8 @@ const server = serve({ fetch: createApp({ db }).fetch, port: env.HELPOS_PORT }, 
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "shutting down");
-  server.close();
+  // Stop accepting connections and let in-flight requests finish before closing the pool.
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   await db.close();
   process.exit(0);
 }
