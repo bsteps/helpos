@@ -22,7 +22,16 @@ Write a short, polite reply. If the customer needs something you cannot do, esca
 
 /** Stops the email from closing the delimiter early and smuggling text outside it. */
 function fenceEmail(input: EvalInput): string {
-  const strip = (s: string) => s.replaceAll(/<\/?untrusted_email>/gi, "");
+  // Repeat until stable: one pass would turn "<untrus<untrusted_email>ted_email>" back into a tag.
+  const strip = (s: string): string => {
+    let prev: string;
+    let out = s;
+    do {
+      prev = out;
+      out = out.replaceAll(/<\/?untrusted_email>/gi, "");
+    } while (out !== prev);
+    return out;
+  };
   return [
     "<untrusted_email>",
     `From: ${strip(input.from)}`,
