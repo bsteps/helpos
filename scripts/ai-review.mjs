@@ -12,9 +12,9 @@ import { pathToFileURL } from "node:url";
 
 export const SEVERITIES = ["critical", "high", "medium", "low"];
 const BLOCKING = new Set(["critical", "high"]);
-// 30 × ~2 KB per finding stays well under GitHub's 65,536-character review body limit.
-const MAX_FINDINGS = 30;
 const MAX_TEXT = 1500;
+// GitHub rejects review bodies over 65,536 characters. Stop adding findings well before that.
+const MAX_BODY = 60_000;
 
 /** Throws when the data isn't the shape .github/ai-review/findings.schema.json describes. */
 export function parseFindings(data) {
@@ -57,22 +57,29 @@ export function renderReview({ summary, findings }) {
   const sorted = [...findings].sort(
     (a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity),
   );
-  const shown = sorted.slice(0, MAX_FINDINGS);
   const verdict = isBlocking(findings)
     ? "❌ **High or critical findings. The required check fails until they are fixed.**"
     : "✅ No high or critical findings.";
   const lines = ["## AI security review", "", verdict, "", clean(summary)];
-  for (const f of shown) {
+  let size = lines.join("\n").length;
+  let shown = 0;
+  for (const f of sorted) {
     const where = f.line > 0 ? `${f.file}:${f.line}` : f.file;
-    lines.push(
+    const block = [
       "",
       `### [${f.severity}] ${clean(f.title)}`,
       `\`${clean(where).replaceAll("`", "")}\``,
       "",
       clean(f.explanation),
-    );
+    ];
+    size += block.join("\n").length + 1;
+    if (size > MAX_BODY) break;
+    lines.push(...block);
+    shown++;
   }
-  if (sorted.length > shown.length) lines.push("", `…and ${sorted.length - shown.length} more.`);
+  // Worst first, so anything cut is the least severe. The check still counts every finding.
+  if (shown < sorted.length)
+    lines.push("", `…and ${sorted.length - shown} more (not shown, too long).`);
   lines.push(
     "",
     "<sub>Independent AI review (a different model from the code author). Advisory: a human still decides.</sub>",
