@@ -81,21 +81,22 @@ The full MVP loop adds one more step (#37): a ticket becomes a GitHub issue, and
 
 ## Core data model
 
-Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in ADR 0009 (#36), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
+Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
 
-| Table                  | What it is                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `tenants`              | A workspace (the UI says "workspace")                                           |
-| `users`, `memberships` | Humans (Better Auth tables, no `tenant_id`) and which workspaces they belong to |
-| `mailboxes`            | Support addresses. Inbound mail is routed to a tenant by address                |
-| `customers`            | People who write in                                                             |
-| `tickets`              | A conversation with a customer                                                  |
-| `messages`             | Inbound and outbound emails on a ticket                                         |
-| `attachments`          | Metadata; the bytes live in the files adapter                                   |
-| `drafts`               | AI-written replies: `pending → approved → sent`, or `discarded`                 |
-| `api_tokens`           | Agent tokens: hashed, scoped, revocable (`hos_…`)                               |
-| `audit_events`         | Append-only log of every human and agent action                                 |
-| `integrations`         | e.g. the linked GitHub repo and its encrypted token                             |
+| Table          | What it is                                                       |
+| -------------- | ---------------------------------------------------------------- |
+| `tenants`      | A workspace (the UI says "workspace")                            |
+| `users`        | Humans (Better Auth tables in the `auth` schema, no `tenant_id`) |
+| `memberships`  | Which workspaces a user belongs to (tenant table, RLS)           |
+| `mailboxes`    | Support addresses. Inbound mail is routed to a tenant by address |
+| `customers`    | People who write in                                              |
+| `tickets`      | A conversation with a customer                                   |
+| `messages`     | Inbound and outbound emails on a ticket                          |
+| `attachments`  | Metadata; the bytes live in the files adapter                    |
+| `drafts`       | AI-written replies: `pending → approved → sent`, or `discarded`  |
+| `api_tokens`   | Agent tokens: hashed, scoped, revocable (`hos_…`)                |
+| `audit_events` | Append-only log of every human and agent action                  |
+| `integrations` | e.g. the linked GitHub repo and its encrypted token              |
 
 ## Trust boundaries
 
