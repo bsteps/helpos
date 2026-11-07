@@ -319,14 +319,17 @@ describe("per-workspace AI budget", () => {
 
   it("every change is audit-logged, and null falls back to the ceiling", async () => {
     clock = new Date("2026-12-03T09:00:00Z");
+    const budgetEvents = () =>
+      db.withTenant(other, (tx) =>
+        tx
+          .select()
+          .from(schema.auditEvents)
+          .where(eq(schema.auditEvents.action, "workspace.ai_budget_changed")),
+      );
+    const before = (await budgetEvents()).length;
     await setAiBudget(db, { tenantId: other, budget: null });
-    const events = await db.withTenant(other, (tx) =>
-      tx
-        .select()
-        .from(schema.auditEvents)
-        .where(eq(schema.auditEvents.action, "workspace.ai_budget_changed")),
-    );
-    expect(events).toHaveLength(4);
+    const events = await budgetEvents();
+    expect(events).toHaveLength(before + 1);
     expect(events.map((e) => [e.actorType, e.actorId, e.targetType, e.targetId])).toContainEqual([
       "system",
       "operator-cli",
