@@ -3,6 +3,7 @@ import { eq, schema, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
+import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { chunkText } from "./chunk.ts";
 import { extractHtml, tidy } from "./extract.ts";
@@ -69,8 +70,9 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
 
 /**
  * Turns one knowledge source into embedded chunks. A source that can't be used (blocked URL,
- * 404, no text, budget spent) is marked `failed` with a short reason, and the job ends without
- * a retry. Unexpected errors (e.g. the embedding API is down) throw, so pg-boss retries.
+ * 404, no text, budget spent, embedding call failed) is marked `failed` with a short reason,
+ * and the job ends without a retry, so a source never stays `pending` after its job is done.
+ * Only database errors throw, and pg-boss retries those.
  */
 export function handleIngestSource(deps: IngestWorkerDeps) {
   return async (payload: { tenantId: string; sourceId: string }, tx: TenantTx): Promise<void> => {
@@ -114,7 +116,16 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const used = await lockUsage(tx, tenantId, day);
     if (totalTokens(used) >= deps.dailyTokenBudget) return fail("daily_budget_reached");
 
-    const { embeddings, tokens } = await embedTexts(deps.embeddingModel, chunks);
+    let embedded: Awaited<ReturnType<typeof embedTexts>>;
+    try {
+      embedded = await embedTexts(deps.embeddingModel, chunks);
+    } catch (error) {
+      // A wrong key or a provider outage. Retrying the job would end the same way, and a dead
+      // job would leave the source `pending` with no sign of what went wrong.
+      deps.logger.warn({ err: errorSummary(error), sourceId }, "embedding failed");
+      return fail("embedding_failed");
+    }
+    const { embeddings, tokens } = embedded;
     await recordUsage(tx, tenantId, day, { inputTokens: tokens, outputTokens: 0 });
     if (embeddings.length !== chunks.length) {
       throw new Error(`ingest: ${embeddings.length} embeddings for ${chunks.length} chunks`);

@@ -396,6 +396,39 @@ describe("limits", () => {
     });
   });
 
+  it("marks a source failed, not stuck pending, when the embedding call fails", async () => {
+    const [row] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({ tenantId: acme, slug: "embed-down", kind: "markdown", title: "x", content: "Hi" })
+        .returning({ id: knowledgeSources.id }),
+    );
+    if (!row) throw new Error("no row");
+    const broken = {
+      specificationVersion: "v4",
+      provider: "test",
+      modelId: "broken",
+      maxEmbeddingsPerCall: 100,
+      supportsParallelCalls: true,
+      doEmbed: async () => {
+        throw new Error("401 invalid api key");
+      },
+    } as const;
+    await db.withTenant(acme, (tx) =>
+      handleIngestSource({
+        embeddingModel: broken,
+        fetch: testFetch,
+        logger,
+        dailyTokenBudget: 1_000_000,
+      })({ tenantId: acme, sourceId: row.id }, tx),
+    );
+    expect(await ingested(acme, row.id)).toMatchObject({
+      status: "failed",
+      error: "embedding_failed",
+    });
+    expect(await chunksOf(acme, row.id)).toEqual([]);
+  });
+
   it("the stored vector size matches the embedding model's", () => {
     expect(embeddingDimensions).toBe(schema.knowledgeEmbeddingDimensions);
   });
