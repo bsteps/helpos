@@ -1,9 +1,11 @@
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { brand } from "@helpos/brand";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isBlockedAddress } from "./address.ts";
 import {
   createSafeFetch,
+  defaultUserAgent,
   type ResolvedAddress,
   redirectTarget,
   SafeFetchError,
@@ -267,6 +269,28 @@ describe("safeFetch", () => {
     expect(await codeOf(fetcher(`http://docs.example:${port}/`, { timeoutMs: 100 }))).toBe(
       "timeout",
     );
+  });
+
+  it("reports a caller abort as aborted, not timeout", async () => {
+    const port = await serve(() => {});
+    const controller = new AbortController();
+    const fetcher = fetcherWith({ "docs.example": ["127.0.0.1"] });
+    const pending = fetcher(`http://docs.example:${port}/`, { signal: controller.signal });
+    setTimeout(() => controller.abort(), 20);
+    expect(await codeOf(pending)).toBe("aborted");
+  });
+
+  it("sends a default User-Agent unless the caller sets one", async () => {
+    const seen: (string | undefined)[] = [];
+    const port = await serve((req, res) => {
+      seen.push(req.headers["user-agent"]);
+      res.end();
+    });
+    const fetcher = fetcherWith({ "docs.example": ["127.0.0.1"] });
+    await fetcher(`http://docs.example:${port}/`);
+    await fetcher(`http://docs.example:${port}/`, { headers: { "User-Agent": "custom/2" } });
+    expect(seen).toEqual([defaultUserAgent, "custom/2"]);
+    expect(defaultUserAgent).toContain(brand.name);
   });
 
   it("times out a slow DNS answer", async () => {

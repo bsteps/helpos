@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import http, { type IncomingHttpHeaders } from "node:http";
 import https from "node:https";
 import { isIP, type LookupFunction } from "node:net";
+import { brand } from "@helpos/brand";
 import { isBlockedAddress } from "./address.ts";
 
 export type SafeFetchErrorCode =
@@ -11,6 +12,7 @@ export type SafeFetchErrorCode =
   | "insecure_redirect"
   | "dns_failed"
   | "timeout"
+  | "aborted"
   | "too_large"
   | "too_many_redirects"
   | "network";
@@ -199,7 +201,7 @@ export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
 
     const allowedPorts = options.allowedPorts ?? [80, 443];
     let url = parseUrl(rawUrl);
-    let headers = options.headers ?? {};
+    let headers = withDefaultUserAgent(options.headers ?? {});
     // Origins only: paths and query strings can carry tokens and must not reach the logs.
     const chain: string[] = [];
     try {
@@ -235,6 +237,14 @@ export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
 // headers known to be harmless.
 const crossOriginSafeHeaders = new Set(["accept", "accept-language", "user-agent"]);
 
+// Some sites and WAFs reject requests that send no User-Agent at all.
+export const defaultUserAgent = `${brand.name}-Fetch/1.0 (+${brand.repositoryUrl})`;
+
+function withDefaultUserAgent(headers: Record<string, string>): Record<string, string> {
+  const hasOwn = Object.keys(headers).some((name) => name.toLowerCase() === "user-agent");
+  return hasOwn ? headers : { ...headers, "user-agent": defaultUserAgent };
+}
+
 function onlySafeHeaders(headers: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
     Object.entries(headers).filter(([name]) => crossOriginSafeHeaders.has(name.toLowerCase())),
@@ -242,8 +252,13 @@ function onlySafeHeaders(headers: Record<string, string>): Record<string, string
 }
 
 function toError(cause: unknown, signal: AbortSignal): SafeFetchError {
-  if (signal.aborted)
-    return new SafeFetchError("timeout", "request timed out or was aborted", { cause });
+  if (signal.aborted) {
+    // AbortSignal.any keeps the reason of whichever signal fired, so ours reads as TimeoutError.
+    const timedOut = signal.reason instanceof DOMException && signal.reason.name === "TimeoutError";
+    return timedOut
+      ? new SafeFetchError("timeout", "request timed out", { cause })
+      : new SafeFetchError("aborted", "request was aborted by the caller", { cause });
+  }
   return new SafeFetchError("network", "request failed", { cause });
 }
 
