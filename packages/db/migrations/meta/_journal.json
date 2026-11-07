@@ -71,6 +71,13 @@
       "when": 1794080696632,
       "tag": "0009_knowledge-base",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794081911859,
+      "tag": "0010_workspace-ai-budget",
+      "breakpoints": true
     }
   ]
 }

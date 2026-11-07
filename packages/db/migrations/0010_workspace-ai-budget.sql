@@ -1,0 +1,2 @@
+ALTER TABLE "tenants" ADD COLUMN "ai_daily_token_budget" integer;--> statement-breakpoint
+ALTER TABLE "tenants" ADD CONSTRAINT "tenants_ai_daily_token_budget_nonnegative" CHECK ("tenants"."ai_daily_token_budget" >= 0);

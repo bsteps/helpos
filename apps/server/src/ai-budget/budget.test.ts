@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { totalTokens, utcDay } from "./budget.ts";
+import { effectiveBudget, totalTokens, utcDay } from "./budget.ts";
 
 describe("utcDay", () => {
   it("uses UTC, so the budget resets at UTC midnight whatever the server's time zone", () => {
@@ -10,5 +10,15 @@ describe("utcDay", () => {
 
   it("totalTokens adds input and output", () => {
     expect(totalTokens({ inputTokens: 3, outputTokens: 4 })).toBe(7);
+  });
+});
+
+describe("effectiveBudget", () => {
+  it("is the workspace's own budget, never above the server-wide ceiling", () => {
+    expect(effectiveBudget(100, 200)).toBe(100);
+    expect(effectiveBudget(500, 200)).toBe(200);
+    expect(effectiveBudget(0, 200)).toBe(0);
+    // No value of its own: the ceiling.
+    expect(effectiveBudget(null, 200)).toBe(200);
   });
 });

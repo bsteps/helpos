@@ -15,7 +15,7 @@ import {
 } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
-import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import {
   type Authenticate,
@@ -435,7 +435,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       // alone, and the caller hears why instead of waiting for a draft that never comes.
       if ("regenerate" in input) {
         const used = await usageOn(tx, utcDay((deps.now ?? (() => new Date()))()));
-        if (totalTokens(used) >= deps.dailyTokenBudget) return "daily_budget_reached" as const;
+        if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.dailyTokenBudget)))
+          return "daily_budget_reached" as const;
       }
 
       const stale = await tx

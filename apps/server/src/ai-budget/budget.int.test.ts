@@ -14,9 +14,11 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
+import type { Scope } from "../auth/principal.ts";
 import { handleDraftReply } from "../drafts/draft-worker.ts";
 import { draftNoticeJob, draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { recordUsage } from "./budget.ts";
 
@@ -249,5 +251,99 @@ describe("daily AI budget", () => {
     expect(model.doGenerateCalls).toHaveLength(1);
     await draft(acme, paused.messageId);
     expect((await ticket(acme, paused.ticketId))?.aiPausedReason).toBeNull();
+  });
+});
+
+describe("per-workspace AI budget", () => {
+  // The env value (`budget`, 200) is the server-wide ceiling; these run on the Other workspace.
+  const usageFor = (tenantId: string, scopes: Scope[]) =>
+    createApp({
+      db,
+      files,
+      logger,
+      inboundSecret: undefined,
+      dailyTokenBudget: budget,
+      now,
+      authenticate: async () => ({
+        tenantId,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(scopes),
+      }),
+    });
+
+  it("a workspace budget below the ceiling is enforced", async () => {
+    clock = new Date("2026-12-01T09:00:00Z");
+    expect(await setAiBudget(db, { tenantId: other, budget: 100 })).toEqual({ ok: true });
+    const [a, b] = [await receive(20, "help@other.test"), await receive(21, "help@other.test")];
+    expect((await draft(other, a.messageId)).doGenerateCalls).toHaveLength(1);
+    // 120 used: under the ceiling, but over the workspace's own 100.
+    expect((await draft(other, b.messageId)).doGenerateCalls).toHaveLength(0);
+    expect((await ticket(other, b.ticketId))?.aiPausedReason).toBe("daily_budget");
+
+    const res = await usageFor(other, ["tickets:read"]).request("/v1/ai-usage");
+    expect(await res.json()).toMatchObject({ dailyTokenBudget: 100, paused: true });
+  });
+
+  it("above the ceiling, the ceiling wins", async () => {
+    clock = new Date("2026-12-02T09:00:00Z");
+    await setAiBudget(db, { tenantId: other, budget: 1_000_000 });
+    const emails = [];
+    for (const n of [22, 23, 24]) emails.push(await receive(n, "help@other.test"));
+    const calls = [];
+    for (const e of emails) calls.push((await draft(other, e.messageId)).doGenerateCalls.length);
+    // 0 and 120 are under 200; at 240 the ceiling stops the third.
+    expect(calls).toEqual([1, 1, 0]);
+
+    const res = await usageFor(other, ["tickets:read"]).request("/v1/ai-usage");
+    expect(await res.json()).toMatchObject({ dailyTokenBudget: budget, remainingTokens: 0 });
+  });
+
+  it("a workspace token can't change its own budget", async () => {
+    await setAiBudget(db, { tenantId: other, budget: 50 });
+    const app = usageFor(other, ["tickets:read", "workspace:admin", "drafts:write"]);
+    // The only workspace settings route rejects fields it doesn't know.
+    const res = await app.request("/v1/workspace/shadow-mode", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ recipient: "x@other.test", aiDailyTokenBudget: 1_000_000 }),
+    });
+    expect(res.status).toBe(400);
+    // And no API operation accepts a budget at all.
+    const doc = await (await app.request("/openapi.json")).text();
+    expect(doc).not.toMatch(/aiDailyTokenBudget|ai_daily_token_budget/);
+    const [row] = await db.withTenant(other, (tx) =>
+      tx.select().from(schema.tenants).where(eq(schema.tenants.id, other)),
+    );
+    expect(row?.aiDailyTokenBudget).toBe(50);
+  });
+
+  it("every change is audit-logged, and null falls back to the ceiling", async () => {
+    clock = new Date("2026-12-03T09:00:00Z");
+    const budgetEvents = () =>
+      db.withTenant(other, (tx) =>
+        tx
+          .select()
+          .from(schema.auditEvents)
+          .where(eq(schema.auditEvents.action, "workspace.ai_budget_changed")),
+      );
+    const before = (await budgetEvents()).length;
+    await setAiBudget(db, { tenantId: other, budget: null });
+    const events = await budgetEvents();
+    expect(events).toHaveLength(before + 1);
+    expect(events.map((e) => [e.actorType, e.actorId, e.targetType, e.targetId])).toContainEqual([
+      "system",
+      "operator-cli",
+      "workspace",
+      other,
+    ]);
+    const res = await usageFor(other, ["tickets:read"]).request("/v1/ai-usage");
+    expect(await res.json()).toMatchObject({ dailyTokenBudget: budget });
+  });
+
+  it("refuses an unknown workspace and a negative budget", async () => {
+    expect(
+      await setAiBudget(db, { tenantId: "00000000-0000-7000-8000-000000000000", budget: 10 }),
+    ).toEqual({ ok: false, reason: "workspace_not_found" });
+    await expect(setAiBudget(db, { tenantId: other, budget: -1 })).rejects.toThrow();
   });
 });

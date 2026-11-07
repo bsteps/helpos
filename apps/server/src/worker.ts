@@ -25,7 +25,7 @@ export interface WorkerDeps {
   fetch?: Fetcher;
   /** For tests only: how long a knowledge page fetch waits before trying again. */
   fetchRetryDelaysMs?: readonly number[];
-  /** Tokens per workspace per UTC day. */
+  /** Server-wide ceiling on tokens per workspace per UTC day; a workspace may have less. */
   dailyTokenBudget: number;
   now?: () => Date;
   /** Without a transport, approved drafts wait in the queue. */

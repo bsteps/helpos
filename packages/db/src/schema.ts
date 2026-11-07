@@ -35,6 +35,12 @@ export const tenants = pgTable(
     shadowMode: boolean("shadow_mode").notNull().default(true),
     /** Where replies go in shadow mode, usually the design partner. Null: replies wait. */
     shadowRecipient: text("shadow_recipient"),
+    /**
+     * AI tokens this workspace may use per UTC day, set by an operator (never through the API,
+     * so a stolen workspace token can't raise its own cap). Null: the server-wide ceiling.
+     * The ceiling (HELPOS_AI_DAILY_TOKEN_BUDGET) always wins when it is lower.
+     */
+    aiDailyTokenBudget: integer("ai_daily_token_budget"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -46,6 +52,7 @@ export const tenants = pgTable(
       "tenants_shadow_recipient_lowercase",
       sql`${t.shadowRecipient} = lower(${t.shadowRecipient})`,
     ),
+    check("tenants_ai_daily_token_budget_nonnegative", sql`${t.aiDailyTokenBudget} >= 0`),
   ],
 );
 

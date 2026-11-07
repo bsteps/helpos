@@ -9,7 +9,7 @@ import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@hel
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
-import { recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { dailyBudget, recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
@@ -306,8 +306,11 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return waitUntil(reason, retryAt, `${sourceId}:retry:${retryAt.toISOString()}`);
     };
 
-    const used = await transaction((tx) => usageOn(tx, day));
-    if (totalTokens(used) >= deps.dailyTokenBudget) {
+    const [used, budget] = await transaction(async (tx) => [
+      totalTokens(await usageOn(tx, day)),
+      await dailyBudget(tx, tenantId, deps.dailyTokenBudget),
+    ]);
+    if (used >= budget) {
       // The budget resets at midnight UTC. One waiting job per source per day, however often
       // it's asked for meanwhile. A source that already had its one more try keeps that reason,
       // so the budget wait doesn't give it another.
