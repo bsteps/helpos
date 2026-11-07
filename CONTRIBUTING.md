@@ -22,7 +22,7 @@ Then open <http://localhost:3000/health> (should say `ok`) and <http://localhost
 ## 2. Find something to work on
 
 - Issues labelled **`good first issue`** are a good start.
-- All work is tracked in **GitHub Issues**, grouped into the **MVP** milestone (what we build now) and **Later**, and shown on the [HelpOS Roadmap board](https://github.com/users/bsteps/projects/1). Accepted work has a "Done when" checklist.
+- All work is tracked in **GitHub Issues**, grouped into one milestone per feature set (**MVP**, **Set 2a**, **Set 2b**, **Set 3**, **Set 4**, **Later**; see [docs/roadmap.md](docs/roadmap.md)), and shown on the [HelpOS Roadmap board](https://github.com/users/bsteps/projects/1). Accepted work has a "Done when" checklist.
 - For anything bigger than a small fix, **comment on the issue first**, so nobody duplicates work.
 
 ## 3. Make your change

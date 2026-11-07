@@ -21,12 +21,15 @@ It's open source (AGPL-3.0) and self-hostable, so you own your data and your sup
 
 ## Status
 
-| Phase | What                                                                             | Status         |
-| ----- | -------------------------------------------------------------------------------- | -------------- |
-| 0     | Foundation: tooling, CI, database + tenant isolation, auth, API, security layers | 🏗️ In progress |
-| 1     | Core: conversations, inbox, realtime                                             | ⏳             |
-| 2     | Channels + AI: chat widget, email, help center, AI answers                       | ⏳             |
-| 3     | Agent-native: public support MCP, bug → PR loop                                  | ⏳             |
+| Set | What                                                                         | Status         |
+| --- | ---------------------------------------------------------------------------- | -------------- |
+| MVP | Email → AI draft → approve → send → GitHub issue → "fixed", in shadow mode   | 🏗️ In progress |
+| 2a  | Real customer mail, coding agent opens the fix PR, release security controls | ⏳             |
+| 2b  | Paid hosted: sign-up, billing, privacy                                       | ⏳             |
+| 3   | Complete helpdesk: inbox tools, widget, help center, autopilot               | ⏳             |
+| 4   | Platform + growth: SDK, config in git, AI actions, automation, reports       | ⏳             |
+
+Every feature and exit goal is in [docs/roadmap.md](docs/roadmap.md).
 
 ## Contributing
 

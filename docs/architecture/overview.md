@@ -108,7 +108,7 @@ Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **exce
 
 ## MVP vs first release
 
-The MVP (milestone **MVP**) is a demo to learn from, **not a release**. To stay small, it takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before any public release or hosted signup:
+The MVP (milestone **MVP**) is a demo to learn from, **not a release**. To stay small, it takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (Set 2a in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the design partner, never to a real customer:
 
 | MVP shortcut                               | Required before release                   |
 | ------------------------------------------ | ----------------------------------------- |
@@ -122,4 +122,4 @@ The MVP (milestone **MVP**) is a demo to learn from, **not a release**. To stay 
 ## Where to read more
 
 - Decisions: [`docs/adr/`](../adr/)
-- Work order: GitHub milestone **MVP**, steps 1–7
+- What we build, in which order: [`docs/roadmap.md`](../roadmap.md) (one GitHub milestone per set)
