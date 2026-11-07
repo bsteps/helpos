@@ -89,6 +89,23 @@ export async function enqueue<P extends { tenantId: string }>(
 export type TenantJobHandler<P> = (payload: P, tx: TenantTx) => Promise<void>;
 export type SystemJobHandler<P> = (payload: P) => Promise<void>;
 
+/** Opens one transaction as the job's tenant: every query in it goes through withTenant(). */
+export type TenantTransaction = <T>(fn: (tx: TenantTx) => Promise<T>) => Promise<T>;
+/**
+ * For a job that waits on the network, such as a page fetch or a model call. It opens short
+ * transactions around the wait instead of holding one (and its pooled connection and row
+ * locks) for the whole job. It still only ever sees its own tenant's data.
+ */
+export type TenantStepsHandler<P> = (payload: P, transaction: TenantTransaction) => Promise<void>;
+
+/** One tenant's transactions, as a steps handler gets them. Exported for tests. */
+export function tenantTransactions(
+  db: Pick<Database, "withTenant">,
+  tenantId: string,
+): TenantTransaction {
+  return (fn) => db.withTenant(tenantId, fn);
+}
+
 export interface JobRunner {
   /** Starts pg-boss. Call installJobs() first (migrate step). */
   start(): Promise<void>;
@@ -100,6 +117,11 @@ export interface JobRunner {
     handler: TenantJobHandler<P>,
   ): Promise<void>;
   work<P>(job: SystemJob<P>, handler: SystemJobHandler<P>): Promise<void>;
+  /** Like work(), for a handler that opens its own transactions between network calls. */
+  workInSteps<P extends { tenantId: string }>(
+    job: TenantJob<P>,
+    handler: TenantStepsHandler<P>,
+  ): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -125,25 +147,40 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   boss.on("error", options.onError);
   const pollingIntervalSeconds = options.pollingIntervalSeconds ?? 2;
 
-  async function work(
+  async function consume<P>(
     job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
-    handler: TenantJobHandler<{ tenantId: string }> | SystemJobHandler<unknown>,
+    run: (payload: P) => Promise<void>,
   ): Promise<void> {
     await boss.createQueue(job.queue);
     await boss.work<unknown>(job.queue, { batchSize: 1, pollingIntervalSeconds }, async (jobs) => {
       for (const { data } of jobs) {
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
-        const payload = job.payload.parse(data);
-        if (job.kind === "system") {
-          await (handler as SystemJobHandler<unknown>)(payload);
-        } else {
-          const tenantPayload = payload as { tenantId: string };
-          await options.db.withTenant(tenantPayload.tenantId, (tx) =>
-            (handler as TenantJobHandler<{ tenantId: string }>)(tenantPayload, tx),
-          );
-        }
+        await run(job.payload.parse(data) as P);
       }
     });
+  }
+
+  async function work(
+    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
+    handler: TenantJobHandler<{ tenantId: string }> | SystemJobHandler<unknown>,
+  ): Promise<void> {
+    if (job.kind === "system") {
+      await consume(job, handler as SystemJobHandler<unknown>);
+      return;
+    }
+    const tenantHandler = handler as TenantJobHandler<{ tenantId: string }>;
+    await consume<{ tenantId: string }>(job, (payload) =>
+      options.db.withTenant(payload.tenantId, (tx) => tenantHandler(payload, tx)),
+    );
+  }
+
+  async function workInSteps<P extends { tenantId: string }>(
+    job: TenantJob<P>,
+    handler: TenantStepsHandler<P>,
+  ): Promise<void> {
+    await consume<P>(job, (payload) =>
+      handler(payload, tenantTransactions(options.db, payload.tenantId)),
+    );
   }
 
   return {
@@ -152,6 +189,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       await boss.start();
     },
     work: work as JobRunner["work"],
+    workInSteps,
     stop: () => boss.stop({ graceful: true, timeout: 5_000 }),
   };
 }

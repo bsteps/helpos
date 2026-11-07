@@ -143,6 +143,63 @@ const sourcesMarker = new RegExp(
 
 /** Markdown a model may wrap the marker in: `**…**`, `_…_`, backticks. */
 const isWrapper = (c: string | undefined) => c === "*" || c === "_" || c === "`";
+const isSpace = (c: string | undefined) => c === " " || c === "\t";
+const isDigit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
+
+/** Where the spaces before `i` begin. Never before `from`. */
+function spacesBefore(text: string, from: number, i: number): number {
+  while (i > from && isSpace(text[i - 1])) i--;
+  return i;
+}
+/** True when only spaces lie between `from`…`i` and the start of the line. */
+const lineStartsAt = (text: string, from: number, i: number) => {
+  const j = spacesBefore(text, from, i);
+  return j === 0 || text[j - 1] === "\n";
+};
+/** True when only spaces lie between `i` and the end of the line. */
+const lineEndsAt = (text: string, i: number) => {
+  while (isSpace(text[i])) i++;
+  return i === text.length || text[i] === "\n";
+};
+
+/**
+ * The part of the reply to cut for one marker: the marker, the markdown wrapped around it, and
+ * the spaces before it. Markdown counts as the marker's only when the same run closes it on the
+ * other side (`**[sources: K1]**`), or when the marker has the rest of its line to itself (a cut
+ * off `**[sources: K1, K`). So the closing `**` of bold text just before it is never taken.
+ * A list bullet left holding nothing but the marker goes too. Every scan stops at the first
+ * character that isn't markdown, a space or a bullet, so a reply full of markers stays linear.
+ */
+function markerSpan(text: string, from: number, start: number, end: number): [number, number] {
+  let left = 0;
+  while (start - left > from && isWrapper(text[start - left - 1])) left++;
+  let right = 0;
+  while (isWrapper(text[end + right])) right++;
+  let both = Math.min(left, right);
+  const mirrors = (k: number) =>
+    text.slice(start - k, start) === [...text.slice(end, end + k)].reverse().join("");
+  while (both > 0 && !mirrors(both)) both--;
+  start -= both;
+  end += both;
+  left -= both;
+  right -= both;
+  // Unmatched markdown on one side only is the marker's when nothing else is on its line.
+  if (left > 0 && lineStartsAt(text, from, start - left) && lineEndsAt(text, end)) start -= left;
+  if (right > 0 && lineStartsAt(text, from, start) && lineEndsAt(text, end + right)) end += right;
+
+  start = spacesBefore(text, from, start);
+  // A bullet ("-", "*", "+", "1.") with nothing after it but the marker.
+  let bullet = start;
+  if (bullet > from && "-*+".includes(text[bullet - 1] ?? "x")) bullet--;
+  else if (bullet > from && ".)".includes(text[bullet - 1] ?? "x") && isDigit(text[bullet - 2])) {
+    bullet--;
+    while (bullet > from && isDigit(text[bullet - 1])) bullet--;
+  }
+  if (bullet < start && lineEndsAt(text, end) && lineStartsAt(text, from, bullet)) {
+    start = spacesBefore(text, from, bullet);
+  }
+  return [start, end];
+}
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may
@@ -161,15 +218,11 @@ export function parseSources(text: string, offered: number): { text: string; cit
     const index = n ? Number(n[1]) - 1 : -1;
     if (index >= 0 && index < offered) cited.add(index);
   }
-  // Cut each marker out with the markdown around it and the spaces before it.
+  // Cut each marker out with the markdown wrapped around it and the spaces before it.
   let out = "";
   let from = 0;
   for (const m of matches) {
-    let start = m.index;
-    let end = start + m[0].length;
-    while (end < text.length && isWrapper(text[end])) end++;
-    while (start > from && isWrapper(text[start - 1])) start--;
-    while (start > from && (text[start - 1] === " " || text[start - 1] === "\t")) start--;
+    const [start, end] = markerSpan(text, from, m.index, m.index + m[0].length);
     out += text.slice(from, start);
     from = end;
   }

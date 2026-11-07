@@ -23,6 +23,9 @@ export {
   type SystemJobHandler,
   type TenantJob,
   type TenantJobHandler,
+  type TenantStepsHandler,
+  type TenantTransaction,
+  tenantTransactions,
 } from "./jobs.ts";
 export { type KnowledgeHit, type KnowledgeQuery, searchKnowledge } from "./knowledge.ts";
 export { runMigrations } from "./migrate.ts";

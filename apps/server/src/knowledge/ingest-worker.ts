@@ -1,5 +1,5 @@
 import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
-import { eq, schema, type TenantTx } from "@helpos/db";
+import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
@@ -7,6 +7,7 @@ import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
 import { extractHtml, tidyAuthored } from "./extract.ts";
+import { ingestSourceJob } from "./jobs.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;
 
@@ -99,44 +100,80 @@ function decode(bytes: Uint8Array, charset: string | undefined): string {
   }
 }
 
+/** The start of the next UTC day, when the daily budget resets. */
+export function nextUtcDay(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+}
+
 /**
  * Turns one knowledge source into embedded chunks. A source that can't be used (blocked URL,
- * 404, no text, budget spent, embedding call failed) is marked `failed` with a short reason,
- * and the job ends without a retry, so a source never stays `pending` after its job is done.
+ * 404, no text, embedding call failed) is marked `failed` with a short reason, and the job
+ * ends without a retry, so a source never stays `pending` after its job is done. A spent daily
+ * budget is only a wait: the source stays `pending` and runs again when the budget resets.
  * Only database errors throw, and pg-boss retries those. When a re-ingest fails, the chunks
  * from the last good ingest stay in use, so a flaky site doesn't empty the knowledge base,
  * unless the page answers 404 or 410: then it is gone, and so are its passages.
+ *
+ * The fetch and the embedding call run with no transaction open, so a slow site holds no
+ * connection or row lock: a delete or re-ingest of the source never waits for it.
  */
 export function handleIngestSource(deps: IngestWorkerDeps) {
-  return async (payload: { tenantId: string; sourceId: string }, tx: TenantTx): Promise<void> => {
+  return async (
+    payload: { tenantId: string; sourceId: string },
+    transaction: TenantTransaction,
+  ): Promise<void> => {
     const { tenantId, sourceId } = payload;
-    // Locked, so a delete waits for this job instead of racing the chunk inserts.
-    const [source] = await tx
-      .select()
-      .from(knowledgeSources)
-      .where(eq(knowledgeSources.id, sourceId))
-      .for("update");
+    const now = deps.now ?? (() => new Date());
+    const [source] = await transaction((tx) =>
+      tx.select().from(knowledgeSources).where(eq(knowledgeSources.id, sourceId)),
+    );
     if (!source) return; // deleted before the job ran
     if (source.status !== "pending") return; // a retry after the work was done
+    // Every request to ingest it again updates the row. If one comes in while this run is
+    // fetching, the result is from before it: see `lockIfCurrent`.
+    const requestedAt = source.updatedAt.getTime();
 
-    const fail = async (error: string) => {
-      // The page says it's gone, so its old passages must stop being cited. Any other
-      // failure (a 5xx, a timeout, the budget) may pass, so the last good passages stay.
-      const gone = error === "http_404" || error === "http_410";
-      if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
-      await tx
-        .update(knowledgeSources)
-        .set({ status: "failed", error, ...(gone ? { chunkCount: 0, embeddingModel: null } : {}) })
-        .where(eq(knowledgeSources.id, sourceId));
-      await recordAudit(tx, {
-        tenantId,
-        actor: ingestActor,
-        action: "knowledge_source.failed",
-        target: { type: "knowledge_source", id: sourceId },
-        requestId: null,
-      });
-      deps.logger.warn({ sourceId, error }, "knowledge source could not be ingested");
+    /**
+     * Locks the source and checks this run's result is still wanted. Deleted: nothing to
+     * write. Asked to ingest again meanwhile: that request gets a run of its own, because its
+     * job may be this one (a pending source reuses its queued job).
+     */
+    const lockIfCurrent = async (tx: TenantTx): Promise<boolean> => {
+      const [current] = await tx
+        .select({ status: knowledgeSources.status, updatedAt: knowledgeSources.updatedAt })
+        .from(knowledgeSources)
+        .where(eq(knowledgeSources.id, sourceId))
+        .for("update");
+      if (current?.status !== "pending") return false;
+      if (current.updatedAt.getTime() === requestedAt) return true;
+      await enqueue(tx, ingestSourceJob, { tenantId, sourceId });
+      return false;
     };
+
+    const fail = (error: string) =>
+      transaction(async (tx) => {
+        if (!(await lockIfCurrent(tx))) return;
+        // The page says it's gone, so its old passages must stop being cited. Any other
+        // failure (a 5xx, a timeout) may pass, so the last good passages stay.
+        const gone = error === "http_404" || error === "http_410";
+        if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
+        await tx
+          .update(knowledgeSources)
+          .set({
+            status: "failed",
+            error,
+            ...(gone ? { chunkCount: 0, embeddingModel: null } : {}),
+          })
+          .where(eq(knowledgeSources.id, sourceId));
+        await recordAudit(tx, {
+          tenantId,
+          actor: ingestActor,
+          action: "knowledge_source.failed",
+          target: { type: "knowledge_source", id: sourceId },
+          requestId: null,
+        });
+        deps.logger.warn({ sourceId, error }, "knowledge source could not be ingested");
+      });
 
     let page: PageText;
     if (source.kind === "url") {
@@ -152,9 +189,28 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     // Read, not locked: holding the budget row through the embedding call would stop every
     // draft in the workspace until this ingest commits. Concurrent ingests can each pass the
     // check and overshoot by one embedding call, like a draft that starts just under the cap.
-    const day = utcDay((deps.now ?? (() => new Date()))());
-    const used = await usageOn(tx, day);
-    if (totalTokens(used) >= deps.dailyTokenBudget) return fail("daily_budget_reached");
+    const started = now();
+    const day = utcDay(started);
+    const used = await transaction((tx) => usageOn(tx, day));
+    if (totalTokens(used) >= deps.dailyTokenBudget) {
+      // Not a failure: the budget resets at midnight UTC, and then this runs again by itself.
+      return transaction(async (tx) => {
+        if (!(await lockIfCurrent(tx))) return;
+        await tx
+          .update(knowledgeSources)
+          .set({ error: "daily_budget_reached" })
+          .where(eq(knowledgeSources.id, sourceId));
+        // One waiting job per source per day, however often it's asked for meanwhile.
+        const resetsAt = nextUtcDay(started);
+        await enqueue(
+          tx,
+          ingestSourceJob,
+          { tenantId, sourceId },
+          { singletonKey: `${sourceId}:after:${utcDay(resetsAt)}`, startAfter: resetsAt },
+        );
+        deps.logger.warn({ sourceId }, "knowledge source waits for the daily AI budget");
+      });
+    }
 
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
     try {
@@ -167,9 +223,12 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     }
     const { embeddings, tokens } = embedded;
     const modelId = embeddingModelId(deps.embeddingModel);
-    await recordUsage(tx, tenantId, day, { inputTokens: tokens, outputTokens: 0 });
+    // Paid for whatever happens next, so it's committed on its own.
+    await transaction((tx) =>
+      recordUsage(tx, tenantId, day, { inputTokens: tokens, outputTokens: 0 }),
+    );
     if (embeddings.length !== chunks.length) {
-      // A broken server. Retrying would pay again for the same answer; the spend is recorded.
+      // A broken server. Retrying would pay again for the same answer.
       deps.logger.warn(
         { sourceId, embeddings: embeddings.length, chunks: chunks.length },
         "embedding server returned the wrong number of vectors",
@@ -177,34 +236,37 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return fail("embedding_failed");
     }
 
-    await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
-    await tx.insert(knowledgeChunks).values(
-      chunks.map((content, position) => ({
+    await transaction(async (tx) => {
+      if (!(await lockIfCurrent(tx))) return;
+      await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
+      await tx.insert(knowledgeChunks).values(
+        chunks.map((content, position) => ({
+          tenantId,
+          sourceId,
+          position,
+          content,
+          embedding: embeddings[position] ?? [],
+          embeddingModel: modelId,
+        })),
+      );
+      await tx
+        .update(knowledgeSources)
+        .set({
+          status: "ready",
+          error: null,
+          chunkCount: chunks.length,
+          ingestedAt: new Date(),
+          embeddingModel: modelId,
+        })
+        .where(eq(knowledgeSources.id, sourceId));
+      await recordAudit(tx, {
         tenantId,
-        sourceId,
-        position,
-        content,
-        embedding: embeddings[position] ?? [],
-        embeddingModel: modelId,
-      })),
-    );
-    await tx
-      .update(knowledgeSources)
-      .set({
-        status: "ready",
-        error: null,
-        chunkCount: chunks.length,
-        ingestedAt: new Date(),
-        embeddingModel: modelId,
-      })
-      .where(eq(knowledgeSources.id, sourceId));
-    await recordAudit(tx, {
-      tenantId,
-      actor: ingestActor,
-      action: "knowledge_source.ingested",
-      target: { type: "knowledge_source", id: sourceId },
-      requestId: null,
+        actor: ingestActor,
+        action: "knowledge_source.ingested",
+        target: { type: "knowledge_source", id: sourceId },
+        requestId: null,
+      });
+      deps.logger.info({ sourceId, chunks: chunks.length }, "knowledge source ingested");
     });
-    deps.logger.info({ sourceId, chunks: chunks.length }, "knowledge source ingested");
   };
 }

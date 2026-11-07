@@ -40,6 +40,17 @@ export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
   });
 }
 
+/** A model whose every call fails, like a provider outage. */
+export function failingModel(message = "503 service unavailable"): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    provider: "mock",
+    modelId: "failing-model",
+    doGenerate: async () => {
+      throw new Error(message);
+    },
+  });
+}
+
 function words(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
     .filter((w) => w.length >= 3)

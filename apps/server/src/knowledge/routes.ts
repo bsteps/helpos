@@ -18,7 +18,10 @@ const slugSchema = z
   .max(200)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/)
   .openapi({ example: "billing/refunds" });
-const titleSchema = z.string().trim().min(1).max(300);
+/** Postgres can't store NUL in text, so it's refused here rather than failing the insert. */
+const noNul = (s: string) => !s.includes(String.fromCharCode(0));
+const nulMessage = "must not contain NUL characters";
+const titleSchema = z.string().trim().min(1).max(300).refine(noNul, nulMessage);
 const visibilitySchema = z.enum(schema.knowledgeVisibilities).openapi({
   description:
     "`public` may be shown or cited to customers. `internal` (the default) is the team's own " +
@@ -39,7 +42,7 @@ const createBody = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("markdown"),
     title: titleSchema,
-    content: z.string().trim().min(1).max(maxMarkdownChars),
+    content: z.string().trim().min(1).max(maxMarkdownChars).refine(noNul, nulMessage),
     slug: slugSchema.optional(),
     visibility: visibilitySchema.optional(),
   }),
@@ -58,7 +61,9 @@ const sourceSchema = z
     status: z.enum(schema.knowledgeSourceStatuses),
     /**
      * Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`, or `too_long` (more
-     * passages than one source may have: split the document).
+     * passages than one source may have: split the document). On a `pending` source,
+     * `daily_budget_reached` means it waits for the daily AI budget to reset at midnight UTC,
+     * and then runs by itself.
      */
     error: z.string().nullable(),
     chunkCount: z.number().int(),
@@ -223,16 +228,18 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
     const id = uuidv7();
-    const unique = id.slice(-12);
     const base = slugify(input.title);
-    // A slug the caller chose is kept or refused. One made from the title gets the id's tail
-    // when another source already has it (two pages can share a title), and a title with no
-    // Latin letters or digits gets only that.
+    // A slug the caller chose is kept or refused. One made from the title gets a random
+    // suffix when another source already has it (two pages can share a title), a new one on
+    // each try, and a title with no Latin letters or digits gets only that. A failed try rolled
+    // back, so the next one can reuse the id.
+    const suffix = () => uuidv7().slice(-12);
     const slugs = input.slug
       ? [input.slug]
-      : base
-        ? [base, `${base}-${unique}`]
-        : [`source-${unique}`];
+      : [
+          ...(base ? [base] : []),
+          ...Array.from({ length: 3 }, () => `${base || "source"}-${suffix()}`),
+        ];
 
     for (const slug of slugs) {
       const created = await insertSource(slug);
@@ -303,7 +310,8 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         target: { type: "knowledge_source", id },
         requestId: c.get("requestId"),
       });
-      // Already pending: its job hasn't taken the lock yet, so reuse it rather than queue two.
+      // Already pending: reuse its job rather than queue two. If that job is already fetching,
+      // it sees this request when it writes (the row changed) and queues a run for it.
       // Otherwise always queue a new one. The last job may have committed but still look
       // unfinished to pg-boss, and reusing it would leave this source pending with no job. An
       // extra job is harmless: the worker skips a source that isn't pending.

@@ -14,6 +14,7 @@ import {
   eq,
   type JobRunner,
   schema,
+  tenantTransactions,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -26,7 +27,7 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
-import { type Fetcher, handleIngestSource } from "./ingest-worker.ts";
+import { type Fetcher, handleIngestSource, nextUtcDay } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
@@ -57,6 +58,8 @@ let port: number;
 let acme: string;
 let other: string;
 const requests: string[] = [];
+/** Valid text, but Postgres can't store it. */
+const nul = String.fromCharCode(0);
 
 const pages: Record<
   string,
@@ -92,6 +95,8 @@ const pages: Record<
     type: "text/markdown",
     body: "# Shipping\n\nStandard shipping takes 3 to 7 days.",
   },
+  "/nul.txt": { type: "text/plain", body: `Refunds${nul} take 5 days.` },
+  "/slow": { type: "text/html", body: "<p>A page that takes a while to fetch.</p>" },
   "/logo.png": { type: "image/png", body: "\x89PNG" },
   "/missing": { type: "text/html", body: "<p>Not found</p>", status: 404 },
   "/to-metadata": {
@@ -214,6 +219,43 @@ const ingested = (tenantId: string, id: string) =>
     );
     return row && row.status !== "pending" ? row : undefined;
   });
+
+const sourceOf = async (tenantId: string, id: string) => {
+  const [row] = await db.withTenant(tenantId, (tx) =>
+    tx.select().from(knowledgeSources).where(eq(knowledgeSources.id, id)),
+  );
+  return row;
+};
+
+/** A URL source added straight to the table, so no job is queued for it. */
+async function insertUrlSource(slug: string, path: string): Promise<string> {
+  const [row] = await db.withTenant(acme, (tx) =>
+    tx
+      .insert(knowledgeSources)
+      .values({ tenantId: acme, slug, kind: "url", title: slug, url: pageUrl(path) })
+      .returning({ id: knowledgeSources.id }),
+  );
+  if (!row) throw new Error("no row");
+  return row.id;
+}
+
+/** A fetch that waits for release(), so a test can act while a page is being fetched. */
+function gatedFetch() {
+  let release = () => {};
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  let markStarted = () => {};
+  const started = new Promise<void>((done) => {
+    markStarted = done;
+  });
+  const fetch: Fetcher = async (url, options) => {
+    markStarted();
+    await gate;
+    return testFetch(url, options);
+  };
+  return { fetch, started, release: () => release() };
+}
 
 const chunksOf = (tenantId: string, sourceId: string) =>
   db.withTenant(tenantId, (tx) =>
@@ -390,6 +432,18 @@ describe("adding and ingesting sources", () => {
     expect((await chunksOf(acme, added.id))[0]?.content).toContain("3 to 7 days");
   });
 
+  it("drops NUL characters from a page instead of failing the source", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "NUL",
+      url: pageUrl("/nul.txt"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+    expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual([
+      "Refunds take 5 days.",
+    ]);
+  });
+
   it.each([
     ["/logo.png", "unsupported_content_type"],
     ["/missing", "http_404"],
@@ -482,6 +536,42 @@ describe("re-ingesting", () => {
     expect(await chunksOf(acme, added.id)).toEqual([]);
   });
 
+  it("holds no lock while it fetches: a delete goes through at once", async () => {
+    const { fetch, started, release } = gatedFetch();
+    const id = await insertUrlSource("held-fetch", "/refunds");
+    const run = handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
+      { tenantId: acme, sourceId: id },
+      tenantTransactions(db, acme),
+    );
+    await started;
+    // With the row locked for the whole fetch, this would wait for release() and never return.
+    expect((await call("DELETE", `/v1/knowledge/sources/${id}`, "editor")).status).toBe(204);
+    release();
+    await run;
+    expect(await sourceOf(acme, id)).toBeUndefined();
+    expect(await chunksOf(acme, id)).toEqual([]);
+  });
+
+  it("a re-ingest asked for during a fetch gets a run of its own", async () => {
+    const { fetch, started, release } = gatedFetch();
+    const id = await insertUrlSource("asked-again", "/slow");
+    const run = handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
+      { tenantId: acme, sourceId: id },
+      tenantTransactions(db, acme),
+    );
+    await started;
+    // Stands in for a re-ingest request that reused this very job: it updates the row only.
+    await db.withTenant(acme, (tx) =>
+      tx.update(knowledgeSources).set({ error: null }).where(eq(knowledgeSources.id, id)),
+    );
+    release();
+    await run;
+    // This run's page was fetched before the request, so it wasn't written. It queued another
+    // run instead, which the worker picked up and which fetched the page again.
+    expect((await ingested(acme, id)).status).toBe("ready");
+    expect(requests.filter((path) => path === "/slow")).toHaveLength(2);
+  });
+
   it("queues a new job even while the last one for the source still looks unfinished", async () => {
     // The race: an ingest job commits, and pg-boss hasn't marked it completed yet. A job with
     // the same dedupe key that won't start for a day stands in for that unfinished job.
@@ -553,11 +643,9 @@ describe("embedding model changes", () => {
 
 describe("SSRF: every fetch goes through the safe fetch", () => {
   const ingestWith = (fetch: Fetcher, tenantId: string, sourceId: string) =>
-    db.withTenant(tenantId, (tx) =>
-      handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
-        { tenantId, sourceId },
-        tx,
-      ),
+    handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
+      { tenantId, sourceId },
+      tenantTransactions(db, tenantId),
     );
 
   /** A pending source the worker won't race us for: inserted directly, with no job. */
@@ -625,7 +713,7 @@ describe("SSRF: every fetch goes through the safe fetch", () => {
 });
 
 describe("limits", () => {
-  it("doesn't embed once today's AI budget is spent", async () => {
+  it("waits for the daily budget to reset instead of failing, then runs by itself", async () => {
     const [row] = await db.withTenant(acme, (tx) =>
       tx
         .insert(knowledgeSources)
@@ -634,17 +722,35 @@ describe("limits", () => {
     );
     if (!row) throw new Error("no row");
     const calls = embeddingModel.doEmbedCalls.length;
-    await db.withTenant(acme, (tx) =>
-      handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
-        { tenantId: acme, sourceId: row.id },
-        tx,
-      ),
-    );
+    const ingestAt = (now: Date) =>
+      handleIngestSource({
+        embeddingModel,
+        fetch: testFetch,
+        logger,
+        dailyTokenBudget: 0,
+        now: () => now,
+      })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
+
+    // Its retry is queued for midnight UTC, so it waits, pending, with the reason.
+    await ingestAt(new Date());
     expect(embeddingModel.doEmbedCalls.length).toBe(calls);
-    expect(await ingested(acme, row.id)).toMatchObject({
-      status: "failed",
+    expect(await sourceOf(acme, row.id)).toMatchObject({
+      status: "pending",
       error: "daily_budget_reached",
     });
+
+    // A wait that began yesterday is due now, and the worker (with budget left) runs it.
+    await ingestAt(new Date(Date.now() - 86_400_000));
+    expect(await ingested(acme, row.id)).toMatchObject({ status: "ready", error: null });
+  });
+
+  it("the budget wait ends at the next midnight UTC", () => {
+    expect(nextUtcDay(new Date("2026-03-31T23:59:59Z")).toISOString()).toBe(
+      "2026-04-01T00:00:00.000Z",
+    );
+    expect(nextUtcDay(new Date("2026-12-31T00:00:00Z")).toISOString()).toBe(
+      "2027-01-01T00:00:00.000Z",
+    );
   });
 
   it("marks a source failed, not stuck pending, when the embedding call fails", async () => {
@@ -665,14 +771,12 @@ describe("limits", () => {
         throw new Error("401 invalid api key");
       },
     } as const;
-    await db.withTenant(acme, (tx) =>
-      handleIngestSource({
-        embeddingModel: broken,
-        fetch: testFetch,
-        logger,
-        dailyTokenBudget: 1_000_000,
-      })({ tenantId: acme, sourceId: row.id }, tx),
-    );
+    await handleIngestSource({
+      embeddingModel: broken,
+      fetch: testFetch,
+      logger,
+      dailyTokenBudget: 1_000_000,
+    })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
     expect(await ingested(acme, row.id)).toMatchObject({
       status: "failed",
       error: "embedding_failed",
@@ -702,14 +806,12 @@ describe("limits", () => {
       supportsParallelCalls: true,
       doEmbed: async () => ({ embeddings: [], usage: { tokens: 3 }, warnings: [] }),
     } as const;
-    await db.withTenant(acme, (tx) =>
-      handleIngestSource({
-        embeddingModel: short,
-        fetch: testFetch,
-        logger,
-        dailyTokenBudget: 1_000_000,
-      })({ tenantId: acme, sourceId: row.id }, tx),
-    );
+    await handleIngestSource({
+      embeddingModel: short,
+      fetch: testFetch,
+      logger,
+      dailyTokenBudget: 1_000_000,
+    })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
     expect(await ingested(acme, row.id)).toMatchObject({
       status: "failed",
       error: "embedding_failed",
@@ -737,6 +839,9 @@ describe("knowledge API", () => {
     expect(
       (await post({ kind: "markdown", title: "x", content: "x", visibility: "secret" })).status,
     ).toBe(400);
+    // Postgres can't store NUL: a 400, not a failed insert.
+    expect((await post({ kind: "markdown", title: "x", content: `a${nul}b` })).status).toBe(400);
+    expect((await post({ kind: "markdown", title: `a${nul}b`, content: "x" })).status).toBe(400);
   });
 
   it("a slug is unique per workspace only", async () => {
@@ -758,8 +863,11 @@ describe("knowledge API", () => {
     const body = { kind: "markdown", title: "Same title", content: "x" };
     const first = await addSource("editor", body);
     const second = await addSource("editor", body);
+    const third = await addSource("editor", body);
     expect(first.slug).toBe("same-title");
     expect(second.slug).toMatch(/^same-title-[0-9a-f]{12}$/);
+    expect(third.slug).toMatch(/^same-title-[0-9a-f]{12}$/);
+    expect(third.slug).not.toBe(second.slug);
   });
 
   it("keeps accented words whole in slugs", () => {

@@ -150,6 +150,12 @@ export function extractHtml(html: string): ExtractedPage {
 }
 
 /**
+ * NUL is valid text, but Postgres can't store it in a text column, so one stray NUL in a page
+ * would fail every chunk insert. Never meaningful in an article.
+ */
+const nul = String.fromCharCode(0);
+
+/**
  * For text a person wrote (markdown, plain text): keeps indentation and spacing inside lines,
  * which code, YAML and nested lists depend on. Drops trailing spaces and keeps at most one
  * blank line between paragraphs.
@@ -157,6 +163,7 @@ export function extractHtml(html: string): ExtractedPage {
 export function tidyAuthored(text: string): string {
   return (
     text
+      .replaceAll(nul, "")
       .replaceAll(/\r\n?/g, "\n")
       // Per line, not a `[ \t]+$` regex: on a page-long run of spaces that would rescan it from
       // every position.
@@ -175,6 +182,7 @@ export function tidyAuthored(text: string): string {
  */
 export function tidy(text: string): string {
   return text
+    .replaceAll(nul, "")
     .replaceAll(/\r\n?/g, "\n")
     .split("\n")
     .map((line) =>

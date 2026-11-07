@@ -1,4 +1,5 @@
-import { mockModel } from "@helpos/ai/testing";
+import { type LanguageModel, maxKnowledgeArticles } from "@helpos/ai";
+import { failingModel, mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
   createAuthStore,
@@ -7,12 +8,16 @@ import {
   type Database,
   eq,
   type JobRunner,
+  type KnowledgeHit,
   schema,
   sql,
+  tenantTransactions,
+  uuidv7,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import type { SearchProvider } from "../knowledge/search.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
@@ -48,16 +53,47 @@ async function receive(n: number) {
   return result;
 }
 
-async function draftWith(search: SearchProvider, messageId: string) {
-  await db.withTenant(acme, (tx) =>
-    handleDraftReply({
-      model: mockModel({ text: "A teammate will follow up." }),
-      logger,
-      dailyTokenBudget: 1_000_000,
-      search,
-    })({ tenantId: acme, messageId }, tx),
+async function draftWith(
+  search: SearchProvider,
+  messageId: string,
+  model: LanguageModel = mockModel({ text: "A teammate will follow up." }),
+) {
+  await handleDraftReply({ model, logger, dailyTokenBudget: 1_000_000, search })(
+    { tenantId: acme, messageId },
+    tenantTransactions(db, acme),
   );
 }
+
+const usedToday = () =>
+  db.withTenant(acme, async (tx) => totalTokens(await usageOn(tx, utcDay(new Date()))));
+
+/** A real source, since citations reference one. */
+async function addSource(): Promise<string> {
+  const [row] = await db.withTenant(acme, (tx) =>
+    tx
+      .insert(schema.knowledgeSources)
+      .values({
+        tenantId: acme,
+        slug: `doc-${++received}`,
+        kind: "markdown",
+        title: "Doc",
+        content: "x",
+      })
+      .returning({ id: schema.knowledgeSources.id }),
+  );
+  if (!row) throw new Error("no row");
+  return row.id;
+}
+
+const hit = (sourceId: string, i: number): KnowledgeHit => ({
+  chunkId: uuidv7(),
+  sourceId,
+  title: `Passage ${i}`,
+  url: null,
+  content: `Fact number ${i}.`,
+  visibility: "public",
+  distance: i / 100,
+});
 
 const draftsOf = (ticketId: string) =>
   db.withTenant(acme, (tx) =>
@@ -122,6 +158,34 @@ describe("drafting when knowledge search fails", () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.anything(),
       "knowledge search failed: drafting without it",
+    );
+  });
+});
+
+describe("drafting with knowledge: spend and limits", () => {
+  it("counts the search's embedding tokens even when the model call then fails", async () => {
+    const email = await receive(++received);
+    const before = await usedToday();
+    const search: SearchProvider = { search: async () => ({ hits: [], tokens: 42 }) };
+    // The job fails, so pg-boss retries it. Each attempt's embedding call was paid for, so the
+    // budget must see it, or retries could run past the cap uncounted.
+    await expect(draftWith(search, email.messageId, failingModel())).rejects.toThrow();
+    expect((await usedToday()) - before).toBe(42);
+    expect(await draftsOf(email.ticketId)).toEqual([]);
+  });
+
+  it("stores citations only for the passages the model was shown", async () => {
+    const sourceId = await addSource();
+    const hits = Array.from({ length: maxKnowledgeArticles + 3 }, (_, i) => hit(sourceId, i));
+    const email = await receive(++received);
+    await draftWith({ search: async () => ({ hits, tokens: 0 }) }, email.messageId);
+    const [draft] = await draftsOf(email.ticketId);
+    if (!draft) throw new Error("no draft was written");
+    const citations = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.draftCitations).where(eq(schema.draftCitations.draftId, draft.id)),
+    );
+    expect(citations.map((c) => c.rank).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: maxKnowledgeArticles }, (_, i) => i),
     );
   });
 });

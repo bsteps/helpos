@@ -191,4 +191,36 @@ describe("job runner", () => {
     );
     expect(await seen).toEqual({ tenant: tenantA, ticketCount: 0 });
   });
+
+  it("leak: a steps job opens separate transactions, each one only as its own tenant", async () => {
+    type Step = { tenant: string | undefined; txid: string; tickets: number };
+    let resolveSeen: (steps: Step[]) => void = () => {};
+    const seen = new Promise<Step[]>((resolve) => {
+      resolveSeen = resolve;
+    });
+    const stepsProbe = defineTenantJob("test-steps-probe", { ticketId: z.uuid() });
+    await runner.workInSteps(stepsProbe, async (_payload, transaction) => {
+      const steps: Step[] = [];
+      for (let i = 0; i < 2; i++) {
+        steps.push(
+          await transaction(async (tx) => {
+            const [row] = await tx.execute<{ t: string; txid: string }>(
+              "select current_setting('app.tenant_id', true) as t, txid_current()::text as txid",
+            );
+            const rows = await tx.select().from(tickets);
+            return { tenant: row?.t, txid: row?.txid ?? "", tickets: rows.length };
+          }),
+        );
+      }
+      resolveSeen(steps);
+    });
+    await db.withTenant(tenantA, (tx) =>
+      enqueue(tx, stepsProbe, { tenantId: tenantA, ticketId: uuidv7() }),
+    );
+    const [first, second] = await seen;
+    // Tenant B has a ticket (seeded above); tenant A has none.
+    expect(first).toMatchObject({ tenant: tenantA, tickets: 0 });
+    expect(second).toMatchObject({ tenant: tenantA, tickets: 0 });
+    expect(first?.txid).not.toBe(second?.txid);
+  });
 });

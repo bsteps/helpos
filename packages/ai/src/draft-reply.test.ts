@@ -274,6 +274,46 @@ describe("parseSources", () => {
 
   it("removes a list cut off at the end of the reply", () => {
     expect(parseSources("Hi.\n[sources: K1, K", 2)).toEqual({ text: "Hi.", cited: [0] });
+    expect(parseSources("Hi.\n**[sources: K1, K", 2)).toEqual({ text: "Hi.", cited: [0] });
+  });
+
+  it("takes only the markdown that wraps the marker, never the reply's own", () => {
+    // The closing ** belongs to "step 2", not to the marker.
+    expect(parseSources("Do **step 2**(source: K1)", 2)).toEqual({
+      text: "Do **step 2**",
+      cited: [0],
+    });
+    expect(parseSources("Do **step 2** _(source: K1)_", 2)).toEqual({
+      text: "Do **step 2**",
+      cited: [0],
+    });
+    expect(parseSources("Use `code`[sources: K1] here", 2)).toEqual({
+      text: "Use `code` here",
+      cited: [0],
+    });
+  });
+
+  it("removes a list bullet left holding only the marker", () => {
+    for (const bullet of ["-", "*", "+", "1.", "2)"]) {
+      expect(parseSources(`Steps:\n- Open Orders.\n${bullet} [sources: K1]`, 2)).toEqual({
+        text: "Steps:\n- Open Orders.",
+        cited: [0],
+      });
+    }
+    expect(parseSources("Hi.\n- **Sources: K2**", 2)).toEqual({ text: "Hi.", cited: [1] });
+    // A bullet with words in it stays.
+    expect(parseSources("- Open Orders [sources: K1]", 2)).toEqual({
+      text: "- Open Orders",
+      cited: [0],
+    });
+  });
+
+  it("stays fast on a reply full of markers on one line", () => {
+    const many = `Hi ${"**x**[sources: K1] ".repeat(5_000)}`;
+    const started = performance.now();
+    const { text } = parseSources(many, 2);
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(text).not.toContain("sources");
   });
 
   it("finds the line before a sign-off, and never leaves one in the reply", () => {

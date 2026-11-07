@@ -20,8 +20,16 @@ export const evalCaseSchema = z.strictObject({
     from: z.string(),
     subject: z.string(),
     body: z.string(),
-    /** Knowledge passages, as retrieval would hand them to the drafter, best match first. */
-    knowledge: z.array(knowledgeSchema).optional(),
+    /**
+     * Knowledge passages, as retrieval would hand them to the drafter, best match first.
+     * Titles are unique: mustCite and mustNotCite name a passage by its title.
+     */
+    knowledge: z
+      .array(knowledgeSchema)
+      .refine((k) => new Set(k.map((a) => a.title)).size === k.length, {
+        message: "Each knowledge passage needs its own title: citations are checked by title",
+      })
+      .optional(),
   }),
   /** What the mock model answers. Scripted like a plausible good reply; ignored with EVAL_LIVE=1. */
   mock: z.strictObject({

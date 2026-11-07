@@ -1,5 +1,5 @@
 import type { EmbeddingModel, LanguageModel } from "@helpos/ai";
-import type { AuthStore, JobRunner, TenantJobHandler } from "@helpos/db";
+import type { AuthStore, JobRunner } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
@@ -49,7 +49,7 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
 
   const search = deps.embeddingModel ? createVectorSearch(deps.embeddingModel) : undefined;
   if (deps.model) {
-    await runner.work(
+    await runner.workInSteps(
       draftReplyJob,
       logged("draft-reply", handleDraftReply({ ...deps, model: deps.model, search })),
     );
@@ -65,7 +65,7 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
     logger.warn("HELPOS_SMTP_URL is not set: approved replies will wait in the queue");
   }
   if (deps.embeddingModel) {
-    await runner.work(
+    await runner.workInSteps(
       ingestSourceJob,
       logged(
         "ingest-source",
@@ -96,10 +96,13 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
   }
 
   /** A failed job is logged, then rethrown so pg-boss retries it. Never dropped silently. */
-  function logged<P>(queue: string, handler: TenantJobHandler<P>): TenantJobHandler<P> {
-    return async (payload, tx) => {
+  function logged<P, C>(
+    queue: string,
+    handler: (payload: P, context: C) => Promise<void>,
+  ): (payload: P, context: C) => Promise<void> {
+    return async (payload, context) => {
       try {
-        await handler(payload, tx);
+        await handler(payload, context);
       } catch (error) {
         logger.error({ err: errorSummary(error), queue }, "job failed, will retry");
         throw error;
