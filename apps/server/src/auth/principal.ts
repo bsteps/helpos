@@ -1,7 +1,17 @@
 import type { MiddlewareHandler } from "hono";
 
-/** Scopes from #49. `drafts:approve` is separate so an agent can draft without sending. */
-export const scopes = ["tickets:read", "drafts:write", "drafts:approve"] as const;
+/**
+ * Scopes from #49. `drafts:approve` is separate so an agent can draft without sending.
+ * `knowledge:write` is separate from reading, because what's in the knowledge base shapes
+ * every draft.
+ */
+export const scopes = [
+  "tickets:read",
+  "drafts:write",
+  "drafts:approve",
+  "knowledge:read",
+  "knowledge:write",
+] as const;
 export type Scope = (typeof scopes)[number];
 
 /** Who is calling: one workspace, one actor, an exact list of scopes. */

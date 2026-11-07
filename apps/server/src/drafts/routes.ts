@@ -5,6 +5,7 @@ import {
   desc,
   enqueue,
   eq,
+  inArray,
   isNull,
   ne,
   schema,
@@ -18,7 +19,8 @@ import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 
-const { drafts, mailboxes, messages, tickets } = schema;
+const { draftCitations, drafts, knowledgeChunks, knowledgeSources, mailboxes, messages, tickets } =
+  schema;
 type DraftRow = typeof drafts.$inferSelect;
 
 export interface DraftRoutesDeps {
@@ -30,6 +32,17 @@ export interface DraftRoutesDeps {
 }
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
+const draftSourceSchema = z
+  .object({
+    sourceId: z.uuid(),
+    title: z.string(),
+    url: z.string().nullable(),
+    /** The passage the model was given. */
+    excerpt: z.string(),
+    /** True when the model says it used this passage; false when it was offered but unused. */
+    cited: z.boolean(),
+  })
+  .openapi("DraftSource");
 const draftSchema = z
   .object({
     id: z.uuid(),
@@ -42,8 +55,12 @@ const draftSchema = z
     updatedAt: z.iso.datetime(),
     approvedAt: z.iso.datetime().nullable(),
     sentAt: z.iso.datetime().nullable(),
+    /** Knowledge passages the draft was written with, best match first. */
+    sources: z.array(draftSourceSchema),
   })
   .openapi("Draft");
+type DraftJson = z.infer<typeof draftSchema>;
+type DraftSourceJson = z.infer<typeof draftSourceSchema>;
 
 const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
 const json = <T extends z.ZodType>(schema: T, description: string) => ({
@@ -172,7 +189,7 @@ const createRoute_ = createRoute({
   },
 });
 
-function serialize(d: DraftRow): z.infer<typeof draftSchema> {
+function serialize(d: DraftRow, sources: DraftSourceJson[]): DraftJson {
   return {
     id: d.id,
     ticketId: d.ticketId,
@@ -183,7 +200,44 @@ function serialize(d: DraftRow): z.infer<typeof draftSchema> {
     updatedAt: d.updatedAt.toISOString(),
     approvedAt: d.approvedAt?.toISOString() ?? null,
     sentAt: d.sentAt?.toISOString() ?? null,
+    sources,
   };
+}
+
+/** The drafts as the API shows them, each with its knowledge sources. */
+async function present(tx: TenantTx, rows: DraftRow[]): Promise<DraftJson[]> {
+  if (rows.length === 0) return [];
+  const cited = await tx
+    .select({
+      draftId: draftCitations.draftId,
+      sourceId: knowledgeSources.id,
+      title: knowledgeSources.title,
+      url: knowledgeSources.url,
+      excerpt: knowledgeChunks.content,
+      cited: draftCitations.cited,
+    })
+    .from(draftCitations)
+    .innerJoin(knowledgeChunks, eq(knowledgeChunks.id, draftCitations.chunkId))
+    .innerJoin(knowledgeSources, eq(knowledgeSources.id, knowledgeChunks.sourceId))
+    .where(
+      inArray(
+        draftCitations.draftId,
+        rows.map((r) => r.id),
+      ),
+    )
+    .orderBy(asc(draftCitations.rank));
+  return rows.map((row) =>
+    serialize(
+      row,
+      cited.filter((c) => c.draftId === row.id).map(({ draftId: _, ...source }) => source),
+    ),
+  );
+}
+
+async function presentOne(tx: TenantTx, row: DraftRow): Promise<DraftJson> {
+  const [json] = await present(tx, [row]);
+  if (!json) throw new Error("present draft: no result");
+  return json;
 }
 
 /** The principal set by requirePrincipal(), if it holds `scope`. */
@@ -211,11 +265,16 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
       if (!ticket) return null;
-      return tx.select().from(drafts).where(eq(drafts.ticketId, id)).orderBy(asc(drafts.createdAt));
+      const rows = await tx
+        .select()
+        .from(drafts)
+        .where(eq(drafts.ticketId, id))
+        .orderBy(asc(drafts.createdAt));
+      return present(tx, rows);
     });
     // Another workspace's ticket looks exactly like one that doesn't exist.
     if (!result) return c.json({ error: "not_found" }, 404);
-    return c.json({ drafts: result.map(serialize) }, 200);
+    return c.json({ drafts: result }, 200);
   });
 
   app.openapi(editRoute, async (c) => {
@@ -238,11 +297,11 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         target: { type: "draft", id },
         requestId: c.get("requestId"),
       });
-      return updated;
+      return presentOne(tx, updated);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
-    return c.json(serialize(result), 200);
+    return c.json(result, 200);
   });
 
   app.openapi(approveRoute, async (c) => {
@@ -285,11 +344,11 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         { tenantId: principal.tenantId, draftId: id },
         { singletonKey: id },
       );
-      return approved;
+      return presentOne(tx, approved);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
-    return c.json(serialize(result), 200);
+    return c.json(result, 200);
   });
 
   registerDiscardRoute(app, deps);
@@ -386,7 +445,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         target: { type: "draft", id: draft.id },
         requestId,
       });
-      return draft;
+      return presentOne(tx, draft);
     });
 
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
@@ -398,7 +457,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return c.json({ error: result }, 409);
     }
     if (result === "queued") return c.json({ status: "queued" as const }, 202);
-    return c.json(serialize(result), 201);
+    return c.json(result, 201);
   });
 }
 
@@ -421,11 +480,11 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         target: { type: "draft", id },
         requestId: c.get("requestId"),
       });
-      return discarded;
+      return presentOne(tx, discarded);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
-    return c.json(serialize(result), 200);
+    return c.json(result, 200);
   });
 }
 

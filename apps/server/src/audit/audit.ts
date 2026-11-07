@@ -11,8 +11,12 @@ export interface AuditEvent {
     | "draft.approved"
     | "draft.discarded"
     | "draft.sent"
-    | "ai.paused";
-  target: { type: "draft" | "ticket"; id: string };
+    | "ai.paused"
+    | "knowledge_source.created"
+    | "knowledge_source.deleted"
+    | "knowledge_source.ingested"
+    | "knowledge_source.failed";
+  target: { type: "draft" | "ticket" | "knowledge_source"; id: string };
   /** The HTTP request ID, or null when a background job acts. */
   requestId: string | null;
 }

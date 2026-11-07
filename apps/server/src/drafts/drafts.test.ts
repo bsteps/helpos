@@ -157,7 +157,15 @@ beforeAll(async () => {
     pollingIntervalSeconds: 0.5,
   });
   await runner.start();
-  await startWorker({ runner, files, logger, model, transport, dailyTokenBudget: 1_000_000 });
+  await startWorker({
+    runner,
+    files,
+    logger,
+    model,
+    embeddingModel: undefined,
+    transport,
+    dailyTokenBudget: 1_000_000,
+  });
 
   const a = await initWorkspace(
     { db, auth },

@@ -1,4 +1,4 @@
-export type { LanguageModel } from "ai";
+export type { EmbeddingModel, LanguageModel } from "ai";
 export {
   type AiConfig,
   AiConfigError,
@@ -13,7 +13,22 @@ export {
   draftInstructions,
   draftReply,
   fenceEmail,
+  fenceKnowledge,
   type HistoryMessage,
+  type KnowledgeArticle,
+  knowledgeInstructions,
   maxHistoryMessages,
+  maxKnowledgeArticles,
+  parseSources,
 } from "./draft-reply.ts";
+export {
+  createEmbeddingModel,
+  type EmbeddingConfig,
+  type EmbeddingProvider,
+  type EmbedResult,
+  embeddingDimensions,
+  embeddingProviders,
+  embedTexts,
+  parseEmbeddingConfig,
+} from "./embed.ts";
 export { createModel } from "./model.ts";

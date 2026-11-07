@@ -17,10 +17,16 @@ const evalTools = {
   },
 } satisfies ToolSet;
 
-export type TaskOutput = { text: string; toolCalls: string[] };
+export type TaskOutput = {
+  text: string;
+  toolCalls: string[];
+  /** Titles of the knowledge passages the draft cited. */
+  cited: string[];
+};
 
 /** The task evals run: the same draftReply() and prompt the draft-reply job uses. */
 export async function draftReplyTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
-  const { text, toolCalls } = await draftReply(model, input, { tools: evalTools });
-  return { text, toolCalls };
+  const { text, toolCalls, cited } = await draftReply(model, input, { tools: evalTools });
+  const titles = cited.map((i) => input.knowledge?.[i]?.title ?? `K${i + 1}`);
+  return { text, toolCalls, cited: titles };
 }

@@ -4,12 +4,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AuthStore, createAuthStore } from "./auth.ts";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
 import { isUniqueViolation } from "./errors.ts";
+import { searchKnowledge } from "./knowledge.ts";
 import {
   aiUsage,
   attachments,
   auditEvents,
   customers,
+  draftCitations,
   drafts,
+  knowledgeChunks,
+  knowledgeEmbeddingDimensions,
+  knowledgeSources,
   mailboxes,
   memberships,
   messages,
@@ -37,8 +42,18 @@ const b = {
   membership: uuidv7(),
   draft: uuidv7(),
   auditEvent: uuidv7(),
+  source: uuidv7(),
+  chunk: uuidv7(),
+  citation: uuidv7(),
   userId: "",
 };
+
+/** A unit vector along one axis: identical axes have distance 0, different ones 1. */
+function axis(i: number): number[] {
+  const v = new Array<number>(knowledgeEmbeddingDimensions).fill(0);
+  v[i] = 1;
+  return v;
+}
 
 async function seedB(tx: TenantTx): Promise<void> {
   const tenantId = tenantB;
@@ -83,6 +98,30 @@ async function seedB(tx: TenantTx): Promise<void> {
     body: "Hi Jane",
   });
   await tx.insert(aiUsage).values({ tenantId, day: "2026-11-07", inputTokens: 10 });
+  await tx.insert(knowledgeSources).values({
+    id: b.source,
+    tenantId,
+    slug: "refunds",
+    kind: "markdown",
+    title: "B's refund policy",
+    content: "Refunds take 5 days.",
+  });
+  await tx.insert(knowledgeChunks).values({
+    id: b.chunk,
+    tenantId,
+    sourceId: b.source,
+    position: 0,
+    content: "Refunds take 5 days.",
+    embedding: axis(7),
+  });
+  await tx.insert(draftCitations).values({
+    id: b.citation,
+    tenantId,
+    draftId: b.draft,
+    chunkId: b.chunk,
+    rank: 0,
+    cited: true,
+  });
   await tx.insert(auditEvents).values({
     id: b.auditEvent,
     tenantId,
@@ -133,6 +172,9 @@ const tables = {
   attachments,
   drafts,
   aiUsage,
+  knowledgeSources,
+  knowledgeChunks,
+  draftCitations,
 } as const;
 
 describe("leak: acting as tenant A", () => {
@@ -184,6 +226,55 @@ describe("leak: acting as tenant A", () => {
         });
       }),
     ).rejects.toThrow();
+  });
+
+  it("vector search as A returns no B embeddings", async () => {
+    const hits = await db.withTenant(tenantA, (tx) =>
+      searchKnowledge(tx, { tenantId: tenantA, embedding: axis(7), limit: 20 }),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it("vector search as A returns nothing even when it asks for B's tenant_id", async () => {
+    // The explicit filter is belt and braces: RLS alone already refuses B's rows.
+    const hits = await db.withTenant(tenantA, (tx) =>
+      searchKnowledge(tx, { tenantId: tenantB, embedding: axis(7), limit: 20 }),
+    );
+    expect(hits).toEqual([]);
+    const own = await db.withTenant(tenantB, (tx) =>
+      searchKnowledge(tx, { tenantId: tenantB, embedding: axis(7), limit: 20 }),
+    );
+    expect(own.map((h) => h.chunkId)).toEqual([b.chunk]);
+  });
+
+  it("cannot attach B's knowledge chunk to a source in A, even with its ID", async () => {
+    await expect(
+      db.withTenant(tenantA, async (tx) => {
+        const [source] = await tx
+          .insert(knowledgeSources)
+          .values({ tenantId: tenantA, slug: "x", kind: "markdown", title: "x", content: "x" })
+          .returning({ id: knowledgeSources.id });
+        await tx.insert(knowledgeChunks).values({
+          tenantId: tenantA,
+          sourceId: b.source,
+          position: 0,
+          content: `x${source?.id}`,
+          embedding: axis(1),
+        });
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("a knowledge slug that B already uses is accepted in A", async () => {
+    await db.withTenant(tenantA, (tx) =>
+      tx.insert(knowledgeSources).values({
+        tenantId: tenantA,
+        slug: "refunds",
+        kind: "url",
+        title: "A's refunds",
+        url: "https://a.test/refunds",
+      }),
+    );
   });
 
   it("fetching B's ticket ID finds nothing, same as an unknown ID", async () => {
