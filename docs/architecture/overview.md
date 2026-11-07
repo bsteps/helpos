@@ -4,7 +4,7 @@ How the pieces of HelpOS fit together. This page **summarises** the ADRs in [`do
 
 ## Components
 
-One Node.js 24 Docker image runs in two roles, plus Postgres (ADR 0002).
+One Node.js 24 Docker image runs in two roles, plus Postgres (ADR 0002). Postgres must be 15 or later with pgvector: the migrations use `ON DELETE SET NULL (column)`. Development and tests use 17.
 
 ```mermaid
 flowchart LR

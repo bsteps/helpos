@@ -993,6 +993,44 @@ describe("limits", () => {
     expect(await sourceOf(acme, id)).toMatchObject({ status: "pending", error: "http_503" });
   });
 
+  it("a site that was down doesn't use up the embedding provider's own one more try", async () => {
+    const [row] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        // As left by a first try that met a 503 from the site.
+        .values({
+          tenantId: acme,
+          slug: "site-then-provider",
+          kind: "markdown",
+          title: "x",
+          content: "Hi",
+          error: "http_503",
+        })
+        .returning({ id: knowledgeSources.id }),
+    );
+    if (!row) throw new Error("no row");
+    const busy = {
+      specificationVersion: "v4",
+      provider: "test",
+      modelId: "busy",
+      maxEmbeddingsPerCall: 100,
+      supportsParallelCalls: true,
+      doEmbed: async () => {
+        throw providerDownError();
+      },
+    } as const;
+    await handleIngestSource({
+      embeddingModel: busy,
+      fetch: testFetch,
+      logger,
+      dailyTokenBudget: 1e6,
+    })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
+    expect(await sourceOf(acme, row.id)).toMatchObject({
+      status: "pending",
+      error: "embedding_unavailable",
+    });
+  });
+
   it("fails a source whose page can't be read, rather than leave it pending", async () => {
     const id = await insertUrlSource("reader-breaks", "/refunds");
     const broken: Fetcher = async () => {
