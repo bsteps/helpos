@@ -2,6 +2,7 @@ import {
   and,
   type Database,
   desc,
+  enqueue,
   eq,
   inArray,
   isUniqueViolation,
@@ -11,6 +12,7 @@ import {
   uuidv7,
 } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
+import { draftReplyJob } from "../drafts/jobs.ts";
 import { type ParsedEmail, parseEmail } from "./parse.ts";
 
 const { attachments, customers, messages, tickets } = schema;
@@ -27,10 +29,7 @@ export type IngestResult =
       ticketId: string;
       messageId: string;
       threaded: boolean;
-      /**
-       * False for machine-sent mail. No draft job exists yet: the one #45 adds must be
-       * enqueued only when this is true.
-       */
+      /** True when a draft-reply job was queued. False for machine-sent mail. */
       draftReply: boolean;
     };
 
@@ -167,12 +166,18 @@ async function store(
     });
   }
 
+  // Same transaction as the message: the job exists exactly when the message does.
+  const draftReply = email.automated === null;
+  if (draftReply) {
+    await enqueue(tx, draftReplyJob, { tenantId, messageId }, { singletonKey: messageId });
+  }
+
   return {
     kind: "created",
     ticketId,
     messageId,
     threaded: threadTicketId !== null,
-    draftReply: email.automated === null,
+    draftReply,
   };
 }
 

@@ -2,7 +2,10 @@ import { brand } from "@helpos/brand";
 import type { Database } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { requestId } from "hono/request-id";
 import type { Logger } from "pino";
+import { type Authenticate, refuseAll } from "./auth/principal.ts";
+import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 
 export interface AppDeps {
@@ -11,10 +14,20 @@ export interface AppDeps {
   logger: Pick<Logger, "error" | "warn" | "info">;
   /** HELPOS_INBOUND_SECRET. When unset, the inbound email endpoint refuses every request. */
   inboundSecret: string | undefined;
+  /** Resolves API callers. Defaults to refusing everyone until agent tokens and sessions exist. */
+  authenticate?: Authenticate;
 }
 
-export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAPIHono {
+export function createApp({
+  db,
+  files,
+  logger,
+  inboundSecret,
+  authenticate = refuseAll,
+}: AppDeps): OpenAPIHono {
   const app = new OpenAPIHono();
+  // Every response carries X-Request-Id, and audit events record it.
+  app.use("*", requestId());
 
   // Liveness + readiness in one: the server is only useful if it can reach Postgres.
   // The body stays minimal on purpose, so it reveals nothing about the setup.
@@ -27,6 +40,7 @@ export function createApp({ db, files, logger, inboundSecret }: AppDeps): OpenAP
   });
 
   registerInboundEmail(app, { db, files, logger, inboundSecret });
+  registerDraftRoutes(app, { db, authenticate });
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.
   app.onError((err, c) => {

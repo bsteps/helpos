@@ -188,6 +188,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@helpos/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@helpos/brand':
         specifier: workspace:*
         version: link:../../packages/brand
@@ -206,6 +209,9 @@ importers:
       hono:
         specifier: 4.13.16
         version: 4.13.16
+      nodemailer:
+        specifier: 10.3.1
+        version: 10.3.1
       pino:
         specifier: 10.4.0
         version: 10.4.0
@@ -217,6 +223,12 @@ importers:
         version: 4.6.7
     devDependencies:
       '@testcontainers/postgresql':
+        specifier: 12.2.1
+        version: 12.2.1
+      '@types/nodemailer':
+        specifier: 8.0.2
+        version: 8.0.2
+      testcontainers:
         specifier: 12.2.1
         version: 12.2.1
 
@@ -942,6 +954,9 @@ packages:
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
 
+  '@types/nodemailer@8.0.2':
+    resolution: {integrity: sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA==}
+
   '@types/ssh2-streams@0.1.13':
     resolution: {integrity: sha512-faHyY3brO9oLEA0QlcO8N2wT7R0+1sHWZvQ+y3rMLwdY1ZyS1z0W3t65j9PqT4HmQ6ALzNe7RZlNuCNE0wBSWA==}
 
@@ -1505,6 +1520,10 @@ packages:
     resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
+
+  nodemailer@10.3.1:
+    resolution: {integrity: sha512-uF0AFsJC07Y1vdW7p580DKAnh7rAO+4UPSSB3mDCPNDufoiaOebV6JmrzpxB14OjEEEiBsNdYoM2Y+fN8M7BBA==}
+    engines: {node: '>=20.0.0'}
 
   non-error@0.1.0:
     resolution: {integrity: sha512-TMB1uHiGsHRGv1uYclfhivcnf0/PdFp2pNqRxXjncaAsjYMoisaQJI+SSZCqRq+VliwRTC8tsMQfmrWjDMhkPQ==}
@@ -2398,6 +2417,10 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/nodemailer@8.0.2':
+    dependencies:
+      '@types/node': 24.19.2
+
   '@types/ssh2-streams@0.1.13':
     dependencies:
       '@types/node': 24.19.2
@@ -2854,6 +2877,8 @@ snapshots:
     optional: true
 
   nanoid@3.3.20: {}
+
+  nodemailer@10.3.1: {}
 
   non-error@0.1.0: {}
 

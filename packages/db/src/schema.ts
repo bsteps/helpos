@@ -250,3 +250,85 @@ export const attachments = pgTable(
     tenantIsolation(),
   ],
 );
+
+export const draftStatuses = ["pending", "approved", "sent", "discarded"] as const;
+export type DraftStatus = (typeof draftStatuses)[number];
+
+/**
+ * An AI-written reply to one inbound message: `pending → approved → sent`, or `discarded`.
+ * Only the approve endpoint moves it to `approved`, and only the send worker sends it.
+ */
+export const drafts = pgTable(
+  "drafts",
+  {
+    ...tenantColumns(),
+    ticketId: uuid("ticket_id").notNull(),
+    /** The inbound message this replies to. One draft per message, so a job retry can't add two. */
+    messageId: uuid("message_id").notNull(),
+    body: text("body").notNull(),
+    status: text("status", { enum: draftStatuses }).notNull().default("pending"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * The Message-ID the reply is sent with, fixed at approval. A retried send reuses it, so a
+     * mail server that already got the first attempt can drop the duplicate.
+     */
+    outboundMessageIdHeader: text("outbound_message_id_header"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** The outbound message row written when the reply was sent. */
+    sentMessageId: uuid("sent_message_id"),
+  },
+  (t) => [
+    unique("drafts_tenant_id_id").on(t.tenantId, t.id),
+    unique("drafts_tenant_message").on(t.tenantId, t.messageId),
+    check("drafts_status", sql`${t.status} in ('pending', 'approved', 'sent', 'discarded')`),
+    foreignKey({
+      name: "drafts_ticket_fk",
+      columns: [t.tenantId, t.ticketId],
+      foreignColumns: [tickets.tenantId, tickets.id],
+    }),
+    foreignKey({
+      name: "drafts_message_fk",
+      columns: [t.tenantId, t.messageId],
+      foreignColumns: [messages.tenantId, messages.id],
+    }),
+    foreignKey({
+      name: "drafts_sent_message_fk",
+      columns: [t.tenantId, t.sentMessageId],
+      foreignColumns: [messages.tenantId, messages.id],
+    }),
+    index("drafts_tenant_ticket").on(t.tenantId, t.ticketId),
+    tenantIsolation(),
+  ],
+);
+
+export const actorTypes = ["user", "agent", "system"] as const;
+export type ActorType = (typeof actorTypes)[number];
+
+/**
+ * Append-only log of every human, agent and system action, written in the same transaction as
+ * the action. The app role may only INSERT and SELECT here (migration 0005).
+ */
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().$defaultFn(uuidv7),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    actorType: text("actor_type", { enum: actorTypes }).notNull(),
+    /** A user ID, an agent token's identity, or a worker name such as `draft-reply`. */
+    actorId: text("actor_id").notNull(),
+    /** e.g. `draft.created`, `draft.approved`. */
+    action: text("action").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: uuid("target_id").notNull(),
+    /** The HTTP request that caused it. Null for actions a background job takes. */
+    requestId: text("request_id"),
+  },
+  (t) => [
+    check("audit_events_actor_type", sql`${t.actorType} in ('user', 'agent', 'system')`),
+    index("audit_events_tenant_target").on(t.tenantId, t.targetType, t.targetId),
+    tenantIsolation(),
+  ],
+);
