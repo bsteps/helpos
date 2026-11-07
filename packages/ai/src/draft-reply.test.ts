@@ -149,6 +149,24 @@ describe("fenceKnowledge", () => {
     expect(fenced.length).toBeLessThan(8 * 3_200);
   });
 
+  it("marks internal notes, and never offers their address", () => {
+    const fenced = fenceKnowledge([
+      { title: "Help", url: "https://help.x.test/a", content: "public fact" },
+      {
+        title: "Runbook",
+        url: "https://wiki.x.test/secret",
+        content: "internal fact",
+        internal: true,
+      },
+    ]);
+    const json = fenced.replace(/^<untrusted_knowledge>\n|\n<\/untrusted_knowledge>$/g, "");
+    expect(JSON.parse(json)).toEqual([
+      { id: "K1", title: "Help", url: "https://help.x.test/a", text: "public fact" },
+      { id: "K2", title: "Runbook", internal: true, text: "internal fact" },
+    ]);
+    expect(fenced).not.toContain("wiki.x.test");
+  });
+
   it("is empty when there is no knowledge", () => {
     expect(fenceKnowledge([])).toBe("");
   });

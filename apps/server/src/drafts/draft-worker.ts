@@ -123,7 +123,13 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         .reverse()
         .filter((m) => m.automatedReason === null)
         .map((m) => ({ direction: m.direction, from: m.from, body: messageText(m) })),
-      knowledge: knowledge.hits.map((h) => ({ title: h.title, url: h.url, content: h.content })),
+      // Internal notes are used too: a human approves every draft before it's sent.
+      knowledge: knowledge.hits.map((h) => ({
+        title: h.title,
+        url: h.url,
+        content: h.content,
+        internal: h.visibility === "internal",
+      })),
     });
     // Recorded right away, in this transaction. An unexpected error later rolls it back with
     // the rest of the job, so that one attempt goes uncounted; the cap is still checked on retry.

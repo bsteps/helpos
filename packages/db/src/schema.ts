@@ -386,6 +386,12 @@ export const knowledgeSourceKinds = ["url", "markdown"] as const;
 export type KnowledgeSourceKind = (typeof knowledgeSourceKinds)[number];
 export const knowledgeSourceStatuses = ["pending", "ready", "failed"] as const;
 export type KnowledgeSourceStatus = (typeof knowledgeSourceStatuses)[number];
+/**
+ * `public` may be shown or cited to customers (e.g. a help center). `internal` is the team's own
+ * notes, such as policies and workarounds: the AI may follow it, but never quote it to customers.
+ */
+export const knowledgeVisibilities = ["public", "internal"] as const;
+export type KnowledgeVisibility = (typeof knowledgeVisibilities)[number];
 
 /**
  * One knowledge document: a web page to fetch or a markdown doc. The ingest job turns it into
@@ -403,6 +409,8 @@ export const knowledgeSources = pgTable(
     url: text("url"),
     /** The document itself, for `markdown` sources. */
     content: text("content"),
+    /** Internal by default: nothing becomes customer-facing without someone choosing it. */
+    visibility: text("visibility", { enum: knowledgeVisibilities }).notNull().default("internal"),
     status: text("status", { enum: knowledgeSourceStatuses }).notNull().default("pending"),
     /** Why ingestion failed, as a short code such as `blocked_address`. Never page content. */
     error: text("error"),
@@ -418,6 +426,7 @@ export const knowledgeSources = pgTable(
     unique("knowledge_sources_tenant_slug").on(t.tenantId, t.slug),
     check("knowledge_sources_kind", sql`${t.kind} in ('url', 'markdown')`),
     check("knowledge_sources_status", sql`${t.status} in ('pending', 'ready', 'failed')`),
+    check("knowledge_sources_visibility", sql`${t.visibility} in ('public', 'internal')`),
     check("knowledge_sources_managed_by", sql`${t.managedBy} in ('app', 'git')`),
     check("knowledge_sources_git_path", sql`${t.managedBy} = 'app' or ${t.sourcePath} is not null`),
     check("knowledge_sources_url", sql`${t.kind} <> 'url' or ${t.url} is not null`),

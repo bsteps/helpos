@@ -19,6 +19,11 @@ const slugSchema = z
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/)
   .openapi({ example: "billing/refunds" });
 const titleSchema = z.string().trim().min(1).max(300);
+const visibilitySchema = z.enum(schema.knowledgeVisibilities).openapi({
+  description:
+    "`public` may be shown or cited to customers. `internal` (the default) is the team's own " +
+    "notes: AI drafts may follow it, but are told never to reveal it.",
+});
 
 /** Large enough for a long help article, small enough to bound one ingest's embedding cost. */
 export const maxMarkdownChars = 200_000;
@@ -29,12 +34,14 @@ const createBody = z.discriminatedUnion("kind", [
     title: titleSchema,
     url: z.url({ protocol: /^https?$/ }).max(2_000),
     slug: slugSchema.optional(),
+    visibility: visibilitySchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("markdown"),
     title: titleSchema,
     content: z.string().trim().min(1).max(maxMarkdownChars),
     slug: slugSchema.optional(),
+    visibility: visibilitySchema.optional(),
   }),
 ]);
 
@@ -46,6 +53,7 @@ const sourceSchema = z
     kind: z.enum(schema.knowledgeSourceKinds),
     title: z.string(),
     url: z.string().nullable(),
+    visibility: z.enum(schema.knowledgeVisibilities),
     /** `pending` until the ingest job has run, then `ready` or `failed`. */
     status: z.enum(schema.knowledgeSourceStatuses),
     /** Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`. */
@@ -100,7 +108,8 @@ const createSourceRoute = createRoute({
     "fetch, split into passages and embedded, which counts toward the daily AI budget. The " +
     "status turns `ready` or `failed`. AI drafts then quote matching passages as reference " +
     "data and record which ones they cite. One page per URL source: links are not followed. " +
-    "`slug` defaults to one made from the title. Needs `knowledge:write`.",
+    "`slug` defaults to one made from the title. `visibility` defaults to `internal`. " +
+    "Needs `knowledge:write`.",
   security,
   request: {
     body: { required: true, content: { "application/json": { schema: createBody } } },
@@ -161,6 +170,7 @@ function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
     kind: s.kind,
     title: s.title,
     url: s.url,
+    visibility: s.visibility,
     status: s.status,
     error: s.error,
     chunkCount: s.chunkCount,
@@ -220,6 +230,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
             title: input.title,
             url: input.kind === "url" ? input.url : null,
             content: input.kind === "markdown" ? input.content : null,
+            ...(input.visibility ? { visibility: input.visibility } : {}),
           })
           .returning();
         if (!row) throw new Error("create knowledge source: insert returned no row");

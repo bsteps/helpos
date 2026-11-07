@@ -78,7 +78,7 @@ sequenceDiagram
 
 Only the worker sends email, so only the worker role needs SMTP settings. An SMTP send can't be part of a database transaction, so approving doesn't send directly. Because pg-boss lives in Postgres, the approval, its audit event and the `send-reply` job commit together: either all three happen or none do. The job retries a failed send, and the draft stays `approved` until the send succeeds.
 
-Before drafting, the worker retrieves the best-matching knowledge passages for the email through a `SearchProvider` (pgvector, inside the same `withTenant()` transaction) and quotes them to the model as data, next to the email. The model lists the passages it used on a last line, which is stripped from the reply; the draft records every passage it saw and which ones it cited, so the approver can check the sources. Knowledge sources are added through `POST /v1/knowledge/sources` and turned into embedded passages by an `ingest-source` job, which fetches URLs only through `packages/safe-fetch`.
+Before drafting, the worker retrieves the best-matching knowledge passages for the email through a `SearchProvider` (pgvector, inside the same `withTenant()` transaction) and quotes them to the model as data, next to the email. The model lists the passages it used on a last line, which is stripped from the reply; the draft records every passage it saw and which ones it cited, so the approver can check the sources. Knowledge sources are added through `POST /v1/knowledge/sources` and turned into embedded passages by an `ingest-source` job, which fetches URLs only through `packages/safe-fetch`. Each source is `public` (may be shown or cited to customers) or `internal` (the default: the team's own notes). Drafts use both, because a human approves them, but internal passages go to the model marked as private and without their address; anything a customer sees unreviewed must search `public` only.
 
 The full MVP loop adds one more step (#37): a ticket becomes a GitHub issue, and when that issue is closed, a "fixed" draft goes through the same approve-and-send flow.
 
@@ -86,23 +86,23 @@ The full MVP loop adds one more step (#37): a ticket becomes a GitHub issue, and
 
 Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
 
-| Table               | What it is                                                                 |
-| ------------------- | -------------------------------------------------------------------------- |
-| `tenants`           | A workspace (the UI says "workspace")                                      |
-| `users`             | Humans (Better Auth tables in the `auth` schema, no `tenant_id`)           |
-| `memberships`       | Which workspaces a user belongs to (tenant table, RLS)                     |
-| `mailboxes`         | Support addresses. Inbound mail is routed to a tenant by address           |
-| `customers`         | People who write in                                                        |
-| `tickets`           | A conversation with a customer                                             |
-| `messages`          | Inbound and outbound emails on a ticket                                    |
-| `attachments`       | Metadata; the bytes live in the files adapter                              |
-| `drafts`            | AI-written replies: `pending → approved → sent`, or `discarded`            |
-| `draft_citations`   | Knowledge passages a draft was written with, and which it cited            |
-| `knowledge_sources` | Web pages and markdown docs for the AI (`managed_by` app or git, ADR 0010) |
-| `knowledge_chunks`  | Embedded passages of a source (pgvector, searched per ADR 0009 §4)         |
-| `api_tokens`        | Agent tokens: hashed, scoped, revocable (`hos_…`)                          |
-| `audit_events`      | Append-only log of every human and agent action                            |
-| `integrations`      | e.g. the linked GitHub repo and its encrypted token                        |
+| Table               | What it is                                                               |
+| ------------------- | ------------------------------------------------------------------------ |
+| `tenants`           | A workspace (the UI says "workspace")                                    |
+| `users`             | Humans (Better Auth tables in the `auth` schema, no `tenant_id`)         |
+| `memberships`       | Which workspaces a user belongs to (tenant table, RLS)                   |
+| `mailboxes`         | Support addresses. Inbound mail is routed to a tenant by address         |
+| `customers`         | People who write in                                                      |
+| `tickets`           | A conversation with a customer                                           |
+| `messages`          | Inbound and outbound emails on a ticket                                  |
+| `attachments`       | Metadata; the bytes live in the files adapter                            |
+| `drafts`            | AI-written replies: `pending → approved → sent`, or `discarded`          |
+| `draft_citations`   | Knowledge passages a draft was written with, and which it cited          |
+| `knowledge_sources` | Pages and docs for the AI, `public` or `internal`; app or git (ADR 0010) |
+| `knowledge_chunks`  | Embedded passages of a source (pgvector, searched per ADR 0009 §4)       |
+| `api_tokens`        | Agent tokens: hashed, scoped, revocable (`hos_…`)                        |
+| `audit_events`      | Append-only log of every human and agent action                          |
+| `integrations`      | e.g. the linked GitHub repo and its encrypted token                      |
 
 ## Trust boundaries
 

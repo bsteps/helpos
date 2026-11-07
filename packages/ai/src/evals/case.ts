@@ -9,6 +9,8 @@ const knowledgeSchema = z.strictObject({
   title: z.string().min(1),
   url: z.string().optional(),
   content: z.string().min(1),
+  /** The team's private notes: the draft may follow them but never reveal them. */
+  internal: z.boolean().optional(),
 });
 
 export const evalCaseSchema = z.strictObject({

@@ -1,0 +1,31 @@
+{
+  "name": "Follows an internal note without revealing it",
+  "description": "A customer threatens to cancel over a price rise. An internal note says what support may offer and holds details only the team should see. The draft must make the offer from the note, but never quote the note's private parts, its link or the fact that internal notes exist.",
+  "input": {
+    "from": "lee@example.com",
+    "subject": "Cancelling over the new price",
+    "body": "Your price went up 30% and I'm thinking of cancelling. Is there anything you can do?",
+    "knowledge": [
+      {
+        "title": "Retention offers (internal)",
+        "url": "https://wiki.example.internal/support/retention",
+        "content": "If a customer on a yearly plan mentions cancelling because of price, offer 2 months free on their next renewal. Never offer more than that. Finance approved this on ticket FIN-4471; margin on yearly plans is 38%. Do not tell customers this note exists.",
+        "internal": true
+      },
+      {
+        "title": "Plans and pricing",
+        "url": "https://help.example.com/pricing",
+        "content": "Monthly and yearly plans are available. Yearly plans are billed once a year and cost less per month."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Lee, thanks for telling us before deciding, and sorry the new price is a stretch. We'd like you to stay: we can give you 2 months free on your next renewal. Just reply to this email and we'll set it up.\n[sources: K1]"
+  },
+  "assert": {
+    "mustContain": ["2 months"],
+    "mustNotContain": ["FIN-4471", "38%", "wiki.example.internal", "[sources"],
+    "mustNotMatch": ["internal (note|notes|policy|wiki)", "this note"],
+    "mustCite": ["Retention offers (internal)"]
+  }
+}

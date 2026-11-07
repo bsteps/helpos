@@ -156,7 +156,13 @@ function call(method: string, path: string, as: string | null, body?: object) {
   });
 }
 
-type SourceJson = { id: string; slug: string; status: string; error: string | null };
+type SourceJson = {
+  id: string;
+  slug: string;
+  status: string;
+  error: string | null;
+  visibility: string;
+};
 
 async function addSource(as: string, body: object): Promise<SourceJson> {
   const res = await call("POST", "/v1/knowledge/sources", as, body);
@@ -285,7 +291,9 @@ describe("adding and ingesting sources", () => {
       kind: "url",
       title: "Refund policy",
       url: pageUrl("/refunds"),
+      visibility: "public",
     });
+    expect(added.visibility).toBe("public");
     expect((await ingested(acme, added.id)).status).toBe("ready");
     const [chunk] = await chunksOf(acme, added.id);
     expect(chunk?.content).toBe(
@@ -319,7 +327,13 @@ describe("adding and ingesting sources", () => {
     expect(sources.map((s) => s.slug)).toEqual(
       expect.arrayContaining(["password-reset", "refund-policy", "shipping"]),
     );
-    expect(sources[0]).toMatchObject({ kind: "markdown", managedBy: "app", sourcePath: null });
+    expect(sources[0]).toMatchObject({
+      kind: "markdown",
+      managedBy: "app",
+      sourcePath: null,
+      // Nothing is customer-facing unless someone chose it.
+      visibility: "internal",
+    });
   });
 });
 
@@ -586,6 +600,9 @@ describe("knowledge API", () => {
     expect(
       (await post({ kind: "url", title: "x", url: "https://x.test", content: "x" })).status,
     ).toBe(400);
+    expect(
+      (await post({ kind: "markdown", title: "x", content: "x", visibility: "secret" })).status,
+    ).toBe(400);
   });
 
   it("a slug is unique per workspace only", async () => {
@@ -725,6 +742,19 @@ describe("drafting with knowledge", () => {
     expect(result.hits.map((h) => h.content).join(" ")).not.toContain("OTHER-SECRET");
   });
 
+  it("a public-only search never returns internal notes", async () => {
+    const search = createVectorSearch(embeddingModel);
+    const result = await db.withTenant(acme, (tx) =>
+      search.search(tx, {
+        tenantId: acme,
+        text: "refunds password shipping",
+        limit: 20,
+        visibility: ["public"],
+      }),
+    );
+    expect(result.hits.map((h) => [h.title, h.visibility])).toEqual([["Refund policy", "public"]]);
+  });
+
   it("retrieves the matching article, quotes it as data, and the draft shows its sources", async () => {
     const raw = [
       "From: Jane Customer <jane@customer.test>",
@@ -752,6 +782,9 @@ describe("drafting with knowledge", () => {
       /<untrusted_knowledge>.*K1.*Refund policy.*5 business days.*<\/untrusted_knowledge>.*<untrusted_email>/,
     );
     expect(prompt).not.toContain("OTHER-SECRET");
+    // The public page is offered with its address; the internal notes are marked, without one.
+    expect(prompt).toContain(pageUrl("/refunds"));
+    expect(prompt).toMatch(/\\"internal\\": true/);
     const system = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt[0]);
     expect(system).not.toContain("5 business days");
 
@@ -759,7 +792,13 @@ describe("drafting with knowledge", () => {
     expect(res.status).toBe(200);
     const { drafts: list } = (await res.json()) as {
       drafts: {
-        sources: { title: string; cited: boolean; url: string | null; excerpt: string }[];
+        sources: {
+          title: string;
+          cited: boolean;
+          url: string | null;
+          visibility: string;
+          excerpt: string;
+        }[];
       }[];
     };
     const sources = list[0]?.sources ?? [];
@@ -767,11 +806,14 @@ describe("drafting with knowledge", () => {
       sourceId: expect.any(String),
       title: "Refund policy",
       url: pageUrl("/refunds"),
+      visibility: "public",
       excerpt: expect.stringContaining("5 business days"),
       cited: true,
     });
     // The rest were offered but not cited, and none come from another workspace.
     expect(sources.slice(1).every((s) => !s.cited)).toBe(true);
+    expect(sources.slice(1).length).toBeGreaterThan(0);
+    expect(sources.slice(1).every((s) => s.visibility === "internal")).toBe(true);
     expect(sources.map((s) => s.title)).not.toContain("Other refund policy");
 
     const citations = await db.withTenant(acme, (tx) =>

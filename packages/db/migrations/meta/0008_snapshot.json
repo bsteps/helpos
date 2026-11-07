@@ -1,5 +1,5 @@
 {
-  "id": "071cd53e-eb70-4582-ad03-e360dd8a9491",
+  "id": "a80fd61b-f751-4bf2-86f4-484e097ca7ab",
   "prevId": "a34c741f-06cc-44ad-97e2-82de7dd8a196",
   "version": "7",
   "dialect": "postgresql",
@@ -922,6 +922,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'internal'"
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -1017,6 +1024,10 @@
         "knowledge_sources_status": {
           "name": "knowledge_sources_status",
           "value": "\"knowledge_sources\".\"status\" in ('pending', 'ready', 'failed')"
+        },
+        "knowledge_sources_visibility": {
+          "name": "knowledge_sources_visibility",
+          "value": "\"knowledge_sources\".\"visibility\" in ('public', 'internal')"
         },
         "knowledge_sources_managed_by": {
           "name": "knowledge_sources_managed_by",

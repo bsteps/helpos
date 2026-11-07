@@ -1,5 +1,12 @@
 import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
-import { eq, type KnowledgeHit, schema, searchKnowledge, type TenantTx } from "@helpos/db";
+import {
+  eq,
+  type KnowledgeHit,
+  type KnowledgeVisibility,
+  schema,
+  searchKnowledge,
+  type TenantTx,
+} from "@helpos/db";
 
 export type { KnowledgeHit };
 
@@ -7,6 +14,8 @@ export interface SearchQuery {
   tenantId: string;
   text: string;
   limit: number;
+  /** Only these visibilities, e.g. `["public"]` for anything a customer sees unreviewed. */
+  visibility?: KnowledgeVisibility[] | undefined;
 }
 
 export interface SearchResult {
@@ -45,6 +54,7 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
         embedding,
         embeddingModel: modelId,
         limit: query.limit,
+        visibility: query.visibility,
       });
       return { hits, tokens };
     },

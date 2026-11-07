@@ -2,7 +2,12 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
 import { searchKnowledge } from "./knowledge.ts";
-import { knowledgeEmbeddingDimensions, knowledgeSources, tenants } from "./schema.ts";
+import {
+  type KnowledgeVisibility,
+  knowledgeEmbeddingDimensions,
+  knowledgeSources,
+  tenants,
+} from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
@@ -32,10 +37,18 @@ async function seedChunks(
   count: number,
   lean: number,
   axis: number,
+  visibility: KnowledgeVisibility = "internal",
 ): Promise<void> {
   const [source] = await tx
     .insert(knowledgeSources)
-    .values({ tenantId, slug: `s-${uuidv7()}`, kind: "markdown", title: "Doc", content: "x" })
+    .values({
+      tenantId,
+      slug: `s-${uuidv7()}`,
+      kind: "markdown",
+      title: visibility === "public" ? "Public doc" : "Doc",
+      content: "x",
+      visibility,
+    })
     .returning({ id: knowledgeSources.id });
   if (!source) throw new Error("seed: no source");
   await tx.execute(sql`
@@ -58,6 +71,8 @@ beforeAll(async () => {
   await db.withTenant(large, async (tx) => {
     await tx.insert(tenants).values({ id: large, name: "large" });
     await seedChunks(tx, large, 1_000, 10, 5);
+    // Two public passages, far from the query: every internal one is a better match.
+    await seedChunks(tx, large, 2, 0.2, 7, "public");
   });
   await db.withTenant(small, async (tx) => {
     await tx.insert(tenants).values({ id: small, name: "small" });
@@ -102,9 +117,26 @@ describe("searchKnowledge", () => {
       searchKnowledge(tx, { tenantId: large, embedding: query, embeddingModel: model, limit: 5 }),
     );
     expect(hits).toHaveLength(5);
-    expect(hits.every((h) => h.title === "Doc")).toBe(true);
+    expect(hits.every((h) => h.title === "Doc" && h.visibility === "internal")).toBe(true);
     const distances = hits.map((h) => h.distance);
     expect(distances).toEqual([...distances].sort((a, b) => a - b));
+  });
+
+  it("finds the public passages behind a thousand better internal ones, on the index", async () => {
+    const hits = await db.withTenant(large, async (tx) => {
+      await forceIndex(tx);
+      return searchKnowledge(tx, {
+        tenantId: large,
+        embedding: query,
+        embeddingModel: model,
+        limit: 5,
+        visibility: ["public"],
+      });
+    });
+    expect(hits.map((h) => [h.title, h.visibility])).toEqual([
+      ["Public doc", "public"],
+      ["Public doc", "public"],
+    ]);
   });
 
   it("never compares vectors from another embedding model", async () => {
@@ -132,6 +164,17 @@ describe("searchKnowledge", () => {
           embedding: query,
           embeddingModel: model,
           limit: 1_000,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      db.withTenant(small, (tx) =>
+        searchKnowledge(tx, {
+          tenantId: small,
+          embedding: query,
+          embeddingModel: model,
+          limit: 5,
+          visibility: [],
         }),
       ),
     ).rejects.toThrow();

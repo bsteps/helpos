@@ -37,6 +37,11 @@ const draftSourceSchema = z
     sourceId: z.uuid(),
     title: z.string(),
     url: z.string().nullable(),
+    /**
+     * `internal` sources are the team's notes: the draft may follow them, so check it doesn't
+     * reveal them before approving.
+     */
+    visibility: z.enum(schema.knowledgeVisibilities),
     /** The passage the model was given. */
     excerpt: z.string(),
     /** True when the model says it used this passage; false when it was offered but unused. */
@@ -213,6 +218,7 @@ async function present(tx: TenantTx, rows: DraftRow[]): Promise<DraftJson[]> {
       sourceId: knowledgeSources.id,
       title: knowledgeSources.title,
       url: knowledgeSources.url,
+      visibility: knowledgeSources.visibility,
       excerpt: knowledgeChunks.content,
       cited: draftCitations.cited,
     })
