@@ -74,6 +74,8 @@ export interface NoticeWorkerDeps {
   /** Where the ticket link in the notice points, e.g. `https://help.acme.test`. */
   publicUrl: string;
   logger: Pick<Logger, "info" | "warn">;
+  /** The same delay the notice was queued with. A younger draft is left to its own job. */
+  noticeDelaySeconds?: number;
 }
 
 /** Emails the workspace owners that a draft is waiting for approval. */
@@ -110,7 +112,15 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       .innerJoin(messages, eq(messages.id, drafts.messageId))
       .innerJoin(tickets, eq(tickets.id, drafts.ticketId))
       .innerJoin(mailboxes, eq(mailboxes.id, tickets.mailboxId))
-      .where(and(eq(drafts.ticketId, queued.ticketId), eq(drafts.status, "pending")))
+      .where(
+        and(
+          eq(drafts.ticketId, queued.ticketId),
+          eq(drafts.status, "pending"),
+          // A draft that hasn't waited the full delay yet may still be approved in time. Its own
+          // job, queued with it, runs once it has.
+          sql`${drafts.createdAt} <= now() - make_interval(secs => ${deps.noticeDelaySeconds ?? defaultNoticeDelaySeconds})`,
+        ),
+      )
       .orderBy(desc(drafts.createdAt))
       .limit(1);
     // Approved or discarded meanwhile: nothing is waiting any more.

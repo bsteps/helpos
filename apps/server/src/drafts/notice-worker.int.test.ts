@@ -58,7 +58,8 @@ async function pendingDraft() {
   return draft;
 }
 
-function notify(draftId: string) {
+/** Runs the notice job now. Delay 0 by default, so the drafts these tests make count as old. */
+function notify(draftId: string, noticeDelaySeconds = 0) {
   const send = vi.fn<EmailTransport["send"]>();
   const run = db.withTenant(acme, (tx) =>
     handleDraftNotice({
@@ -66,6 +67,7 @@ function notify(draftId: string) {
       auth,
       publicUrl: "http://helpdesk.test",
       logger,
+      noticeDelaySeconds,
     })({ tenantId: acme, draftId }, tx),
   );
   return run.then(() => send);
@@ -199,5 +201,23 @@ describe("draft notice worker", () => {
     await pendingDraft();
     await new Promise((r) => setTimeout(r, 3_000));
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("an older draft's job never emails about a draft that hasn't waited the full delay", async () => {
+    const old = await pendingDraft();
+    // Replaced just now: the new draft is younger than the delay and may still be approved.
+    await db.withTenant(acme, async (tx) => {
+      await tx
+        .update(schema.drafts)
+        .set({ status: "discarded" })
+        .where(eq(schema.drafts.id, old.id));
+      await tx.insert(schema.drafts).values({
+        tenantId: acme,
+        ticketId: old.ticketId,
+        messageId: old.messageId,
+        body: "Hand-written.",
+      });
+    });
+    expect(await notify(old.id, 300)).not.toHaveBeenCalled();
   });
 });

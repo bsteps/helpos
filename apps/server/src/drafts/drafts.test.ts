@@ -323,10 +323,13 @@ describe("draft waiting notice", () => {
     expect(res.status).toBe(201);
     const second = (await res.json()) as { id: string };
     await db.withTenant(acme, (tx) =>
-      handleDraftNotice({ transport, auth, publicUrl: "http://helpdesk.test", logger })(
-        { tenantId: acme, draftId: second.id },
-        tx,
-      ),
+      handleDraftNotice({
+        transport,
+        auth,
+        publicUrl: "http://helpdesk.test",
+        logger,
+        noticeDelaySeconds: 0,
+      })({ tenantId: acme, draftId: second.id }, tx),
     );
     // Give the queued job time to run too: it must not send either.
     await new Promise((r) => setTimeout(r, 2_000));
