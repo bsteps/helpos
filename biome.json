@@ -57,7 +57,9 @@
               "options": {
                 "paths": {
                   "postgres": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
-                  "drizzle-orm/postgres-js": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db."
+                  "drizzle-orm/postgres-js": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
+                  "drizzle-orm": "Import query helpers (eq, sql, ...) from @helpos/db. A second drizzle-orm copy breaks its types.",
+                  "pg-boss": "Use enqueue() and createJobRunner() from @helpos/db, so jobs stay tenant-scoped."
                 }
               }
             }
