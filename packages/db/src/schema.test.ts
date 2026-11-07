@@ -8,14 +8,17 @@ import { startTestDatabase, type TestDatabase } from "./testing.ts";
 
 let testDb: TestDatabase;
 let owner: postgres.Sql;
+let app: postgres.Sql;
 
 beforeAll(async () => {
   testDb = await startTestDatabase();
   owner = postgres(testDb.ownerUrl, { max: 1, onnotice: () => {} });
+  app = postgres(testDb.appUrl, { max: 1, onnotice: () => {} });
 });
 
 afterAll(async () => {
   await owner?.end();
+  await app?.end();
   await testDb?.container.stop();
 });
 
@@ -35,7 +38,9 @@ describe("migrations", () => {
       order by c.relname`;
     expect(rows.map((r) => r.table)).toEqual([
       "attachments",
+      "audit_events",
       "customers",
+      "drafts",
       "mailboxes",
       "memberships",
       "messages",
@@ -66,5 +71,38 @@ describe("migrations", () => {
     for (const { name } of found) expect(allowlist).toContain(name);
     // Guards against the query silently finding nothing (e.g. jobs not installed).
     expect(found.map((f) => f.name)).toContain("jobs_api.app_enqueue");
+  });
+});
+
+describe("audit_events is append-only for the app role", () => {
+  const tenantId = "0190a000-0000-7000-8000-000000000001";
+
+  /** Runs as the app role inside one tenant, like withTenant() does. */
+  function asApp<T>(fn: (tx: postgres.TransactionSql) => Promise<T>) {
+    return app.begin(async (tx) => {
+      await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+      return fn(tx);
+    });
+  }
+
+  beforeAll(async () => {
+    await asApp(async (tx) => {
+      await tx`insert into tenants (id, name) values (${tenantId}, 'audit')`;
+      await tx`insert into audit_events (id, tenant_id, actor_type, actor_id, action, target_type, target_id)
+        values (gen_random_uuid(), ${tenantId}, 'system', 'test', 'draft.created', 'draft', gen_random_uuid())`;
+    });
+  });
+
+  it("can insert and read", async () => {
+    const rows = await asApp((tx) => tx`select action from audit_events`);
+    expect(rows.map((r) => r.action)).toEqual(["draft.created"]);
+  });
+
+  it.each([
+    ["UPDATE", "update audit_events set action = 'forged'"],
+    ["DELETE", "delete from audit_events"],
+    ["TRUNCATE", "truncate audit_events"],
+  ])("cannot %s", async (_, statement) => {
+    await expect(asApp((tx) => tx.unsafe(statement))).rejects.toMatchObject({ code: "42501" });
   });
 });

@@ -6,7 +6,9 @@ import { createDatabase, type Database, type TenantTx } from "./client.ts";
 import { isUniqueViolation } from "./errors.ts";
 import {
   attachments,
+  auditEvents,
   customers,
+  drafts,
   mailboxes,
   memberships,
   messages,
@@ -32,6 +34,8 @@ const b = {
   message: uuidv7(),
   attachment: uuidv7(),
   membership: uuidv7(),
+  draft: uuidv7(),
+  auditEvent: uuidv7(),
   userId: "",
 };
 
@@ -70,6 +74,22 @@ async function seedB(tx: TenantTx): Promise<void> {
     sizeBytes: 1,
     fileKey: `${tenantId}/file`,
   });
+  await tx.insert(drafts).values({
+    id: b.draft,
+    tenantId,
+    ticketId: b.ticket,
+    messageId: b.message,
+    body: "Hi Jane",
+  });
+  await tx.insert(auditEvents).values({
+    id: b.auditEvent,
+    tenantId,
+    actorType: "system",
+    actorId: "draft-reply",
+    action: "draft.created",
+    targetType: "draft",
+    targetId: b.draft,
+  });
 }
 
 /** A minimal ticket in tenant A, so A-side tests have something valid to point at. */
@@ -102,7 +122,15 @@ afterAll(async () => {
   await testDb?.container.stop();
 });
 
-const tables = { mailboxes, memberships, customers, tickets, messages, attachments } as const;
+const tables = {
+  mailboxes,
+  memberships,
+  customers,
+  tickets,
+  messages,
+  attachments,
+  drafts,
+} as const;
 
 describe("leak: acting as tenant A", () => {
   for (const [name, table] of Object.entries(tables)) {
@@ -122,6 +150,12 @@ describe("leak: acting as tenant A", () => {
       expect(stillThere).toHaveLength(1);
     });
   }
+
+  // Not in `tables`: the app role can't UPDATE or DELETE audit events at all (schema.test.ts).
+  it("cannot read B's audit_events", async () => {
+    const rows = await db.withTenant(tenantA, (tx) => tx.select().from(auditEvents));
+    expect(rows).toEqual([]);
+  });
 
   it("cannot insert a row tagged with B's tenant_id", async () => {
     await expect(

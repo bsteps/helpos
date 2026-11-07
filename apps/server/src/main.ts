@@ -1,10 +1,13 @@
+import { AiConfigError, createModel, type LanguageModel, parseAiConfig } from "@helpos/ai";
 import { brand } from "@helpos/brand";
-import { createDatabase } from "@helpos/db";
+import { createDatabase, createJobRunner } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
 import pino from "pino";
-import { createApp } from "./app.ts";
+import { createApp, errorSummary } from "./app.ts";
 import { envSchema } from "./env.ts";
+import { createSmtpTransport } from "./outbound-email/transport.ts";
+import { startWorker } from "./worker.ts";
 
 const env = envSchema.parse(process.env);
 const logger = pino({ level: env.HELPOS_LOG_LEVEL, base: { app: brand.slug } });
@@ -13,6 +16,15 @@ const db = createDatabase(env.HELPOS_DATABASE_URL);
 const files = createLocalFileStore(env.HELPOS_FILES_DIR);
 const inboundSecret = env.HELPOS_INBOUND_SECRET;
 if (!inboundSecret) logger.warn("HELPOS_INBOUND_SECRET is not set: inbound email is disabled");
+
+const runner = createJobRunner({
+  jobsUrl: env.HELPOS_DATABASE_JOBS_URL,
+  db,
+  onError: (err) => logger.error({ err: errorSummary(err) }, "job runner error"),
+});
+const transport = env.HELPOS_SMTP_URL ? createSmtpTransport(env.HELPOS_SMTP_URL) : undefined;
+await runner.start();
+await startWorker({ runner, files, logger, model: aiModel(), transport });
 
 const app = createApp({ db, files, logger, inboundSecret });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
@@ -37,6 +49,8 @@ async function shutdown(signal: string): Promise<void> {
   // Stop accepting connections and let in-flight requests finish before closing the pool.
   try {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await runner.stop();
+    transport?.close();
     await db.close();
   } catch (err) {
     logger.error({ err }, "shutdown failed");
@@ -47,3 +61,13 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+/** The AI model from env, or undefined when AI isn't configured (drafting then waits). */
+function aiModel(): LanguageModel | undefined {
+  try {
+    return createModel(parseAiConfig(process.env));
+  } catch (error) {
+    if (error instanceof AiConfigError) return undefined;
+    throw error;
+  }
+}

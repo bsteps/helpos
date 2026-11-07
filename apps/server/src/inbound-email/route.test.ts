@@ -3,14 +3,17 @@ import {
   type AuthStore,
   createAuthStore,
   createDatabase,
+  createJobRunner,
   type Database,
   eq,
+  type JobRunner,
   schema,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
+import { draftReplyJob } from "../drafts/jobs.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { ingestEmail } from "./ingest.ts";
 import { maxEmailBytes, secretMatches } from "./route.ts";
@@ -22,6 +25,7 @@ const fixture = (name: string) =>
 let testDb: TestDatabase;
 let db: Database;
 let auth: AuthStore;
+let runner: JobRunner;
 let acme: string;
 let other: string;
 const files = createMemoryFileStore();
@@ -43,6 +47,10 @@ beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
+  // Ingest queues a draft job, and enqueue() needs the queue to exist. Nothing works it here.
+  runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
+  await runner.start();
+  await runner.ensureQueue(draftReplyJob);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -57,6 +65,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await runner?.stop();
   await db?.close();
   await auth?.close();
   await testDb?.container.stop();
