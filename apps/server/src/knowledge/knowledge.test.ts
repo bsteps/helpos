@@ -80,9 +80,9 @@ const pages: Record<string, { type: string; body: string; status?: number; locat
 };
 
 /** Pages whose answer changes per request: the nth request gets the nth status (last repeats). */
-const sequences: Record<string, number[]> = {
-  "/flaky": [503, 200],
-  "/removed-later": [200, 404],
+const sequences: Record<string, { statuses: number[]; body: string }> = {
+  "/flaky": { statuses: [503, 200], body: "<p>The flaky page says hello.</p>" },
+  "/removed-later": { statuses: [200, 404], body: "<p>This page is removed later.</p>" },
 };
 const served: Record<string, number> = {};
 
@@ -92,9 +92,10 @@ const handler: RequestListener = (req, res) => {
   if (sequence) {
     const n = served[req.url ?? ""] ?? 0;
     served[req.url ?? ""] = n + 1;
-    const status = sequence[Math.min(n, sequence.length - 1)] ?? 500;
+    const status = sequence.statuses[Math.min(n, sequence.statuses.length - 1)] ?? 500;
     res.writeHead(status, { "content-type": "text/html" });
-    res.end(status === 200 ? `<p>Page ${req.url} says hello.</p>` : "");
+    // A fixed body, never the request URL: echoing input into HTML is a pattern to avoid.
+    res.end(status === 200 ? sequence.body : "");
     return;
   }
   const page = pages[req.url ?? ""];
@@ -335,7 +336,7 @@ describe("re-ingesting", () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ status: "pending", error: null });
     expect(await ingested(acme, added.id)).toMatchObject({ status: "ready", chunkCount: 1 });
-    expect((await chunksOf(acme, added.id))[0]?.content).toBe("Page /flaky says hello.");
+    expect((await chunksOf(acme, added.id))[0]?.content).toBe("The flaky page says hello.");
 
     const events = await db.withTenant(acme, (tx) =>
       tx
