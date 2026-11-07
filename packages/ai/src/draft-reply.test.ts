@@ -206,6 +206,8 @@ describe("parseSources", () => {
     expect(parseSources("Hi.\nSources: K1, K2", 2)).toEqual({ text: "Hi.", cited: [0, 1] });
     expect(parseSources("Hi. (source: K2)", 2)).toEqual({ text: "Hi.", cited: [1] });
     expect(parseSources("Hi.\n[source: K1]", 2)).toEqual({ text: "Hi.", cited: [0] });
+    expect(parseSources("Hi.\n_Sources: K1, K2_", 2)).toEqual({ text: "Hi.", cited: [0, 1] });
+    expect(parseSources("Hi.\n**Sources: K2**", 2)).toEqual({ text: "Hi.", cited: [1] });
     for (const own of [
       "Sources: our help center and the FAQ.",
       "[Sources: see our help center]",

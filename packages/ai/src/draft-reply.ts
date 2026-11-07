@@ -133,7 +133,8 @@ const sourcesMarker = new RegExp(
     // (source: K1)
     String.raw`\([ \t]*sources?[ \t]*:[ \t]*(${idList})[ \t]*\)`,
     // Sources: K1, K2 at the end of a line
-    String.raw`\bsources?[ \t]*:[ \t]*(${idList})(?=[*_\x60]*[ \t]*$)`,
+    // (Not \b: "_" counts as a word character, and "_Sources: K1_" is italics.)
+    String.raw`(?<![a-z0-9])sources?[ \t]*:[ \t]*(${idList})(?=[*_\x60]*[ \t]*$)`,
   ].join("|"),
   "gim",
 );
