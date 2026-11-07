@@ -17,8 +17,14 @@ export const envSchema = z.object({
   HELPOS_SMTP_URL: z.url().optional(),
   // Reads owner emails for "a draft is waiting" notices. Optional: without it, notices wait.
   HELPOS_DATABASE_AUTH_URL: z.url().optional(),
-  // Where links in emails point (the dashboard). Optional, default the local server.
+  // Where the dashboard runs: links in emails point here, and browser writes from any other
+  // origin are refused. Optional, default the local server.
   HELPOS_PUBLIC_URL: z.url().default("http://localhost:3000"),
+  // Signs human session cookies. Optional: without it (or HELPOS_DATABASE_AUTH_URL) nobody can
+  // sign in to the dashboard; agent tokens still work. Long enough that guessing is hopeless.
+  HELPOS_AUTH_SECRET: z.string().min(32).optional(),
+  // The built dashboard (apps/web/dist), served at /. Optional: unset, only the API is served.
+  HELPOS_WEB_DIR: z.string().min(1).optional(),
   // How long a new draft waits before owners are emailed. Approved sooner, no email is sent.
   HELPOS_NOTICE_DELAY_SECONDS: z.coerce.number().int().min(0).default(300),
   // Shadow mode can only be turned off when this is "true". Unset until the release safety work

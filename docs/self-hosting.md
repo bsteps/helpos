@@ -34,6 +34,20 @@ To upgrade an older one: `ALTER EXTENSION vector UPDATE;` (after your provider o
 
 The roles and schemas HelpOS expects (owner, app, auth and jobs roles) are set up the same way the dev database is. [`docker/postgres/init.sql`](../docker/postgres/init.sql) is the reference: run its equivalent with your own passwords.
 
+## Dashboard and sign-in
+
+The server serves the dashboard itself, from the same origin as the API, so the session cookie needs no CORS. Build it with `pnpm --filter @helpos/web build` and point the server at the result:
+
+| Variable             | Meaning                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HELPOS_WEB_DIR`     | The built dashboard (`apps/web/dist`). Unset: the server serves only the API.                                                                        |
+| `HELPOS_PUBLIC_URL`  | The URL people open the dashboard at, e.g. `https://help.example.com`. Links in emails use it, and browser writes from any other origin are refused. |
+| `HELPOS_AUTH_SECRET` | Signs session cookies. At least 32 characters: `openssl rand -hex 32`. Unset: nobody can sign in; agent tokens still work.                           |
+
+Sign-in also needs `HELPOS_DATABASE_AUTH_URL` (the auth role). With an `https` public URL, cookies are marked `Secure`, so serve the dashboard over HTTPS.
+
+There is no sign-up page. `pnpm helpos:init` creates the owner and prints a one-time link, valid for 24 hours, where they set their password. Send it only to the owner. Running `helpos:init` again prints a fresh link (the old one stops working) for as long as the owner has no password.
+
 ## Embeddings (knowledge base)
 
 Drafts quote your workspace's own docs. To do that, knowledge sources are split into passages and embedded. Embeddings are configured separately from the chat model, because not every provider offers them: **Anthropic has no embeddings API**, so even if your chat model is Claude you need one of the options below.

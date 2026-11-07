@@ -21,7 +21,8 @@
     "helpos:token": "pnpm --filter @helpos/server token",
     "db:seed": "pnpm --filter @helpos/server seed",
     "dev:send-email": "node --env-file-if-exists=.env scripts/send-email.mjs",
-    "rename-brand": "node scripts/rename-brand.mjs"
+    "rename-brand": "node scripts/rename-brand.mjs",
+    "test:e2e": "pnpm --filter @helpos/web build && pnpm --filter @helpos/web test:e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

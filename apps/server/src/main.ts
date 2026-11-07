@@ -32,8 +32,25 @@ const runner = createJobRunner({
 });
 const transport = env.HELPOS_SMTP_URL ? createSmtpTransport(env.HELPOS_SMTP_URL) : undefined;
 const auth = env.HELPOS_DATABASE_AUTH_URL
-  ? createAuthStore(env.HELPOS_DATABASE_AUTH_URL)
+  ? createAuthStore(env.HELPOS_DATABASE_AUTH_URL, {
+      ...(env.HELPOS_AUTH_SECRET
+        ? {
+            sessions: {
+              secret: env.HELPOS_AUTH_SECRET,
+              baseUrl: env.HELPOS_PUBLIC_URL,
+              cookiePrefix: brand.slug,
+              log: (level, message) =>
+                level === "error" ? logger.error(message) : logger.debug(message),
+            },
+          }
+        : {}),
+    })
   : undefined;
+if (!auth?.sessions) {
+  logger.warn(
+    "HELPOS_AUTH_SECRET or HELPOS_DATABASE_AUTH_URL is not set: nobody can sign in to the dashboard",
+  );
+}
 await runner.start();
 const dailyTokenBudget = env.HELPOS_AI_DAILY_TOKEN_BUDGET;
 await startWorker({
@@ -58,6 +75,13 @@ const app = createApp({
   dailyTokenBudget,
   noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
   allowShadowModeOff: env.HELPOS_ALLOW_SHADOW_MODE_OFF,
+  sessions: auth?.sessions ?? undefined,
+  // Only the one function the API needs for password links.
+  passwords: auth
+    ? { setPassword: (token, password) => auth.setPassword(token, password) }
+    : undefined,
+  publicUrl: env.HELPOS_PUBLIC_URL,
+  webDir: env.HELPOS_WEB_DIR,
 });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(

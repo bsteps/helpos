@@ -34,6 +34,8 @@ const principals: Record<string, () => Principal> = {
   reader: () => principal(acme, ["tickets:read"]),
   drafter: () => principal(acme, ["drafts:write"]),
   outsider: () => principal(other, ["tickets:read"]),
+  closer: () => principal(acme, ["tickets:read", "tickets:write"]),
+  outsiderCloser: () => principal(other, ["tickets:write"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -52,6 +54,11 @@ const app = () =>
   });
 const get = (path: string, as: string | null) =>
   app().request(path, as ? { headers: { authorization: `Bearer ${as}` } } : {});
+const post = (path: string, as: string | null) =>
+  app().request(path, {
+    method: "POST",
+    ...(as ? { headers: { authorization: `Bearer ${as}` } } : {}),
+  });
 
 type TicketJson = {
   id: string;
@@ -62,7 +69,13 @@ type TicketJson = {
   automated: boolean;
   aiPausedReason: string | null;
 };
-type MessageJson = { direction: string; from: { address: string }; text: string; to: string[] };
+type MessageJson = {
+  direction: string;
+  from: { address: string };
+  text: string;
+  html: string | null;
+  to: string[];
+};
 
 let emailCount = 0;
 async function receiveEmail(options: { to?: string; html?: string; text?: string } = {}) {
@@ -145,7 +158,7 @@ describe("GET /v1/tickets", () => {
 });
 
 describe("GET /v1/tickets/{id}", () => {
-  it("returns the ticket with its messages as text, never as HTML", async () => {
+  it("returns the ticket with its messages as text, and HTML only sanitised", async () => {
     const id = await receiveEmail({
       html: "<p>Hello <b>team</b></p><script>alert(1)</script><img src=https://x.test/t.gif>",
     });
@@ -159,9 +172,19 @@ describe("GET /v1/tickets/{id}", () => {
       from: { address: "jane@customer.test" },
       to: ["support@acme.test"],
       text: "Hello team",
+      // The remote image is replaced, so opening the email never tells the sender.
+      html: "<p>Hello <b>team</b></p><span>[image]</span>",
     });
     // Any case: an uppercase <SCRIPT> getting through is just as bad.
-    expect(JSON.stringify(ticket)).not.toMatch(/<\s*(script|img|p)\b/i);
+    expect(JSON.stringify(ticket)).not.toMatch(/<\s*(script|img)\b|x\.test/i);
+  });
+
+  it("has no HTML for a plain-text email", async () => {
+    const id = await receiveEmail({ text: "Just text." });
+    const ticket = (await (await get(`/v1/tickets/${id}`, "reader")).json()) as {
+      messages: MessageJson[];
+    };
+    expect(ticket.messages[0]).toMatchObject({ text: "Just text.", html: null });
   });
 
   it("says when the AI skipped the ticket because the daily budget was spent", async () => {
@@ -177,6 +200,65 @@ describe("GET /v1/tickets/{id}", () => {
     const unknown = await get("/v1/tickets/00000000-0000-7000-8000-000000000000", "reader");
     expect([theirs.status, unknown.status]).toEqual([404, 404]);
     expect(await theirs.json()).toEqual(await unknown.json());
+  });
+});
+
+describe("GET /v1/tickets?status=", () => {
+  it("keeps only open, or only closed, tickets", async () => {
+    const open = await receiveEmail();
+    const closed = await receiveEmail();
+    await setTicket(closed, { status: "closed" });
+    const ids = async (query: string) =>
+      (
+        (await (await get(`/v1/tickets?${query}`, "reader")).json()) as { tickets: TicketJson[] }
+      ).tickets.map((t) => t.id);
+    expect(await ids("status=open&limit=100")).toContain(open);
+    expect(await ids("status=open&limit=100")).not.toContain(closed);
+    expect(await ids("status=closed&limit=100")).toContain(closed);
+    expect(await ids("status=closed&limit=100")).not.toContain(open);
+    expect((await get("/v1/tickets?status=pending", "reader")).status).toBe(400);
+  });
+});
+
+describe("POST /v1/tickets/{id}/close", () => {
+  const auditOf = (id: string) =>
+    db.withTenant(acme, (tx) =>
+      tx
+        .select({
+          action: schema.auditEvents.action,
+          actorType: schema.auditEvents.actorType,
+          actorId: schema.auditEvents.actorId,
+          requestId: schema.auditEvents.requestId,
+        })
+        .from(schema.auditEvents)
+        .where(eq(schema.auditEvents.targetId, id)),
+    );
+
+  it("closes the ticket and audit-logs who did it, once", async () => {
+    const id = await receiveEmail();
+    const res = await post(`/v1/tickets/${id}/close`, "closer");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id, status: "closed" });
+    // Closing again is harmless and logs nothing new.
+    expect((await post(`/v1/tickets/${id}/close`, "closer")).status).toBe(200);
+    expect(await auditOf(id)).toEqual([
+      {
+        action: "ticket.closed",
+        actorType: "agent",
+        actorId: "test-agent",
+        requestId: res.headers.get("x-request-id"),
+      },
+    ]);
+  });
+
+  it("needs tickets:write, and can't close another workspace's ticket", async () => {
+    const id = await receiveEmail();
+    expect((await post(`/v1/tickets/${id}/close`, "reader")).status).toBe(403);
+    expect((await post(`/v1/tickets/${id}/close`, null)).status).toBe(401);
+    expect((await post(`/v1/tickets/${id}/close`, "outsiderCloser")).status).toBe(404);
+    const ticket = (await (await get(`/v1/tickets/${id}`, "reader")).json()) as TicketJson;
+    expect(ticket.status).toBe("open");
+    expect(await auditOf(id)).toEqual([]);
   });
 });
 

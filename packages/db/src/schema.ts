@@ -108,6 +108,10 @@ export const users = authSchema.table(
     id: uuid("id").primaryKey().$defaultFn(uuidv7),
     email: text("email").notNull().unique(),
     name: text("name"),
+    /** Better Auth's field. Always false until email verification exists (#11). */
+    emailVerified: boolean("email_verified").notNull().default(false),
+    /** Better Auth's field. Unused. */
+    image: text("image"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -115,6 +119,76 @@ export const users = authSchema.table(
       .$onUpdate(() => new Date()),
   },
   (t) => [isLowercase("users_email_lowercase", sql`${t.email}`)],
+);
+
+/** A signed-in browser. Better Auth writes these; the cookie holds a signed copy of `token`. */
+export const sessions = authSchema.table(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().$defaultFn(uuidv7),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("sessions_user").on(t.userId)],
+);
+
+/**
+ * How a user signs in. Only `credential` (email + password) exists: `accountId` is the user's
+ * ID and `password` is the hash. The other columns are Better Auth's, for providers we don't use.
+ */
+export const accounts = authSchema.table(
+  "accounts",
+  {
+    id: uuid("id").primaryKey().$defaultFn(uuidv7),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    password: text("password"),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [unique("accounts_provider_account").on(t.providerId, t.accountId)],
+);
+
+/**
+ * Short-lived one-time values. Password-setup links store only the SHA-256 of their token in
+ * `identifier`, so a database read can't be turned into a working link.
+ */
+export const verifications = authSchema.table(
+  "verifications",
+  {
+    id: uuid("id").primaryKey().$defaultFn(uuidv7),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("verifications_identifier").on(t.identifier)],
 );
 
 // --- Tenant tables ----------------------------------------------------------------------------
@@ -214,6 +288,8 @@ export const tickets = pgTable(
       foreignColumns: [mailboxes.tenantId, mailboxes.id],
     }),
     index("tickets_tenant_last_message").on(t.tenantId, t.lastMessageAt),
+    // The inbox: open tickets, newest activity first.
+    index("tickets_tenant_status_last_message").on(t.tenantId, t.status, t.lastMessageAt),
     tenantIsolation(),
   ],
 );
@@ -374,6 +450,7 @@ export const auditEvents = pgTable(
  */
 export const apiTokenScopes = [
   "tickets:read",
+  "tickets:write",
   "drafts:write",
   "drafts:approve",
   "knowledge:read",
