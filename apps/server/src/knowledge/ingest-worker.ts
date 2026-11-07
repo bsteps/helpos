@@ -53,7 +53,7 @@ const defaultFetchRetryDelaysMs = [1_000, 5_000];
 
 /**
  * The page's answer says the old passages no longer describe it: it's gone, or it now has no
- * text, too much, or isn't a page. They're removed, so drafts stop citing them. Other failures
+ * text, too much (too many passages, or too many bytes), or isn't a page. They're removed, so drafts stop citing them. Other failures
  * (a 5xx, a timeout, a blocked address) may pass, so the last good passages stay.
  */
 const supersededBy = new Set([
@@ -61,6 +61,7 @@ const supersededBy = new Set([
   "http_410",
   "no_text",
   "too_long",
+  "too_large",
   "unsupported_content_type",
 ]);
 
@@ -232,20 +233,10 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         deps.logger.warn({ sourceId, error }, "knowledge source could not be ingested");
       });
 
-    let page: PageText;
-    if (source.kind === "url") {
-      page = source.url ? await fetchWithRetries(deps, source.url) : { ok: false, error: "no_url" };
-    } else {
-      page = { ok: true, text: tidyAuthored(source.content ?? "") };
-    }
-    if (!page.ok) return fail(page.error);
-    const chunks = chunkText(page.text);
-    if (chunks.length === 0) return fail("no_text");
-    if (chunks.length > maxChunks) return fail("too_long");
-
-    // Read, not locked: holding the budget row through the embedding call would stop every
-    // draft in the workspace until this ingest commits. Concurrent ingests can each pass the
-    // check and overshoot by one embedding call, like a draft that starts just under the cap.
+    // Before the fetch, so a source that must wait doesn't fetch its page twice. Read, not
+    // locked: holding the budget row through the embedding call would stop every draft in the
+    // workspace until this ingest commits. Concurrent ingests can each pass the check and
+    // overshoot by one embedding call, like a draft that starts just under the cap.
     const started = now();
     const day = utcDay(started);
     const used = await transaction((tx) => usageOn(tx, day));
@@ -268,6 +259,17 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         deps.logger.warn({ sourceId }, "knowledge source waits for the daily AI budget");
       });
     }
+
+    let page: PageText;
+    if (source.kind === "url") {
+      page = source.url ? await fetchWithRetries(deps, source.url) : { ok: false, error: "no_url" };
+    } else {
+      page = { ok: true, text: tidyAuthored(source.content ?? "") };
+    }
+    if (!page.ok) return fail(page.error);
+    const chunks = chunkText(page.text);
+    if (chunks.length === 0) return fail("no_text");
+    if (chunks.length > maxChunks) return fail("too_long");
 
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
     try {

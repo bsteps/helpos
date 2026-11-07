@@ -128,8 +128,10 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
 // Written so no two repeated parts can match the same characters: the reply is model output
 // steered by untrusted email, and overlapping repeats would make a crafted one slow to scan.
 // Ids are listed with commas, but models also write "K1; K2", "K1 & K2", "K1 and K2" or "K1 K2".
-const idSeparator = String.raw`(?:[ \t]*[,;&][ \t]*|[ \t]+(?:and[ \t]+)?)`;
+const idSeparator = String.raw`(?:[ \t]*[,;&][ \t]*(?:and[ \t]+)?|[ \t]+(?:and[ \t]+)?)`;
 const idList = String.raw`(?:k\d+|none)(?:${idSeparator}(?:k\d+|none))*`;
+// A separator must be followed by an id, so "K2 is" stops after K2.
+const leadingIds = new RegExp(`^${idList}(?![a-z0-9])`, "i");
 const sourcesMarker = new RegExp(
   [
     // [sources: K1, K3], with any junk after the ids, or cut off at the end of a line
@@ -215,7 +217,10 @@ export function parseSources(text: string, offered: number): { text: string; cit
   const match = matches.at(-1);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
-  for (const token of (match[1] ?? match[2] ?? match[3] ?? "").split(/[\s,;&]+/)) {
+  // Only the ids at the start of the list: in "[sources: K1, K2 is outdated, K4 unused]" the
+  // model used K1 and K2, and K4 is part of its note, not a citation.
+  const list = leadingIds.exec(match[1] ?? match[2] ?? match[3] ?? "")?.[0] ?? "";
+  for (const token of list.split(/[\s,;&]+/)) {
     const n = /^k(\d+)$/i.exec(token);
     const index = n ? Number(n[1]) - 1 : -1;
     if (index >= 0 && index < offered) cited.add(index);

@@ -51,11 +51,19 @@ const blockTags = new Set([
 const preMark = "\uE000";
 const codeFence = "```";
 
-/** Text a reader of the page can't see is often the vehicle for hidden instructions. */
+/**
+ * Text a reader of the page can't see is often the vehicle for hidden instructions. Inline
+ * styles only (stylesheets aren't read): not shown, see-through, too small to read, moved off
+ * the screen, or squeezed into a box of no size.
+ */
 function isHidden(attribs: Record<string, string>): boolean {
   if ("hidden" in attribs || attribs["aria-hidden"] === "true") return true;
-  const style = (attribs.style ?? "").toLowerCase().replaceAll(/\s+/g, "");
-  return /display:none|visibility:hidden|font-size:0(?![.\d])/.test(style);
+  const style = `;${(attribs.style ?? "").toLowerCase().replaceAll(/\s+/g, "")}`;
+  return (
+    /;(display:none|visibility:hidden|font-size:0(?![.\d])|opacity:0(?![.\d]))/.test(style) ||
+    /;(left|right|top|text-indent):-\d{3,}/.test(style) ||
+    (/;(height|width):0(?![.\d])/.test(style) && /;overflow:hidden/.test(style))
+  );
 }
 
 export interface ExtractedPage {

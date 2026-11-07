@@ -25,6 +25,20 @@ describe("extractHtml", () => {
     expect(text).toBe("Visible fact.\n\nSmall print.");
   });
 
+  it("drops text hidden by other inline styles, and keeps text that only looks similar", () => {
+    const page = `<p>Visible fact.</p>
+      <p style="opacity: 0">secret one</p>
+      <div style="position:absolute; left:-9999px">secret two</div>
+      <p style="text-indent: -1000px">secret three</p>
+      <div style="height: 0; overflow: hidden">secret four</div>
+      <p style="opacity:0.8">Faded but readable.</p>
+      <p style="line-height:0; margin-left:-10px">Tight but shown.</p>
+      <div style="height:0">Spills out, so it's seen.</div>`;
+    expect(extractHtml(page).text).toBe(
+      "Visible fact.\n\nFaded but readable.\n\nTight but shown.\n\nSpills out, so it's seen.",
+    );
+  });
+
   it("keeps only <main> when the page has one", () => {
     const page = `<body><div>Sidebar links</div><main><h2>Shipping</h2><p>3 days.</p></main>
       <div>Related articles</div></body>`;

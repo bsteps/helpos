@@ -239,6 +239,14 @@ describe("parseSources", () => {
     }
   });
 
+  it("counts only the ids that start the list, not ones in a note after them", () => {
+    expect(parseSources("Hi.\n[sources: K1, K2 is outdated, K4 unused]", 4)).toEqual({
+      text: "Hi.",
+      cited: [0, 1],
+    });
+    expect(parseSources("Hi.\n[sources: K3, see K1]", 4)).toEqual({ text: "Hi.", cited: [2] });
+  });
+
   it("drops ids that were never offered", () => {
     expect(parseSources("Hi\n[sources: K1, K9, K0, x]", 2)).toEqual({ text: "Hi", cited: [0] });
   });

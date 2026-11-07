@@ -28,7 +28,7 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
-import { type Fetcher, handleIngestSource, nextUtcDay } from "./ingest-worker.ts";
+import { type Fetcher, handleIngestSource, maxPageBytes, nextUtcDay } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
@@ -122,6 +122,11 @@ const sequences: Record<string, { statuses: number[]; body: string; bodies?: str
   "/flaky": { statuses: [503, 200], body: "<p>The flaky page says hello.</p>" },
   // Down for longer than one ingest's tries (the first and two more).
   "/down-a-while": { statuses: [503, 503, 503, 200], body: "<p>Back up now.</p>" },
+  "/grown-later": {
+    statuses: [200],
+    body: "",
+    bodies: ["<p>Small at first.</p>", `<p>${"x".repeat(maxPageBytes)}</p>`],
+  },
   "/emptied-later": {
     statuses: [200],
     body: "",
@@ -587,6 +592,23 @@ describe("re-ingesting", () => {
     expect(await chunksOf(acme, added.id)).toEqual([]);
   });
 
+  it("drops the passages of a page that has grown past the size limit", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Grown later",
+      url: pageUrl("/grown-later"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+
+    expect((await reingest(added.id)).status).toBe(202);
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "too_large",
+      chunkCount: 0,
+    });
+    expect(await chunksOf(acme, added.id)).toEqual([]);
+  });
+
   it("drops the passages of a page that is now gone, so drafts stop citing it", async () => {
     const added = await addSource("editor", {
       kind: "url",
@@ -814,6 +836,19 @@ describe("limits", () => {
     // A wait that began yesterday is due now, and the worker (with budget left) runs it.
     await ingestAt(new Date(Date.now() - 86_400_000));
     expect(await ingested(acme, row.id)).toMatchObject({ status: "ready", error: null });
+  });
+
+  it("doesn't fetch a page while its source waits for the budget", async () => {
+    const id = await insertUrlSource("budget-url", "/budget-page");
+    await handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
+      { tenantId: acme, sourceId: id },
+      tenantTransactions(db, acme),
+    );
+    expect(await sourceOf(acme, id)).toMatchObject({
+      status: "pending",
+      error: "daily_budget_reached",
+    });
+    expect(requests).not.toContain("/budget-page");
   });
 
   it("the budget wait ends at the next midnight UTC", () => {
