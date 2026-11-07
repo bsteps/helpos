@@ -70,10 +70,10 @@ export function mockEmbedding(text: string): number[] {
 }
 
 /** An embedding model that uses mockEmbedding() and reports one token per word. */
-export function mockEmbeddingModel(): MockEmbeddingModelV4 {
+export function mockEmbeddingModel(modelId = "mock-embedding"): MockEmbeddingModelV4 {
   return new MockEmbeddingModelV4({
     provider: "mock",
-    modelId: "mock-embedding",
+    modelId,
     maxEmbeddingsPerCall: 100,
     doEmbed: async ({ values }) => ({
       embeddings: values.map(mockEmbedding),

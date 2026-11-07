@@ -20,6 +20,7 @@ CREATE TABLE "knowledge_chunks" (
 	"position" integer NOT NULL,
 	"content" text NOT NULL,
 	"embedding" vector(1536) NOT NULL,
+	"embedding_model" text NOT NULL,
 	CONSTRAINT "knowledge_chunks_tenant_id_id" UNIQUE("tenant_id","id")
 );
 --> statement-breakpoint
@@ -38,6 +39,7 @@ CREATE TABLE "knowledge_sources" (
 	"error" text,
 	"chunk_count" integer DEFAULT 0 NOT NULL,
 	"ingested_at" timestamp with time zone,
+	"embedding_model" text,
 	"managed_by" text DEFAULT 'app' NOT NULL,
 	"source_path" text,
 	"source_commit" text,

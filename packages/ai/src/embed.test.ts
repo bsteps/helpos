@@ -1,7 +1,13 @@
 import { MockEmbeddingModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { AiConfigError } from "./config.ts";
-import { embeddingDimensions, embedTexts, parseEmbeddingConfig } from "./embed.ts";
+import {
+  createEmbeddingModel,
+  embeddingDimensions,
+  embeddingModelId,
+  embedTexts,
+  parseEmbeddingConfig,
+} from "./embed.ts";
 import { mockEmbedding, mockEmbeddingModel } from "./testing.ts";
 
 const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * (b[i] ?? 0), 0);
@@ -26,6 +32,18 @@ describe("embedTexts", () => {
     const model = mockEmbeddingModel();
     expect(await embedTexts(model, [])).toEqual({ embeddings: [], tokens: 0 });
     expect(model.doEmbedCalls).toEqual([]);
+  });
+});
+
+describe("embeddingModelId", () => {
+  it("names the provider and model, so a model change is detectable", () => {
+    expect(embeddingModelId(mockEmbeddingModel())).toBe("mock/mock-embedding");
+    const openai = createEmbeddingModel({
+      provider: "openai",
+      model: "text-embedding-3-small",
+      apiKey: "sk-test",
+    });
+    expect(embeddingModelId(openai)).toBe("openai.embedding/text-embedding-3-small");
   });
 });
 

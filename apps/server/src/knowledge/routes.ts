@@ -54,6 +54,11 @@ const sourceSchema = z
     /** `git` items are changed in the workspace's repo, never through this API. */
     managedBy: z.enum(schema.managedByValues),
     sourcePath: z.string().nullable(),
+    /**
+     * The embedding model of the current passages. When it isn't the server's model (after a
+     * model change), drafts can't use them until the source is re-ingested.
+     */
+    embeddingModel: z.string().nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
     ingestedAt: z.iso.datetime().nullable(),
@@ -127,6 +132,28 @@ const deleteRoute = createRoute({
   },
 });
 
+const reingestRoute = createRoute({
+  method: "post",
+  path: "/v1/knowledge/sources/{id}/reingest",
+  summary: "Ingest a knowledge source again",
+  description:
+    "Sets the source back to `pending` and queues it, e.g. after a `failed` ingest, after the " +
+    "page changed, or after the embedding model changed. Until the new ingest is done, drafts " +
+    "keep using the current passages; if it fails, they stay. Asking again while it's pending " +
+    "queues nothing new. Needs `knowledge:write`.",
+  security,
+  request: { params: idParams },
+  responses: {
+    202: json(sourceSchema, "The source, status `pending`"),
+    ...authErrors,
+    404: json(errorSchema, "Not found in this workspace"),
+    409: json(
+      errorSchema,
+      "The source is managed in the workspace's git repo (`managed_in_git`): it's re-ingested on sync",
+    ),
+  },
+});
+
 function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
   return {
     id: s.id,
@@ -139,6 +166,7 @@ function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
     chunkCount: s.chunkCount,
     managedBy: s.managedBy,
     sourcePath: s.sourcePath,
+    embeddingModel: s.embeddingModel,
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
     ingestedAt: s.ingestedAt?.toISOString() ?? null,
@@ -214,6 +242,49 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       }
       throw error;
     }
+  });
+
+  app.openapi(reingestRoute, async (c) => {
+    const principal = c.get("principal");
+    if (!principal.scopes.has("knowledge:write")) return c.json({ error: "forbidden" }, 403);
+    const { id } = c.req.valid("param");
+    const { tenantId } = principal;
+    const result = await deps.db.withTenant(tenantId, async (tx) => {
+      const [found] = await tx
+        .select({ managedBy: knowledgeSources.managedBy, status: knowledgeSources.status })
+        .from(knowledgeSources)
+        .where(eq(knowledgeSources.id, id))
+        .for("update");
+      if (!found) return "not_found" as const;
+      if (found.managedBy === "git") return "managed_in_git" as const;
+      const [row] = await tx
+        .update(knowledgeSources)
+        .set({ status: "pending", error: null })
+        .where(eq(knowledgeSources.id, id))
+        .returning();
+      if (!row) throw new Error("reingest: update returned no row");
+      await recordAudit(tx, {
+        tenantId,
+        actor: principal.actor,
+        action: "knowledge_source.reingest_requested",
+        target: { type: "knowledge_source", id },
+        requestId: c.get("requestId"),
+      });
+      // Already pending: its job hasn't taken the lock yet, so reuse it rather than queue two.
+      // Otherwise always queue a new one. The last job may have committed but still look
+      // unfinished to pg-boss, and reusing it would leave this source pending with no job. An
+      // extra job is harmless: the worker skips a source that isn't pending.
+      await enqueue(
+        tx,
+        ingestSourceJob,
+        { tenantId, sourceId: id },
+        found.status === "pending" ? { singletonKey: id } : {},
+      );
+      return row;
+    });
+    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
+    return c.json(serialize(result), 202);
   });
 
   app.openapi(deleteRoute, async (c) => {

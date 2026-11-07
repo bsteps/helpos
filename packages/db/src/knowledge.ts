@@ -17,12 +17,15 @@ export interface KnowledgeHit {
 export interface KnowledgeQuery {
   tenantId: string;
   embedding: number[];
+  /** The model that embedded the query. Chunks from any other model are never compared. */
+  embeddingModel: string;
   limit: number;
 }
 
 const querySchema = z.strictObject({
   tenantId: z.uuid(),
   embedding: z.array(z.number().finite()).length(knowledgeEmbeddingDimensions),
+  embeddingModel: z.string().min(1).max(200),
   limit: z.number().int().min(1).max(20),
 });
 
@@ -39,7 +42,7 @@ export async function searchKnowledge(
   tx: TenantTx,
   query: KnowledgeQuery,
 ): Promise<KnowledgeHit[]> {
-  const { tenantId, embedding, limit } = querySchema.parse(query);
+  const { tenantId, embedding, embeddingModel, limit } = querySchema.parse(query);
   await tx.execute(sql`set local hnsw.iterative_scan = relaxed_order`);
   const vector = JSON.stringify(embedding);
   // relaxed_order may return rows slightly out of order, so the outer query sorts again
@@ -55,7 +58,7 @@ export async function searchKnowledge(
     with nearest as materialized (
       select id, source_id, content, embedding <=> ${vector}::vector as distance
       from knowledge_chunks
-      where tenant_id = ${tenantId}
+      where tenant_id = ${tenantId} and embedding_model = ${embeddingModel}
       order by embedding <=> ${vector}::vector
       limit ${limit}
     )

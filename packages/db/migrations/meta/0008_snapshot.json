@@ -1,5 +1,5 @@
 {
-  "id": "ad4900a6-59ea-458f-9e9f-ba9e2a601822",
+  "id": "0817faf9-c6a1-47c4-922a-03b421746b4c",
   "prevId": "a34c741f-06cc-44ad-97e2-82de7dd8a196",
   "version": "7",
   "dialect": "postgresql",
@@ -774,6 +774,12 @@
           "type": "vector(1536)",
           "primaryKey": false,
           "notNull": true
+        },
+        "embedding_model": {
+          "name": "embedding_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
@@ -939,6 +945,12 @@
         "ingested_at": {
           "name": "ingested_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embedding_model": {
+          "name": "embedding_model",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

@@ -1,4 +1,4 @@
-import { type EmbeddingModel, embedTexts } from "@helpos/ai";
+import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
 import { eq, schema, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
@@ -72,7 +72,8 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
  * Turns one knowledge source into embedded chunks. A source that can't be used (blocked URL,
  * 404, no text, budget spent, embedding call failed) is marked `failed` with a short reason,
  * and the job ends without a retry, so a source never stays `pending` after its job is done.
- * Only database errors throw, and pg-boss retries those.
+ * Only database errors throw, and pg-boss retries those. When a re-ingest fails, the chunks
+ * from the last good ingest stay in use, so a flaky site doesn't empty the knowledge base.
  */
 export function handleIngestSource(deps: IngestWorkerDeps) {
   return async (payload: { tenantId: string; sourceId: string }, tx: TenantTx): Promise<void> => {
@@ -126,6 +127,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return fail("embedding_failed");
     }
     const { embeddings, tokens } = embedded;
+    const modelId = embeddingModelId(deps.embeddingModel);
     await recordUsage(tx, tenantId, day, { inputTokens: tokens, outputTokens: 0 });
     if (embeddings.length !== chunks.length) {
       throw new Error(`ingest: ${embeddings.length} embeddings for ${chunks.length} chunks`);
@@ -139,11 +141,18 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         position,
         content,
         embedding: embeddings[position] ?? [],
+        embeddingModel: modelId,
       })),
     );
     await tx
       .update(knowledgeSources)
-      .set({ status: "ready", error: null, chunkCount: chunks.length, ingestedAt: new Date() })
+      .set({
+        status: "ready",
+        error: null,
+        chunkCount: chunks.length,
+        ingestedAt: new Date(),
+        embeddingModel: modelId,
+      })
       .where(eq(knowledgeSources.id, sourceId));
     await recordAudit(tx, {
       tenantId,

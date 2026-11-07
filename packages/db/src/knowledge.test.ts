@@ -13,6 +13,8 @@ let db: Database;
 const large = uuidv7();
 const small = uuidv7();
 
+const model = "test/model";
+
 /** Unit vector along axis 0, the query in every test here. */
 const query = (() => {
   const v = new Array<number>(knowledgeEmbeddingDimensions).fill(0);
@@ -37,8 +39,9 @@ async function seedChunks(
     .returning({ id: knowledgeSources.id });
   if (!source) throw new Error("seed: no source");
   await tx.execute(sql`
-    insert into knowledge_chunks (id, tenant_id, source_id, position, content, embedding)
-    select gen_random_uuid(), ${tenantId}, ${source.id}, g, 'chunk ' || g,
+    insert into knowledge_chunks
+      (id, tenant_id, source_id, position, content, embedding_model, embedding)
+    select gen_random_uuid(), ${tenantId}, ${source.id}, g, 'chunk ' || g, ${model},
       ('[' || array_to_string(array(
         select case when i = 1 then ${lean}::float8
                     when i = ${axis + 1} then 1
@@ -77,7 +80,12 @@ async function forceIndex(tx: TenantTx): Promise<void> {
 describe("searchKnowledge", () => {
   it("sets hnsw.iterative_scan for the rest of its transaction only", async () => {
     const inside = await db.withTenant(small, async (tx) => {
-      await searchKnowledge(tx, { tenantId: small, embedding: query, limit: 1 });
+      await searchKnowledge(tx, {
+        tenantId: small,
+        embedding: query,
+        embeddingModel: model,
+        limit: 1,
+      });
       return tx.execute<{ v: string }>(sql`select current_setting('hnsw.iterative_scan') as v`);
     });
     expect(inside[0]?.v).toBe("relaxed_order");
@@ -91,7 +99,7 @@ describe("searchKnowledge", () => {
 
   it("returns the nearest chunks first, with their source", async () => {
     const hits = await db.withTenant(large, (tx) =>
-      searchKnowledge(tx, { tenantId: large, embedding: query, limit: 5 }),
+      searchKnowledge(tx, { tenantId: large, embedding: query, embeddingModel: model, limit: 5 }),
     );
     expect(hits).toHaveLength(5);
     expect(hits.every((h) => h.title === "Doc")).toBe(true);
@@ -99,15 +107,32 @@ describe("searchKnowledge", () => {
     expect(distances).toEqual([...distances].sort((a, b) => a - b));
   });
 
+  it("never compares vectors from another embedding model", async () => {
+    const hits = await db.withTenant(large, (tx) =>
+      searchKnowledge(tx, { tenantId: large, embedding: query, embeddingModel: "other", limit: 5 }),
+    );
+    expect(hits).toEqual([]);
+  });
+
   it("rejects a vector of the wrong size and a silly limit", async () => {
     await expect(
       db.withTenant(small, (tx) =>
-        searchKnowledge(tx, { tenantId: small, embedding: [1, 0], limit: 5 }),
+        searchKnowledge(tx, {
+          tenantId: small,
+          embedding: [1, 0],
+          embeddingModel: model,
+          limit: 5,
+        }),
       ),
     ).rejects.toThrow();
     await expect(
       db.withTenant(small, (tx) =>
-        searchKnowledge(tx, { tenantId: small, embedding: query, limit: 1_000 }),
+        searchKnowledge(tx, {
+          tenantId: small,
+          embedding: query,
+          embeddingModel: model,
+          limit: 1_000,
+        }),
       ),
     ).rejects.toThrow();
   });
@@ -139,7 +164,12 @@ describe("eval: vector recall for a small tenant among large ones (ADR 0009 §4)
   it("searchKnowledge finds all of the small tenant's chunks on the same index", async () => {
     const hits = await db.withTenant(small, async (tx) => {
       await forceIndex(tx);
-      return searchKnowledge(tx, { tenantId: small, embedding: query, limit: 5 });
+      return searchKnowledge(tx, {
+        tenantId: small,
+        embedding: query,
+        embeddingModel: model,
+        limit: 5,
+      });
     });
     expect(hits).toHaveLength(3);
   });

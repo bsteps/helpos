@@ -408,6 +408,8 @@ export const knowledgeSources = pgTable(
     error: text("error"),
     chunkCount: integer("chunk_count").notNull().default(0),
     ingestedAt: timestamp("ingested_at", { withTimezone: true }),
+    /** The embedding model of its current chunks. Another model's search skips them. */
+    embeddingModel: text("embedding_model"),
     ...gitManageable(),
   },
   (t) => [
@@ -437,6 +439,11 @@ export const knowledgeChunks = pgTable(
     position: integer("position").notNull(),
     content: text("content").notNull(),
     embedding: vector("embedding", { dimensions: knowledgeEmbeddingDimensions }).notNull(),
+    /**
+     * The model that made `embedding`. Vectors from different models aren't comparable, so
+     * search only ever matches chunks from the model it embedded the query with.
+     */
+    embeddingModel: text("embedding_model").notNull(),
   },
   (t) => [
     unique("knowledge_chunks_tenant_id_id").on(t.tenantId, t.id),

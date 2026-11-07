@@ -113,6 +113,7 @@ async function seedB(tx: TenantTx): Promise<void> {
     position: 0,
     content: "Refunds take 5 days.",
     embedding: axis(7),
+    embeddingModel: "test/model",
   });
   await tx.insert(draftCitations).values({
     id: b.citation,
@@ -230,7 +231,12 @@ describe("leak: acting as tenant A", () => {
 
   it("vector search as A returns no B embeddings", async () => {
     const hits = await db.withTenant(tenantA, (tx) =>
-      searchKnowledge(tx, { tenantId: tenantA, embedding: axis(7), limit: 20 }),
+      searchKnowledge(tx, {
+        tenantId: tenantA,
+        embedding: axis(7),
+        embeddingModel: "test/model",
+        limit: 20,
+      }),
     );
     expect(hits).toEqual([]);
   });
@@ -238,11 +244,21 @@ describe("leak: acting as tenant A", () => {
   it("vector search as A returns nothing even when it asks for B's tenant_id", async () => {
     // The explicit filter is belt and braces: RLS alone already refuses B's rows.
     const hits = await db.withTenant(tenantA, (tx) =>
-      searchKnowledge(tx, { tenantId: tenantB, embedding: axis(7), limit: 20 }),
+      searchKnowledge(tx, {
+        tenantId: tenantB,
+        embedding: axis(7),
+        embeddingModel: "test/model",
+        limit: 20,
+      }),
     );
     expect(hits).toEqual([]);
     const own = await db.withTenant(tenantB, (tx) =>
-      searchKnowledge(tx, { tenantId: tenantB, embedding: axis(7), limit: 20 }),
+      searchKnowledge(tx, {
+        tenantId: tenantB,
+        embedding: axis(7),
+        embeddingModel: "test/model",
+        limit: 20,
+      }),
     );
     expect(own.map((h) => h.chunkId)).toEqual([b.chunk]);
   });
@@ -260,6 +276,7 @@ describe("leak: acting as tenant A", () => {
           position: 0,
           content: `x${source?.id}`,
           embedding: axis(1),
+          embeddingModel: "test/model",
         });
       }),
     ).rejects.toThrow();

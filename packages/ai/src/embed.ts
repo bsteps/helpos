@@ -43,6 +43,14 @@ export function createEmbeddingModel(config: EmbeddingConfig): EmbeddingModel {
   }
 }
 
+/**
+ * Names the model's vector space, e.g. `openai.embedding/text-embedding-3-small`. Vectors from
+ * different models can't be compared, so each stored vector records the model that made it.
+ */
+export function embeddingModelId(model: EmbeddingModel): string {
+  return typeof model === "string" ? model : `${model.provider}/${model.modelId}`;
+}
+
 export type EmbedResult = { embeddings: number[][]; tokens: number };
 
 /**

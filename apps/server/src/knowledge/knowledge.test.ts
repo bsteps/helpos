@@ -10,6 +10,7 @@ import {
   createDatabase,
   createJobRunner,
   type Database,
+  enqueue,
   eq,
   type JobRunner,
   schema,
@@ -25,8 +26,13 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { type Fetcher, handleIngestSource } from "./ingest-worker.ts";
+import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
+
+/** Sends the API's reingest request. */
+const reingest = (id: string, as = "editor") =>
+  call("POST", `/v1/knowledge/sources/${id}/reingest`, as);
 
 // The knowledge base end to end against real Postgres + pgvector and real pg-boss: add a
 // source → the ingest job fetches (SSRF-safe), chunks and embeds it → a draft retrieves it,
@@ -73,8 +79,24 @@ const pages: Record<string, { type: string; body: string; status?: number; locat
   },
 };
 
+/** Pages whose answer changes per request: the nth request gets the nth status (last repeats). */
+const sequences: Record<string, number[]> = {
+  "/flaky": [503, 200],
+  "/removed-later": [200, 404],
+};
+const served: Record<string, number> = {};
+
 const handler: RequestListener = (req, res) => {
   requests.push(req.url ?? "");
+  const sequence = sequences[req.url ?? ""];
+  if (sequence) {
+    const n = served[req.url ?? ""] ?? 0;
+    served[req.url ?? ""] = n + 1;
+    const status = sequence[Math.min(n, sequence.length - 1)] ?? 500;
+    res.writeHead(status, { "content-type": "text/html" });
+    res.end(status === 200 ? `<p>Page ${req.url} says hello.</p>` : "");
+    return;
+  }
   const page = pages[req.url ?? ""];
   if (!page) {
     res.writeHead(404).end();
@@ -297,6 +319,123 @@ describe("adding and ingesting sources", () => {
       expect.arrayContaining(["password-reset", "refund-policy", "shipping"]),
     );
     expect(sources[0]).toMatchObject({ kind: "markdown", managedBy: "app", sourcePath: null });
+  });
+});
+
+describe("re-ingesting", () => {
+  it("recovers a source that failed on a temporary error", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Flaky",
+      url: pageUrl("/flaky"),
+    });
+    expect(await ingested(acme, added.id)).toMatchObject({ status: "failed", error: "http_503" });
+
+    const res = await reingest(added.id);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending", error: null });
+    expect(await ingested(acme, added.id)).toMatchObject({ status: "ready", chunkCount: 1 });
+    expect((await chunksOf(acme, added.id))[0]?.content).toBe("Page /flaky says hello.");
+
+    const events = await db.withTenant(acme, (tx) =>
+      tx
+        .select({ action: auditEvents.action })
+        .from(auditEvents)
+        .where(eq(auditEvents.targetId, added.id))
+        .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id)),
+    );
+    expect(events.map((e) => e.action)).toEqual([
+      "knowledge_source.created",
+      "knowledge_source.failed",
+      "knowledge_source.reingest_requested",
+      "knowledge_source.ingested",
+    ]);
+  });
+
+  it("keeps the last good passages when a re-ingest fails", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Removed later",
+      url: pageUrl("/removed-later"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+    const before = await chunksOf(acme, added.id);
+
+    expect((await reingest(added.id)).status).toBe(202);
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "http_404",
+      chunkCount: 1,
+    });
+    expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(before.map((c) => c.id));
+  });
+
+  it("queues a new job even while the last one for the source still looks unfinished", async () => {
+    // The race: an ingest job commits, and pg-boss hasn't marked it completed yet. A job with
+    // the same dedupe key that won't start for a day stands in for that unfinished job.
+    const added = await addSource("editor", { kind: "markdown", title: "Race", content: "Hi" });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+    await db.withTenant(acme, (tx) =>
+      enqueue(
+        tx,
+        ingestSourceJob,
+        { tenantId: acme, sourceId: added.id },
+        { singletonKey: added.id, startAfter: new Date(Date.now() + 86_400_000) },
+      ),
+    );
+    expect((await reingest(added.id)).status).toBe(202);
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+  });
+
+  it("checks scope, workspace and git ownership", async () => {
+    const added = await addSource("editor", { kind: "markdown", title: "Mine", content: "x" });
+    expect((await reingest(added.id, "reader")).status).toBe(403);
+    expect((await reingest(added.id, "outsider")).status).toBe(404);
+    expect((await reingest("00000000-0000-7000-8000-000000000000")).status).toBe(404);
+    expect((await call("POST", `/v1/knowledge/sources/${added.id}/reingest`, null)).status).toBe(
+      401,
+    );
+
+    const [git] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "git-reingest",
+          kind: "markdown",
+          title: "x",
+          content: "x",
+          managedBy: "git",
+          sourcePath: "knowledge/git-reingest.md",
+        })
+        .returning({ id: knowledgeSources.id }),
+    );
+    const res = await reingest(git?.id ?? "");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "managed_in_git" });
+  });
+});
+
+describe("embedding model changes", () => {
+  it("records which model made each source's passages", async () => {
+    const added = await addSource("editor", { kind: "markdown", title: "Model", content: "Hi" });
+    expect(await ingested(acme, added.id)).toMatchObject({
+      embeddingModel: "mock/mock-embedding",
+    });
+    expect((await chunksOf(acme, added.id))[0]?.embeddingModel).toBe("mock/mock-embedding");
+    const list = (await (await call("GET", "/v1/knowledge/sources", "reader")).json()) as {
+      sources: { id: string; embeddingModel: string | null }[];
+    };
+    expect(list.sources.find((s) => s.id === added.id)?.embeddingModel).toBe("mock/mock-embedding");
+  });
+
+  it("a new model never compares against old vectors, and skips the embedding call", async () => {
+    const newModel = mockEmbeddingModel("new-model");
+    const result = await db.withTenant(acme, (tx) =>
+      createVectorSearch(newModel).search(tx, { tenantId: acme, text: "refunds", limit: 5 }),
+    );
+    expect(result).toEqual({ hits: [], tokens: 0 });
+    expect(newModel.doEmbedCalls).toEqual([]);
   });
 });
 
@@ -553,6 +692,7 @@ describe("knowledge API", () => {
     };
     expect(Object.keys(spec.paths["/v1/knowledge/sources"] ?? {})).toEqual(["get", "post"]);
     expect(Object.keys(spec.paths["/v1/knowledge/sources/{id}"] ?? {})).toEqual(["delete"]);
+    expect(Object.keys(spec.paths["/v1/knowledge/sources/{id}/reingest"] ?? {})).toEqual(["post"]);
     expect(Object.keys(spec.components.schemas)).toEqual(
       expect.arrayContaining(["KnowledgeSource", "DraftSource"]),
     );

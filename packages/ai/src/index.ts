@@ -27,6 +27,7 @@ export {
   type EmbeddingProvider,
   type EmbedResult,
   embeddingDimensions,
+  embeddingModelId,
   embeddingProviders,
   embedTexts,
   parseEmbeddingConfig,

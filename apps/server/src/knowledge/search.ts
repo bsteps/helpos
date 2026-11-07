@@ -1,5 +1,5 @@
-import { type EmbeddingModel, embedTexts } from "@helpos/ai";
-import { type KnowledgeHit, schema, searchKnowledge, type TenantTx } from "@helpos/db";
+import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
+import { eq, type KnowledgeHit, schema, searchKnowledge, type TenantTx } from "@helpos/db";
 
 export type { KnowledgeHit };
 
@@ -27,12 +27,14 @@ export interface SearchProvider {
 export const noKnowledge: SearchResult = { hits: [], tokens: 0 };
 
 export function createVectorSearch(model: EmbeddingModel): SearchProvider {
+  const modelId = embeddingModelId(model);
   return {
     async search(tx, query) {
       // Most workspaces start with no knowledge: skip the embedding call, its cost and latency.
       const [any] = await tx
         .select({ id: schema.knowledgeChunks.id })
         .from(schema.knowledgeChunks)
+        .where(eq(schema.knowledgeChunks.embeddingModel, modelId))
         .limit(1);
       if (!any) return noKnowledge;
       const { embeddings, tokens } = await embedTexts(model, [query.text]);
@@ -41,6 +43,7 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
       const hits = await searchKnowledge(tx, {
         tenantId: query.tenantId,
         embedding,
+        embeddingModel: modelId,
         limit: query.limit,
       });
       return { hits, tokens };
