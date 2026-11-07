@@ -1,3 +1,4 @@
+import { APICallError, RetryError } from "ai";
 import { MockEmbeddingModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { AiConfigError } from "./config.ts";
@@ -8,6 +9,7 @@ import {
   embeddingDimensions,
   embeddingModelId,
   embedTexts,
+  isTemporaryAiFailure,
   parseEmbeddingConfig,
 } from "./embed.ts";
 import { mockEmbedding, mockEmbeddingModel } from "./testing.ts";
@@ -192,5 +194,41 @@ describe("createEmbeddingModel", () => {
     }
     expect(calls[0]?.url).toBe("http://localhost:11434/v1/embeddings");
     expect(calls[0]?.body).toMatchObject({ model: "mxbai-embed-large", dimensions: 1024 });
+  });
+});
+
+describe("isTemporaryAiFailure", () => {
+  const apiError = (statusCode: number, isRetryable: boolean) =>
+    new APICallError({
+      message: `HTTP ${statusCode}`,
+      url: "https://api.example.test/v1/embeddings",
+      requestBodyValues: {},
+      statusCode,
+      isRetryable,
+    });
+
+  it("is true for an outage or rate limit that outlasted the retries, even wrapped", () => {
+    const retried = new RetryError({
+      message: "failed after 3 attempts",
+      reason: "maxRetriesExceeded",
+      errors: [apiError(503, true)],
+    });
+    expect(isTemporaryAiFailure(retried)).toBe(true);
+    expect(isTemporaryAiFailure(new EmbedError(0, { cause: retried }))).toBe(true);
+    expect(isTemporaryAiFailure(apiError(429, true))).toBe(true);
+  });
+
+  it("is false for a wrong key, a bad request or an unknown error", () => {
+    expect(isTemporaryAiFailure(apiError(401, false))).toBe(false);
+    expect(
+      isTemporaryAiFailure(
+        new RetryError({
+          message: "x",
+          reason: "errorNotRetryable",
+          errors: [apiError(400, false)],
+        }),
+      ),
+    ).toBe(false);
+    expect(isTemporaryAiFailure(new Error("dimensions"))).toBe(false);
   });
 });

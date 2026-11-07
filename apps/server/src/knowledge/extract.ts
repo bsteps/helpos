@@ -58,12 +58,53 @@ const codeFence = "```";
  */
 function isHidden(attribs: Record<string, string>): boolean {
   if ("hidden" in attribs || attribs["aria-hidden"] === "true") return true;
-  const style = `;${(attribs.style ?? "").toLowerCase().replaceAll(/\s+/g, "")}`;
+  const style = inlineStyle(attribs.style ?? "");
+  const is = (property: string, test: RegExp) => test.test(style.get(property) ?? "");
+  const zero = /^-?0(\.0*)?[a-z%]*$/;
+  const offScreen = /^-\d{3,}/;
   return (
-    /;(display:none|visibility:hidden|font-size:0(?![.\d])|opacity:0(?![.\d]))/.test(style) ||
-    /;(left|right|top|text-indent):-\d{3,}/.test(style) ||
-    (/;(height|width):0(?![.\d])/.test(style) && /;overflow:hidden/.test(style))
+    is("display", /^none$/) ||
+    is("visibility", /^(hidden|collapse)$/) ||
+    is("font-size", zero) ||
+    is("opacity", zero) ||
+    ["left", "right", "top", "text-indent"].some((p) => is(p, offScreen)) ||
+    ((is("height", zero) || is("width", zero)) && is("overflow", /^hidden$/))
   );
+}
+
+/**
+ * An inline style's declarations, as a browser reads them: comments removed, the last
+ * declaration of a property wins, and `!important` doesn't change the value. Property names
+ * are compared whole, so a comment or odd spacing before one can't hide it.
+ */
+function inlineStyle(css: string): Map<string, string> {
+  // Comments out in one pass. An unclosed one runs to the end, as in a browser.
+  let text = "";
+  let i = 0;
+  while (i < css.length) {
+    const open = css.indexOf("/*", i);
+    if (open === -1) {
+      text += css.slice(i);
+      break;
+    }
+    text += `${css.slice(i, open)} `;
+    const close = css.indexOf("*/", open + 2);
+    if (close === -1) break;
+    i = close + 2;
+  }
+  const declarations = new Map<string, string>();
+  for (const declaration of text.split(";")) {
+    const colon = declaration.indexOf(":");
+    if (colon === -1) continue;
+    const property = declaration.slice(0, colon).trim().toLowerCase();
+    const value = declaration
+      .slice(colon + 1)
+      .toLowerCase()
+      .replace(/!\s*important\s*$/, "")
+      .replaceAll(/\s+/g, "");
+    declarations.set(property, value);
+  }
+  return declarations;
 }
 
 export interface ExtractedPage {

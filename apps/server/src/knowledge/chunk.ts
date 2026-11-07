@@ -33,6 +33,38 @@ function splitLong(paragraph: string, limit: number): string[] {
 }
 
 /**
+ * Splits a block that is too long. Prose is cut at sentences or spaces. A block with code is
+ * cut between lines, and a code block cut in two is closed before the cut and opened again
+ * after it, so every passage holds whole, fenced code.
+ */
+function splitBlock(block: string, limit: number): string[] {
+  if (block.length <= limit) return [block];
+  const lines = block.split("\n");
+  if (!lines.some((line) => fenceLine.test(line))) return splitLong(block, limit);
+  const parts: string[] = [];
+  let current: string[] = [];
+  let size = 0;
+  let opener: string | undefined;
+  for (const line of lines) {
+    const closer = opener?.trimStart().startsWith("~~~") ? "~~~" : "```";
+    const closing = opener !== undefined && fenceLine.test(line);
+    // Room is kept for the closing fence a cut inside the code needs.
+    const reserve = opener !== undefined && !closing ? closer.length + 1 : 0;
+    if (current.length > 0 && size + line.length + 1 + reserve > limit) {
+      parts.push([...current, ...(opener !== undefined ? [closer] : [])].join("\n"));
+      current = opener !== undefined ? [opener] : [];
+      size = opener !== undefined ? opener.length + 1 : 0;
+    }
+    current.push(line);
+    size += line.length + 1;
+    if (fenceLine.test(line)) opener = opener === undefined ? line : undefined;
+  }
+  if (current.length > 0) parts.push(current.join("\n"));
+  // A single line longer than the limit still has to be cut.
+  return parts.flatMap((part) => (part.length > limit ? splitLong(part, limit) : [part]));
+}
+
+/**
  * Splits a document (plain text or markdown) into passages for embedding. A heading starts a
  * new passage, paragraphs are packed up to `maxChunkChars`, and a section's later passages
  * repeat its heading so each one still says what it's about.
@@ -68,15 +100,21 @@ export function chunkText(text: string): string[] {
     // Only the ends: indentation inside a paragraph (code, YAML, nested lists) is content.
     .map((p) => p.replace(/^\n+/, "").trimEnd())
     .filter((p) => p.trim());
-  // Inside a ``` or ~~~ code block, a line starting with `#` is a comment, not a heading. A
-  // block can hold blank lines, so this carries across paragraphs.
+  // A ``` or ~~~ code block can hold blank lines: it stays one block, so it isn't split
+  // between passages at a blank line, and a `#` comment in it is never read as a heading.
+  const blocks: string[] = [];
   let inFence = false;
   for (const paragraph of paragraphs) {
-    // A heading glued to its first paragraph (no blank line) still starts a section.
-    const [first = "", ...restLines] = paragraph.split("\n");
     const startsInFence = inFence;
     for (const line of paragraph.split("\n")) if (fenceLine.test(line)) inFence = !inFence;
-    if (!startsInFence && headingLine.test(first)) {
+    const last = blocks.length - 1;
+    if (startsInFence && last >= 0) blocks[last] = `${blocks[last]}\n\n${paragraph}`;
+    else blocks.push(paragraph);
+  }
+  for (const block of blocks) {
+    // A heading glued to its first paragraph (no blank line) still starts a section.
+    const [first = "", ...restLines] = block.split("\n");
+    if (headingLine.test(first)) {
       flush();
       // A very long heading is cut for repeating on later passages; the rest stays as text.
       heading = first.slice(0, 200);
@@ -84,11 +122,11 @@ export function chunkText(text: string): string[] {
       size = heading.length;
       const rest = [first.slice(200), ...restLines].join("\n").trim();
       if (!rest) continue;
-      for (const part of splitLong(rest, maxChunkChars - heading.length - 2)) add(part);
+      for (const part of splitBlock(rest, maxChunkChars - heading.length - 2)) add(part);
       continue;
     }
     const room = maxChunkChars - (heading ? heading.length + 2 : 0);
-    for (const part of splitLong(paragraph, room)) add(part);
+    for (const part of splitBlock(block, room)) add(part);
   }
   flush();
   return chunks;

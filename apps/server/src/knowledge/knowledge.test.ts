@@ -1,7 +1,7 @@
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { embedBatchSize, embeddingDimensions } from "@helpos/ai";
-import { mockEmbeddingModel, mockModel } from "@helpos/ai/testing";
+import { mockEmbeddingModel, mockModel, providerDownError } from "@helpos/ai/testing";
 import {
   type AuthStore,
   and,
@@ -28,7 +28,13 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
-import { type Fetcher, handleIngestSource, maxPageBytes, nextUtcDay } from "./ingest-worker.ts";
+import {
+  embedRetryDelayMs,
+  type Fetcher,
+  handleIngestSource,
+  maxPageBytes,
+  nextUtcDay,
+} from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
@@ -104,6 +110,14 @@ const pages: Record<
     type: "text/html; charset=utf-16",
     body: Buffer.from(`${String.fromCharCode(0xfeff)}<p>Real UTF-16 page.</p>`, "utf16le"),
   },
+  // A description that mentions a charset declares none: the UTF-8 bytes stay UTF-8.
+  "/meta-description": {
+    type: "text/html",
+    body: Buffer.from(
+      '<meta name="description" content="Set charset=iso-8859-1 here"><p>Crème brûlée.</p>',
+      "utf8",
+    ),
+  },
   // The server can never answer this, so it isn't tried again.
   "/not-implemented": { type: "text/html", body: "", status: 501 },
   "/slow": { type: "text/html", body: "<p>A page that takes a while to fetch.</p>" },
@@ -133,6 +147,7 @@ const sequences: Record<string, { statuses: number[]; body: string; bodies?: str
     bodies: ["<p>This page has text at first.</p>", "<p></p>"],
   },
   "/removed-later": { statuses: [200, 404], body: "<p>This page is removed later.</p>" },
+  "/login-later": { statuses: [200, 401], body: "<p>Public at first, then behind a login.</p>" },
   "/down-later": { statuses: [200, 503], body: "<p>This page goes down later.</p>" },
 };
 const served: Record<string, number> = {};
@@ -468,6 +483,16 @@ describe("adding and ingesting sources", () => {
     ]);
   });
 
+  it("isn't fooled by a charset mentioned in another meta tag's text", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Meta description",
+      url: pageUrl("/meta-description"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+    expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual(["Crème brûlée."]);
+  });
+
   it("reads a page labelled UTF-16 that isn't, and a real UTF-16 page", async () => {
     for (const [path, text] of [
       ["/utf16-label", "Refunds in 5 days."],
@@ -604,6 +629,23 @@ describe("re-ingesting", () => {
     expect(await ingested(acme, added.id)).toMatchObject({
       status: "failed",
       error: "too_large",
+      chunkCount: 0,
+    });
+    expect(await chunksOf(acme, added.id)).toEqual([]);
+  });
+
+  it("drops the passages of a page that is now behind a login", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Login later",
+      url: pageUrl("/login-later"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+
+    expect((await reingest(added.id)).status).toBe(202);
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "http_401",
       chunkCount: 0,
     });
     expect(await chunksOf(acme, added.id)).toEqual([]);
@@ -849,6 +891,54 @@ describe("limits", () => {
       error: "daily_budget_reached",
     });
     expect(requests).not.toContain("/budget-page");
+  });
+
+  it("asking again while it waits for the budget keeps the reason it waits", async () => {
+    const id = await insertUrlSource("budget-reason", "/refunds");
+    await handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
+      { tenantId: acme, sourceId: id },
+      tenantTransactions(db, acme),
+    );
+    const res = await reingest(id);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending", error: "daily_budget_reached" });
+  });
+
+  it("waits and tries again when the embedding provider is down, instead of failing", async () => {
+    const [row] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({ tenantId: acme, slug: "embed-busy", kind: "markdown", title: "x", content: "Hi" })
+        .returning({ id: knowledgeSources.id }),
+    );
+    if (!row) throw new Error("no row");
+    const busy = {
+      specificationVersion: "v4",
+      provider: "test",
+      modelId: "busy",
+      maxEmbeddingsPerCall: 100,
+      supportsParallelCalls: true,
+      doEmbed: async () => {
+        throw providerDownError();
+      },
+    } as const;
+    const ingestAt = (now: Date) =>
+      handleIngestSource({
+        embeddingModel: busy,
+        fetch: testFetch,
+        logger,
+        dailyTokenBudget: 1_000_000,
+        now: () => now,
+      })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
+
+    await ingestAt(new Date());
+    expect(await sourceOf(acme, row.id)).toMatchObject({
+      status: "pending",
+      error: "embedding_unavailable",
+    });
+    // A wait that began long enough ago is due now, and the worker's working model runs it.
+    await ingestAt(new Date(Date.now() - embedRetryDelayMs - 60_000));
+    expect(await ingested(acme, row.id)).toMatchObject({ status: "ready", error: null });
   });
 
   it("the budget wait ends at the next midnight UTC", () => {

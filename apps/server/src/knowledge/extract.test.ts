@@ -39,6 +39,17 @@ describe("extractHtml", () => {
     );
   });
 
+  it("reads inline styles as a browser does, so a comment or odd case can't hide a rule", () => {
+    const page = `<p>Visible fact.</p>
+      <div style="/* note */display:none">secret one</div>
+      <div style="color:red;/*x*/ DISPLAY : NONE">secret two</div>
+      <div style="display: none !important">secret three</div>
+      <div style="display:block; display:none">secret four</div>
+      <div style="opacity:0/* trailing">secret five</div>
+      <div style="display:none; display:block">Shown: the last rule wins.</div>`;
+    expect(extractHtml(page).text).toBe("Visible fact.\n\nShown: the last rule wins.");
+  });
+
   it("keeps only <main> when the page has one", () => {
     const page = `<body><div>Sidebar links</div><main><h2>Shipping</h2><p>3 days.</p></main>
       <div>Related articles</div></body>`;

@@ -78,6 +78,29 @@ describe("chunkText", () => {
     expect(chunkText(" \n\n \r\n ")).toEqual([]);
   });
 
+  it("keeps a code block with blank lines in it whole", () => {
+    const code = "```sh\n# install\nnpm install\n\n# start\nnpm start\n```";
+    // Sized so the code's first half still fits after it and its second half doesn't: split at
+    // the blank line, the block would end up across two passages.
+    const filler = "Words here. ".repeat(121).trim();
+    const chunks = chunkText(`# Setup\n\n${filler}\n\n${code}`);
+    expect(chunks.some((c) => c.includes(code))).toBe(true);
+  });
+
+  it("splits a code block too long for one passage between lines, fenced again", () => {
+    const lines = Array.from({ length: 200 }, (_, i) => `echo line-${i}`);
+    const chunks = chunkText(`# Script\n\n\`\`\`sh\n${lines.join("\n")}\n\`\`\``);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(maxChunkChars);
+      // Every passage opens and closes its code.
+      expect(chunk.match(/^```/gm)?.length).toBe(2);
+    }
+    // No line is lost or cut.
+    const echoed = chunks.flatMap((c) => c.match(/^echo line-\d+$/gm) ?? []);
+    expect(echoed).toEqual(lines);
+  });
+
   it("never cuts a character in half, even in text with no spaces", () => {
     // Each emoji is two UTF-16 units; an odd offset puts the hard cut between the two.
     const text = `x${String.fromCodePoint(0x1f600).repeat(maxChunkChars)}`;

@@ -72,7 +72,8 @@ const sourceSchema = z
      * Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`, or `too_long` (more
      * passages than one source may have: split the document). On a `pending` source,
      * `daily_budget_reached` means it waits for the daily AI budget to reset at midnight UTC,
-     * and then runs by itself.
+     * and `embedding_unavailable` that the embedding provider was down or rate-limited and it
+     * tries again in 15 minutes. Either way it then runs by itself.
      */
     error: z.string().nullable(),
     chunkCount: z.number().int(),
@@ -303,7 +304,11 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const { tenantId } = principal;
     const result = await deps.db.withTenant(tenantId, async (tx) => {
       const [found] = await tx
-        .select({ managedBy: knowledgeSources.managedBy, status: knowledgeSources.status })
+        .select({
+          managedBy: knowledgeSources.managedBy,
+          status: knowledgeSources.status,
+          error: knowledgeSources.error,
+        })
         .from(knowledgeSources)
         .where(eq(knowledgeSources.id, id))
         .for("update");
@@ -313,7 +318,9 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         .update(knowledgeSources)
         .set({
           status: "pending",
-          error: null,
+          // A pending source's error says why it waits (the budget, the provider). Asking
+          // again doesn't end the wait, so the reason stays until its job looks again.
+          error: found.status === "pending" ? found.error : null,
           ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
         })
         .where(eq(knowledgeSources.id, id))

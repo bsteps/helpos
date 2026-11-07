@@ -1,3 +1,4 @@
+import { RetryError } from "ai";
 import { MockEmbeddingModelV4, MockLanguageModelV4 } from "ai/test";
 import { embeddingDimensions } from "./embed.ts";
 
@@ -37,6 +38,15 @@ export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
       },
       warnings: [],
     },
+  });
+}
+
+/** What the SDK throws once its own retries of a 429 or a 503 have run out. */
+export function providerDownError(): RetryError {
+  return new RetryError({
+    message: "failed after 3 attempts",
+    reason: "maxRetriesExceeded",
+    errors: [],
   });
 }
 

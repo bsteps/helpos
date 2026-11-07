@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { type EmbeddingModel, embedMany } from "ai";
+import { APICallError, type EmbeddingModel, embedMany, RetryError } from "ai";
 import { z } from "zod";
 import { AiConfigError } from "./config.ts";
 
@@ -77,6 +77,20 @@ export function embeddingModelId(model: EmbeddingModel): string {
 }
 
 export type EmbedResult = { embeddings: number[][]; tokens: number };
+
+/**
+ * A provider outage or rate limit that outlasted the SDK's own retries: worth trying again
+ * later. A wrong key, a bad request or a broken model is not, and fails at once.
+ */
+export function isTemporaryAiFailure(error: unknown): boolean {
+  let e: unknown = error;
+  for (let depth = 0; e !== undefined && depth < 5; depth++) {
+    if (RetryError.isInstance(e)) return e.reason === "maxRetriesExceeded";
+    if (APICallError.isInstance(e)) return e.isRetryable;
+    e = e instanceof Error ? e.cause : undefined;
+  }
+  return false;
+}
 
 /** Texts per embedding call. Calls run one after another, so a failure knows what was spent. */
 export const embedBatchSize = 64;

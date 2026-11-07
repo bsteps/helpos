@@ -1,6 +1,13 @@
-import { type EmbeddingModel, EmbedError, embeddingModelId, embedTexts } from "@helpos/ai";
+import {
+  type EmbeddingModel,
+  EmbedError,
+  embeddingModelId,
+  embedTexts,
+  isTemporaryAiFailure,
+} from "@helpos/ai";
 import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
+import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
 import { recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
@@ -63,7 +70,14 @@ const supersededBy = new Set([
   "too_long",
   "too_large",
   "unsupported_content_type",
+  // Now behind a login, or withheld: the owner took it out of public view.
+  "http_401",
+  "http_403",
+  "http_451",
 ]);
+
+/** How long a source waits after the embedding provider was down or rate-limited. */
+export const embedRetryDelayMs = 15 * 60_000;
 
 const htmlTypes = new Set(["text/html", "application/xhtml+xml"]);
 const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
@@ -74,9 +88,24 @@ const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
  */
 function metaCharset(bytes: Uint8Array): string | undefined {
   const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
-  const label = /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head)?.[1];
+  let label: string | undefined;
+  // Parsed, not searched: "charset=" in another tag's text (a description) declares nothing.
+  const parser = new Parser(
+    {
+      onopentag(name, attribs) {
+        if (label || name !== "meta") return;
+        if (attribs.charset) label = attribs.charset.trim();
+        else if (attribs["http-equiv"]?.trim().toLowerCase() === "content-type") {
+          label = /charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(attribs.content ?? "")?.[1];
+        }
+      },
+    },
+    { lowerCaseTags: true, lowerCaseAttributeNames: true, decodeEntities: true },
+  );
+  parser.write(head);
+  parser.end();
   // A page readable as ASCII so far can't really be UTF-16; browsers read it as UTF-8.
-  return label && /^utf-16/i.test(label) ? "utf-8" : label;
+  return label && /^utf-16/i.test(label) ? "utf-8" : label || undefined;
 }
 
 /** Fetches a page, trying again after a temporary error. No transaction is open meanwhile. */
@@ -239,25 +268,25 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     // overshoot by one embedding call, like a draft that starts just under the cap.
     const started = now();
     const day = utcDay(started);
-    const used = await transaction((tx) => usageOn(tx, day));
-    if (totalTokens(used) >= deps.dailyTokenBudget) {
-      // Not a failure: the budget resets at midnight UTC, and then this runs again by itself.
-      return transaction(async (tx) => {
+
+    /** Not a failure: the source stays `pending` with the reason, and runs again by itself. */
+    const waitUntil = (reason: string, startAfter: Date, singletonKey: string) =>
+      transaction(async (tx) => {
         if (!(await lockIfCurrent(tx))) return;
         await tx
           .update(knowledgeSources)
-          .set({ error: "daily_budget_reached" })
+          .set({ error: reason })
           .where(eq(knowledgeSources.id, sourceId));
-        // One waiting job per source per day, however often it's asked for meanwhile.
-        const resetsAt = nextUtcDay(started);
-        await enqueue(
-          tx,
-          ingestSourceJob,
-          { tenantId, sourceId },
-          { singletonKey: `${sourceId}:after:${utcDay(resetsAt)}`, startAfter: resetsAt },
-        );
-        deps.logger.warn({ sourceId }, "knowledge source waits for the daily AI budget");
+        await enqueue(tx, ingestSourceJob, { tenantId, sourceId }, { singletonKey, startAfter });
+        deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
       });
+
+    const used = await transaction((tx) => usageOn(tx, day));
+    if (totalTokens(used) >= deps.dailyTokenBudget) {
+      // The budget resets at midnight UTC. One waiting job per source per day, however often
+      // it's asked for meanwhile.
+      const resetsAt = nextUtcDay(started);
+      return waitUntil("daily_budget_reached", resetsAt, `${sourceId}:after:${utcDay(resetsAt)}`);
     }
 
     let page: PageText;
@@ -275,14 +304,23 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     try {
       embedded = await embedTexts(deps.embeddingModel, chunks);
     } catch (error) {
-      // A wrong key or a provider outage, after the SDK's own retries. Retrying the job would
-      // end the same way, and a dead job would leave the source `pending` with no sign of what
-      // went wrong. Batches embedded before the failure were paid for, so they count.
+      // After the SDK's own retries. Batches embedded before the failure were paid for, so
+      // they count.
       deps.logger.warn({ err: errorSummary(error), sourceId }, "embedding failed");
       const spent = error instanceof EmbedError ? error.tokens : 0;
       if (spent > 0) {
         await transaction((tx) =>
           recordUsage(tx, tenantId, day, { inputTokens: spent, outputTokens: 0 }),
+        );
+      }
+      // The provider is down or rate-limited: try again later. A wrong key or a broken model
+      // would end the same way every time, so that fails, rather than leave it `pending`.
+      if (isTemporaryAiFailure(error)) {
+        const retryAt = new Date(started.getTime() + embedRetryDelayMs);
+        return waitUntil(
+          "embedding_unavailable",
+          retryAt,
+          `${sourceId}:retry:${retryAt.toISOString()}`,
         );
       }
       return fail("embedding_failed");

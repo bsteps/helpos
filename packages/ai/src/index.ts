@@ -32,6 +32,7 @@ export {
   embeddingModelId,
   embeddingProviders,
   embedTexts,
+  isTemporaryAiFailure,
   parseEmbeddingConfig,
 } from "./embed.ts";
 export { createModel } from "./model.ts";
