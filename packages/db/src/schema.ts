@@ -23,15 +23,31 @@ import { uuidv7 } from "./uuid.ts";
  * A company using the helpdesk ("workspace" in the UI). This is the root of tenancy, so it has
  * no `tenant_id` itself. Its RLS policy lives in migration 0001.
  */
-export const tenants = pgTable("tenants", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const tenants = pgTable(
+  "tenants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /**
+     * On by default: every reply goes to `shadowRecipient` instead of the customer, so no real
+     * customer gets mail before the release safety work ships. Turning it off is audited.
+     */
+    shadowMode: boolean("shadow_mode").notNull().default(true),
+    /** Where replies go in shadow mode, usually the design partner. Null: replies wait. */
+    shadowRecipient: text("shadow_recipient"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    check(
+      "tenants_shadow_recipient_lowercase",
+      sql`${t.shadowRecipient} = lower(${t.shadowRecipient})`,
+    ),
+  ],
+);
 
 // --- Helpers for tenant tables (ADR 0003) -----------------------------------------------------
 

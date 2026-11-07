@@ -57,6 +57,7 @@ const app = createApp({
   inboundSecret,
   dailyTokenBudget,
   noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
+  allowShadowModeOff: env.HELPOS_ALLOW_SHADOW_MODE_OFF,
 });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(

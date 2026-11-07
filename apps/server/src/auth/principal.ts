@@ -11,6 +11,7 @@ export const scopes = [
   "drafts:approve",
   "knowledge:read",
   "knowledge:write",
+  "workspace:admin",
 ] as const;
 export type Scope = (typeof scopes)[number];
 
