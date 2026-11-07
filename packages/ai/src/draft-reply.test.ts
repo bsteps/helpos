@@ -202,6 +202,10 @@ describe("parseSources", () => {
     expect(parseSources("See [sources: K1] here.", 2)).toEqual({ text: "See here.", cited: [0] });
   });
 
+  it("removes a list cut off at the end of the reply", () => {
+    expect(parseSources("Hi.\n[sources: K1, K", 2)).toEqual({ text: "Hi.", cited: [0] });
+  });
+
   it("finds the line before a sign-off, and never leaves one in the reply", () => {
     expect(parseSources("Hi.\n[sources: K1]\n\nBest,\nSam", 2)).toEqual({
       text: "Hi.\n\nBest,\nSam",

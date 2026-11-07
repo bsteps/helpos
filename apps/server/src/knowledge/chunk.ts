@@ -8,6 +8,7 @@ export const maxChunkChars = 1_500;
 export const maxChunks = 200;
 
 const headingLine = /^#{1,6}\s+\S/;
+const fenceLine = /^ {0,3}(```|~~~)/;
 
 /** Splits a paragraph that is too long on its own, preferring sentence ends, then spaces. */
 function splitLong(paragraph: string, limit: number): string[] {
@@ -61,10 +62,15 @@ export function chunkText(text: string): string[] {
     // Only the ends: indentation inside a paragraph (code, YAML, nested lists) is content.
     .map((p) => p.replace(/^\n+/, "").trimEnd())
     .filter((p) => p.trim());
+  // Inside a ``` or ~~~ code block, a line starting with `#` is a comment, not a heading. A
+  // block can hold blank lines, so this carries across paragraphs.
+  let inFence = false;
   for (const paragraph of paragraphs) {
     // A heading glued to its first paragraph (no blank line) still starts a section.
     const [first = "", ...restLines] = paragraph.split("\n");
-    if (headingLine.test(first)) {
+    const startsInFence = inFence;
+    for (const line of paragraph.split("\n")) if (fenceLine.test(line)) inFence = !inFence;
+    if (!startsInFence && headingLine.test(first)) {
       flush();
       // A very long heading is cut for repeating on later passages; the rest stays as text.
       heading = first.slice(0, 200);

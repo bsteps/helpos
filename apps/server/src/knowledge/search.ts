@@ -1,6 +1,8 @@
 import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
 import {
+  and,
   eq,
+  inArray,
   type KnowledgeHit,
   type KnowledgeVisibility,
   schema,
@@ -39,11 +41,19 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
   const modelId = embeddingModelId(model);
   return {
     async search(tx, query) {
-      // Most workspaces start with no knowledge: skip the embedding call, its cost and latency.
+      // Most workspaces start with no knowledge (or none of the wanted visibility): skip the
+      // embedding call, its cost and latency.
+      const { knowledgeChunks, knowledgeSources } = schema;
       const [any] = await tx
-        .select({ id: schema.knowledgeChunks.id })
-        .from(schema.knowledgeChunks)
-        .where(eq(schema.knowledgeChunks.embeddingModel, modelId))
+        .select({ id: knowledgeChunks.id })
+        .from(knowledgeChunks)
+        .innerJoin(knowledgeSources, eq(knowledgeSources.id, knowledgeChunks.sourceId))
+        .where(
+          and(
+            eq(knowledgeChunks.embeddingModel, modelId),
+            query.visibility ? inArray(knowledgeSources.visibility, query.visibility) : undefined,
+          ),
+        )
         .limit(1);
       if (!any) return noKnowledge;
       const { embeddings, tokens } = await embedTexts(model, [query.text]);

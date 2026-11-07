@@ -712,6 +712,10 @@ describe("knowledge API", () => {
     expect(second.slug).toMatch(/^same-title-[0-9a-f]{12}$/);
   });
 
+  it("keeps accented words whole in slugs", () => {
+    expect(slugify("Résumé naïve Café")).toBe("resume-naive-cafe");
+  });
+
   it("makes a slug for titles without Latin letters", async () => {
     const added = await addSource("editor", { kind: "markdown", title: "返金", content: "x" });
     expect(added.slug).toMatch(/^source-[0-9a-f]{12}$/);
@@ -832,6 +836,20 @@ describe("drafting with knowledge", () => {
     expect(result.hits.length).toBeGreaterThan(0);
     expect(result.hits.map((h) => h.sourceId)).not.toContain(otherRefund);
     expect(result.hits.map((h) => h.content).join(" ")).not.toContain("OTHER-SECRET");
+  });
+
+  it("a public-only search in a workspace with only internal notes makes no embedding call", async () => {
+    const fresh = mockEmbeddingModel();
+    const result = await db.withTenant(other, (tx) =>
+      createVectorSearch(fresh).search(tx, {
+        tenantId: other,
+        text: "refunds",
+        limit: 5,
+        visibility: ["public"],
+      }),
+    );
+    expect(result).toEqual({ hits: [], tokens: 0 });
+    expect(fresh.doEmbedCalls).toEqual([]);
   });
 
   it("a public-only search never returns internal notes", async () => {

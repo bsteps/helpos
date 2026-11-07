@@ -116,8 +116,11 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
   );
 }
 
-/** `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks. */
-const sourcesMarker = /[ \t]*[*_`]*\[\s*sources\s*:([^\]]*)\][*_`]*/gi;
+/**
+ * `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks, or cut
+ * off without its `]` at the very end, when the reply hit the output limit.
+ */
+const sourcesMarker = /[ \t]*[*_`]*\[\s*sources\s*:([^\]\n]*)(?:\][*_`]*|\s*$)/gi;
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may

@@ -39,7 +39,9 @@ const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
  */
 function metaCharset(bytes: Uint8Array): string | undefined {
   const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
-  return /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head)?.[1];
+  const label = /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head)?.[1];
+  // A page readable as ASCII so far can't really be UTF-16; browsers read it as UTF-8.
+  return label && /^utf-16/i.test(label) ? "utf-8" : label;
 }
 
 /** Fetches one page through the SSRF-safe fetch and returns its text, or why it couldn't. */

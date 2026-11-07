@@ -62,6 +62,11 @@ describe("chunkText", () => {
     expect(chunk).toContain("Body.");
   });
 
+  it("doesn't take a # comment in a code block for a heading", () => {
+    const doc = "# Install\n\n```bash\n# get the deps\nnpm install\n\n# start it\nnpm start\n```";
+    expect(chunkText(doc)).toEqual([doc]);
+  });
+
   it("returns nothing for blank text", () => {
     expect(chunkText(" \n\n \r\n ")).toEqual([]);
   });

@@ -189,13 +189,17 @@ function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
 
 /** A slug from a title: "Refunds & Returns!" becomes "refunds-returns". */
 export function slugify(title: string): string {
-  return title
-    .normalize("NFKD")
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replaceAll(/^-+|-+$/g, "")
-    .slice(0, 80)
-    .replace(/-+$/, "");
+  return (
+    title
+      .normalize("NFKD")
+      // NFKD splits "é" into "e" plus an accent mark; dropping the marks keeps the word whole.
+      .replaceAll(/\p{M}/gu, "")
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/^-+|-+$/g, "")
+      .slice(0, 80)
+      .replace(/-+$/, "")
+  );
 }
 
 export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesDeps): void {
