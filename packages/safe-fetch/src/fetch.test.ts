@@ -186,18 +186,20 @@ describe("safeFetch", () => {
     expect(await codeOf(fetcher(`http://docs.example:${port}/`))).toBe("blocked_port");
   });
 
-  it("logs blocked requests with the redirect chain, without query strings", async () => {
+  it("logs blocked requests with the redirect chain, origins only", async () => {
     const port = await serve((_req, res) => {
       res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data/" });
       res.end();
     });
     const logger = { warn: vi.fn() };
     const fetcher = fetcherWith({ "docs.example": ["127.0.0.1"] });
-    await codeOf(fetcher(`http://docs.example:${port}/start?token=secret`, { logger }));
+    await codeOf(
+      fetcher(`http://docs.example:${port}/reset/s3cret-token?token=secret`, { logger }),
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       {
         code: "blocked_address",
-        chain: [`http://docs.example:${port}/start`, "http://169.254.169.254/latest/meta-data/"],
+        chain: [`http://docs.example:${port}`, "http://169.254.169.254"],
       },
       "safe-fetch blocked a request",
     );

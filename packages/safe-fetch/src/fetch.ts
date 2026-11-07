@@ -200,11 +200,11 @@ export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
     const allowedPorts = options.allowedPorts ?? [80, 443];
     let url = parseUrl(rawUrl);
     let headers = options.headers ?? {};
-    // Origin and path only: query strings can carry tokens and must not reach the logs.
+    // Origins only: paths and query strings can carry tokens and must not reach the logs.
     const chain: string[] = [];
     try {
       for (let hop = 0; ; hop++) {
-        chain.push(`${url.origin}${url.pathname}`);
+        chain.push(url.origin);
         const port = url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
         // Internal services (Redis, SMTP, memcached) often sit on public hosts too.
         if (!allowedPorts.includes(port)) {
