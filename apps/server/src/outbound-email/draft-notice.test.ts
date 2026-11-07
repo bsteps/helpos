@@ -55,6 +55,7 @@ describe("draft notice email", () => {
     expect(snippet("a\r\n\tb\u0007  c")).toBe("a b c");
     expect(snippet("one two three", 9)).toBe("one two…");
     expect(snippet("")).toBe("");
+    expect(snippet("a\u0085b​c d")).toBe("a b c d");
   });
 
   it("snippet stays fast on a huge dotted message", () => {

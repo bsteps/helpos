@@ -166,8 +166,20 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       target: { type: "ticket", id: row.ticketId },
       requestId: null,
     });
-    for (const notice of notices) {
-      await deps.transport.send({ from: row.mailbox, to: [notice.to], raw: notice.raw });
+    // One owner's failed address mustn't resend the notice to owners it already reached. Only
+    // when nobody got it does the job fail and retry.
+    const results = await Promise.allSettled(
+      notices.map((notice) =>
+        deps.transport.send({ from: row.mailbox, to: [notice.to], raw: notice.raw }),
+      ),
+    );
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed.length === results.length) throw failed[0]?.reason;
+    if (failed.length > 0) {
+      deps.logger.warn(
+        { draftId, failed: failed.length, total: results.length },
+        "draft-notice: some owners could not be reached",
+      );
     }
     deps.logger.info({ draftId, ticketId: row.ticketId }, "draft notice sent");
   };

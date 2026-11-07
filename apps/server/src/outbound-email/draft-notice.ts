@@ -39,6 +39,10 @@ export function snippet(text: string, max = noticeSnippetLength): string {
   // Bidi overrides could make the quote read differently from what the customer wrote.
   const flat = visible
     .replace(/[\u202A-\u202E\u2066-\u2069]/g, "")
+    // C1 controls (NEL can break a line), zero-width and line/paragraph separators.
+    .replace(/[\u0080-\u009F\u200B-\u200F\u2028\u2029\uFEFF]/g, " ")
+    // A lone surrogate left by the cut above.
+    .replace(/[\uD800-\uDBFF]$/, "")
     // The notice comes from the workspace's own address, so a customer's link must not look
     // like one we sent. The full message is on the ticket.
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link]")
