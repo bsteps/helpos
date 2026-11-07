@@ -56,4 +56,10 @@ describe("draft notice email", () => {
     expect(snippet("one two three", 9)).toBe("one two…");
     expect(snippet("")).toBe("");
   });
+
+  it("snippet never passes on a customer's link", () => {
+    expect(snippet("Log in at https://evil.test/login?x=1 or www.evil.test now")).toBe(
+      "Log in at [link] or [link] now",
+    );
+  });
 });

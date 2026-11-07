@@ -115,7 +115,7 @@ describe("draft notice worker", () => {
 
   it("still notifies when a newer draft replaced the one the job was queued for", async () => {
     const old = await pendingDraft();
-    // A hand-written draft replaces it, and its own enqueue was deduped into the queued job.
+    // A hand-written draft replaces it while the old draft's notice job is still queued.
     await db.withTenant(acme, async (tx) => {
       await tx
         .update(schema.drafts)
@@ -142,5 +142,39 @@ describe("draft notice worker", () => {
   it("Reply-To is never the helpdesk mailbox itself", () => {
     expect(noticeReplyTo("support@acme.test")).toBe("no-reply@acme.test");
     expect(noticeReplyTo("no-reply@acme.test")).toBe("no-reply-notices@acme.test");
+  });
+
+  it("a new draft after the owners approved the last one is notified, even inside the window", async () => {
+    const first = await pendingDraft();
+    expect(await notify(first.id)).toHaveBeenCalledOnce();
+    await db.withTenant(acme, async (tx) => {
+      await tx
+        .update(schema.drafts)
+        .set({ status: "approved", approvedAt: new Date(Date.now() + 1_000) })
+        .where(eq(schema.drafts.id, first.id));
+      // A follow-up from the customer, answered by a new pending draft.
+      const [msg] = await tx
+        .insert(schema.messages)
+        .values({
+          tenantId: acme,
+          ticketId: first.ticketId,
+          direction: "inbound",
+          fromAddress: "jane@customer.test",
+          toAddresses: ["support@acme.test"],
+          subject: "Follow-up",
+          textBody: "Still broken.",
+          references: [],
+          rawFileKey: `${acme}/follow-up`,
+        })
+        .returning({ id: schema.messages.id });
+      if (!msg) throw new Error("no message");
+      await tx.insert(schema.drafts).values({
+        tenantId: acme,
+        ticketId: first.ticketId,
+        messageId: msg.id,
+        body: "A follow-up answer.",
+      });
+    });
+    expect(await notify(first.id)).toHaveBeenCalledOnce();
   });
 });

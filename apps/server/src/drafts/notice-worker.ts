@@ -34,12 +34,16 @@ export async function queueDraftNotice(
   await enqueue(tx, draftNoticeJob, { tenantId: draft.tenantId, draftId: draft.id });
 }
 
+function mailboxDomain(mailbox: string): string {
+  return mailbox.split("@").pop() ?? "localhost";
+}
+
 /**
  * A no-reply address on the mailbox's domain that is never the mailbox itself, so answering a
  * notice can't land in the helpdesk and open a ticket.
  */
 export function noticeReplyTo(mailbox: string): string {
-  const domain = mailbox.split("@").pop() ?? "localhost";
+  const domain = mailboxDomain(mailbox);
   const address = `no-reply@${domain}`;
   return address === mailbox.toLowerCase() ? `no-reply-notices@${domain}` : address;
 }
@@ -81,8 +85,8 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       .for("update");
 
     // Whatever draft is pending on the ticket now, not only the one this job was queued for:
-    // a newer draft can replace it while the job waits, and its own enqueue is deduped into
-    // this job.
+    // a newer draft can replace it while the job waits. That draft's own job then finds the
+    // window taken and sends nothing.
     const [row] = await tx
       .select({
         ticketId: drafts.ticketId,
@@ -101,7 +105,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     if (!row) return;
 
     const [recent] = await tx
-      .select({ id: auditEvents.id })
+      .select({ at: auditEvents.createdAt })
       .from(auditEvents)
       .where(
         and(
@@ -111,8 +115,18 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           gt(auditEvents.createdAt, sql`now() - make_interval(mins => ${noticeWindowMinutes})`),
         ),
       )
+      .orderBy(desc(auditEvents.createdAt))
       .limit(1);
-    if (recent) return;
+    if (recent) {
+      // The window batches notices for the same waiting answer. Once a draft on the ticket was
+      // approved after that notice, the owners acted on it, so a new draft is news again.
+      const [actedOn] = await tx
+        .select({ id: drafts.id })
+        .from(drafts)
+        .where(and(eq(drafts.ticketId, row.ticketId), gt(drafts.approvedAt, recent.at)))
+        .limit(1);
+      if (!actedOn) return;
+    }
 
     const owners = await tx
       .select({ userId: memberships.userId })
@@ -124,7 +138,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       return;
     }
 
-    const domain = row.mailbox.split("@").pop() ?? "localhost";
+    const domain = mailboxDomain(row.mailbox);
     const raw = await buildDraftNotice({
       from: row.mailbox,
       replyTo: noticeReplyTo(row.mailbox),
