@@ -1,7 +1,12 @@
 import type { MiddlewareHandler } from "hono";
 
 /** Scopes from #49. `drafts:approve` is separate so an agent can draft without sending. */
-export const scopes = ["tickets:read", "drafts:write", "drafts:approve"] as const;
+export const scopes = [
+  "tickets:read",
+  "drafts:write",
+  "drafts:approve",
+  "workspace:admin",
+] as const;
 export type Scope = (typeof scopes)[number];
 
 /** Who is calling: one workspace, one actor, an exact list of scopes. */

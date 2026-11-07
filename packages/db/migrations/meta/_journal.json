@@ -57,6 +57,13 @@
       "when": 1794038543436,
       "tag": "0007_ai-daily-budget",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794059157291,
+      "tag": "0008_shadow-mode",
+      "breakpoints": true
     }
   ]
 }

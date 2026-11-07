@@ -12,8 +12,11 @@ export interface AuditEvent {
     | "draft.discarded"
     | "draft.sent"
     | "draft.notice_sent"
-    | "ai.paused";
-  target: { type: "draft" | "ticket"; id: string };
+    | "ai.paused"
+    | "workspace.shadow_mode_enabled"
+    | "workspace.shadow_mode_disabled"
+    | "workspace.shadow_recipient_changed";
+  target: { type: "draft" | "ticket" | "workspace"; id: string };
   /** The HTTP request ID, or null when a background job acts. */
   requestId: string | null;
 }

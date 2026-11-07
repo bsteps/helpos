@@ -9,6 +9,7 @@ import { registerAiUsageRoute } from "./ai-budget/routes.ts";
 import { type Authenticate, refuseAll } from "./auth/principal.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
+import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 
 export interface AppDeps {
   db: Pick<Database, "ping" | "withTenant" | "resolveMailbox">;
@@ -24,6 +25,8 @@ export interface AppDeps {
   now?: () => Date;
   /** How long a new draft waits before its owner notice is sent. */
   noticeDelaySeconds?: number;
+  /** HELPOS_ALLOW_SHADOW_MODE_OFF. Off by default: shadow mode can't be turned off. */
+  allowShadowModeOff?: boolean;
 }
 
 export function createApp({
@@ -35,6 +38,7 @@ export function createApp({
   dailyTokenBudget = defaultDailyTokenBudget,
   now,
   noticeDelaySeconds,
+  allowShadowModeOff = false,
 }: AppDeps): OpenAPIHono {
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
@@ -59,6 +63,7 @@ export function createApp({
     ...(noticeDelaySeconds !== undefined ? { noticeDelaySeconds } : {}),
   });
   registerAiUsageRoute(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
+  registerShadowModeRoutes(app, { db, authenticate, allowShadowModeOff });
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.
   app.onError((err, c) => {

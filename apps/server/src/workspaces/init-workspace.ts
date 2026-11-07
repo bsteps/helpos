@@ -34,7 +34,10 @@ export async function initWorkspace(
   try {
     await deps.db.withTenant(tenantId, async (tx) => {
       if (!existing) {
-        await tx.insert(schema.tenants).values({ id: tenantId, name: input.workspace });
+        // Shadow mode starts on, sending replies to the owner until someone changes it.
+        await tx
+          .insert(schema.tenants)
+          .values({ id: tenantId, name: input.workspace, shadowRecipient: input.owner });
         await tx.insert(schema.mailboxes).values({ tenantId, address: input.mailbox });
       }
       await tx
