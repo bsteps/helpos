@@ -21,8 +21,13 @@ export interface AuditEvent {
     | "workspace.shadow_mode_enabled"
     | "workspace.shadow_mode_disabled"
     | "workspace.shadow_recipient_changed"
-    | "workspace.ai_budget_changed";
-  target: { type: "draft" | "ticket" | "knowledge_source" | "workspace"; id: string };
+    | "workspace.ai_budget_changed"
+    | "api_token.created"
+    | "api_token.revoked";
+  target: {
+    type: "draft" | "ticket" | "knowledge_source" | "workspace" | "api_token";
+    id: string;
+  };
   /** The HTTP request ID, or null when a background job acts. */
   requestId: string | null;
 }

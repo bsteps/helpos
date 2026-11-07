@@ -369,6 +369,58 @@ export const auditEvents = pgTable(
 );
 
 /**
+ * What an agent token may be granted. Workspace administration (shadow mode, minting tokens)
+ * is deliberately missing: that stays with humans signed in to a session.
+ */
+export const apiTokenScopes = [
+  "tickets:read",
+  "drafts:write",
+  "drafts:approve",
+  "knowledge:read",
+  "knowledge:write",
+] as const;
+export type ApiTokenScope = (typeof apiTokenScopes)[number];
+
+/**
+ * An agent's API token (`hos_…`). Only the SHA-256 of the token is stored; the token itself is
+ * shown once, when it is created. One token is one agent identity: audit events name its ID.
+ * Revoked, not deleted, so the audit log never points at a token that no longer exists. The app
+ * role can change nothing but `revoked_at` (migration 0012).
+ */
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    ...tenantColumns(),
+    /** The agent's name, e.g. `triage-bot`. Shown in lists and next to its audit events. */
+    name: text("name").notNull(),
+    /**
+     * Hex SHA-256 of the whole token. Globally unique, but it's a hash of 32 random bytes that
+     * we generate, so a clash says nothing about another workspace (ADR 0009 §7).
+     */
+    tokenHash: text("token_hash").notNull().unique("api_tokens_token_hash"),
+    scopes: text("scopes", { enum: apiTokenScopes }).array().notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("api_tokens_tenant_id_id").on(t.tenantId, t.id),
+    check("api_tokens_token_hash_format", sql`${t.tokenHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "api_tokens_scopes",
+      sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ array[${sql.raw(
+        apiTokenScopes.map((s) => `'${s}'`).join(", "),
+      )}]::text[]`,
+    ),
+    tenantIsolation(),
+    // A request names its token before anyone knows the workspace. This read-only policy shows
+    // exactly one row: the one whose hash the caller already has (like `route_by_address`).
+    pgPolicy("resolve_by_token_hash", {
+      for: "select",
+      using: sql`token_hash = nullif(current_setting('app.token_hash', true), '')`,
+    }),
+  ],
+);
+
+/**
  * AI tokens a workspace used on one UTC day, summed from the model's responses. The daily
  * budget is checked against this before every model call.
  */

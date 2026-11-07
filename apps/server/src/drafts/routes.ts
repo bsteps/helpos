@@ -277,13 +277,6 @@ function principalWith(c: Context, scope: Scope) {
 }
 
 export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): void {
-  app.openAPIRegistry.registerComponent("securitySchemes", "apiAuth", {
-    type: "http",
-    scheme: "bearer",
-    description:
-      "An agent token (`hos_…`) or a human session. Neither exists yet (#49, #46): until " +
-      "then every request to these routes is refused with 401.",
-  });
   const auth = requirePrincipal(deps.authenticate);
   app.use("/v1/tickets/*", auth);
   app.use("/v1/drafts/*", auth);

@@ -38,6 +38,7 @@ describe("migrations", () => {
       order by c.relname`;
     expect(rows.map((r) => r.table)).toEqual([
       "ai_usage",
+      "api_tokens",
       "attachments",
       "audit_events",
       "customers",
@@ -108,5 +109,54 @@ describe("audit_events is append-only for the app role", () => {
     ["TRUNCATE", "truncate audit_events"],
   ])("cannot %s", async (_, statement) => {
     await expect(asApp((tx) => tx.unsafe(statement))).rejects.toMatchObject({ code: "42501" });
+  });
+});
+
+describe("api_tokens: the app role can only create and revoke", () => {
+  const tenantId = "0190a000-0000-7000-8000-000000000002";
+  const hash = "a".repeat(64);
+
+  function asApp<T>(fn: (tx: postgres.TransactionSql) => Promise<T>) {
+    return app.begin(async (tx) => {
+      await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+      return fn(tx);
+    });
+  }
+
+  beforeAll(async () => {
+    await asApp(async (tx) => {
+      await tx`insert into tenants (id, name) values (${tenantId}, 'tokens')`;
+      await tx`insert into api_tokens (id, tenant_id, name, token_hash, scopes)
+        values (gen_random_uuid(), ${tenantId}, 'bot', ${hash}, array['tickets:read'])`;
+    });
+  });
+
+  it("can revoke", async () => {
+    const rows = await asApp(
+      (tx) => tx`update api_tokens set revoked_at = now() returning revoked_at`,
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it.each([
+    ["rewrite a hash", `update api_tokens set token_hash = '${"b".repeat(64)}'`],
+    ["widen scopes", "update api_tokens set scopes = array['drafts:approve']"],
+    ["move a token to another workspace", "update api_tokens set tenant_id = gen_random_uuid()"],
+    ["delete", "delete from api_tokens"],
+    ["truncate", "truncate api_tokens"],
+  ])("cannot %s", async (_, statement) => {
+    await expect(asApp((tx) => tx.unsafe(statement))).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it.each([
+    ["an unknown scope", "array['workspace:admin']", "c"],
+    ["no scopes", "array[]::text[]", "d"],
+  ])("refuses a token with %s", async (_, scopes, fill) => {
+    await expect(
+      asApp((tx) =>
+        tx.unsafe(`insert into api_tokens (id, tenant_id, name, token_hash, scopes)
+          values (gen_random_uuid(), '${tenantId}', 'bot', '${fill.repeat(64)}', ${scopes})`),
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
   });
 });

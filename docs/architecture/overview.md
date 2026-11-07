@@ -109,7 +109,7 @@ Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **exce
 ## Trust boundaries
 
 1. **Everything that comes in is data, never instructions** (ADR 0004): emails, attachments, GitHub text, imported pages. It is quoted to the AI, never merged into its instructions, and AI output can't trigger an action without the policy and approval path.
-2. **Every request is authenticated.** Humans use a Better Auth session. Agents use a scoped `hos_` token. Webhooks use a shared secret or HMAC signature. Each one resolves to _tenant + actor + scopes_ before any data access.
+2. **Every request is authenticated.** Humans use a Better Auth session. Agents use a scoped `hos_` token. Webhooks use a shared secret or HMAC signature. Each one resolves to _tenant + actor + scopes_ before any data access. A token is stored only as its SHA-256 and looked up by that hash through a read-only policy that shows the one matching row, the same way inbound mail finds its mailbox. Tokens are created by a human with `workspace:admin`, never by another token, can't hold `workspace:admin` themselves, and are revoked rather than deleted, so the audit log can always name the agent. Until sessions exist (#46), the operator creates the first ones with `pnpm helpos:token`.
 3. **Every data access goes through `withTenant()`**, so the database itself refuses cross-tenant reads (ADR 0003).
 4. **Every action is audit-logged** in the same transaction as the action.
 5. **Nothing reaches a customer without approval.** There is no auto-send in the MVP.
