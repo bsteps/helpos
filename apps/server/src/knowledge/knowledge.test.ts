@@ -993,7 +993,7 @@ describe("limits", () => {
     expect(await sourceOf(acme, id)).toMatchObject({ status: "pending", error: "http_503" });
   });
 
-  it("a site that was down doesn't use up the embedding provider's own one more try", async () => {
+  it("one more try is shared: after the site's, a provider outage fails the source", async () => {
     const [row] = await db.withTenant(acme, (tx) =>
       tx
         .insert(knowledgeSources)
@@ -1025,8 +1025,9 @@ describe("limits", () => {
       logger,
       dailyTokenBudget: 1e6,
     })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
+    // Taking turns between a site and a provider that are down must not wait forever.
     expect(await sourceOf(acme, row.id)).toMatchObject({
-      status: "pending",
+      status: "failed",
       error: "embedding_unavailable",
     });
   });

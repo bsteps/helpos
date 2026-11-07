@@ -296,11 +296,11 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       });
 
     // A temporary problem gets one more try, 15 minutes later. A source already waiting on one
-    // fails if the same kind happens again, so a site or provider that stays down doesn't retry
-    // forever. Each kind has its own try: a site that was down says nothing about the provider.
-    const siteWaited = source.error !== null && isTemporary(source.error);
-    const providerWaited = source.error === "embedding_unavailable";
-    const waitedOnce = siteWaited || providerWaited;
+    // fails if any temporary problem happens again, the site's or the provider's: one shared
+    // try, so a source that meets one and then the other can't take turns waiting forever.
+    const waitedOnce =
+      source.error !== null &&
+      (source.error === "embedding_unavailable" || isTemporary(source.error));
     const retryLater = (reason: string) => {
       const retryAt = new Date(started.getTime() + retryDelayMs);
       return waitUntil(reason, retryAt, `${sourceId}:retry:${retryAt.toISOString()}`);
@@ -327,7 +327,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         page = { ok: true, text: tidyAuthored(source.content ?? "") };
       }
       if (!page.ok) {
-        if (isTemporary(page.error) && !siteWaited) return retryLater(page.error);
+        if (isTemporary(page.error) && !waitedOnce) return retryLater(page.error);
         return fail(page.error);
       }
       // Stops early on a huge page: past the limit, it fails anyway.
@@ -357,7 +357,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       // The provider is down or rate-limited: try again later, once. A wrong key or a broken
       // model would end the same way every time, so that fails at once.
       if (!isTemporaryAiFailure(error)) return fail("embedding_failed");
-      return providerWaited ? fail("embedding_unavailable") : retryLater("embedding_unavailable");
+      return waitedOnce ? fail("embedding_unavailable") : retryLater("embedding_unavailable");
     }
     const { embeddings, tokens } = embedded;
     const modelId = embeddingModelId(deps.embeddingModel);
