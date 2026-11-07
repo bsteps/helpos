@@ -59,6 +59,8 @@ const app = () =>
     files,
     logger,
     inboundSecret: undefined,
+    // No wait in tests, so the Mailpit case doesn't take 5 minutes.
+    noticeDelaySeconds: 0,
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -167,6 +169,7 @@ beforeAll(async () => {
     transport,
     auth,
     publicUrl: "http://helpdesk.test",
+    noticeDelaySeconds: 0,
     dailyTokenBudget: 1_000_000,
   });
 

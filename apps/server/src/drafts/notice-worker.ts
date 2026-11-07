@@ -22,16 +22,28 @@ const { auditEvents, drafts, mailboxes, memberships, messages, tickets } = schem
 export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
 
 /**
+ * How long a draft waits before its notice is sent. A draft approved within this time never
+ * causes an email: only drafts someone is actually leaving waiting do.
+ */
+export const defaultNoticeDelaySeconds = 300;
+
+/**
  * Queues the "a draft is waiting" notice. Call it in the transaction that saves the pending
  * draft, so the notice is queued only if the draft is saved.
  */
 export async function queueDraftNotice(
   tx: TenantTx,
   draft: { tenantId: string; id: string; ticketId: string },
+  delaySeconds = defaultNoticeDelaySeconds,
 ): Promise<void> {
   // No dedupe key: a key would fold this into a job that may already be running and have
   // missed this draft. The window check in the handler, under the ticket lock, dedupes instead.
-  await enqueue(tx, draftNoticeJob, { tenantId: draft.tenantId, draftId: draft.id });
+  await enqueue(
+    tx,
+    draftNoticeJob,
+    { tenantId: draft.tenantId, draftId: draft.id },
+    { startAfter: new Date(Date.now() + delaySeconds * 1000) },
+  );
 }
 
 function mailboxDomain(mailbox: string): string {

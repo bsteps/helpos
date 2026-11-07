@@ -24,6 +24,8 @@ export interface WorkerDeps {
   auth: Pick<AuthStore, "emailsOf"> | undefined;
   /** Base URL for links in notices. */
   publicUrl: string;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 /**

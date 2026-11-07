@@ -15,6 +15,8 @@ export interface DraftWorkerDeps {
   dailyTokenBudget: number;
   /** For tests: the clock the budget day is read from. */
   now?: () => Date;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
@@ -184,11 +186,15 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       })
       .returning({ id: drafts.id });
     if (!draft) throw new Error("draft-reply: insert returned no row");
-    await queueDraftNotice(tx, {
-      tenantId: payload.tenantId,
-      id: draft.id,
-      ticketId: row.ticketId,
-    });
+    await queueDraftNotice(
+      tx,
+      {
+        tenantId: payload.tenantId,
+        id: draft.id,
+        ticketId: row.ticketId,
+      },
+      deps.noticeDelaySeconds,
+    );
     await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
 
     await recordAudit(tx, {

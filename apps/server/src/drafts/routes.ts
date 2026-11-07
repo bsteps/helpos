@@ -29,6 +29,8 @@ export interface DraftRoutesDeps {
   /** Regenerate is refused up front when today's AI budget is spent. */
   dailyTokenBudget: number;
   now?: () => Date;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
@@ -380,7 +382,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
         .returning();
       if (!draft) throw new Error("create draft: insert returned no row");
-      await queueDraftNotice(tx, draft);
+      await queueDraftNotice(tx, draft, deps.noticeDelaySeconds);
       // The ticket has an answer now, so it's no longer waiting on a paused AI.
       await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
       await recordAudit(tx, {

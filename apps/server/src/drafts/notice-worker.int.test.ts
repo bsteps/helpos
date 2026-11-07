@@ -75,7 +75,12 @@ beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
-  runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
+  runner = createJobRunner({
+    jobsUrl: testDb.jobsUrl,
+    db,
+    onError: () => {},
+    pollingIntervalSeconds: 0.5,
+  });
   await runner.start();
   await runner.ensureQueue(draftReplyJob);
   await runner.ensureQueue(draftNoticeJob);
@@ -176,5 +181,23 @@ describe("draft notice worker", () => {
       });
     });
     expect(await notify(first.id)).toHaveBeenCalledOnce();
+  });
+
+  it("a queued notice waits for the delay instead of sending right away", async () => {
+    const send = vi.fn<EmailTransport["send"]>();
+    await runner.work(
+      draftNoticeJob,
+      handleDraftNotice({
+        transport: { send, close: () => {} },
+        auth,
+        publicUrl: "http://helpdesk.test",
+        logger,
+      }),
+    );
+    // Queued with the default 5-minute delay. The worker polls every 0.5 s, so an undelayed
+    // job would have been sent well within this wait.
+    await pendingDraft();
+    await new Promise((r) => setTimeout(r, 3_000));
+    expect(send).not.toHaveBeenCalled();
   });
 });

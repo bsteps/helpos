@@ -37,10 +37,18 @@ await startWorker({
   // Only the one function the worker needs, not the whole auth store.
   auth: auth ? { emailsOf: (ids) => auth.emailsOf(ids) } : undefined,
   publicUrl: env.HELPOS_PUBLIC_URL,
+  noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
   dailyTokenBudget,
 });
 
-const app = createApp({ db, files, logger, inboundSecret, dailyTokenBudget });
+const app = createApp({
+  db,
+  files,
+  logger,
+  inboundSecret,
+  dailyTokenBudget,
+  noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
+});
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(
     { port: info.port },
