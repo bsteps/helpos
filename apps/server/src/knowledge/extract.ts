@@ -53,8 +53,10 @@ const codeFence = "```";
 
 /**
  * Text a reader of the page can't see is often the vehicle for hidden instructions. Inline
- * styles only (stylesheets aren't read): not shown, see-through, too small to read, moved off
- * the screen, or squeezed into a box of no size.
+ * styles only: not shown, see-through, too small to read, moved off the screen, clipped
+ * away, or squeezed into a box of no size. Hiding through a class or a stylesheet would take
+ * a CSS engine to see, so it isn't caught: this is a filter in front of the real defence,
+ * which is quoting every page to the model as data.
  */
 function isHidden(attribs: Record<string, string>): boolean {
   if ("hidden" in attribs || attribs["aria-hidden"] === "true") return true;
@@ -63,13 +65,17 @@ function isHidden(attribs: Record<string, string>): boolean {
     (style.get(property) ?? []).some((value) => test.test(value));
   const zero = /^-?0(\.0*)?[a-z%]*$/;
   const offScreen = /^-\d{3,}/;
+  const noBox = ["height", "width", "max-height", "max-width"].some((p) => is(p, zero));
   return (
     is("display", /^none$/) ||
     is("visibility", /^(hidden|collapse)$/) ||
     is("font-size", zero) ||
     is("opacity", zero) ||
-    ["left", "right", "top", "text-indent"].some((p) => is(p, offScreen)) ||
-    ((is("height", zero) || is("width", zero)) && is("overflow", /^hidden$/))
+    is("color", /^transparent$/) ||
+    ["left", "right", "top", "bottom", "text-indent"].some((p) => is(p, offScreen)) ||
+    is("clip", /^rect\(0/) ||
+    is("clip-path", /^(inset\(50%|circle\(0)/) ||
+    (noBox && is("overflow", /^hidden$/))
   );
 }
 
@@ -113,7 +119,6 @@ function inlineStyle(css: string): Map<string, string[]> {
 }
 
 export interface ExtractedPage {
-  title: string | null;
   /** Plain text with markdown-style `#` headings, so the chunker can split on sections. */
   text: string;
 }
@@ -126,11 +131,6 @@ export interface ExtractedPage {
 export function extractHtml(html: string): ExtractedPage {
   const all: string[] = [];
   const main: string[] = [];
-  let title = "";
-  let inTitle = false;
-  let titleDone = false;
-  // An <svg> can have its own <title>, which isn't the page's.
-  let svgDepth = 0;
   let skipDepth = 0;
   let mainDepth = 0;
   // Code and commands keep their line breaks; table cells keep a separator.
@@ -146,8 +146,6 @@ export function extractHtml(html: string): ExtractedPage {
   const parser = new Parser(
     {
       onopentag(name, attribs) {
-        if (name === "svg") svgDepth++;
-        if (name === "title" && svgDepth === 0 && !titleDone) inTitle = true;
         const chrome = chromeTags.has(name) && mainDepth === 0 && articleDepth === 0;
         if (skipDepth > 0 || skippedTags.has(name) || chrome || isHidden(attribs)) {
           skipDepth++;
@@ -170,7 +168,6 @@ export function extractHtml(html: string): ExtractedPage {
         if (name === "pre" && preDepth === 1) emit(`${codeFence}\n`);
       },
       ontext(data) {
-        if (inTitle) title += data;
         if (skipDepth > 0) return;
         const clean = data.replaceAll(preMark, "");
         // Each line of a code block is marked, so tidy() keeps its indentation.
@@ -181,11 +178,6 @@ export function extractHtml(html: string): ExtractedPage {
         );
       },
       onclosetag(name) {
-        if (name === "svg") svgDepth = Math.max(0, svgDepth - 1);
-        if (name === "title" && inTitle) {
-          inTitle = false;
-          titleDone = true;
-        }
         if (skipDepth > 0) {
           skipDepth--;
           return;
@@ -203,7 +195,6 @@ export function extractHtml(html: string): ExtractedPage {
   parser.end();
 
   return {
-    title: title.replaceAll(/\s+/g, " ").trim() || null,
     text: tidy((main.join("").trim() ? main : all).join("")),
   };
 }

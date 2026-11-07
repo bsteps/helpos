@@ -56,7 +56,7 @@ const temporaryErrors = new Set([
   "http_504",
 ]);
 export const isTemporary = (error: string) => temporaryErrors.has(error);
-const defaultFetchRetryDelaysMs = [1_000, 5_000];
+const defaultFetchRetryDelaysMs = [1_000, 3_000];
 
 /**
  * The page's answer says the old passages no longer describe it: it's gone, or it now has no
@@ -110,11 +110,15 @@ function metaCharset(bytes: Uint8Array): string | undefined {
   return label && /^utf-16/i.test(label) ? "utf-8" : label || undefined;
 }
 
-/** Fetches a page, trying again after a temporary error. No transaction is open meanwhile. */
+/**
+ * Fetches a page, trying again soon after a quick temporary error. Not after a timeout: that
+ * try already took the whole timeout, and ingest jobs run one at a time, so it waits for its
+ * later try instead of holding up every other source. No transaction is open meanwhile.
+ */
 async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<PageText> {
   let page = await fetchPageText(deps, url);
   for (const delay of deps.fetchRetryDelaysMs ?? defaultFetchRetryDelaysMs) {
-    if (page.ok || !isTemporary(page.error)) return page;
+    if (page.ok || !isTemporary(page.error) || page.error === "timeout") return page;
     await new Promise((done) => setTimeout(done, delay));
     page = await fetchPageText(deps, url);
   }

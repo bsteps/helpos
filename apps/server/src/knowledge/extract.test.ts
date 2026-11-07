@@ -3,13 +3,12 @@ import { chunkText } from "./chunk.ts";
 import { extractHtml } from "./extract.ts";
 
 describe("extractHtml", () => {
-  it("returns the title and readable text, with headings, lists and entities", () => {
+  it("returns readable text, with headings, lists and entities", () => {
     const page = `<!doctype html><html><head><title> Refunds &amp; returns </title>
       <style>body{color:red}</style><script>alert("x")</script></head>
       <body><h1>Refunds</h1><p>Refunds take <b>5&nbsp;days</b>.</p>
       <ul><li>Card</li><li>PayPal</li></ul></body></html>`;
     expect(extractHtml(page)).toEqual({
-      title: "Refunds & returns",
       text: "# Refunds\n\nRefunds take 5 days.\n\n- Card\n- PayPal",
     });
   });
@@ -31,6 +30,11 @@ describe("extractHtml", () => {
       <div style="position:absolute; left:-9999px">secret two</div>
       <p style="text-indent: -1000px">secret three</p>
       <div style="height: 0; overflow: hidden">secret four</div>
+      <div style="max-height:0;overflow:hidden">secret five</div>
+      <div style="position:absolute;bottom:-5000px">secret six</div>
+      <div style="clip: rect(0 0 0 0); position: absolute">secret seven</div>
+      <div style="clip-path: inset(50%)">secret eight</div>
+      <p style="color: transparent">secret nine</p>
       <p style="opacity:0.8">Faded but readable.</p>
       <p style="line-height:0; margin-left:-10px">Tight but shown.</p>
       <div style="height:0">Spills out, so it's seen.</div>`;
@@ -75,10 +79,6 @@ describe("extractHtml", () => {
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
-  it("has no title when the page has none", () => {
-    expect(extractHtml("<p>x</p>").title).toBeNull();
-  });
-
   it("keeps a page wrapped in a <form>, and an article's own header and notes", () => {
     const page = `<body><form><header>Site logo</header>
       <article><header><h1>Refunds</h1></header><p>Five days.</p>
@@ -111,9 +111,8 @@ describe("extractHtml", () => {
     );
   });
 
-  it("keeps a title without <head> out of the text, and ignores an icon's <svg> title", () => {
+  it("keeps a page title and an icon's <svg> title out of the text, even outside <head>", () => {
     const page = "<title>Refunds</title><svg><title>Close icon</title></svg><p>Five days.</p>";
-    expect(extractHtml(page)).toEqual({ title: "Refunds", text: "Five days." });
-    expect(extractHtml("<svg><title>Icon</title></svg><p>x</p>").title).toBeNull();
+    expect(extractHtml(page).text).toBe("Five days.");
   });
 });
