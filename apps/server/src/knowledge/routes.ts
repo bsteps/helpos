@@ -56,7 +56,10 @@ const sourceSchema = z
     visibility: z.enum(schema.knowledgeVisibilities),
     /** `pending` until the ingest job has run, then `ready` or `failed`. */
     status: z.enum(schema.knowledgeSourceStatuses),
-    /** Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`. */
+    /**
+     * Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`, or `too_long` (more
+     * passages than one source may have: split the document).
+     */
     error: z.string().nullable(),
     chunkCount: z.number().int(),
     /** `git` items are changed in the workspace's repo, never through this API. */
@@ -126,7 +129,8 @@ const deleteRoute = createRoute({
   path: "/v1/knowledge/sources/{id}",
   summary: "Delete a knowledge source",
   description:
-    "Deletes the source and its passages. Drafts stop listing it among their sources. " +
+    "Deletes the source and its passages. Drafts written with it keep their copy of the " +
+    "passages they saw, with `sourceId` null. " +
     "Needs `knowledge:write`.",
   security,
   request: { params: idParams },
@@ -215,43 +219,57 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
     const id = uuidv7();
-    // A title with no Latin letters or digits still gets a stable, unique slug.
-    const slug = input.slug ?? (slugify(input.title) || `source-${id.slice(-12)}`);
+    const unique = id.slice(-12);
+    const base = slugify(input.title);
+    // A slug the caller chose is kept or refused. One made from the title gets the id's tail
+    // when another source already has it (two pages can share a title), and a title with no
+    // Latin letters or digits gets only that.
+    const slugs = input.slug
+      ? [input.slug]
+      : base
+        ? [base, `${base}-${unique}`]
+        : [`source-${unique}`];
 
-    try {
-      const source = await deps.db.withTenant(tenantId, async (tx) => {
-        const [row] = await tx
-          .insert(knowledgeSources)
-          .values({
-            id,
+    for (const slug of slugs) {
+      const created = await insertSource(slug);
+      if (created) return c.json(serialize(created), 201);
+    }
+    return c.json({ error: "slug_taken" }, 409);
+
+    /** The new source, or undefined when the workspace already uses the slug. */
+    async function insertSource(slug: string): Promise<SourceRow | undefined> {
+      try {
+        return await deps.db.withTenant(tenantId, async (tx) => {
+          const [row] = await tx
+            .insert(knowledgeSources)
+            .values({
+              id,
+              tenantId,
+              slug,
+              kind: input.kind,
+              title: input.title,
+              url: input.kind === "url" ? input.url : null,
+              content: input.kind === "markdown" ? input.content : null,
+              ...(input.visibility ? { visibility: input.visibility } : {}),
+            })
+            .returning();
+          if (!row) throw new Error("create knowledge source: insert returned no row");
+          await recordAudit(tx, {
             tenantId,
-            slug,
-            kind: input.kind,
-            title: input.title,
-            url: input.kind === "url" ? input.url : null,
-            content: input.kind === "markdown" ? input.content : null,
-            ...(input.visibility ? { visibility: input.visibility } : {}),
-          })
-          .returning();
-        if (!row) throw new Error("create knowledge source: insert returned no row");
-        await recordAudit(tx, {
-          tenantId,
-          actor,
-          action: "knowledge_source.created",
-          target: { type: "knowledge_source", id },
-          requestId: c.get("requestId"),
+            actor,
+            action: "knowledge_source.created",
+            target: { type: "knowledge_source", id },
+            requestId: c.get("requestId"),
+          });
+          // In the same transaction: the source and its ingest job exist together or not at all.
+          await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id }, { singletonKey: id });
+          return row;
         });
-        // In the same transaction: the source and its ingest job exist together or not at all.
-        await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id }, { singletonKey: id });
-        return row;
-      });
-      return c.json(serialize(source), 201);
-    } catch (error) {
-      // Per workspace (ADR 0009 §7): this says nothing about other workspaces' slugs.
-      if (isUniqueViolation(error, "knowledge_sources_tenant_slug")) {
-        return c.json({ error: "slug_taken" }, 409);
+      } catch (error) {
+        // Per workspace (ADR 0009 §7): this says nothing about other workspaces' slugs.
+        if (isUniqueViolation(error, "knowledge_sources_tenant_slug")) return undefined;
+        throw error;
       }
-      throw error;
     }
   });
 
@@ -312,7 +330,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       if (!found) return "not_found" as const;
       // ADR 0010 §3: git owns these rows; the API never writes them.
       if (found.managedBy === "git") return "managed_in_git" as const;
-      // Its chunks, and drafts' citations of them, go with it (ON DELETE CASCADE).
+      // Its chunks go with it (ON DELETE CASCADE); drafts' copies of its passages stay.
       await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));
       await recordAudit(tx, {
         tenantId: principal.tenantId,

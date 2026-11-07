@@ -472,30 +472,37 @@ export const knowledgeChunks = pgTable(
 /**
  * The knowledge passages a draft was written with, so the approver sees its sources. `cited`
  * marks the ones the model says it used; the rest were offered but not used.
+ *
+ * A copy of each passage as the draft saw it, not a pointer to the chunk: re-ingesting replaces
+ * a source's chunks, and a sent reply's record of what it was written from must survive that.
  */
 export const draftCitations = pgTable(
   "draft_citations",
   {
     ...tenantColumns(),
     draftId: uuid("draft_id").notNull(),
-    chunkId: uuid("chunk_id").notNull(),
+    /**
+     * Null once the source is deleted; the copy below stays. Its foreign key is in the
+     * migration by hand: it nulls only this column (drizzle-kit can't emit that).
+     */
+    sourceId: uuid("source_id"),
+    title: text("title").notNull(),
+    url: text("url"),
+    visibility: text("visibility", { enum: knowledgeVisibilities }).notNull(),
+    /** The passage text the model was given. */
+    excerpt: text("excerpt").notNull(),
     /** Retrieval rank, from 0 (best match). */
     rank: integer("rank").notNull(),
     cited: boolean("cited").notNull(),
   },
   (t) => [
-    unique("draft_citations_tenant_draft_chunk").on(t.tenantId, t.draftId, t.chunkId),
+    unique("draft_citations_tenant_draft_rank").on(t.tenantId, t.draftId, t.rank),
     foreignKey({
       name: "draft_citations_draft_fk",
       columns: [t.tenantId, t.draftId],
       foreignColumns: [drafts.tenantId, drafts.id],
     }),
-    // Deleting a source removes it from drafts' source lists too: nothing points at gone content.
-    foreignKey({
-      name: "draft_citations_chunk_fk",
-      columns: [t.tenantId, t.chunkId],
-      foreignColumns: [knowledgeChunks.tenantId, knowledgeChunks.id],
-    }).onDelete("cascade"),
+    check("draft_citations_visibility", sql`${t.visibility} in ('public', 'internal')`),
     tenantIsolation(),
   ],
 );

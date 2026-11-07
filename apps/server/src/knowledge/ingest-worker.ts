@@ -5,7 +5,7 @@ import type { Logger } from "pino";
 import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
-import { chunkText } from "./chunk.ts";
+import { chunkText, maxChunks } from "./chunk.ts";
 import { extractHtml, tidy } from "./extract.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;
@@ -57,7 +57,13 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
   const isHtml = htmlTypes.has(mediaType);
   if (!isHtml && !textTypes.has(mediaType)) return { ok: false, error: "unsupported_content_type" };
 
-  const charset = params.find((p) => p.startsWith("charset="))?.slice(8) ?? "utf-8";
+  // `charset="iso-8859-1"` is valid too: the quotes aren't part of the label.
+  const charset =
+    params
+      .find((p) => p.startsWith("charset="))
+      ?.slice(8)
+      .replaceAll(/^["']|["']$/g, "")
+      .trim() || "utf-8";
   let body: string;
   try {
     body = new TextDecoder(charset).decode(res.body);
@@ -111,6 +117,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if (!page.ok) return fail(page.error);
     const chunks = chunkText(page.text);
     if (chunks.length === 0) return fail("no_text");
+    if (chunks.length > maxChunks) return fail("too_long");
 
     // Checked after the fetch, so the budget row isn't locked while a slow site answers.
     const day = utcDay((deps.now ?? (() => new Date()))());

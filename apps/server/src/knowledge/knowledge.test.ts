@@ -25,6 +25,7 @@ import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
+import { maxChunks } from "./chunk.ts";
 import { type Fetcher, handleIngestSource } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
@@ -57,7 +58,15 @@ let acme: string;
 let other: string;
 const requests: string[] = [];
 
-const pages: Record<string, { type: string; body: string; status?: number; location?: string }> = {
+const pages: Record<
+  string,
+  { type: string; body: string | Buffer; status?: number; location?: string }
+> = {
+  // A quoted charset label is valid HTTP; the bytes are Latin-1, not UTF-8.
+  "/latin1": {
+    type: 'text/html; charset="iso-8859-1"',
+    body: Buffer.from("<p>Café crème: refunds in 5 days.</p>", "latin1"),
+  },
   "/refunds": {
     type: "text/html; charset=utf-8",
     body: `<html><head><title>Refunds</title><script>track()</script></head><body>
@@ -301,6 +310,31 @@ describe("adding and ingesting sources", () => {
     expect(chunk?.content).toBe(
       "# Refund policy\n\nRefunds reach your card within 5 business days of the return arriving.",
     );
+  });
+
+  it("decodes a page in the charset it declares, quoted or not", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Latin-1 page",
+      url: pageUrl("/latin1"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+    expect((await chunksOf(acme, added.id))[0]?.content).toBe("Café crème: refunds in 5 days.");
+  });
+
+  it("refuses a document with more passages than a source may have, instead of cutting it", async () => {
+    const sections = Array.from({ length: maxChunks + 1 }, (_, i) => `# Part ${i}\n\nText ${i}.`);
+    const added = await addSource("editor", {
+      kind: "markdown",
+      title: "Huge manual",
+      content: sections.join("\n\n"),
+    });
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "too_long",
+      chunkCount: 0,
+    });
+    expect(await chunksOf(acme, added.id)).toEqual([]);
   });
 
   it("fetches a markdown page as text", async () => {
@@ -622,6 +656,14 @@ describe("knowledge API", () => {
     );
   });
 
+  it("makes a unique slug when another source has the same title", async () => {
+    const body = { kind: "markdown", title: "Same title", content: "x" };
+    const first = await addSource("editor", body);
+    const second = await addSource("editor", body);
+    expect(first.slug).toBe("same-title");
+    expect(second.slug).toMatch(/^same-title-[0-9a-f]{12}$/);
+  });
+
   it("makes a slug for titles without Latin letters", async () => {
     const added = await addSource("editor", { kind: "markdown", title: "返金", content: "x" });
     expect(added.slug).toMatch(/^source-[0-9a-f]{12}$/);
@@ -790,20 +832,21 @@ describe("drafting with knowledge", () => {
     const system = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt[0]);
     expect(system).not.toContain("5 business days");
 
-    const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, "editor");
-    expect(res.status).toBe(200);
-    const { drafts: list } = (await res.json()) as {
-      drafts: {
-        sources: {
-          title: string;
-          cited: boolean;
-          url: string | null;
-          visibility: string;
-          excerpt: string;
-        }[];
-      }[];
+    type Source = {
+      sourceId: string | null;
+      title: string;
+      cited: boolean;
+      url: string | null;
+      visibility: string;
+      excerpt: string;
     };
-    const sources = list[0]?.sources ?? [];
+    const sourcesOfDraft = async (): Promise<Source[]> => {
+      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, "editor");
+      expect(res.status).toBe(200);
+      const { drafts: list } = (await res.json()) as { drafts: { sources: Source[] }[] };
+      return list[0]?.sources ?? [];
+    };
+    const sources = await sourcesOfDraft();
     expect(sources[0]).toEqual({
       sourceId: expect.any(String),
       title: "Refund policy",
@@ -822,5 +865,18 @@ describe("drafting with knowledge", () => {
       tx.select().from(draftCitations).where(eq(draftCitations.draftId, draft.id)),
     );
     expect(citations.length).toBe(sources.length);
+
+    // The draft's record of what it was written from survives the source changing...
+    const refundId = sources[0]?.sourceId;
+    if (!refundId) throw new Error("no refund source");
+    expect((await reingest(refundId)).status).toBe(202);
+    expect((await ingested(acme, refundId)).status).toBe("ready");
+    expect(await sourcesOfDraft()).toEqual(sources);
+    // ...and being deleted: only the link to it goes.
+    expect((await call("DELETE", `/v1/knowledge/sources/${refundId}`, "editor")).status).toBe(204);
+    expect(await sourcesOfDraft()).toEqual([
+      { ...sources[0], sourceId: null },
+      ...sources.slice(1),
+    ]);
   });
 });

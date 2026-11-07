@@ -188,9 +188,23 @@ describe("parseSources", () => {
     expect(parseSources("Hi\n[Sources: none]", 2)).toEqual({ text: "Hi", cited: [] });
   });
 
-  it("keeps the text whole when there is no source line, or it isn't last", () => {
+  it("keeps the text whole when there is no source line", () => {
     expect(parseSources("Hi", 2)).toEqual({ text: "Hi", cited: [] });
-    const middle = "Hi\n[sources: K1]\nmore";
-    expect(parseSources(middle, 2)).toEqual({ text: middle, cited: [] });
+    expect(parseSources("See [sources: K1] inline", 2)).toEqual({
+      text: "See [sources: K1] inline",
+      cited: [],
+    });
+  });
+
+  it("finds the line before a sign-off, and never leaves one in the reply", () => {
+    expect(parseSources("Hi.\n[sources: K1]\n\nBest,\nSam", 2)).toEqual({
+      text: "Hi.\n\nBest,\nSam",
+      cited: [0],
+    });
+    // Two lines: the last one counts, and both are removed.
+    expect(parseSources("[sources: K2]\nHi.\n[sources: K1]", 2)).toEqual({
+      text: "Hi.",
+      cited: [0],
+    });
   });
 });

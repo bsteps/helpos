@@ -4,10 +4,15 @@ CREATE TABLE "draft_citations" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"draft_id" uuid NOT NULL,
-	"chunk_id" uuid NOT NULL,
+	"source_id" uuid,
+	"title" text NOT NULL,
+	"url" text,
+	"visibility" text NOT NULL,
+	"excerpt" text NOT NULL,
 	"rank" integer NOT NULL,
 	"cited" boolean NOT NULL,
-	CONSTRAINT "draft_citations_tenant_draft_chunk" UNIQUE("tenant_id","draft_id","chunk_id")
+	CONSTRAINT "draft_citations_tenant_draft_rank" UNIQUE("tenant_id","draft_id","rank"),
+	CONSTRAINT "draft_citations_visibility" CHECK ("draft_citations"."visibility" in ('public', 'internal'))
 );
 --> statement-breakpoint
 ALTER TABLE "draft_citations" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -58,7 +63,6 @@ CREATE TABLE "knowledge_sources" (
 ALTER TABLE "knowledge_sources" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "draft_citations" ADD CONSTRAINT "draft_citations_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "draft_citations" ADD CONSTRAINT "draft_citations_draft_fk" FOREIGN KEY ("tenant_id","draft_id") REFERENCES "public"."drafts"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "draft_citations" ADD CONSTRAINT "draft_citations_chunk_fk" FOREIGN KEY ("tenant_id","chunk_id") REFERENCES "public"."knowledge_chunks"("tenant_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "knowledge_chunks" ADD CONSTRAINT "knowledge_chunks_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "knowledge_chunks" ADD CONSTRAINT "knowledge_chunks_source_fk" FOREIGN KEY ("tenant_id","source_id") REFERENCES "public"."knowledge_sources"("tenant_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "knowledge_sources" ADD CONSTRAINT "knowledge_sources_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -70,4 +74,7 @@ CREATE POLICY "tenant_isolation" ON "knowledge_sources" AS PERMISSIVE FOR ALL TO
 -- Hand-written: FORCE applies RLS to the table owner too (drizzle-kit cannot emit it).
 ALTER TABLE "knowledge_sources" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "knowledge_chunks" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "draft_citations" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "draft_citations" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+-- Hand-written: deleting a source nulls only source_id, keeping tenant_id and the citation's
+-- copy of the passage (drizzle-kit cannot emit a column list for SET NULL).
+ALTER TABLE "draft_citations" ADD CONSTRAINT "draft_citations_source_fk" FOREIGN KEY ("tenant_id","source_id") REFERENCES "public"."knowledge_sources"("tenant_id","id") ON DELETE SET NULL ("source_id");

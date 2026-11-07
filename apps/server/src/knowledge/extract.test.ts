@@ -50,4 +50,10 @@ describe("extractHtml", () => {
   it("has no title when the page has none", () => {
     expect(extractHtml("<p>x</p>").title).toBeNull();
   });
+
+  it("keeps a title without <head> out of the text, and ignores an icon's <svg> title", () => {
+    const page = "<title>Refunds</title><svg><title>Close icon</title></svg><p>Five days.</p>";
+    expect(extractHtml(page)).toEqual({ title: "Refunds", text: "Five days." });
+    expect(extractHtml("<svg><title>Icon</title></svg><p>x</p>").title).toBeNull();
+  });
 });

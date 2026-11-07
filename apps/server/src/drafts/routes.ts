@@ -21,8 +21,7 @@ import { type Authenticate, requirePrincipal, type Scope } from "../auth/princip
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
-const { draftCitations, drafts, knowledgeChunks, knowledgeSources, mailboxes, messages, tickets } =
-  schema;
+const { draftCitations, drafts, mailboxes, messages, tickets } = schema;
 type DraftRow = typeof drafts.$inferSelect;
 
 export interface DraftRoutesDeps {
@@ -38,7 +37,8 @@ export interface DraftRoutesDeps {
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const draftSourceSchema = z
   .object({
-    sourceId: z.uuid(),
+    /** Null when the source has since been deleted; the rest is what the draft saw. */
+    sourceId: z.uuid().nullable(),
     title: z.string(),
     url: z.string().nullable(),
     /**
@@ -219,16 +219,14 @@ async function present(tx: TenantTx, rows: DraftRow[]): Promise<DraftJson[]> {
   const cited = await tx
     .select({
       draftId: draftCitations.draftId,
-      sourceId: knowledgeSources.id,
-      title: knowledgeSources.title,
-      url: knowledgeSources.url,
-      visibility: knowledgeSources.visibility,
-      excerpt: knowledgeChunks.content,
+      sourceId: draftCitations.sourceId,
+      title: draftCitations.title,
+      url: draftCitations.url,
+      visibility: draftCitations.visibility,
+      excerpt: draftCitations.excerpt,
       cited: draftCitations.cited,
     })
     .from(draftCitations)
-    .innerJoin(knowledgeChunks, eq(knowledgeChunks.id, draftCitations.chunkId))
-    .innerJoin(knowledgeSources, eq(knowledgeSources.id, knowledgeChunks.sourceId))
     .where(
       inArray(
         draftCitations.draftId,

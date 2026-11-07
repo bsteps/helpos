@@ -119,7 +119,10 @@ async function seedB(tx: TenantTx): Promise<void> {
     id: b.citation,
     tenantId,
     draftId: b.draft,
-    chunkId: b.chunk,
+    sourceId: b.source,
+    title: "B's refund policy",
+    visibility: "internal",
+    excerpt: "Refunds take 5 days.",
     rank: 0,
     cited: true,
   });
@@ -280,6 +283,51 @@ describe("leak: acting as tenant A", () => {
         });
       }),
     ).rejects.toThrow();
+  });
+
+  it("cannot point a draft's citation at B's knowledge source, even with its ID", async () => {
+    const rollback = new Error("rollback");
+    await expect(
+      db.withTenant(tenantA, async (tx) => {
+        const ids = await seedTicketInA(tx, "cite@a.test");
+        const messageId = uuidv7();
+        const draftId = uuidv7();
+        await tx.insert(messages).values({
+          id: messageId,
+          tenantId: tenantA,
+          ticketId: ids.ticket,
+          direction: "inbound",
+          fromAddress: "cite@a.test",
+          toAddresses: ["cite@a.test"],
+          subject: "x",
+          references: [],
+          rawFileKey: `${tenantA}/raw-cite`,
+          messageIdHeader: "<cite@a.test>",
+        });
+        await tx
+          .insert(drafts)
+          .values({ id: draftId, tenantId: tenantA, ticketId: ids.ticket, messageId, body: "x" });
+        const citation = {
+          tenantId: tenantA,
+          draftId,
+          title: "x",
+          visibility: "internal" as const,
+          excerpt: "x",
+          cited: false,
+        };
+        // Without a source the same row is fine, so the source is what gets refused.
+        await tx.insert(draftCitations).values({ ...citation, sourceId: null, rank: 0 });
+        await expect(
+          tx.transaction((sp) =>
+            sp.insert(draftCitations).values({ ...citation, sourceId: b.source, rank: 1 }),
+          ),
+        ).rejects.toSatisfy((e: unknown) =>
+          /draft_citations_source_fk/.test(String(e instanceof Error ? (e.cause ?? e) : e)),
+        );
+        // Leaves A's tables empty for the other tests.
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
   });
 
   it("a knowledge slug that B already uses is accepted in A", async () => {

@@ -1,7 +1,11 @@
 /** Small enough to embed and quote precisely, big enough to keep a paragraph's context. */
 export const maxChunkChars = 1_500;
-/** A source yields at most this many chunks; the rest of a very long document is left out. */
-export const maxChunks = 100;
+/**
+ * A source may have at most this many chunks. A longer one fails as `too_long` rather than
+ * being cut short without a word, so a missing answer never hides at the end of a document.
+ * Bounds one ingest's embedding cost.
+ */
+export const maxChunks = 200;
 
 const headingLine = /^#{1,6}\s+\S/;
 
@@ -73,5 +77,5 @@ export function chunkText(text: string): string[] {
     for (const part of splitLong(paragraph, room)) add(part);
   }
   flush();
-  return chunks.slice(0, maxChunks);
+  return chunks;
 }

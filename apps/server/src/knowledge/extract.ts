@@ -3,6 +3,8 @@ import { Parser } from "htmlparser2";
 /** Page chrome and non-content: never knowledge. */
 const skippedTags = new Set([
   "head",
+  // The page title, even outside <head>: it is metadata, not body text.
+  "title",
   "script",
   "style",
   "noscript",
@@ -62,6 +64,9 @@ export function extractHtml(html: string): ExtractedPage {
   const main: string[] = [];
   let title = "";
   let inTitle = false;
+  let titleDone = false;
+  // An <svg> can have its own <title>, which isn't the page's.
+  let svgDepth = 0;
   let skipDepth = 0;
   let mainDepth = 0;
 
@@ -73,7 +78,8 @@ export function extractHtml(html: string): ExtractedPage {
   const parser = new Parser(
     {
       onopentag(name, attribs) {
-        if (name === "title") inTitle = true;
+        if (name === "svg") svgDepth++;
+        if (name === "title" && svgDepth === 0 && !titleDone) inTitle = true;
         if (skipDepth > 0 || skippedTags.has(name) || isHidden(attribs)) {
           skipDepth++;
           return;
@@ -89,7 +95,11 @@ export function extractHtml(html: string): ExtractedPage {
         if (skipDepth === 0) emit(data.replaceAll(/\s+/g, " "));
       },
       onclosetag(name) {
-        if (name === "title") inTitle = false;
+        if (name === "svg") svgDepth = Math.max(0, svgDepth - 1);
+        if (name === "title" && inTitle) {
+          inTitle = false;
+          titleDone = true;
+        }
         if (skipDepth > 0) {
           skipDepth--;
           return;

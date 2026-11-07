@@ -1,5 +1,5 @@
 {
-  "id": "a80fd61b-f751-4bf2-86f4-484e097ca7ab",
+  "id": "7380a567-47ff-48c1-aa07-64fd991bdad2",
   "prevId": "a34c741f-06cc-44ad-97e2-82de7dd8a196",
   "version": "7",
   "dialect": "postgresql",
@@ -462,9 +462,33 @@
           "primaryKey": false,
           "notNull": true
         },
-        "chunk_id": {
-          "name": "chunk_id",
+        "source_id": {
+          "name": "source_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "excerpt": {
+          "name": "excerpt",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -500,23 +524,14 @@
           "columnsTo": ["tenant_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "draft_citations_chunk_fk": {
-          "name": "draft_citations_chunk_fk",
-          "tableFrom": "draft_citations",
-          "tableTo": "knowledge_chunks",
-          "columnsFrom": ["tenant_id", "chunk_id"],
-          "columnsTo": ["tenant_id", "id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "draft_citations_tenant_draft_chunk": {
-          "name": "draft_citations_tenant_draft_chunk",
+        "draft_citations_tenant_draft_rank": {
+          "name": "draft_citations_tenant_draft_rank",
           "nullsNotDistinct": false,
-          "columns": ["tenant_id", "draft_id", "chunk_id"]
+          "columns": ["tenant_id", "draft_id", "rank"]
         }
       },
       "policies": {
@@ -529,7 +544,12 @@
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
         }
       },
-      "checkConstraints": {},
+      "checkConstraints": {
+        "draft_citations_visibility": {
+          "name": "draft_citations_visibility",
+          "value": "\"draft_citations\".\"visibility\" in ('public', 'internal')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.drafts": {

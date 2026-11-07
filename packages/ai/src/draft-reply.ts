@@ -119,13 +119,16 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
 const sourcesLine = /^\s*\[\s*sources\s*:([^\]]*)\]\s*$/i;
 
 /**
- * Splits the model's last-line source list off the reply. Only ids that were offered count,
- * so a model (or an injected passage) can't cite something that wasn't retrieved. Without
- * the line, nothing is cited and the text is kept whole.
+ * Splits the model's source list off the reply. It should be the last line, but a model may
+ * add a sign-off after it, so the last such line counts wherever it is, and every such line is
+ * removed: the customer must never see one. Only ids that were offered count, so a model (or an
+ * injected passage) can't cite something that wasn't retrieved. Without the line, nothing is
+ * cited and the text is kept whole.
  */
 export function parseSources(text: string, offered: number): { text: string; cited: number[] } {
   const lines = text.trimEnd().split("\n");
-  const match = sourcesLine.exec(lines.at(-1) ?? "");
+  const matches = lines.map((line) => sourcesLine.exec(line));
+  const match = matches.findLast((m) => m !== null);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
   for (const token of (match[1] ?? "").split(",")) {
@@ -134,7 +137,11 @@ export function parseSources(text: string, offered: number): { text: string; cit
     if (index >= 0 && index < offered) cited.add(index);
   }
   return {
-    text: lines.slice(0, -1).join("\n").trimEnd(),
+    text: lines
+      .filter((_, i) => matches[i] === null)
+      .join("\n")
+      .replaceAll(/\n{3,}/g, "\n\n")
+      .trim(),
     cited: [...cited].sort((a, b) => a - b),
   };
 }

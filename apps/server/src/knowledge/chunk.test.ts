@@ -46,13 +46,12 @@ describe("chunkText", () => {
     expect(chunks.map((c) => c.length)).toEqual([maxChunkChars, maxChunkChars, 10]);
   });
 
-  it(`keeps at most ${maxChunks} passages`, () => {
+  it("returns every passage, so the caller can refuse a document that's too long", () => {
     const doc = Array.from({ length: maxChunks + 20 }, (_, i) => `# H${i}\n\nText ${i}`).join(
       "\n\n",
     );
-    expect(chunkText(doc)).toHaveLength(maxChunks);
+    expect(chunkText(doc)).toHaveLength(maxChunks + 20);
   });
-
   it("returns nothing for blank text", () => {
     expect(chunkText(" \n\n \r\n ")).toEqual([]);
   });

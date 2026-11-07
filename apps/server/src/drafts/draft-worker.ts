@@ -2,8 +2,14 @@ import { draftReply, type LanguageModel, maxHistoryMessages } from "@helpos/ai";
 import { and, desc, eq, gt, isNull, lt, ne, schema, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
+import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
-import { noKnowledge, type SearchProvider } from "../knowledge/search.ts";
+import {
+  noKnowledge,
+  type SearchProvider,
+  type SearchQuery,
+  type SearchResult,
+} from "../knowledge/search.ts";
 import { messageText } from "./html-text.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -28,6 +34,27 @@ export interface DraftWorkerDeps {
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
+
+/**
+ * The workspace's best-matching knowledge, or none when search fails (embedding provider down,
+ * wrong key). Drafting worked without knowledge before, so a broken search must not stop it.
+ * Only this workspace's knowledge: it runs in the job's withTenant() transaction, inside a
+ * savepoint, so a failed query can't break the rest of the job.
+ */
+async function searchOrNothing(
+  deps: DraftWorkerDeps,
+  tx: TenantTx,
+  query: SearchQuery,
+): Promise<SearchResult> {
+  const { search } = deps;
+  if (!search) return noKnowledge;
+  try {
+    return await tx.transaction((sp) => search.search(sp, query));
+  } catch (error) {
+    deps.logger.warn({ err: errorSummary(error) }, "knowledge search failed: drafting without it");
+    return noKnowledge;
+  }
+}
 
 /**
  * Drafts a reply to one inbound message and saves it as `pending`. It never sends anything:
@@ -109,14 +136,11 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       .limit(maxHistoryMessages);
 
     const emailBody = messageText(row);
-    // Only this workspace's knowledge: the search runs in this job's withTenant() transaction.
-    const knowledge = deps.search
-      ? await deps.search.search(tx, {
-          tenantId: payload.tenantId,
-          text: `${row.subject}\n\n${emailBody}`.slice(0, maxQueryChars),
-          limit: knowledgeLimit,
-        })
-      : noKnowledge;
+    const knowledge = await searchOrNothing(deps, tx, {
+      tenantId: payload.tenantId,
+      text: `${row.subject}\n\n${emailBody}`.slice(0, maxQueryChars),
+      limit: knowledgeLimit,
+    });
 
     const result = await draftReply(deps.model, {
       from: row.fromAddress,
@@ -220,7 +244,11 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         knowledge.hits.map((hit, rank) => ({
           tenantId: payload.tenantId,
           draftId: draft.id,
-          chunkId: hit.chunkId,
+          sourceId: hit.sourceId,
+          title: hit.title,
+          url: hit.url,
+          visibility: hit.visibility,
+          excerpt: hit.content,
           rank,
           cited: result.cited.includes(rank),
         })),
