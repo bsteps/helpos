@@ -1,11 +1,12 @@
 import type { EmbeddingModel, LanguageModel } from "@helpos/ai";
-import type { JobRunner, TenantJobHandler } from "@helpos/db";
+import type { AuthStore, JobRunner, TenantJobHandler } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { errorSummary } from "./app.ts";
 import { handleDraftReply } from "./drafts/draft-worker.ts";
-import { draftReplyJob, sendReplyJob } from "./drafts/jobs.ts";
+import { draftNoticeJob, draftReplyJob, sendReplyJob } from "./drafts/jobs.ts";
+import { handleDraftNotice } from "./drafts/notice-worker.ts";
 import { handleSendReply } from "./drafts/send-worker.ts";
 import { type Fetcher, handleIngestSource } from "./knowledge/ingest-worker.ts";
 import { ingestSourceJob } from "./knowledge/jobs.ts";
@@ -27,6 +28,12 @@ export interface WorkerDeps {
   now?: () => Date;
   /** Without a transport, approved drafts wait in the queue. */
   transport: EmailTransport | undefined;
+  /** Reads owner emails for draft notices. Without it, notices wait in the queue. */
+  auth: Pick<AuthStore, "emailsOf"> | undefined;
+  /** Base URL for links in notices. */
+  publicUrl: string;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 /**
@@ -38,6 +45,7 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
   await runner.ensureQueue(draftReplyJob);
   await runner.ensureQueue(sendReplyJob);
   await runner.ensureQueue(ingestSourceJob);
+  await runner.ensureQueue(draftNoticeJob);
 
   const search = deps.embeddingModel ? createVectorSearch(deps.embeddingModel) : undefined;
   if (deps.model) {
@@ -71,6 +79,19 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
   } else {
     logger.warn(
       "AI embeddings are not configured: knowledge sources will wait in the queue, and drafts use no knowledge",
+    );
+  }
+  if (deps.transport && deps.auth) {
+    await runner.work(
+      draftNoticeJob,
+      logged(
+        "draft-notice",
+        handleDraftNotice({ ...deps, transport: deps.transport, auth: deps.auth }),
+      ),
+    );
+  } else {
+    logger.warn(
+      "HELPOS_SMTP_URL or HELPOS_DATABASE_AUTH_URL is not set: draft notices will wait in the queue",
     );
   }
 

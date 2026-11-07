@@ -15,6 +15,12 @@ export const envSchema = z.object({
   // Where approved replies are sent from. Optional: without it, approved drafts wait in the
   // queue until it's set. Locally smtp://localhost:1025 is Mailpit.
   HELPOS_SMTP_URL: z.url().optional(),
+  // Reads owner emails for "a draft is waiting" notices. Optional: without it, notices wait.
+  HELPOS_DATABASE_AUTH_URL: z.url().optional(),
+  // Where links in emails point (the dashboard). Optional, default the local server.
+  HELPOS_PUBLIC_URL: z.url().default("http://localhost:3000"),
+  // How long a new draft waits before owners are emailed. Approved sooner, no email is sent.
+  HELPOS_NOTICE_DELAY_SECONDS: z.coerce.number().int().min(0).default(300),
   // Hard cap on AI tokens per workspace per UTC day. Over it, drafting pauses until midnight UTC.
   HELPOS_AI_DAILY_TOKEN_BUDGET: z.coerce.number().int().min(0).default(defaultDailyTokenBudget),
 });

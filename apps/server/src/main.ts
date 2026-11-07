@@ -8,7 +8,7 @@ import {
   parseEmbeddingConfig,
 } from "@helpos/ai";
 import { brand } from "@helpos/brand";
-import { createDatabase, createJobRunner } from "@helpos/db";
+import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
 import pino from "pino";
@@ -31,6 +31,9 @@ const runner = createJobRunner({
   onError: (err) => logger.error({ err: errorSummary(err) }, "job runner error"),
 });
 const transport = env.HELPOS_SMTP_URL ? createSmtpTransport(env.HELPOS_SMTP_URL) : undefined;
+const auth = env.HELPOS_DATABASE_AUTH_URL
+  ? createAuthStore(env.HELPOS_DATABASE_AUTH_URL)
+  : undefined;
 await runner.start();
 const dailyTokenBudget = env.HELPOS_AI_DAILY_TOKEN_BUDGET;
 await startWorker({
@@ -40,10 +43,21 @@ await startWorker({
   model: aiModel(),
   embeddingModel: embeddingModel(),
   transport,
+  // Only the one function the worker needs, not the whole auth store.
+  auth: auth ? { emailsOf: (ids) => auth.emailsOf(ids) } : undefined,
+  publicUrl: env.HELPOS_PUBLIC_URL,
+  noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
   dailyTokenBudget,
 });
 
-const app = createApp({ db, files, logger, inboundSecret, dailyTokenBudget });
+const app = createApp({
+  db,
+  files,
+  logger,
+  inboundSecret,
+  dailyTokenBudget,
+  noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
+});
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(
     { port: info.port },
@@ -68,6 +82,7 @@ async function shutdown(signal: string): Promise<void> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await runner.stop();
     transport?.close();
+    await auth?.close();
     await db.close();
   } catch (err) {
     logger.error({ err }, "shutdown failed");

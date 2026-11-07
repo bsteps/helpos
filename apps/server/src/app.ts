@@ -23,6 +23,8 @@ export interface AppDeps {
   dailyTokenBudget?: number;
   /** For tests: the clock "today" is read from. */
   now?: () => Date;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 export function createApp({
@@ -33,6 +35,7 @@ export function createApp({
   authenticate = refuseAll,
   dailyTokenBudget = defaultDailyTokenBudget,
   now,
+  noticeDelaySeconds,
 }: AppDeps): OpenAPIHono {
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
@@ -49,7 +52,13 @@ export function createApp({
   });
 
   registerInboundEmail(app, { db, files, logger, inboundSecret });
-  registerDraftRoutes(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
+  registerDraftRoutes(app, {
+    db,
+    authenticate,
+    dailyTokenBudget,
+    ...(now ? { now } : {}),
+    ...(noticeDelaySeconds !== undefined ? { noticeDelaySeconds } : {}),
+  });
   registerAiUsageRoute(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
   registerKnowledgeRoutes(app, { db, authenticate });
 

@@ -17,10 +17,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { noticeSubject } from "../outbound-email/draft-notice.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
+import { handleDraftNotice } from "./notice-worker.ts";
 import { handleSendReply } from "./send-worker.ts";
 
 // The whole loop against real Postgres, real pg-boss and a real SMTP server (Mailpit):
@@ -57,6 +59,8 @@ const app = () =>
     files,
     logger,
     inboundSecret: undefined,
+    // No wait in tests, so the Mailpit case doesn't take 5 minutes.
+    noticeDelaySeconds: 0,
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -164,6 +168,9 @@ beforeAll(async () => {
     model,
     embeddingModel: undefined,
     transport,
+    auth,
+    publicUrl: "http://helpdesk.test",
+    noticeDelaySeconds: 0,
     dailyTokenBudget: 1_000_000,
   });
 
@@ -278,6 +285,60 @@ describe("draft → approve → send", () => {
       ["draft.sent", "system", "send-reply"],
     ]);
     expect(audit[2]?.requestId).toBe(requestId);
+  });
+});
+
+describe("draft waiting notice", () => {
+  /** Notices in Mailpit that link to this ticket. */
+  async function noticesFor(ticketId: string) {
+    const found: { to: string[]; subject: string; text: string }[] = [];
+    for (const m of await mailpitMessages()) {
+      if (m.Subject !== noticeSubject) continue;
+      const res = await fetch(`${mailpitApi}/api/v1/message/${m.ID}`);
+      const detail = (await res.json()) as { Text: string };
+      if (detail.Text.includes(ticketId)) {
+        found.push({ to: m.To.map((t) => t.Address), subject: m.Subject, text: detail.Text });
+      }
+    }
+    return found;
+  }
+
+  it("a pending draft sends one notice; a second draft within 15 minutes doesn't", async () => {
+    const email = await receiveEmail("Hi, I cannot log in since this morning. My code is 4711.");
+    await waitForDraft(email.ticketId, "pending");
+    const [notice, ...more] = await waitFor("notice", async () => {
+      const found = await noticesFor(email.ticketId);
+      return found.length > 0 ? found : undefined;
+    });
+    expect(more).toEqual([]);
+    // Only Acme's owner, never another workspace's.
+    expect(notice?.to).toEqual(["owner@acme.test"]);
+    expect(notice?.subject).not.toContain(email.subject);
+    expect(notice?.text).toContain(`http://helpdesk.test/tickets/${email.ticketId}`);
+    expect(notice?.text).toContain("> Hi, I cannot log in since this morning.");
+
+    // A second pending draft on the same ticket, through the API and forced through the worker.
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+      body: "Hi Jane, I've reset your account myself.",
+    });
+    expect(res.status).toBe(201);
+    const second = (await res.json()) as { id: string };
+    await db.withTenant(acme, (tx) =>
+      handleDraftNotice({
+        transport,
+        auth,
+        publicUrl: "http://helpdesk.test",
+        logger,
+        noticeDelaySeconds: 0,
+      })({ tenantId: acme, draftId: second.id }, tx),
+    );
+    // Give the queued job time to run too: it must not send either.
+    await new Promise((r) => setTimeout(r, 2_000));
+    expect(await noticesFor(email.ticketId)).toHaveLength(1);
+    const audit = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.auditEvents).where(eq(schema.auditEvents.targetId, email.ticketId)),
+    );
+    expect(audit.filter((e) => e.action === "draft.notice_sent")).toHaveLength(1);
   });
 });
 

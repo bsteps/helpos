@@ -223,6 +223,8 @@ beforeAll(async () => {
     embeddingModel,
     fetch: testFetch,
     transport: undefined,
+    auth: undefined,
+    publicUrl: "http://helpdesk.test",
     dailyTokenBudget: 1_000_000,
   });
 

@@ -14,7 +14,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { handleDraftReply } from "../drafts/draft-worker.ts";
-import { draftReplyJob } from "../drafts/jobs.ts";
+import { draftNoticeJob, draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { recordUsage } from "./budget.ts";
@@ -79,6 +79,7 @@ beforeAll(async () => {
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
   await runner.ensureQueue(draftReplyJob);
+  await runner.ensureQueue(draftNoticeJob);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

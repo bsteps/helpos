@@ -9,6 +9,7 @@ import {
   isNull,
   ne,
   schema,
+  sql,
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
@@ -18,6 +19,7 @@ import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
+import { queueDraftNotice } from "./notice-worker.ts";
 
 const { draftCitations, drafts, knowledgeChunks, knowledgeSources, mailboxes, messages, tickets } =
   schema;
@@ -29,6 +31,8 @@ export interface DraftRoutesDeps {
   /** Regenerate is refused up front when today's AI budget is spent. */
   dailyTokenBudget: number;
   now?: () => Date;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
@@ -330,7 +334,8 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         .update(drafts)
         .set({
           status: "approved",
-          approvedAt: new Date(),
+          // The database clock, like the audit events the notice window compares it with.
+          approvedAt: sql`now()`,
           outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
         })
         // Bound to the exact text reviewed: an edit made after review can't ride on the approval.
@@ -442,6 +447,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
         .returning();
       if (!draft) throw new Error("create draft: insert returned no row");
+      await queueDraftNotice(tx, draft, deps.noticeDelaySeconds);
       // The ticket has an answer now, so it's no longer waiting on a paused AI.
       await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
       await recordAudit(tx, {

@@ -5,6 +5,7 @@ import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget
 import { recordAudit } from "../audit/audit.ts";
 import { noKnowledge, type SearchProvider } from "../knowledge/search.ts";
 import { messageText } from "./html-text.ts";
+import { queueDraftNotice } from "./notice-worker.ts";
 
 const { draftCitations, drafts, messages, tickets } = schema;
 
@@ -22,6 +23,8 @@ export interface DraftWorkerDeps {
   now?: () => Date;
   /** The workspace's knowledge. Without it, drafts are written from the email alone. */
   search?: SearchProvider | undefined;
+  /** How long a new draft waits before its owner notice is sent. */
+  noticeDelaySeconds?: number;
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
@@ -223,6 +226,15 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         })),
       );
     }
+    await queueDraftNotice(
+      tx,
+      {
+        tenantId: payload.tenantId,
+        id: draft.id,
+        ticketId: row.ticketId,
+      },
+      deps.noticeDelaySeconds,
+    );
     await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
 
     await recordAudit(tx, {
