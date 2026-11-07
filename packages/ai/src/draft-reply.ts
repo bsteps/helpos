@@ -127,11 +127,13 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
  */
 // Written so no two repeated parts can match the same characters: the reply is model output
 // steered by untrusted email, and overlapping repeats would make a crafted one slow to scan.
-const idList = String.raw`(?:k\d+|none)(?:[ \t]*,[ \t]*(?:k\d+|none))*`;
+// Ids are listed with commas, but models also write "K1; K2", "K1 & K2", "K1 and K2" or "K1 K2".
+const idSeparator = String.raw`(?:[ \t]*[,;&][ \t]*|[ \t]+(?:and[ \t]+)?)`;
+const idList = String.raw`(?:k\d+|none)(?:${idSeparator}(?:k\d+|none))*`;
 const sourcesMarker = new RegExp(
   [
-    // [sources: K1, K3], with any junk after the first id, or cut off at the end of a line
-    String.raw`\[[ \t]*sources?[ \t]*:[ \t]*((?:k\d+|none)[ \t]*(?:,[^,\]\n]*)*)(?:\]|$)`,
+    // [sources: K1, K3], with any junk after the ids, or cut off at the end of a line
+    String.raw`\[[ \t]*sources?[ \t]*:[ \t]*(${idList}[ \t]*(?:,[^,\]\n]*)*)(?:\]|$)`,
     // (source: K1)
     String.raw`\([ \t]*sources?[ \t]*:[ \t]*(${idList})[ \t]*\)`,
     // Sources: K1, K2 as a line of its own (after a bullet or markdown), so a reply's own
@@ -213,8 +215,8 @@ export function parseSources(text: string, offered: number): { text: string; cit
   const match = matches.at(-1);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
-  for (const token of (match[1] ?? match[2] ?? match[3] ?? "").split(",")) {
-    const n = /^\s*k(\d+)\s*$/i.exec(token);
+  for (const token of (match[1] ?? match[2] ?? match[3] ?? "").split(/[\s,;&]+/)) {
+    const n = /^k(\d+)$/i.exec(token);
     const index = n ? Number(n[1]) - 1 : -1;
     if (index >= 0 && index < offered) cited.add(index);
   }
@@ -257,8 +259,12 @@ export async function draftReply(
     prompt: [fenceKnowledge(knowledge), fenceEmail(input)].filter(Boolean).join("\n\n"),
     ...(options.tools ? { tools: options.tools, stopWhen: stepCountIs(2) } : {}),
   });
-  // The reply is the last text the model wrote; a step that only called a tool has none.
-  const reply = result.steps.map((step) => step.text).findLast((t) => t.trim() !== "") ?? "";
+  // Everything the model wrote, in order: with one step (the real drafting) that's its text,
+  // and in evals a line written before a tool call is part of the reply the checks judge.
+  const reply = result.steps
+    .map((step) => step.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
   const { text, cited } =
     knowledge.length > 0 ? parseSources(reply, knowledge.length) : { text: reply, cited: [] };
   return {

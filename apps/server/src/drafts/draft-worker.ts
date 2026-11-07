@@ -17,7 +17,7 @@ import {
   type TenantTx,
 } from "@helpos/db";
 import type { Logger } from "pino";
-import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
+import { lockUsage, recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import {
@@ -146,10 +146,11 @@ function draftInTransaction(deps: DraftWorkerDeps) {
       .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
     if (existing) return; // a retry after the draft was saved, or already answered
 
-    // The hard cap, checked before the model is called. Over budget, the ticket is marked
-    // and the job ends without a draft. The budget resets with the UTC day.
-    const used = await lockUsage(tx, payload.tenantId, day);
-    if (totalTokens(used) >= deps.dailyTokenBudget) {
+    // The hard cap. Over budget, the ticket is marked and the job ends without a draft. The
+    // budget resets with the UTC day.
+    const pause = async (usedTokens: number) => {
+      // The search may have embedded the email before the lock showed the cap was reached.
+      if (totalTokens(spent) > 0) await recordUsage(tx, payload.tenantId, day, spent);
       await tx
         .update(tickets)
         .set({ aiPausedReason: "daily_budget" })
@@ -162,11 +163,14 @@ function draftInTransaction(deps: DraftWorkerDeps) {
         requestId: null,
       });
       deps.logger.warn(
-        { ticketId: row.ticketId, usedTokens: totalTokens(used), budget: deps.dailyTokenBudget },
+        { ticketId: row.ticketId, usedTokens, budget: deps.dailyTokenBudget },
         "AI paused: daily budget reached",
       );
-      return;
-    }
+    };
+    // Read first, without the lock, so nothing is paid for over the cap, and the email's
+    // embedding below doesn't hold up the workspace's other drafts.
+    const before = totalTokens(await usageOn(tx, day));
+    if (before >= deps.dailyTokenBudget) return pause(before);
 
     // The conversation before this message, so a follow-up is answered in context. Machine
     // mail on the ticket is left out: it's noise, and never something to answer.
@@ -199,6 +203,10 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     spent.inputTokens += knowledge.tokens;
     // The model sees at most this many, and citations are matched to them by position.
     const hits = knowledge.hits.slice(0, maxKnowledgeArticles);
+
+    // Now locked, and held across the model call, so two drafts can't both pass the cap.
+    const used = totalTokens(await lockUsage(tx, payload.tenantId, day));
+    if (used >= deps.dailyTokenBudget) return pause(used);
 
     const result = await draftReply(deps.model, {
       from: row.fromAddress,

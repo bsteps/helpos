@@ -225,6 +225,20 @@ describe("parseSources", () => {
     });
   });
 
+  it("reads ids listed with other separators than commas", () => {
+    for (const marker of [
+      "[sources: K1 and K3]",
+      "[sources: K1; K3]",
+      "[sources: K1 K3]",
+      "[sources: K1 & K3]",
+      "[sources: K1, and K3]",
+      "(sources: K1 and K3)",
+      "Sources: K1 and K3",
+    ]) {
+      expect(parseSources(`Hi.\n${marker}`, 3)).toEqual({ text: "Hi.", cited: [0, 2] });
+    }
+  });
+
   it("drops ids that were never offered", () => {
     expect(parseSources("Hi\n[sources: K1, K9, K0, x]", 2)).toEqual({ text: "Hi", cited: [0] });
   });

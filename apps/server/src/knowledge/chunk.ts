@@ -21,7 +21,10 @@ function splitLong(paragraph: string, limit: number): string[] {
       ...[". ", "? ", "! ", "。", "！", "？"].map((end) => window.lastIndexOf(end)),
     );
     const space = window.lastIndexOf(" ");
-    const cut = sentence > limit / 2 ? sentence + 1 : space > limit / 2 ? space : limit;
+    let cut = sentence > limit / 2 ? sentence + 1 : space > limit / 2 ? space : limit;
+    // Never between the two halves of one character (an emoji, a rare CJK character).
+    const code = rest.charCodeAt(cut - 1);
+    if (code >= 0xd800 && code <= 0xdbff) cut--;
     parts.push(rest.slice(0, cut).trim());
     rest = rest.slice(cut).trim();
   }

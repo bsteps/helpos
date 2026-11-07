@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { AiConfigError } from "./config.ts";
 import {
   createEmbeddingModel,
+  EmbedError,
+  embedBatchSize,
   embeddingDimensions,
   embeddingModelId,
   embedTexts,
@@ -42,6 +44,37 @@ describe("embedTexts", () => {
     const model = mockEmbeddingModel();
     expect(await embedTexts(model, [])).toEqual({ embeddings: [], tokens: 0 });
     expect(model.doEmbedCalls).toEqual([]);
+  });
+
+  it("embeds in batches, in order", async () => {
+    const model = mockEmbeddingModel();
+    const texts = Array.from({ length: embedBatchSize * 2 + 1 }, (_, i) => `text ${i}`);
+    const { embeddings } = await embedTexts(model, texts);
+    expect(model.doEmbedCalls.map((c) => c.values.length)).toEqual([
+      embedBatchSize,
+      embedBatchSize,
+      1,
+    ]);
+    expect(embeddings[embedBatchSize * 2]).toEqual(mockEmbedding(`text ${embedBatchSize * 2}`));
+  });
+
+  it("reports what the batches before a failure cost, so the spend still counts", async () => {
+    let calls = 0;
+    const flaky = new MockEmbeddingModelV4({
+      maxEmbeddingsPerCall: 1_000,
+      doEmbed: async ({ values }) => {
+        if (++calls > 1) throw new Error("429 rate limited");
+        return {
+          embeddings: values.map(() => new Array(embeddingDimensions).fill(0.1)),
+          usage: { tokens: 50 },
+          warnings: [],
+        };
+      },
+    });
+    const texts = Array.from({ length: embedBatchSize + 1 }, () => "x");
+    const error = await embedTexts(flaky, texts).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(EmbedError);
+    expect(error).toMatchObject({ tokens: 50 });
   });
 });
 

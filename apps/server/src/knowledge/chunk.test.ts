@@ -77,4 +77,13 @@ describe("chunkText", () => {
   it("returns nothing for blank text", () => {
     expect(chunkText(" \n\n \r\n ")).toEqual([]);
   });
+
+  it("never cuts a character in half, even in text with no spaces", () => {
+    // Each emoji is two UTF-16 units; an odd offset puts the hard cut between the two.
+    const text = `x${String.fromCodePoint(0x1f600).repeat(maxChunkChars)}`;
+    const chunks = chunkText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) expect(chunk.isWellFormed()).toBe(true);
+    expect(chunks.join("")).toBe(text);
+  });
 });

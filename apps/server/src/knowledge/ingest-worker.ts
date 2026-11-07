@@ -1,4 +1,4 @@
-import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
+import { type EmbeddingModel, EmbedError, embeddingModelId, embedTexts } from "@helpos/ai";
 import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
@@ -33,14 +33,23 @@ const fetchTimeoutMs = 15_000;
 
 type PageText = { ok: true; text: string } | { ok: false; error: string };
 
-/** A site mid-deploy or briefly overloaded: worth another try in a few seconds. */
-export function isTemporary(error: string): boolean {
-  return (
-    ["timeout", "network", "dns_failed", "http_408", "http_425", "http_429"].includes(error) ||
-    /^http_5\d\d$/.test(error)
-  );
-}
-const defaultFetchRetryDelaysMs = [2_000, 10_000];
+/**
+ * A site mid-deploy or briefly overloaded: worth another try in a few seconds. Not 501 or 505
+ * (the server can't ever answer this), and not a name that doesn't resolve (usually a typo).
+ */
+const temporaryErrors = new Set([
+  "timeout",
+  "network",
+  "http_408",
+  "http_425",
+  "http_429",
+  "http_500",
+  "http_502",
+  "http_503",
+  "http_504",
+]);
+export const isTemporary = (error: string) => temporaryErrors.has(error);
+const defaultFetchRetryDelaysMs = [1_000, 5_000];
 
 /**
  * The page's answer says the old passages no longer describe it: it's gone, or it now has no
@@ -120,7 +129,21 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
  * Bytes to text in the declared charset. Undeclared (or unknown): UTF-8 when the bytes are
  * valid UTF-8, as nearly all pages are, else windows-1252, the old web's default.
  */
-function decode(bytes: Uint8Array, charset: string | undefined): string {
+function decode(bytes: Uint8Array, declared: string | undefined): string {
+  // A byte order mark settles it, whatever the page or the server says.
+  const bom =
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+      ? "utf-8"
+      : bytes[0] === 0xfe && bytes[1] === 0xff
+        ? "utf-16be"
+        : bytes[0] === 0xff && bytes[1] === 0xfe
+          ? "utf-16le"
+          : undefined;
+  // UTF-16 text has a zero byte in nearly every Latin character. A "utf-16" label on bytes
+  // without one is a misconfigured server, and reading it as UTF-16 would make it nonsense.
+  const misread =
+    !bom && declared && /^utf-16/i.test(declared) && !bytes.subarray(0, 1024).includes(0);
+  const charset = bom ?? (misread ? undefined : declared);
   if (charset) {
     try {
       return new TextDecoder(charset).decode(bytes);
@@ -250,9 +273,16 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     try {
       embedded = await embedTexts(deps.embeddingModel, chunks);
     } catch (error) {
-      // A wrong key or a provider outage. Retrying the job would end the same way, and a dead
-      // job would leave the source `pending` with no sign of what went wrong.
+      // A wrong key or a provider outage, after the SDK's own retries. Retrying the job would
+      // end the same way, and a dead job would leave the source `pending` with no sign of what
+      // went wrong. Batches embedded before the failure were paid for, so they count.
       deps.logger.warn({ err: errorSummary(error), sourceId }, "embedding failed");
+      const spent = error instanceof EmbedError ? error.tokens : 0;
+      if (spent > 0) {
+        await transaction((tx) =>
+          recordUsage(tx, tenantId, day, { inputTokens: spent, outputTokens: 0 }),
+        );
+      }
       return fail("embedding_failed");
     }
     const { embeddings, tokens } = embedded;

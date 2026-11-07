@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { chunkText } from "./chunk.ts";
 import { extractHtml } from "./extract.ts";
 
 describe("extractHtml", () => {
@@ -59,11 +60,19 @@ describe("extractHtml", () => {
     expect(extractHtml(page).text).toBe("# Refunds\n\nFive days.\n\nTip: keep your receipt.");
   });
 
-  it("keeps the indentation of a code block", () => {
+  it("keeps the indentation of a code block, fenced as code", () => {
     const page = "<pre>refunds:\n  window_days: 30\n    strict: true</pre><p>  Spaced   out. </p>";
     expect(extractHtml(page).text).toBe(
-      "refunds:\n  window_days: 30\n    strict: true\n\nSpaced out.",
+      "```\nrefunds:\n  window_days: 30\n    strict: true\n```\n\nSpaced out.",
     );
+  });
+
+  it("fences code, so a comment in it is never read as a heading", () => {
+    const page = "<h2>Install</h2><pre># install deps\nnpm install</pre><p>Then run it.</p>";
+    const text = extractHtml(page).text;
+    expect(text).toBe("## Install\n\n```\n# install deps\nnpm install\n```\n\nThen run it.");
+    // One section: the shell comment didn't start a new one.
+    expect(chunkText(text)).toEqual([text]);
   });
 
   it("keeps line breaks in code blocks and separates table cells", () => {
@@ -71,7 +80,7 @@ describe("extractHtml", () => {
       "<p>Run:</p><pre>npm install\nnpm start</pre>" +
       "<table><tr><th>Plan</th><th>Price</th></tr><tr><td>Pro</td><td>$20</td></tr></table>";
     expect(extractHtml(page).text).toBe(
-      "Run:\n\nnpm install\nnpm start\n\nPlan | Price\n\nPro | $20",
+      "Run:\n\n```\nnpm install\nnpm start\n```\n\nPlan | Price\n\nPro | $20",
     );
   });
 

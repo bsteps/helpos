@@ -17,7 +17,7 @@ import {
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { lockUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { SearchError, type SearchProvider } from "../knowledge/search.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
@@ -185,6 +185,33 @@ describe("drafting with knowledge: spend and limits", () => {
     await draftWith(search, email.messageId);
     expect(await draftsOf(email.ticketId)).toHaveLength(1);
     expect((await usedToday()) - before).toBe(17);
+  });
+
+  it("doesn't hold the workspace's budget lock while the search embeds the email", async () => {
+    const email = await receive(++received);
+    let release = () => {};
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    let markStarted = () => {};
+    const started = new Promise<void>((done) => {
+      markStarted = done;
+    });
+    const slow: SearchProvider = {
+      search: async () => {
+        markStarted();
+        await gate;
+        return { hits: [], tokens: 0 };
+      },
+    };
+    const run = draftWith(slow, email.messageId);
+    await started;
+    // Another draft's budget check takes the same lock. Held through the search, this would
+    // wait for release() and never return.
+    await db.withTenant(acme, (tx) => lockUsage(tx, acme, utcDay(new Date())));
+    release();
+    await run;
+    expect(await draftsOf(email.ticketId)).toHaveLength(1);
   });
 
   it("stores citations only for the passages the model was shown", async () => {

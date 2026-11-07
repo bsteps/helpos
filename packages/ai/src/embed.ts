@@ -78,24 +78,51 @@ export function embeddingModelId(model: EmbeddingModel): string {
 
 export type EmbedResult = { embeddings: number[][]; tokens: number };
 
+/** Texts per embedding call. Calls run one after another, so a failure knows what was spent. */
+export const embedBatchSize = 64;
+
+/** An embedding call failed. `tokens` were spent on the calls before it, and still count. */
+export class EmbedError extends Error {
+  readonly tokens: number;
+  constructor(tokens: number, options: { cause: unknown }) {
+    const reason = options.cause instanceof Error ? options.cause.message : String(options.cause);
+    super(`embedding failed: ${reason}`, options);
+    this.name = "EmbedError";
+    this.tokens = tokens;
+  }
+}
+
 /**
- * Embeds texts in order. Fails if the model returns another size than the column holds,
- * so a misconfigured model is a clear error, not a failed insert later.
+ * Embeds texts in order, in batches of `embedBatchSize`. Fails if the model returns another
+ * size than the column holds, so a misconfigured model is a clear error, not a failed insert
+ * later. A failure is an EmbedError carrying the tokens the earlier batches cost.
  */
 export async function embedTexts(model: EmbeddingModel, values: string[]): Promise<EmbedResult> {
-  if (values.length === 0) return { embeddings: [], tokens: 0 };
-  const result = await embedMany({ model, values, dimensions: embeddingDimensions });
-  for (const e of result.embeddings) {
-    if (e.length !== embeddingDimensions) {
-      throw new Error(`embedding has ${e.length} dimensions, expected ${embeddingDimensions}`);
+  const embeddings: number[][] = [];
+  let tokens = 0;
+  for (let i = 0; i < values.length; i += embedBatchSize) {
+    const batch = values.slice(i, i + embedBatchSize);
+    let result: Awaited<ReturnType<typeof embedMany>>;
+    try {
+      result = await embedMany({ model, values: batch, dimensions: embeddingDimensions });
+    } catch (cause) {
+      throw new EmbedError(tokens, { cause });
     }
+    // Some OpenAI-compatible servers report no usage. Estimate (about 4 characters a token)
+    // rather than count nothing, so the daily budget still sees the spend.
+    const reported = result.usage?.tokens;
+    tokens +=
+      typeof reported === "number" && Number.isFinite(reported) && reported > 0
+        ? reported
+        : Math.ceil(batch.reduce((sum, v) => sum + v.length, 0) / 4);
+    for (const e of result.embeddings) {
+      if (e.length !== embeddingDimensions) {
+        throw new EmbedError(tokens, {
+          cause: new Error(`embedding has ${e.length} dimensions, expected ${embeddingDimensions}`),
+        });
+      }
+    }
+    embeddings.push(...result.embeddings);
   }
-  // Some OpenAI-compatible servers report no usage. Estimate (about 4 characters a token)
-  // rather than count nothing, so the daily budget still sees the spend.
-  const reported = result.usage?.tokens;
-  const tokens =
-    typeof reported === "number" && Number.isFinite(reported) && reported > 0
-      ? reported
-      : Math.ceil(values.reduce((sum, v) => sum + v.length, 0) / 4);
-  return { embeddings: result.embeddings, tokens };
+  return { embeddings, tokens };
 }

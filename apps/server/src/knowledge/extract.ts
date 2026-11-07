@@ -49,6 +49,7 @@ const blockTags = new Set([
  * the page's own text first, so a page can't fake it.
  */
 const preMark = "\uE000";
+const codeFence = "```";
 
 /** Text a reader of the page can't see is often the vehicle for hidden instructions. */
 function isHidden(attribs: Record<string, string>): boolean {
@@ -110,6 +111,9 @@ export function extractHtml(html: string): ExtractedPage {
         if (heading) emit(`\n\n${"#".repeat(Number(heading[1]))} `);
         else if (name === "li") emit("\n- ");
         else if (blockTags.has(name)) emit("\n\n");
+        // A markdown fence around code, so the chunker never reads "# install" in it as a
+        // heading, and the model sees it as code.
+        if (name === "pre" && preDepth === 1) emit(`${codeFence}\n`);
       },
       ontext(data) {
         if (inTitle) title += data;
@@ -132,6 +136,7 @@ export function extractHtml(html: string): ExtractedPage {
           skipDepth--;
           return;
         }
+        if (name === "pre" && preDepth === 1) emit(`\n${codeFence}`);
         if (/^h[1-6]$/.test(name) || blockTags.has(name)) emit("\n\n");
         if (name === "pre") preDepth = Math.max(0, preDepth - 1);
         if (name === "article") articleDepth = Math.max(0, articleDepth - 1);

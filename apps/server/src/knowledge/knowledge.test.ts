@@ -1,6 +1,6 @@
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { embeddingDimensions } from "@helpos/ai";
+import { embedBatchSize, embeddingDimensions } from "@helpos/ai";
 import { mockEmbeddingModel, mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
@@ -21,7 +21,7 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { createSafeFetch, isBlockedAddress, safeFetch } from "@helpos/safe-fetch";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { utcDay } from "../ai-budget/budget.ts";
+import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
@@ -97,6 +97,15 @@ const pages: Record<
     body: "# Shipping\n\nStandard shipping takes 3 to 7 days.",
   },
   "/nul.txt": { type: "text/plain", body: `Refunds${nul} take 5 days.` },
+  // A server that labels plain ASCII as UTF-16: read literally, it would be nonsense.
+  "/utf16-label": { type: "text/html; charset=utf-16", body: "<p>Refunds in 5 days.</p>" },
+  // Real UTF-16, with its byte order mark.
+  "/utf16-real": {
+    type: "text/html; charset=utf-16",
+    body: Buffer.from(`${String.fromCharCode(0xfeff)}<p>Real UTF-16 page.</p>`, "utf16le"),
+  },
+  // The server can never answer this, so it isn't tried again.
+  "/not-implemented": { type: "text/html", body: "", status: 501 },
   "/slow": { type: "text/html", body: "<p>A page that takes a while to fetch.</p>" },
   "/logo.png": { type: "image/png", body: "\x89PNG" },
   "/missing": { type: "text/html", body: "<p>Not found</p>", status: 404 },
@@ -452,6 +461,27 @@ describe("adding and ingesting sources", () => {
     expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual([
       "Refunds take 5 days.",
     ]);
+  });
+
+  it("reads a page labelled UTF-16 that isn't, and a real UTF-16 page", async () => {
+    for (const [path, text] of [
+      ["/utf16-label", "Refunds in 5 days."],
+      ["/utf16-real", "Real UTF-16 page."],
+    ] as const) {
+      const added = await addSource("editor", { kind: "url", title: path, url: pageUrl(path) });
+      expect((await ingested(acme, added.id)).status).toBe("ready");
+      expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual([text]);
+    }
+  });
+
+  it("doesn't try again on an error that can't pass, such as 501", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Not implemented",
+      url: pageUrl("/not-implemented"),
+    });
+    expect(await ingested(acme, added.id)).toMatchObject({ status: "failed", error: "http_501" });
+    expect(requests.filter((path) => path === "/not-implemented")).toHaveLength(1);
   });
 
   it.each([
@@ -824,6 +854,51 @@ describe("limits", () => {
       error: "embedding_failed",
     });
     expect(await chunksOf(acme, row.id)).toEqual([]);
+  });
+
+  it("counts the batches embedded before a failed one, since they were paid for", async () => {
+    // Another workspace, so no other test's job adds to the usage measured here.
+    const content = Array.from(
+      { length: embedBatchSize + 6 },
+      (_, i) => `# Part ${i}\n\nText ${i}.`,
+    ).join("\n\n");
+    const [row] = await db.withTenant(other, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({ tenantId: other, slug: "embed-partial", kind: "markdown", title: "x", content })
+        .returning({ id: knowledgeSources.id }),
+    );
+    if (!row) throw new Error("no row");
+    let calls = 0;
+    const partial = {
+      specificationVersion: "v4",
+      provider: "test",
+      modelId: "partial",
+      maxEmbeddingsPerCall: 1_000,
+      supportsParallelCalls: false,
+      doEmbed: async ({ values }: { values: string[] }) => {
+        if (++calls > 1) throw new Error("429 rate limited");
+        return {
+          embeddings: values.map(() => new Array<number>(embeddingDimensions).fill(0.1)),
+          usage: { tokens: 30 },
+          warnings: [],
+        };
+      },
+    } as const;
+    const usedToday = () =>
+      db.withTenant(other, async (tx) => totalTokens(await usageOn(tx, utcDay(new Date()))));
+    const before = await usedToday();
+    await handleIngestSource({
+      embeddingModel: partial,
+      fetch: testFetch,
+      logger,
+      dailyTokenBudget: 1_000_000,
+    })({ tenantId: other, sourceId: row.id }, tenantTransactions(db, other));
+    expect(await ingested(other, row.id)).toMatchObject({
+      status: "failed",
+      error: "embedding_failed",
+    });
+    expect((await usedToday()) - before).toBe(30);
   });
 
   it("marks a source failed, not stuck pending, when the server returns too few vectors", async () => {
