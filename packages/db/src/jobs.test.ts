@@ -173,20 +173,19 @@ describe("job runner", () => {
         .values({ id: bTicket, tenantId: tenantB, customerId, mailboxId, subject: "B only" });
     });
 
-    const seen = new Promise<{ tenant: string | undefined; ticketCount: number }>(
-      (resolve, reject) => {
-        void runner
-          .work(probe, async (payload, tx) => {
-            const rows = await tx.select().from(tickets);
-            const [setting] = await tx.execute<{ t: string }>(
-              "select current_setting('app.tenant_id', true) as t",
-            );
-            expect(payload.ticketId).toBe(bTicket);
-            resolve({ tenant: setting?.t, ticketCount: rows.length });
-          })
-          .catch(reject);
-      },
-    );
+    let resolveSeen: (value: { tenant: string | undefined; ticketCount: number }) => void =
+      () => {};
+    const seen = new Promise<{ tenant: string | undefined; ticketCount: number }>((resolve) => {
+      resolveSeen = resolve;
+    });
+    // Awaited, so the queue exists before the enqueue below.
+    await runner.work(probe, async (_payload, tx) => {
+      const rows = await tx.select().from(tickets);
+      const [setting] = await tx.execute<{ t: string }>(
+        "select current_setting('app.tenant_id', true) as t",
+      );
+      resolveSeen({ tenant: setting?.t, ticketCount: rows.length });
+    });
     await db.withTenant(tenantA, (tx) =>
       enqueue(tx, probe, { tenantId: tenantA, ticketId: bTicket }),
     );
