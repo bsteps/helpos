@@ -11,7 +11,7 @@ import {
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
-// Vector search under RLS (ADR 0009 §4). The leak cases live in leak.test.ts.
+// Vector search under row-level security. The leak cases live in leak.test.ts.
 
 let testDb: TestDatabase;
 let db: Database;
@@ -181,7 +181,7 @@ describe("searchKnowledge", () => {
   });
 });
 
-describe("eval: vector recall for a small tenant among large ones (ADR 0009 §4)", () => {
+describe("eval: vector recall for a small tenant among large ones", () => {
   it("the planner really uses the HNSW index in this test", async () => {
     const plan = await db.withTenant(small, async (tx) => {
       await forceIndex(tx);
@@ -193,7 +193,7 @@ describe("eval: vector recall for a small tenant among large ones (ADR 0009 §4)
   });
 
   it("without iterative scan, the shared index finds none of the small tenant's chunks", async () => {
-    // The failure ADR 0009 describes, shown so the next test is known to prove something.
+    // The failure iterative scan prevents, shown so the next test is known to prove something.
     const rows = await db.withTenant(small, async (tx) => {
       await forceIndex(tx);
       await tx.execute(sql`set local hnsw.iterative_scan = off`);

@@ -51,11 +51,8 @@ const draftSourceSchema = z
      * reveal them before approving.
      */
     visibility: z.enum(schema.knowledgeVisibilities),
-    /**
-     * The passage the model was given. Null unless the caller has `knowledge:read`: internal
-     * notes are knowledge, and reading drafts shouldn't be a way around that scope.
-     */
-    excerpt: z.string().nullable(),
+    /** The passage the model was given. */
+    excerpt: z.string(),
     /** True when the model says it used this passage; false when it was offered but unused. */
     cited: z.boolean(),
   })
@@ -72,7 +69,10 @@ const draftSchema = z
     updatedAt: z.iso.datetime(),
     approvedAt: z.iso.datetime().nullable(),
     sentAt: z.iso.datetime().nullable(),
-    /** Knowledge passages the draft was written with, best match first. */
+    /**
+     * Knowledge passages the draft was written with, best match first. Always empty for a
+     * caller without `knowledge:read`.
+     */
     sources: z.array(draftSourceSchema),
   })
   .openapi("Draft");
@@ -221,10 +221,14 @@ function serialize(d: DraftRow, sources: DraftSourceJson[]): DraftJson {
   };
 }
 
-/** The drafts as the API shows them to `principal`, each with its knowledge sources. */
+/**
+ * The drafts as the API shows them to `principal`. Their knowledge sources only with
+ * `knowledge:read`: titles, links and passages of internal notes are knowledge, and reading
+ * drafts must not be a way around that scope.
+ */
 async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
-  const showExcerpts = principal.scopes.has("knowledge:read");
   if (rows.length === 0) return [];
+  if (!principal.scopes.has("knowledge:read")) return rows.map((row) => serialize(row, []));
   const cited = await tx
     .select({
       draftId: draftCitations.draftId,
@@ -246,12 +250,7 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
   return rows.map((row) =>
     serialize(
       row,
-      cited
-        .filter((c) => c.draftId === row.id)
-        .map(({ draftId: _, excerpt, ...source }) => ({
-          ...source,
-          excerpt: showExcerpts ? excerpt : null,
-        })),
+      cited.filter((c) => c.draftId === row.id).map(({ draftId: _, ...source }) => source),
     ),
   );
 }

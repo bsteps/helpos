@@ -364,12 +364,12 @@ export const aiUsage = pgTable(
 
 // --- Knowledge base --------------------------------------------------------------------------
 
-/** Who owns an item's content (ADR 0010): the app, or a file in the workspace's git repo. */
+/** Who owns an item's content: the app, or a file in the workspace's git repo. */
 export const managedByValues = ["app", "git"] as const;
 export type ManagedBy = (typeof managedByValues)[number];
 
 /**
- * The columns every git-importable table has (ADR 0010 §3). Only `app` exists until git sync
+ * The columns every git-importable table has. Only `app` exists until git sync
  * ships, but the shape is here now, so adding git later moves no rows.
  */
 function gitManageable() {
@@ -395,7 +395,7 @@ export type KnowledgeVisibility = (typeof knowledgeVisibilities)[number];
 
 /**
  * One knowledge document: a web page to fetch or a markdown doc. The ingest job turns it into
- * `knowledge_chunks`. Its content is data, quoted to the AI, never instructions (ADR 0004).
+ * `knowledge_chunks`. Its content is data, quoted to the AI, never instructions.
  */
 export const knowledgeSources = pgTable(
   "knowledge_sources",
@@ -422,7 +422,7 @@ export const knowledgeSources = pgTable(
   },
   (t) => [
     unique("knowledge_sources_tenant_id_id").on(t.tenantId, t.id),
-    // ADR 0009 §7: per tenant, so A can't learn from an error that B uses a slug.
+    // Per tenant, so A can't learn from an error that B uses a slug.
     unique("knowledge_sources_tenant_slug").on(t.tenantId, t.slug),
     check("knowledge_sources_kind", sql`${t.kind} in ('url', 'markdown')`),
     check("knowledge_sources_status", sql`${t.status} in ('pending', 'ready', 'failed')`),
@@ -463,7 +463,7 @@ export const knowledgeChunks = pgTable(
     }).onDelete("cascade"),
     index("knowledge_chunks_tenant_source").on(t.tenantId, t.sourceId),
     // One index for all tenants. It ignores RLS while it searches, so every query also filters
-    // on tenant_id and scans iteratively (ADR 0009 §4, see searchKnowledge()).
+    // on tenant_id and scans iteratively (see searchKnowledge()).
     index("knowledge_chunks_embedding").using("hnsw", t.embedding.op("vector_cosine_ops")),
     tenantIsolation(),
   ],

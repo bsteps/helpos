@@ -38,7 +38,7 @@ const querySchema = z.strictObject({
 });
 
 /**
- * The only vector search over knowledge (ADR 0009 §4). Run it inside withTenant(): RLS limits
+ * The only vector search over knowledge. Run it inside withTenant(): RLS limits
  * rows to the current tenant, and the explicit `tenant_id` filter says so in the query too.
  *
  * The HNSW index is shared by all tenants and applies filters only after it searches, so a

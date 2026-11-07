@@ -130,7 +130,24 @@ export function extractHtml(html: string): ExtractedPage {
   };
 }
 
-/** Trims each line and keeps at most one blank line between paragraphs. */
+/**
+ * For text a person wrote (markdown, plain text): keeps indentation and spacing inside lines,
+ * which code, YAML and nested lists depend on. Drops trailing spaces and keeps at most one
+ * blank line between paragraphs.
+ */
+export function tidyAuthored(text: string): string {
+  return text
+    .replaceAll(/\r\n?/g, "\n")
+    .replaceAll(/[ \t]+$/gm, "")
+    .replaceAll(/\n{3,}/g, "\n\n")
+    .replace(/^\n+/, "")
+    .trimEnd();
+}
+
+/**
+ * For text pulled out of HTML, where spacing is the page's layout, not content: trims each
+ * line, collapses runs of spaces, and keeps at most one blank line between paragraphs.
+ */
 export function tidy(text: string): string {
   return text
     .replaceAll(/\r\n?/g, "\n")

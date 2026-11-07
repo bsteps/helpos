@@ -188,12 +188,18 @@ describe("parseSources", () => {
     expect(parseSources("Hi\n[Sources: none]", 2)).toEqual({ text: "Hi", cited: [] });
   });
 
-  it("keeps the text whole when there is no source line", () => {
-    expect(parseSources("Hi", 2)).toEqual({ text: "Hi", cited: [] });
-    expect(parseSources("See [sources: K1] inline", 2)).toEqual({
-      text: "See [sources: K1] inline",
-      cited: [],
+  it("keeps the text whole when there is no source list", () => {
+    expect(parseSources("Hi [K1]\n", 2)).toEqual({ text: "Hi [K1]\n", cited: [] });
+  });
+
+  it("finds and removes a list at the end of a sentence or wrapped in markdown", () => {
+    expect(parseSources("Thanks for reaching out! [sources: K2]", 2)).toEqual({
+      text: "Thanks for reaching out!",
+      cited: [1],
     });
+    expect(parseSources("Hi.\n**[sources: K1]**", 2)).toEqual({ text: "Hi.", cited: [0] });
+    expect(parseSources("Hi.\n`[sources: K1]`", 2)).toEqual({ text: "Hi.", cited: [0] });
+    expect(parseSources("See [sources: K1] here.", 2)).toEqual({ text: "See here.", cited: [0] });
   });
 
   it("finds the line before a sign-off, and never leaves one in the reply", () => {

@@ -67,6 +67,15 @@ const pages: Record<
     type: 'text/html; charset="iso-8859-1"',
     body: Buffer.from("<p>Café crème: refunds in 5 days.</p>", "latin1"),
   },
+  // No charset in the header: the page declares it itself.
+  "/latin1-meta": {
+    type: "text/html",
+    body: Buffer.from('<meta charset="windows-1252"><p>Crème brûlée is free.</p>', "latin1"),
+  },
+  "/indented.md": {
+    type: "text/markdown",
+    body: "# Config\n\nSet this:\n\n```yaml\nrefunds:\n  window_days: 30\n```",
+  },
   "/refunds": {
     type: "text/html; charset=utf-8",
     body: `<html><head><title>Refunds</title><script>track()</script></head><body>
@@ -323,6 +332,24 @@ describe("adding and ingesting sources", () => {
     });
     expect((await ingested(acme, added.id)).status).toBe("ready");
     expect((await chunksOf(acme, added.id))[0]?.content).toBe("Café crème: refunds in 5 days.");
+
+    const meta = await addSource("editor", {
+      kind: "url",
+      title: "Meta charset page",
+      url: pageUrl("/latin1-meta"),
+    });
+    expect((await ingested(acme, meta.id)).status).toBe("ready");
+    expect((await chunksOf(acme, meta.id))[0]?.content).toBe("Crème brûlée is free.");
+  });
+
+  it("keeps the indentation of code in a markdown page", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Config",
+      url: pageUrl("/indented.md"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+    expect((await chunksOf(acme, added.id))[0]?.content).toContain("refunds:\n  window_days: 30");
   });
 
   it("refuses a document with more passages than a source may have, instead of cutting it", async () => {
@@ -859,7 +886,7 @@ describe("drafting with knowledge", () => {
       cited: boolean;
       url: string | null;
       visibility: string;
-      excerpt: string | null;
+      excerpt: string;
     };
     const sourcesOfDraft = async (as = "editor"): Promise<Source[]> => {
       const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
@@ -881,10 +908,9 @@ describe("drafting with knowledge", () => {
     expect(sources.slice(1).length).toBeGreaterThan(0);
     expect(sources.slice(1).every((s) => s.visibility === "internal")).toBe(true);
     expect(sources.map((s) => s.title)).not.toContain("Other refund policy");
-    // Reading drafts isn't a way around knowledge:read: the passages' text is left out.
-    expect(await sourcesOfDraft("ticketsOnly")).toEqual(
-      sources.map((s) => ({ ...s, excerpt: null })),
-    );
+    // Reading drafts isn't a way around knowledge:read: no titles, links or passages.
+    expect(sources.length).toBeGreaterThan(0);
+    expect(await sourcesOfDraft("ticketsOnly")).toEqual([]);
 
     const citations = await db.withTenant(acme, (tx) =>
       tx.select().from(draftCitations).where(eq(draftCitations.draftId, draft.id)),

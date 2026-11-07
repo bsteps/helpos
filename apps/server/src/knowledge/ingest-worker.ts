@@ -6,11 +6,11 @@ import { recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.t
 import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
-import { extractHtml, tidy } from "./extract.ts";
+import { extractHtml, tidyAuthored } from "./extract.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;
 
-/** The SSRF-safe fetch (ADR 0004). A parameter only so tests can reach a local test server. */
+/** The SSRF-safe fetch. A parameter only so tests can reach a local test server. */
 export type Fetcher = typeof safeFetch;
 
 export interface IngestWorkerDeps {
@@ -32,6 +32,15 @@ type PageText = { ok: true; text: string } | { ok: false; error: string };
 
 const htmlTypes = new Set(["text/html", "application/xhtml+xml"]);
 const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
+
+/**
+ * The charset a page declares in `<meta charset>` or `<meta http-equiv content>`, looked for
+ * in its first 1024 bytes as browsers do. Bounded, so a huge page costs nothing extra.
+ */
+function metaCharset(bytes: Uint8Array): string | undefined {
+  const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
+  return /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head)?.[1];
+}
 
 /** Fetches one page through the SSRF-safe fetch and returns its text, or why it couldn't. */
 async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageText> {
@@ -57,13 +66,16 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
   const isHtml = htmlTypes.has(mediaType);
   if (!isHtml && !textTypes.has(mediaType)) return { ok: false, error: "unsupported_content_type" };
 
-  // `charset="iso-8859-1"` is valid too: the quotes aren't part of the label.
+  // `charset="iso-8859-1"` is valid too: the quotes aren't part of the label. Without one in
+  // the header, a page can still say it in a <meta> tag.
   const charset =
     params
       .find((p) => p.startsWith("charset="))
       ?.slice(8)
       .replaceAll(/^["']|["']$/g, "")
-      .trim() || "utf-8";
+      .trim() ||
+    (isHtml ? metaCharset(res.body) : undefined) ||
+    "utf-8";
   let body: string;
   try {
     body = new TextDecoder(charset).decode(res.body);
@@ -71,7 +83,7 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
     // An unknown charset label: UTF-8 is the web's default and usually right.
     body = new TextDecoder("utf-8").decode(res.body);
   }
-  return { ok: true, text: isHtml ? extractHtml(body).text : tidy(body) };
+  return { ok: true, text: isHtml ? extractHtml(body).text : tidyAuthored(body) };
 }
 
 /**
@@ -117,7 +129,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if (source.kind === "url") {
       page = source.url ? await fetchPageText(deps, source.url) : { ok: false, error: "no_url" };
     } else {
-      page = { ok: true, text: tidy(source.content ?? "") };
+      page = { ok: true, text: tidyAuthored(source.content ?? "") };
     }
     if (!page.ok) return fail(page.error);
     const chunks = chunkText(page.text);

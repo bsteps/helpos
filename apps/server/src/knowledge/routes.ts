@@ -266,7 +266,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
           return row;
         });
       } catch (error) {
-        // Per workspace (ADR 0009 §7): this says nothing about other workspaces' slugs.
+        // Per workspace: this says nothing about other workspaces' slugs.
         if (isUniqueViolation(error, "knowledge_sources_tenant_slug")) return undefined;
         throw error;
       }
@@ -328,7 +328,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         .for("update");
       // Another workspace's source looks exactly like one that doesn't exist.
       if (!found) return "not_found" as const;
-      // ADR 0010 §3: git owns these rows; the API never writes them.
+      // Git owns these rows; the API never writes them.
       if (found.managedBy === "git") return "managed_in_git" as const;
       // Its chunks go with it (ON DELETE CASCADE); drafts' copies of its passages stay.
       await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));

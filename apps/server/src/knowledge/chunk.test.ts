@@ -52,6 +52,16 @@ describe("chunkText", () => {
     );
     expect(chunkText(doc)).toHaveLength(maxChunks + 20);
   });
+  it("keeps indentation inside a paragraph, and the tail of a very long heading", () => {
+    expect(chunkText("Config:\n  window_days: 30\n    nested: true")).toEqual([
+      "Config:\n  window_days: 30\n    nested: true",
+    ]);
+    const long = `# ${"word ".repeat(50)}tail-words-here`;
+    const [chunk = ""] = chunkText(`${long}\n\nBody.`);
+    expect(chunk).toContain("tail-words-here");
+    expect(chunk).toContain("Body.");
+  });
+
   it("returns nothing for blank text", () => {
     expect(chunkText(" \n\n \r\n ")).toEqual([]);
   });

@@ -57,18 +57,20 @@ export function chunkText(text: string): string[] {
 
   const paragraphs = text
     .replaceAll(/\r\n?/g, "\n")
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+    .split(/\n[ \t]*\n/)
+    // Only the ends: indentation inside a paragraph (code, YAML, nested lists) is content.
+    .map((p) => p.replace(/^\n+/, "").trimEnd())
+    .filter((p) => p.trim());
   for (const paragraph of paragraphs) {
     // A heading glued to its first paragraph (no blank line) still starts a section.
     const [first = "", ...restLines] = paragraph.split("\n");
     if (headingLine.test(first)) {
       flush();
+      // A very long heading is cut for repeating on later passages; the rest stays as text.
       heading = first.slice(0, 200);
       current.push(heading);
       size = heading.length;
-      const rest = restLines.join("\n").trim();
+      const rest = [first.slice(200), ...restLines].join("\n").trim();
       if (!rest) continue;
       for (const part of splitLong(rest, maxChunkChars - heading.length - 2)) add(part);
       continue;

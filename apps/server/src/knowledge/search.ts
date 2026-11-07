@@ -25,7 +25,7 @@ export interface SearchResult {
 }
 
 /**
- * Finds the knowledge passages that best match a text (ADR 0002). Runs inside the caller's
+ * Finds the knowledge passages that best match a text. Runs inside the caller's
  * withTenant() transaction, so it can only ever see that tenant's knowledge. Postgres +
  * pgvector today; another engine can implement this later without touching the callers.
  */

@@ -116,19 +116,18 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
   );
 }
 
-const sourcesLine = /^\s*\[\s*sources\s*:([^\]]*)\]\s*$/i;
+/** `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks. */
+const sourcesMarker = /[ \t]*[*_`]*\[\s*sources\s*:([^\]]*)\][*_`]*/gi;
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may
- * add a sign-off after it, so the last such line counts wherever it is, and every such line is
- * removed: the customer must never see one. Only ids that were offered count, so a model (or an
- * injected passage) can't cite something that wasn't retrieved. Without the line, nothing is
- * cited and the text is kept whole.
+ * put it at the end of a sentence, wrap it in markdown or add a sign-off after it. So the last
+ * marker counts wherever it is, and every marker is removed: the customer must never see one.
+ * Only ids that were offered count, so a model (or an injected passage) can't cite something
+ * that wasn't retrieved. Without a marker, nothing is cited and the text is kept whole.
  */
 export function parseSources(text: string, offered: number): { text: string; cited: number[] } {
-  const lines = text.trimEnd().split("\n");
-  const matches = lines.map((line) => sourcesLine.exec(line));
-  const match = matches.findLast((m) => m !== null);
+  const match = [...text.matchAll(sourcesMarker)].at(-1);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
   for (const token of (match[1] ?? "").split(",")) {
@@ -137,9 +136,9 @@ export function parseSources(text: string, offered: number): { text: string; cit
     if (index >= 0 && index < offered) cited.add(index);
   }
   return {
-    text: lines
-      .filter((_, i) => matches[i] === null)
-      .join("\n")
+    text: text
+      .replaceAll(sourcesMarker, "")
+      .replaceAll(/[ \t]+$/gm, "")
       .replaceAll(/\n{3,}/g, "\n\n")
       .trim(),
     cited: [...cited].sort((a, b) => a - b),
