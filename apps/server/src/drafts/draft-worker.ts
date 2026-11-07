@@ -1,7 +1,7 @@
 import { draftReply, type LanguageModel, maxHistoryMessages } from "@helpos/ai";
 import { and, desc, eq, gt, isNull, lt, ne, schema, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
-import { recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { messageText } from "./html-text.ts";
 
@@ -55,7 +55,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     // The hard cap, checked before the model is called. Over budget, the ticket is marked
     // and the job ends without a draft. The budget resets with the UTC day.
     const day = utcDay((deps.now ?? (() => new Date()))());
-    const used = await usageOn(tx, day);
+    const used = await lockUsage(tx, payload.tenantId, day);
     if (totalTokens(used) >= deps.dailyTokenBudget) {
       await tx
         .update(tickets)

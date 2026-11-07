@@ -17,6 +17,7 @@ import { handleDraftReply } from "../drafts/draft-worker.ts";
 import { draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
+import { recordUsage } from "./budget.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
 // and the budget is 200: the first call fits, the second fits (120 < 200 before it), the third
@@ -159,6 +160,17 @@ describe("daily AI budget", () => {
       "/v1/ai-usage",
     );
     expect(refused.status).toBe(401);
+  });
+
+  it("two jobs at once can't both slip under the budget", async () => {
+    clock = new Date("2026-11-09T09:00:00Z");
+    await db.withTenant(acme, (tx) =>
+      recordUsage(tx, acme, "2026-11-09", { inputTokens: 100, outputTokens: 0 }),
+    );
+    // 100 used, 200 budget, 120 per call: exactly one more call fits.
+    const [a, b] = await Promise.all([receive(7), receive(8)]);
+    const [ma, mb] = await Promise.all([draft(acme, a.messageId), draft(acme, b.messageId)]);
+    expect(ma.doGenerateCalls.length + mb.doGenerateCalls.length).toBe(1);
   });
 
   it("resets at UTC midnight, and a new draft clears the pause", async () => {

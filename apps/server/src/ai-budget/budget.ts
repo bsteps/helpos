@@ -19,6 +19,30 @@ export function totalTokens(usage: Pick<DailyUsage, "inputTokens" | "outputToken
   return usage.inputTokens + usage.outputTokens;
 }
 
+/**
+ * Locks the workspace's usage row for the day (creating it if needed) and returns it. Held
+ * until the job's transaction ends, so concurrent draft jobs check the budget one at a time
+ * and none can slip past it while another call is in flight.
+ */
+export async function lockUsage(tx: TenantTx, tenantId: string, day: string): Promise<DailyUsage> {
+  await tx
+    .insert(aiUsage)
+    .values({ tenantId, day })
+    .onConflictDoNothing({
+      target: [aiUsage.tenantId, aiUsage.day],
+    });
+  const [row] = await tx
+    .select({
+      inputTokens: aiUsage.inputTokens,
+      outputTokens: aiUsage.outputTokens,
+      calls: aiUsage.calls,
+    })
+    .from(aiUsage)
+    .where(eq(aiUsage.day, day))
+    .for("update");
+  return { day, inputTokens: 0, outputTokens: 0, calls: 0, ...row };
+}
+
 /** The current workspace's usage for one day (zero if it made no calls). */
 export async function usageOn(tx: TenantTx, day: string): Promise<DailyUsage> {
   const [row] = await tx
