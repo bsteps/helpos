@@ -5,6 +5,7 @@ export {
   type SafeFetchDeps,
   SafeFetchError,
   type SafeFetchErrorCode,
+  type SafeFetchLogger,
   type SafeFetchOptions,
   type SafeFetchResponse,
   safeFetch,

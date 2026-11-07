@@ -7,6 +7,8 @@ import { isBlockedAddress } from "./address.ts";
 export type SafeFetchErrorCode =
   | "invalid_url"
   | "blocked_address"
+  | "blocked_port"
+  | "insecure_redirect"
   | "dns_failed"
   | "timeout"
   | "too_large"
@@ -31,6 +33,14 @@ export interface SafeFetchOptions {
   maxRedirects?: number;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /** Ports that may be reached, on the first URL and on every redirect. Default 80 and 443. */
+  allowedPorts?: readonly number[];
+  /** Gets a warning for every blocked request, so SSRF probes are visible. Pino-compatible. */
+  logger?: SafeFetchLogger;
+}
+
+export interface SafeFetchLogger {
+  warn: (details: object, message: string) => void;
 }
 
 export interface SafeFetchResponse {
@@ -59,6 +69,37 @@ const defaultDeps: SafeFetchDeps = {
   isBlocked: isBlockedAddress,
 };
 
+function parseUrl(raw: string, base?: URL): URL {
+  let url: URL;
+  try {
+    url = new URL(raw, base);
+  } catch (cause) {
+    throw new SafeFetchError("invalid_url", "not a valid URL", { cause });
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new SafeFetchError("invalid_url", `protocol ${url.protocol} is not allowed`);
+  }
+  if (url.username || url.password) {
+    throw new SafeFetchError("invalid_url", "credentials in URLs are not allowed");
+  }
+  return url;
+}
+
+/** Where a redirect leads, refusing targets that would weaken the request. */
+export function redirectTarget(current: URL, location: string): URL {
+  const next = parseUrl(location, current);
+  if (current.protocol === "https:" && next.protocol === "http:") {
+    throw new SafeFetchError("insecure_redirect", "redirect from https to http");
+  }
+  return next;
+}
+
+const blockCodes = new Set<SafeFetchErrorCode>([
+  "blocked_address",
+  "blocked_port",
+  "insecure_redirect",
+]);
+
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
 export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
@@ -85,22 +126,6 @@ export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
       }
     }
     return first;
-  }
-
-  function parseUrl(raw: string, base?: URL): URL {
-    let url: URL;
-    try {
-      url = new URL(raw, base);
-    } catch (cause) {
-      throw new SafeFetchError("invalid_url", "not a valid URL", { cause });
-    }
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new SafeFetchError("invalid_url", `protocol ${url.protocol} is not allowed`);
-    }
-    if (url.username || url.password) {
-      throw new SafeFetchError("invalid_url", "credentials in URLs are not allowed");
-    }
-    return url;
   }
 
   function requestOnce(
@@ -172,20 +197,36 @@ export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
     const timeout = AbortSignal.timeout(timeoutMs);
     const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
 
+    const allowedPorts = options.allowedPorts ?? [80, 443];
     let url = parseUrl(rawUrl);
     let headers = options.headers ?? {};
-    for (let hop = 0; ; hop++) {
-      const pinned = await raceAbort(pinAddress(url.hostname), signal);
-      const res = await requestOnce(url, pinned, { ...options, headers, maxBytes }, signal);
-      const location = res.headers.location;
-      if (!redirectStatuses.has(res.status) || !location) return res;
-      if (hop >= maxRedirects) {
-        throw new SafeFetchError("too_many_redirects", `more than ${maxRedirects} redirects`);
+    // Origin and path only: query strings can carry tokens and must not reach the logs.
+    const chain: string[] = [];
+    try {
+      for (let hop = 0; ; hop++) {
+        chain.push(`${url.origin}${url.pathname}`);
+        const port = url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
+        // Internal services (Redis, SMTP, memcached) often sit on public hosts too.
+        if (!allowedPorts.includes(port)) {
+          throw new SafeFetchError("blocked_port", `port ${port} is not allowed`);
+        }
+        const pinned = await raceAbort(pinAddress(url.hostname), signal);
+        const res = await requestOnce(url, pinned, { ...options, headers, maxBytes }, signal);
+        const location = res.headers.location;
+        if (!redirectStatuses.has(res.status) || !location) return res;
+        if (hop >= maxRedirects) {
+          throw new SafeFetchError("too_many_redirects", `more than ${maxRedirects} redirects`);
+        }
+        const next = redirectTarget(url, location);
+        // A redirect must not carry the caller's credentials to another site.
+        if (next.origin !== url.origin) headers = onlySafeHeaders(headers);
+        url = next;
       }
-      const next = parseUrl(location, url);
-      // A redirect must not carry the caller's credentials to another site.
-      if (next.origin !== url.origin) headers = onlySafeHeaders(headers);
-      url = next;
+    } catch (error) {
+      if (error instanceof SafeFetchError && blockCodes.has(error.code)) {
+        options.logger?.warn({ code: error.code, chain }, "safe-fetch blocked a request");
+      }
+      throw error;
     }
   };
 }

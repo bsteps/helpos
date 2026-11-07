@@ -1,8 +1,14 @@
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isBlockedAddress } from "./address.ts";
-import { createSafeFetch, type ResolvedAddress, SafeFetchError } from "./fetch.ts";
+import {
+  createSafeFetch,
+  type ResolvedAddress,
+  redirectTarget,
+  SafeFetchError,
+  type SafeFetchOptions,
+} from "./fetch.ts";
 
 // The test server must listen on loopback, so the test policy lets exactly 127.0.0.1 through.
 // Every other address still goes through the real policy.
@@ -22,7 +28,7 @@ async function serve(handler: RequestListener): Promise<number> {
   return (s.address() as AddressInfo).port;
 }
 
-function fetcherWith(dns: Record<string, string[] | (() => string[])>) {
+function rawFetcherWith(dns: Record<string, string[] | (() => string[])>) {
   return createSafeFetch({
     isBlocked: allowTestServer,
     resolve: async (hostname): Promise<ResolvedAddress[]> => {
@@ -32,6 +38,15 @@ function fetcherWith(dns: Record<string, string[] | (() => string[])>) {
       return list.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
     },
   });
+}
+
+// The test server listens on a random port, so let that port through unless a test sets its own.
+function fetcherWith(dns: Record<string, string[] | (() => string[])>) {
+  const fetcher = rawFetcherWith(dns);
+  return (url: string, options: SafeFetchOptions = {}) => {
+    const port = Number(URL.canParse(url) ? new URL(url).port : 0) || 80;
+    return fetcher(url, { allowedPorts: [port, 80, 443], ...options });
+  };
 }
 
 async function codeOf(promise: Promise<unknown>): Promise<string> {
@@ -155,6 +170,45 @@ describe("safeFetch", () => {
     expect(seen[`other.example:${port}/away`]).toBe("undefined|undefined|text/html");
   });
 
+  it("allows only ports 80 and 443 by default", async () => {
+    const port = await serve((_req, res) => res.end("ok"));
+    const fetcher = rawFetcherWith({ "docs.example": ["127.0.0.1"] });
+    expect(await codeOf(fetcher(`http://docs.example:${port}/`))).toBe("blocked_port");
+    expect(await codeOf(fetcher("http://docs.example:6379/"))).toBe("blocked_port");
+  });
+
+  it("checks the port on redirects too", async () => {
+    const port = await serve((_req, res) => {
+      res.writeHead(302, { location: "http://docs.example:6379/" });
+      res.end();
+    });
+    const fetcher = fetcherWith({ "docs.example": ["127.0.0.1"] });
+    expect(await codeOf(fetcher(`http://docs.example:${port}/`))).toBe("blocked_port");
+  });
+
+  it("logs blocked requests with the redirect chain, without query strings", async () => {
+    const port = await serve((_req, res) => {
+      res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data/" });
+      res.end();
+    });
+    const logger = { warn: vi.fn() };
+    const fetcher = fetcherWith({ "docs.example": ["127.0.0.1"] });
+    await codeOf(fetcher(`http://docs.example:${port}/start?token=secret`, { logger }));
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        code: "blocked_address",
+        chain: [`http://docs.example:${port}/start`, "http://169.254.169.254/latest/meta-data/"],
+      },
+      "safe-fetch blocked a request",
+    );
+  });
+
+  it("does not log ordinary failures as blocks", async () => {
+    const logger = { warn: vi.fn() };
+    await codeOf(fetcherWith({})("http://missing.example/", { logger }));
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
   it("stops after too many redirects", async () => {
     const port = await serve((_req, res) => {
       res.writeHead(302, { location: "/loop" });
@@ -223,5 +277,23 @@ describe("safeFetch", () => {
 
   it("reports DNS failures", async () => {
     expect(await codeOf(fetcherWith({})("http://missing.example/"))).toBe("dns_failed");
+  });
+});
+
+describe("redirectTarget", () => {
+  const from = new URL("https://docs.example/a/b");
+
+  it("refuses a downgrade from https to http", () => {
+    expect(() => redirectTarget(from, "http://docs.example/c")).toThrow(
+      expect.objectContaining({ code: "insecure_redirect" }),
+    );
+  });
+
+  it("resolves relative and https targets", () => {
+    expect(redirectTarget(from, "../c").href).toBe("https://docs.example/c");
+    expect(redirectTarget(from, "https://other.example/").href).toBe("https://other.example/");
+    expect(redirectTarget(new URL("http://docs.example/"), "https://docs.example/").protocol).toBe(
+      "https:",
+    );
   });
 });
