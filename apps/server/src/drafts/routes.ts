@@ -13,6 +13,7 @@ import {
 } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
@@ -23,6 +24,9 @@ type DraftRow = typeof drafts.$inferSelect;
 export interface DraftRoutesDeps {
   db: Pick<Database, "withTenant">;
   authenticate: Authenticate;
+  /** Regenerate is refused up front when today's AI budget is spent. */
+  dailyTokenBudget: number;
+  now?: () => Date;
 }
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
@@ -162,7 +166,8 @@ const createRoute_ = createRoute({
     409: json(
       errorSchema,
       "No customer message to answer (`nothing_to_answer`), or the latest one already has " +
-        "an approved or sent reply (`already_answered`)",
+        "an approved or sent reply (`already_answered`), or `regenerate` was asked after " +
+        "today's AI budget was spent (`daily_budget_reached`)",
     ),
   },
 });
@@ -336,6 +341,13 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         );
       if (answered) return "already_answered" as const;
 
+      // Checked before anything is discarded: a refused regenerate leaves the current draft
+      // alone, and the caller hears why instead of waiting for a draft that never comes.
+      if ("regenerate" in input) {
+        const used = await usageOn(tx, utcDay((deps.now ?? (() => new Date()))()));
+        if (totalTokens(used) >= deps.dailyTokenBudget) return "daily_budget_reached" as const;
+      }
+
       const stale = await tx
         .update(drafts)
         .set({ status: "discarded" })
@@ -365,6 +377,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
         .returning();
       if (!draft) throw new Error("create draft: insert returned no row");
+      // The ticket has an answer now, so it's no longer waiting on a paused AI.
+      await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
       await recordAudit(tx, {
         tenantId,
         actor,
@@ -376,7 +390,11 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     });
 
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
-    if (result === "nothing_to_answer" || result === "already_answered") {
+    if (
+      result === "nothing_to_answer" ||
+      result === "already_answered" ||
+      result === "daily_budget_reached"
+    ) {
       return c.json({ error: result }, 409);
     }
     if (result === "queued") return c.json({ status: "queued" as const }, 202);

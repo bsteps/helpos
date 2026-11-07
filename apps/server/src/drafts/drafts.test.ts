@@ -157,7 +157,7 @@ beforeAll(async () => {
     pollingIntervalSeconds: 0.5,
   });
   await runner.start();
-  await startWorker({ runner, files, logger, model, transport });
+  await startWorker({ runner, files, logger, model, transport, dailyTokenBudget: 1_000_000 });
 
   const a = await initWorkspace(
     { db, auth },
@@ -363,7 +363,10 @@ describe("drafting in context", () => {
     );
     // Replays the older message's job, as if it had been slow or retried.
     await db.withTenant(acme, (tx) =>
-      handleDraftReply({ model, logger })({ tenantId: acme, messageId: first.messageId }, tx),
+      handleDraftReply({ model, logger, dailyTokenBudget: 1_000_000 })(
+        { tenantId: acme, messageId: first.messageId },
+        tx,
+      ),
     );
     const live = (await draftsOf(first.ticketId)).filter((d) => d.status !== "discarded");
     expect(live.map((d) => d.id)).toEqual([newer.id]);

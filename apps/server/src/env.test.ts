@@ -10,6 +10,7 @@ describe("envSchema", () => {
     expect(env.HELPOS_PORT).toBe(3000);
     expect(env.HELPOS_LOG_LEVEL).toBe("info");
     expect(env.HELPOS_SMTP_URL).toBeUndefined();
+    expect(env.HELPOS_AI_DAILY_TOKEN_BUDGET).toBe(200_000);
   });
 
   it("rejects a missing jobs database URL", () => {

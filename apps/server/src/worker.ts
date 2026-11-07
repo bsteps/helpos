@@ -14,6 +14,9 @@ export interface WorkerDeps {
   logger: Pick<Logger, "error" | "warn" | "info">;
   /** Without a model, draft jobs wait in the queue. */
   model: LanguageModel | undefined;
+  /** Tokens per workspace per UTC day. */
+  dailyTokenBudget: number;
+  now?: () => Date;
   /** Without a transport, approved drafts wait in the queue. */
   transport: EmailTransport | undefined;
 }

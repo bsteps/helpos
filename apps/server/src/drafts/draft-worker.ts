@@ -1,6 +1,7 @@
 import { draftReply, type LanguageModel, maxHistoryMessages } from "@helpos/ai";
 import { and, desc, eq, gt, isNull, lt, ne, schema, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
+import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { messageText } from "./html-text.ts";
 
@@ -9,6 +10,10 @@ const { drafts, messages, tickets } = schema;
 export interface DraftWorkerDeps {
   model: LanguageModel;
   logger: Pick<Logger, "info" | "warn">;
+  /** Tokens per workspace per UTC day. At or over it, no model call is made. */
+  dailyTokenBudget: number;
+  /** For tests: the clock the budget day is read from. */
+  now?: () => Date;
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
@@ -47,6 +52,29 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
     if (existing) return; // a retry after the draft was saved, or already answered
 
+    // The hard cap, checked before the model is called. Over budget, the ticket is marked
+    // and the job ends without a draft. The budget resets with the UTC day.
+    const day = utcDay((deps.now ?? (() => new Date()))());
+    const used = await lockUsage(tx, payload.tenantId, day);
+    if (totalTokens(used) >= deps.dailyTokenBudget) {
+      await tx
+        .update(tickets)
+        .set({ aiPausedReason: "daily_budget" })
+        .where(eq(tickets.id, row.ticketId));
+      await recordAudit(tx, {
+        tenantId: payload.tenantId,
+        actor: draftWorkerActor,
+        action: "ai.paused",
+        target: { type: "ticket", id: row.ticketId },
+        requestId: null,
+      });
+      deps.logger.warn(
+        { ticketId: row.ticketId, usedTokens: totalTokens(used), budget: deps.dailyTokenBudget },
+        "AI paused: daily budget reached",
+      );
+      return;
+    }
+
     // The conversation before this message, so a follow-up is answered in context. Machine
     // mail on the ticket is left out: it's noise, and never something to answer.
     const earlier = await tx
@@ -78,9 +106,19 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         .filter((m) => m.automatedReason === null)
         .map((m) => ({ direction: m.direction, from: m.from, body: messageText(m) })),
     });
+    // Recorded right away, in this transaction. An unexpected error later rolls it back with
+    // the rest of the job, so that one attempt goes uncounted; the cap is still checked on retry.
+    await recordUsage(tx, payload.tenantId, day, result.usage);
     const body = result.text.trim();
-    // Thrown, not saved: pg-boss retries, and nobody is asked to approve an empty reply.
-    if (body === "") throw new Error("draft-reply: the model returned an empty draft");
+    if (body === "") {
+      // Not thrown: a retry would spend more tokens on the same answer. A person can
+      // regenerate it instead.
+      deps.logger.warn(
+        { ticketId: row.ticketId },
+        "draft-reply: the model returned an empty draft",
+      );
+      return;
+    }
 
     // The model call took a while. Lock the ticket (as the create endpoint does) and look again,
     // so a slow job never overwrites what happened meanwhile.
@@ -145,6 +183,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       })
       .returning({ id: drafts.id });
     if (!draft) throw new Error("draft-reply: insert returned no row");
+    await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
 
     await recordAudit(tx, {
       tenantId: payload.tenantId,

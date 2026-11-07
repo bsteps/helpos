@@ -5,6 +5,7 @@ import { type AuthStore, createAuthStore } from "./auth.ts";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
 import { isUniqueViolation } from "./errors.ts";
 import {
+  aiUsage,
   attachments,
   auditEvents,
   customers,
@@ -81,6 +82,7 @@ async function seedB(tx: TenantTx): Promise<void> {
     messageId: b.message,
     body: "Hi Jane",
   });
+  await tx.insert(aiUsage).values({ tenantId, day: "2026-11-07", inputTokens: 10 });
   await tx.insert(auditEvents).values({
     id: b.auditEvent,
     tenantId,
@@ -130,6 +132,7 @@ const tables = {
   messages,
   attachments,
   drafts,
+  aiUsage,
 } as const;
 
 describe("leak: acting as tenant A", () => {

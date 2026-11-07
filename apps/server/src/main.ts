@@ -24,9 +24,10 @@ const runner = createJobRunner({
 });
 const transport = env.HELPOS_SMTP_URL ? createSmtpTransport(env.HELPOS_SMTP_URL) : undefined;
 await runner.start();
-await startWorker({ runner, files, logger, model: aiModel(), transport });
+const dailyTokenBudget = env.HELPOS_AI_DAILY_TOKEN_BUDGET;
+await startWorker({ runner, files, logger, model: aiModel(), transport, dailyTokenBudget });
 
-const app = createApp({ db, files, logger, inboundSecret });
+const app = createApp({ db, files, logger, inboundSecret, dailyTokenBudget });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(
     { port: info.port },

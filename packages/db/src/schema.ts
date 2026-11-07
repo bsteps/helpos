@@ -3,8 +3,10 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
+  integer,
   pgPolicy,
   pgSchema,
   pgTable,
@@ -169,10 +171,13 @@ export const tickets = pgTable(
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
     /** Opened by machine-sent mail (out-of-office, bounce, list). Never gets an AI draft. */
     automated: boolean("automated").notNull().default(false),
+    /** Why the AI skipped this ticket, e.g. `daily_budget`. Cleared when a draft is made. */
+    aiPausedReason: text("ai_paused_reason", { enum: ["daily_budget"] }),
   },
   (t) => [
     unique("tickets_tenant_id_id").on(t.tenantId, t.id),
     check("tickets_status", sql`${t.status} in ('open', 'closed')`),
+    check("tickets_ai_paused_reason", sql`${t.aiPausedReason} in ('daily_budget')`),
     // Composite keys: a row can never point at another tenant's row, even if RLS were off.
     foreignKey({
       name: "tickets_customer_fk",
@@ -337,4 +342,21 @@ export const auditEvents = pgTable(
     index("audit_events_tenant_target").on(t.tenantId, t.targetType, t.targetId),
     tenantIsolation(),
   ],
+);
+
+/**
+ * AI tokens a workspace used on one UTC day, summed from the model's responses. The daily
+ * budget is checked against this before every model call.
+ */
+export const aiUsage = pgTable(
+  "ai_usage",
+  {
+    ...tenantColumns(),
+    /** The UTC day, `YYYY-MM-DD`. A new day is a new row, which is how the budget resets. */
+    day: date("day", { mode: "string" }).notNull(),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull().default(0),
+    calls: integer("calls").notNull().default(0),
+  },
+  (t) => [unique("ai_usage_tenant_day").on(t.tenantId, t.day), tenantIsolation()],
 );
