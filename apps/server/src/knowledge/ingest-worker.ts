@@ -308,7 +308,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
 
     const [used, budget] = await transaction(async (tx) => [
       totalTokens(await usageOn(tx, day)),
-      await dailyBudget(tx, deps.dailyTokenBudget),
+      await dailyBudget(tx, tenantId, deps.dailyTokenBudget),
     ]);
     if (used >= budget) {
       // The budget resets at midnight UTC. One waiting job per source per day, however often

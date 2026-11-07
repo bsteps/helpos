@@ -16,9 +16,16 @@ export function effectiveBudget(workspaceBudget: number | null, ceiling: number)
   return workspaceBudget === null ? ceiling : Math.min(workspaceBudget, ceiling);
 }
 
-/** The current workspace's effective daily budget, given the server-wide ceiling. */
-export async function dailyBudget(tx: TenantTx, ceiling: number): Promise<number> {
-  const [row] = await tx.select({ budget: tenants.aiDailyTokenBudget }).from(tenants);
+/** A workspace's effective daily budget, given the server-wide ceiling. */
+export async function dailyBudget(
+  tx: TenantTx,
+  tenantId: string,
+  ceiling: number,
+): Promise<number> {
+  const [row] = await tx
+    .select({ budget: tenants.aiDailyTokenBudget })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId));
   return effectiveBudget(row?.budget ?? null, ceiling);
 }
 

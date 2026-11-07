@@ -54,7 +54,7 @@ export function registerAiUsageRoute(app: OpenAPIHono, deps: AiUsageRouteDeps): 
     const day = utcDay((deps.now ?? (() => new Date()))());
     const [usage, budget] = await deps.db.withTenant(principal.tenantId, async (tx) => [
       await usageOn(tx, day),
-      await dailyBudget(tx, deps.dailyTokenBudget),
+      await dailyBudget(tx, principal.tenantId, deps.dailyTokenBudget),
     ]);
     const total = totalTokens(usage);
     return c.json(

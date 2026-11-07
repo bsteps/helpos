@@ -202,7 +202,7 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     };
     // Read first, without the lock, so nothing is paid for over the cap, and the email's
     // embedding below doesn't hold up the workspace's other drafts.
-    const budget = await dailyBudget(tx, deps.dailyTokenBudget);
+    const budget = await dailyBudget(tx, payload.tenantId, deps.dailyTokenBudget);
     const before = totalTokens(await usageOn(tx, day));
     if (before >= budget) return pause(before);
 

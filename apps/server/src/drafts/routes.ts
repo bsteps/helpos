@@ -435,7 +435,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       // alone, and the caller hears why instead of waiting for a draft that never comes.
       if ("regenerate" in input) {
         const used = await usageOn(tx, utcDay((deps.now ?? (() => new Date()))()));
-        if (totalTokens(used) >= (await dailyBudget(tx, deps.dailyTokenBudget)))
+        if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.dailyTokenBudget)))
           return "daily_budget_reached" as const;
       }
 
