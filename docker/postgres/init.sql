@@ -8,7 +8,7 @@ CREATE ROLE helpos_app LOGIN PASSWORD 'helpos_app' NOSUPERUSER NOBYPASSRLS NOCRE
 -- ADR 0009: users span tenants, so they live in the `auth` schema, which only this role can use.
 -- The app role gets no privileges there. Migrations create the schema and grant access to it.
 CREATE ROLE helpos_auth LOGIN PASSWORD 'helpos_auth' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
--- ADR 0009 §3: pg-boss runs as this role and owns its `pgboss` schema. The app and auth roles get
+-- pg-boss runs as this role and owns its `pgboss` schema. The app and auth roles get
 -- no privileges there; the app may only enqueue, through jobs_api.app_enqueue().
 CREATE ROLE helpos_jobs LOGIN PASSWORD 'helpos_jobs' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 
@@ -29,7 +29,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE helpos_owner IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE helpos_owner IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO helpos_app;
 
--- ADR 0009 §3. Created here, not by pg-boss, so the jobs role needs no CREATE on the database.
+-- Created here, not by pg-boss, so the jobs role needs no CREATE on the database.
 CREATE SCHEMA pgboss AUTHORIZATION helpos_jobs;
 REVOKE ALL ON SCHEMA pgboss FROM PUBLIC;
 -- Holds only app_enqueue(). A separate schema, so the app needs no USAGE on `pgboss`.

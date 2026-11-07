@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { z } from "zod";
 import type { Database, TenantTx } from "./client.ts";
 
-// Background jobs (ADR 0002, ADR 0009 §2 and §3). pg-boss runs as the `jobs` role and owns the
+// Background jobs. pg-boss runs as the `jobs` role and owns the
 // `pgboss` schema. The app role can only enqueue, through jobs_api.app_enqueue(), and handlers
 // only ever see one tenant's data, through withTenant().
 
@@ -22,7 +22,7 @@ export interface TenantJob<P extends { tenantId: string }> {
   payload: z.ZodType<P>;
 }
 
-/** A queue with no tenant, e.g. cleanup. Its handler gets no tenant client (ADR 0009 §2). */
+/** A queue with no tenant, e.g. cleanup. Its handler gets no tenant client. */
 export interface SystemJob<P> {
   kind: "system";
   queue: string;
@@ -30,7 +30,7 @@ export interface SystemJob<P> {
 }
 
 /**
- * Defines a tenant job. Payloads carry IDs only, never tenant content (ADR 0009 §2): the handler
+ * Defines a tenant job. Payloads carry IDs only, never tenant content: the handler
  * reloads data inside withTenant(), so nothing lingers in job history. `tenantId` is always added.
  */
 export function defineTenantJob<const K extends string>(
@@ -67,7 +67,7 @@ const enqueueOptionsSchema = z.strictObject({
 });
 
 /**
- * The only way to send a tenant job (ADR 0009 §2). Runs in the caller's withTenant() transaction,
+ * The only way to send a tenant job. Runs in the caller's withTenant() transaction,
  * so the job commits or rolls back with the action that caused it. Returns the job ID.
  */
 export async function enqueue<P extends { tenantId: string }>(
@@ -183,7 +183,7 @@ export async function installJobs(jobsUrl: string): Promise<void> {
 const APP_ENQUEUE_SQL = `
 -- SECURITY DEFINER because the app role must add jobs without any privilege on pgboss tables:
 -- a plain INSERT grant is not enough for dedupe, which needs SELECT, and SELECT would expose every
--- tenant's jobs (ADR 0009 §3). It checks the payload belongs to the caller's tenant, scopes the
+-- tenant's jobs. It checks the payload belongs to the caller's tenant, scopes the
 -- singleton key to that tenant, and returns only the job ID.
 CREATE OR REPLACE FUNCTION jobs_api.app_enqueue(p_queue text, p_payload jsonb, p_options jsonb)
 RETURNS uuid

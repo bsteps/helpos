@@ -8,7 +8,7 @@ import { customers, mailboxes, tenants, tickets } from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
-// ADR 0009 §2 and §3: jobs carry a tenant, run inside withTenant(), and the app role can only
+// Jobs carry a tenant, run inside withTenant(), and the app role can only
 // enqueue, never read or change pg-boss's tables.
 
 let testDb: TestDatabase;

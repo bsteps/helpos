@@ -12,7 +12,7 @@ export interface TestDatabase {
   ownerUrl: string;
   /** URL for the auth role, the only one that can use the `auth` schema (ADR 0009). */
   authUrl: string;
-  /** URL for the jobs role, owner of the `pgboss` schema (ADR 0009 §3). */
+  /** URL for the jobs role, owner of the `pgboss` schema. */
   jobsUrl: string;
 }
 
