@@ -17,7 +17,7 @@ import type { EmailTransport } from "../outbound-email/transport.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
 import { draftNoticeJob, draftReplyJob } from "./jobs.ts";
-import { handleDraftNotice } from "./notice-worker.ts";
+import { handleDraftNotice, noticeReplyTo } from "./notice-worker.ts";
 
 // The notice handler on its own, with nothing working the queue, so each case runs exactly the
 // jobs it names. The end-to-end Mailpit case is in drafts.test.ts.
@@ -137,5 +137,10 @@ describe("draft notice worker", () => {
       tx.update(schema.drafts).set({ status: "discarded" }).where(eq(schema.drafts.id, draft.id)),
     );
     expect(await notify(draft.id)).not.toHaveBeenCalled();
+  });
+
+  it("Reply-To is never the helpdesk mailbox itself", () => {
+    expect(noticeReplyTo("support@acme.test")).toBe("no-reply@acme.test");
+    expect(noticeReplyTo("no-reply@acme.test")).toBe("no-reply-notices@acme.test");
   });
 });

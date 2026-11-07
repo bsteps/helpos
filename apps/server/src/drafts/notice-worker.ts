@@ -12,15 +12,12 @@ import {
 } from "@helpos/db";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
-import { buildDraftNotice } from "../outbound-email/draft-notice.ts";
+import { buildDraftNotice, noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
 
 const { auditEvents, drafts, mailboxes, memberships, messages, tickets } = schema;
-
-/** At most one notice per ticket in this window, however many drafts it gets. */
-export const noticeWindowMinutes = 15;
 
 export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
 
@@ -32,13 +29,27 @@ export async function queueDraftNotice(
   tx: TenantTx,
   draft: { tenantId: string; id: string; ticketId: string },
 ): Promise<void> {
-  // While one notice for the ticket is still queued, more drafts don't queue another.
-  await enqueue(
-    tx,
-    draftNoticeJob,
-    { tenantId: draft.tenantId, draftId: draft.id },
-    { singletonKey: `ticket:${draft.ticketId}` },
-  );
+  // No dedupe key: a key would fold this into a job that may already be running and have
+  // missed this draft. The window check in the handler, under the ticket lock, dedupes instead.
+  await enqueue(tx, draftNoticeJob, { tenantId: draft.tenantId, draftId: draft.id });
+}
+
+/**
+ * A no-reply address on the mailbox's domain that is never the mailbox itself, so answering a
+ * notice can't land in the helpdesk and open a ticket.
+ */
+export function noticeReplyTo(mailbox: string): string {
+  const domain = mailbox.split("@").pop() ?? "localhost";
+  const address = `no-reply@${domain}`;
+  return address === mailbox.toLowerCase() ? `no-reply-notices@${domain}` : address;
+}
+
+/** Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`), which `/tickets/…` would drop. */
+function ticketUrl(publicUrl: string, ticketId: string): string {
+  return new URL(
+    `tickets/${ticketId}`,
+    publicUrl.endsWith("/") ? publicUrl : `${publicUrl}/`,
+  ).toString();
 }
 
 export interface NoticeWorkerDeps {
@@ -116,9 +127,9 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const domain = row.mailbox.split("@").pop() ?? "localhost";
     const raw = await buildDraftNotice({
       from: row.mailbox,
-      replyTo: `no-reply@${domain}`,
+      replyTo: noticeReplyTo(row.mailbox),
       to,
-      ticketUrl: new URL(`/tickets/${row.ticketId}`, deps.publicUrl).toString(),
+      ticketUrl: ticketUrl(deps.publicUrl, row.ticketId),
       customerText: messageText(row),
       messageId: `<notice-${uuidv7()}@${domain}>`,
       date: new Date(),

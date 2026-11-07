@@ -34,7 +34,8 @@ await startWorker({
   logger,
   model: aiModel(),
   transport,
-  auth,
+  // Only the one function the worker needs, not the whole auth store.
+  auth: auth ? { emailsOf: (ids) => auth.emailsOf(ids) } : undefined,
   publicUrl: env.HELPOS_PUBLIC_URL,
   dailyTokenBudget,
 });

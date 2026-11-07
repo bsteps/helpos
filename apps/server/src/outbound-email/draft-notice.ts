@@ -4,6 +4,9 @@ import MailComposer from "nodemailer/lib/mail-composer";
 /** How much of the customer's message a notice quotes. Enough to recognise it, no more. */
 export const noticeSnippetLength = 160;
 
+/** At most one notice per ticket in this window, however many drafts it gets. */
+export const noticeWindowMinutes = 15;
+
 export interface DraftNotice {
   from: string;
   /**
@@ -31,9 +34,15 @@ export function snippet(text: string, max = noticeSnippetLength): string {
     const code = ch.charCodeAt(0);
     return code < 0x20 || code === 0x7f ? " " : ch;
   }).join("");
-  const flat = visible.replace(/\s+/g, " ").trim();
+  // Bidi overrides could make the quote read differently from what the customer wrote.
+  const flat = visible
+    .replace(/[\u202A-\u202E\u2066-\u2069]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (flat.length <= max) return flat;
-  const cut = flat.slice(0, max);
+  // Don't cut an emoji (a surrogate pair) in half.
+  const last = flat.charCodeAt(max - 1);
+  const cut = flat.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
   const space = cut.lastIndexOf(" ");
   return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
@@ -47,7 +56,7 @@ export function noticeText(notice: Pick<DraftNotice, "ticketUrl" | "customerText
     `Review it: ${notice.ticketUrl}`,
     "",
     "Replies to this email are not read.",
-    `You get at most one of these per ticket every 15 minutes. Sent by ${brand.name}.`,
+    `You get at most one of these per ticket every ${noticeWindowMinutes} minutes. Sent by ${brand.name}.`,
   ].join("\n");
 }
 
