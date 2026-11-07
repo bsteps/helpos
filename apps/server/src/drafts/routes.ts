@@ -377,6 +377,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
         .returning();
       if (!draft) throw new Error("create draft: insert returned no row");
+      // The ticket has an answer now, so it's no longer waiting on a paused AI.
+      await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
       await recordAudit(tx, {
         tenantId,
         actor,

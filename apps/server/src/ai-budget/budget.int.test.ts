@@ -206,6 +206,32 @@ describe("daily AI budget", () => {
     expect(drafts.map((d) => d.status)).toEqual(["pending"]);
   });
 
+  it("a hand-written draft clears the pause", async () => {
+    const email = await receive(10);
+    await draft(acme, email.messageId); // still 2026-11-10, over budget: paused
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+    const app = createApp({
+      db,
+      files,
+      logger,
+      inboundSecret: undefined,
+      dailyTokenBudget: budget,
+      now,
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(["drafts:write"] as const),
+      }),
+    });
+    const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Hi Jane, answering by hand." }),
+    });
+    expect(res.status).toBe(201);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBeNull();
+  });
+
   it("resets at UTC midnight, and a new draft clears the pause", async () => {
     clock = new Date("2026-11-08T00:00:01Z");
     const email = await receive(5);
