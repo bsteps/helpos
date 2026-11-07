@@ -12,6 +12,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
+import { ingestEmail } from "./ingest.ts";
 import { maxEmailBytes, secretMatches } from "./route.ts";
 
 const secret = "s".repeat(40);
@@ -277,6 +278,64 @@ describe("POST /v1/inbound/email: tenant isolation", () => {
     const res = await post(raw);
     expect(res.status).toBe(201);
     expect(((await res.json()) as { status: string }).status).toBe("created");
+  });
+});
+
+describe("automated mail: out-of-office, bounces, lists", () => {
+  const normal = (id = "<normal-auto-test@") =>
+    new Uint8Array(Buffer.from(fixture("plain.eml").toString().replace("<plain-1@", id)));
+
+  it.each([
+    ["out-of-office.eml", "auto_submitted"],
+    ["bounce.eml", "system_sender"],
+    ["mailing-list.eml", "precedence"],
+  ])("%s is stored as automated and never gets a draft", async (name, reason) => {
+    const result = await ingestEmail({ db, files }, new Uint8Array(fixture(name)));
+    if (result.kind !== "created") throw new Error(`expected created, got ${result.kind}`);
+    expect(result.draftReply).toBe(false);
+
+    const [message] = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.messages).where(eq(schema.messages.id, result.messageId)),
+    );
+    expect(message?.automatedReason).toBe(reason);
+    if (!result.threaded) {
+      const [ticket] = await db.withTenant(acme, (tx) =>
+        tx.select().from(schema.tickets).where(eq(schema.tickets.id, result.ticketId)),
+      );
+      expect(ticket?.automated).toBe(true);
+    }
+  });
+
+  it("an automated reply does not reopen a closed ticket", async () => {
+    const first = await ingestEmail({ db, files }, normal("<closed-1@"));
+    if (first.kind !== "created") throw new Error(`expected created, got ${first.kind}`);
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.tickets)
+        .set({ status: "closed" })
+        .where(eq(schema.tickets.id, first.ticketId)),
+    );
+    const ooo = fixture("out-of-office.eml")
+      .toString()
+      .replace("<ooo-1@", "<ooo-closed@")
+      .replace("Auto-Submitted", "In-Reply-To: <closed-1@customer.test>\nAuto-Submitted");
+    const reply = await ingestEmail({ db, files }, new Uint8Array(Buffer.from(ooo)));
+    if (reply.kind !== "created") throw new Error(`expected created, got ${reply.kind}`);
+    expect(reply).toMatchObject({ threaded: true, draftReply: false });
+    const [ticket] = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.tickets).where(eq(schema.tickets.id, first.ticketId)),
+    );
+    expect(ticket?.status).toBe("closed");
+  });
+
+  it("a normal email is the only one that asks for a draft", async () => {
+    const result = await ingestEmail({ db, files }, normal());
+    if (result.kind !== "created") throw new Error(`expected created, got ${result.kind}`);
+    expect(result.draftReply).toBe(true);
+    const [ticket] = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.tickets).where(eq(schema.tickets.id, result.ticketId)),
+    );
+    expect(ticket?.automated).toBe(false);
   });
 });
 

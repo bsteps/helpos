@@ -22,7 +22,14 @@ export type IngestResult =
   | { kind: "invalid"; reason: "missing_from" }
   /** This Message-ID was already stored for the workspace (a provider retry). */
   | { kind: "duplicate"; ticketId: string; messageId: string }
-  | { kind: "created"; ticketId: string; messageId: string; threaded: boolean };
+  | {
+      kind: "created";
+      ticketId: string;
+      messageId: string;
+      threaded: boolean;
+      /** False for machine-sent mail. The draft-reply job is enqueued only when true. */
+      draftReply: boolean;
+    };
 
 export interface IngestDeps {
   db: Pick<Database, "withTenant" | "resolveMailbox">;
@@ -97,7 +104,8 @@ async function store(
     ticketId = threadTicketId;
     await tx
       .update(tickets)
-      .set({ lastMessageAt: now, status: "open" })
+      // An out-of-office reply to a closed ticket must not reopen it.
+      .set(email.automated ? { lastMessageAt: now } : { lastMessageAt: now, status: "open" })
       .where(eq(tickets.id, ticketId));
   } else {
     ticketId = uuidv7();
@@ -108,6 +116,7 @@ async function store(
       mailboxId: route.mailboxId,
       subject: email.subject,
       lastMessageAt: now,
+      automated: email.automated !== null,
     });
   }
 
@@ -133,6 +142,7 @@ async function store(
     references: email.references,
     rawFileKey,
     sentAt: email.date,
+    automatedReason: email.automated,
   });
 
   for (const attachment of email.attachments) {
@@ -149,7 +159,13 @@ async function store(
     });
   }
 
-  return { kind: "created", ticketId, messageId, threaded: threadTicketId !== null };
+  return {
+    kind: "created",
+    ticketId,
+    messageId,
+    threaded: threadTicketId !== null,
+    draftReply: email.automated === null,
+  };
 }
 
 async function findByMessageId(tx: TenantTx, messageIdHeader: string) {

@@ -1,0 +1,12 @@
+From: Product News <news@vendor.test>
+To: support@acme.test
+Subject: Our November newsletter
+Message-ID: <list-1@vendor.test>
+Date: Fri, 06 Nov 2026 11:10:00 +0000
+List-Id: Vendor news <news.vendor.test>
+List-Unsubscribe: <mailto:unsubscribe@vendor.test>
+Precedence: bulk
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Here is what is new this month.

@@ -1,4 +1,5 @@
 import PostalMime, { type Address } from "postal-mime";
+import { type AutomatedReason, detectAutomated } from "./automated.ts";
 
 /** What the rest of the feature needs from a raw email. Everything in it is untrusted data. */
 export interface ParsedEmail {
@@ -18,6 +19,8 @@ export interface ParsedEmail {
   references: string[];
   date: Date | null;
   attachments: ParsedAttachment[];
+  /** Set when the headers say a machine sent it (out-of-office, bounce, list mail). */
+  automated: AutomatedReason | null;
 }
 
 export interface ParsedAttachment {
@@ -37,8 +40,10 @@ export async function parseEmail(raw: Uint8Array): Promise<ParsedEmail> {
   const references = messageIds(email.references);
   const date = email.date ? new Date(email.date) : null;
 
+  const fromAddress = from ? from.address.toLowerCase() : null;
+
   return {
-    from: from ? { address: from.address.toLowerCase(), name: clean(from.name) || null } : null,
+    from: from && fromAddress ? { address: fromAddress, name: clean(from.name) || null } : null,
     recipients: unique(
       [
         email.deliveredTo ?? "",
@@ -66,6 +71,7 @@ export async function parseEmail(raw: Uint8Array): Promise<ParsedEmail> {
           ? new TextEncoder().encode(a.content)
           : new Uint8Array(a.content),
     })),
+    automated: detectAutomated(email.headers, fromAddress),
   };
 }
 
