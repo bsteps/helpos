@@ -198,16 +198,28 @@ describe("draft → approve → send", () => {
     expect(await edit.json()).toMatchObject({ body: edited, status: "pending" });
 
     // Drafting doesn't imply approving: that scope is separate.
-    expect((await call("POST", `/v1/drafts/${pending.id}/approve`, "drafter")).status).toBe(403);
+    expect(
+      (await call("POST", `/v1/drafts/${pending.id}/approve`, "drafter", { body: edited })).status,
+    ).toBe(403);
 
-    const approve = await call("POST", `/v1/drafts/${pending.id}/approve`, "approver");
+    // Approving text other than the current body (e.g. edited after review) approves nothing.
+    expect(
+      (await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", { body: draftText }))
+        .status,
+    ).toBe(409);
+
+    const approve = await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", {
+      body: edited,
+    });
     expect(approve.status).toBe(200);
     expect(await approve.json()).toMatchObject({ status: "approved" });
     const requestId = approve.headers.get("x-request-id");
     expect(requestId).toBeTruthy();
 
     // Approved is final: no second approval, no edits.
-    expect((await call("POST", `/v1/drafts/${pending.id}/approve`, "approver")).status).toBe(409);
+    expect(
+      (await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", { body: edited })).status,
+    ).toBe(409);
     expect(
       (await call("PATCH", `/v1/drafts/${pending.id}`, "drafter", { body: "changed" })).status,
     ).toBe(409);
@@ -334,7 +346,10 @@ describe("draft API access", () => {
     expect(
       (await call("PATCH", `/v1/drafts/${pending.id}`, "outsider", { body: "x" })).status,
     ).toBe(404);
-    expect((await call("POST", `/v1/drafts/${pending.id}/approve`, "outsider")).status).toBe(404);
+    expect(
+      (await call("POST", `/v1/drafts/${pending.id}/approve`, "outsider", { body: pending.body }))
+        .status,
+    ).toBe(404);
     expect((await draftsOf(email.ticketId))[0]?.status).toBe("pending");
   });
 

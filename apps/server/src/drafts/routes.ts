@@ -85,13 +85,21 @@ const approveRoute = createRoute({
   description:
     "Marks a `pending` draft `approved` and queues it to be sent, in one transaction. This is " +
     "the only way a reply reaches a customer. Sending happens in the background: the draft " +
-    "becomes `sent` once the email is out, and a failed send is retried. Needs `drafts:approve`.",
+    "becomes `sent` once the email is out, and a failed send is retried. The request carries " +
+    "the body the approver reviewed: if the draft was edited since, nothing is approved (409). " +
+    "Needs `drafts:approve`.",
   security,
-  request: { params: idParams },
+  request: {
+    params: idParams,
+    body: {
+      required: true,
+      content: { "application/json": { schema: z.strictObject({ body: z.string() }) } },
+    },
+  },
   responses: {
     200: json(draftSchema, "The approved draft"),
     ...authErrors,
-    409: json(errorSchema, "The draft is no longer pending"),
+    409: json(errorSchema, "The draft is no longer pending, or was edited since it was reviewed"),
   },
 });
 
@@ -172,6 +180,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     const principal = principalWith(c, "drafts:approve");
     if (!principal) return c.json({ error: "forbidden" }, 403);
     const { id } = c.req.valid("param");
+    const { body: reviewed } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [found] = await tx
         .select({ mailbox: mailboxes.address })
@@ -190,7 +199,8 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
           approvedAt: new Date(),
           outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
         })
-        .where(and(eq(drafts.id, id), eq(drafts.status, "pending")))
+        // Bound to the exact text reviewed: an edit made after review can't ride on the approval.
+        .where(and(eq(drafts.id, id), eq(drafts.status, "pending"), eq(drafts.body, reviewed)))
         .returning();
       if (!approved) return "conflict";
       await recordAudit(tx, {
