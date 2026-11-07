@@ -116,6 +116,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const domain = row.mailbox.split("@").pop() ?? "localhost";
     const raw = await buildDraftNotice({
       from: row.mailbox,
+      replyTo: `no-reply@${domain}`,
       to,
       ticketUrl: new URL(`/tickets/${row.ticketId}`, deps.publicUrl).toString(),
       customerText: messageText(row),

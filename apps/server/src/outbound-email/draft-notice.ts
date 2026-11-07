@@ -6,6 +6,11 @@ export const noticeSnippetLength = 160;
 
 export interface DraftNotice {
   from: string;
+  /**
+   * Not a helpdesk mailbox, so an owner who answers the notice doesn't open a ticket that the
+   * AI then drafts a reply to.
+   */
+  replyTo: string;
   to: string[];
   ticketUrl: string;
   /** The customer's message. Quoted as a short plain-text snippet, never in the subject. */
@@ -41,6 +46,7 @@ export function noticeText(notice: Pick<DraftNotice, "ticketUrl" | "customerText
     ...(quoted ? ["The customer wrote:", `> ${quoted}`, ""] : []),
     `Review it: ${notice.ticketUrl}`,
     "",
+    "Replies to this email are not read.",
     `You get at most one of these per ticket every 15 minutes. Sent by ${brand.name}.`,
   ].join("\n");
 }
@@ -49,6 +55,7 @@ export function noticeText(notice: Pick<DraftNotice, "ticketUrl" | "customerText
 export function buildDraftNotice(notice: DraftNotice): Promise<Uint8Array> {
   const composer = new MailComposer({
     from: notice.from,
+    replyTo: notice.replyTo,
     to: notice.to,
     subject: noticeSubject,
     text: noticeText(notice),

@@ -107,6 +107,9 @@ describe("draft notice worker", () => {
       from: "support@acme.test",
       to: ["owner@acme.test"],
     });
+    const raw = new TextDecoder().decode(first.mock.calls[0]?.[0].raw);
+    // Answering the notice must not land in the support mailbox and open a ticket.
+    expect(raw).toContain("Reply-To: no-reply@acme.test");
     expect(await notify(draft.id)).not.toHaveBeenCalled();
   });
 

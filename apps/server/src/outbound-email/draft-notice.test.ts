@@ -12,6 +12,7 @@ const fixture = new URL("../../../../fixtures/email/outbound/draft-notice.eml", 
 
 const notice = {
   from: "support@acme.test",
+  replyTo: "no-reply@acme.test",
   to: ["owner@acme.test", "second-owner@acme.test"],
   ticketUrl: "http://localhost:3000/tickets/0190f0a0-0000-7000-8000-000000000001",
   customerText:
@@ -38,6 +39,7 @@ describe("draft notice email", () => {
     const headers = raw.split("\r\n\r\n")[0] ?? "";
     expect(headers).toContain(`Subject: ${noticeSubject}`);
     expect(headers).toContain("Auto-Submitted: auto-generated");
+    expect(headers).toContain("Reply-To: no-reply@acme.test");
     expect(headers).not.toContain("hacked");
     expect(headers).not.toContain("evil");
   });
