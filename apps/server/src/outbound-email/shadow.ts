@@ -4,7 +4,15 @@ import type { ReplyEmail } from "./transport.ts";
 /** Carries the customer address a shadowed reply would have gone to. */
 export const intendedToHeader = `X-${brand.name}-Intended-To`;
 
-export type ShadowSettings = { shadowMode: boolean; shadowRecipient: string | null };
+export type ShadowSettings = {
+  shadowMode: boolean;
+  shadowRecipient: string | null;
+  /**
+   * A no-reply address for shadowed mail. If the partner answers a shadowed reply, the answer
+   * must not land in the support mailbox and open a ticket of its own.
+   */
+  shadowReplyTo: string;
+};
 
 export type Delivery =
   | { kind: "customer"; email: ReplyEmail }
@@ -35,6 +43,7 @@ export function planDelivery(email: ReplyEmail, settings: ShadowSettings): Deliv
     email: {
       ...email,
       to: settings.shadowRecipient,
+      replyTo: settings.shadowReplyTo,
       text: `${shadowBanner(email.to)}${email.text}`,
       headers: { [intendedToHeader]: email.to },
     },

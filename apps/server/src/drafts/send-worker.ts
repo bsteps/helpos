@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
 import { planDelivery } from "../outbound-email/shadow.ts";
 import { buildReply, type EmailTransport, replySubject } from "../outbound-email/transport.ts";
+import { noticeReplyTo } from "./notice-worker.ts";
 
 const { customers, drafts, mailboxes, messages, tenants, tickets } = schema;
 
@@ -71,7 +72,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
         references,
         date: now,
       },
-      row.shadow,
+      { ...row.shadow, shadowReplyTo: noticeReplyTo(row.mailbox) },
     );
     if (delivery.kind === "no_recipient") {
       // Thrown, not skipped: the draft stays approved and pg-boss retries, so it goes out once

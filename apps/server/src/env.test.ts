@@ -14,6 +14,20 @@ describe("envSchema", () => {
     expect(env.HELPOS_DATABASE_AUTH_URL).toBeUndefined();
     expect(env.HELPOS_PUBLIC_URL).toBe("http://localhost:3000");
     expect(env.HELPOS_NOTICE_DELAY_SECONDS).toBe(300);
+    // Locked by default: shadow mode can't be turned off until this is set on purpose.
+    expect(env.HELPOS_ALLOW_SHADOW_MODE_OFF).toBe(false);
+  });
+
+  it("only allows turning shadow mode off with exactly 'true'", () => {
+    const base = {
+      HELPOS_DATABASE_URL: "postgres://a:b@localhost:5432/helpos",
+      HELPOS_DATABASE_JOBS_URL: "postgres://j:k@localhost:5432/helpos",
+    };
+    const allow = (v: string) =>
+      envSchema.parse({ ...base, HELPOS_ALLOW_SHADOW_MODE_OFF: v }).HELPOS_ALLOW_SHADOW_MODE_OFF;
+    expect(allow("true")).toBe(true);
+    expect(allow("false")).toBe(false);
+    expect(() => allow("yes")).toThrow();
   });
 
   it("rejects a missing jobs database URL", () => {

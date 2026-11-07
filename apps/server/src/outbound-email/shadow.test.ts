@@ -16,7 +16,8 @@ const reply: ReplyEmail = {
   references: ["<login-1@customer.test>"],
   date: new Date("2026-11-07T10:00:00Z"),
 };
-const shadowOn = { shadowMode: true, shadowRecipient: "partner@acme.test" };
+const shadowReplyTo = "no-reply@acme.test";
+const shadowOn = { shadowMode: true, shadowRecipient: "partner@acme.test", shadowReplyTo };
 
 /** Git checks the fixture out with LF (see .gitattributes), so line endings are compared as LF. */
 const lf = (s: string) => s.replaceAll("\r\n", "\n");
@@ -27,6 +28,8 @@ describe("shadow mode delivery", () => {
     if (delivery.kind !== "shadow") throw new Error(`got ${delivery.kind}`);
     expect(delivery.email.to).toBe("partner@acme.test");
     expect(delivery.intendedTo).toBe("jane@customer.test");
+    // Answering it can't reach the support mailbox and open a ticket.
+    expect(delivery.email.replyTo).toBe(shadowReplyTo);
     expect(delivery.email.headers).toEqual({ [intendedToHeader]: "jane@customer.test" });
     expect(delivery.email.text.startsWith(`[${brand.name} shadow mode]`)).toBe(true);
     expect(delivery.email.text).toContain("It would have gone to: jane@customer.test");
@@ -34,14 +37,20 @@ describe("shadow mode delivery", () => {
   });
 
   it("sends nothing when shadow mode has no recipient", () => {
-    expect(planDelivery(reply, { shadowMode: true, shadowRecipient: null })).toEqual({
-      kind: "no_recipient",
-    });
+    expect(planDelivery(reply, { shadowMode: true, shadowRecipient: null, shadowReplyTo })).toEqual(
+      {
+        kind: "no_recipient",
+      },
+    );
   });
 
   it("sends the reply unchanged to the customer when shadow mode is off", () => {
     expect(
-      planDelivery(reply, { shadowMode: false, shadowRecipient: "partner@acme.test" }),
+      planDelivery(reply, {
+        shadowMode: false,
+        shadowRecipient: "partner@acme.test",
+        shadowReplyTo,
+      }),
     ).toEqual({ kind: "customer", email: reply });
   });
 
@@ -55,6 +64,7 @@ describe("shadow mode delivery", () => {
     // Header names are case-insensitive, and nodemailer normalises their case.
     const headers = (raw.split("\n\n")[0] ?? "").toLowerCase();
     expect(headers).toContain("\nto: partner@acme.test");
+    expect(headers).toContain("\nreply-to: no-reply@acme.test");
     expect(headers).toContain(`${intendedToHeader.toLowerCase()}: jane@customer.test`);
   });
 });
