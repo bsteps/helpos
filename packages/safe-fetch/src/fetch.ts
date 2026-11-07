@@ -1,0 +1,217 @@
+import { lookup } from "node:dns/promises";
+import http, { type IncomingHttpHeaders } from "node:http";
+import https from "node:https";
+import { isIP, type LookupFunction } from "node:net";
+import { isBlockedAddress } from "./address.ts";
+
+export type SafeFetchErrorCode =
+  | "invalid_url"
+  | "blocked_address"
+  | "dns_failed"
+  | "timeout"
+  | "too_large"
+  | "too_many_redirects"
+  | "network";
+
+export class SafeFetchError extends Error {
+  readonly code: SafeFetchErrorCode;
+  constructor(code: SafeFetchErrorCode, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "SafeFetchError";
+    this.code = code;
+  }
+}
+
+export interface SafeFetchOptions {
+  /** Whole request, all redirects included. Default 10 s. */
+  timeoutMs?: number;
+  /** Largest body accepted. Default 5 MiB. */
+  maxBytes?: number;
+  /** Default 5. */
+  maxRedirects?: number;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+export interface SafeFetchResponse {
+  /** The URL that answered, after redirects. */
+  url: string;
+  status: number;
+  headers: IncomingHttpHeaders;
+  body: Buffer;
+}
+
+export interface ResolvedAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+export interface SafeFetchDeps {
+  resolve: (hostname: string) => Promise<ResolvedAddress[]>;
+  isBlocked: (address: string) => boolean;
+}
+
+const defaultDeps: SafeFetchDeps = {
+  resolve: async (hostname) => {
+    const results = await lookup(hostname, { all: true, verbatim: true });
+    return results.map((r) => ({ address: r.address, family: r.family === 6 ? 6 : 4 }));
+  },
+  isBlocked: isBlockedAddress,
+};
+
+const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+
+export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
+  /** Resolves once and vets every address, so the one we then connect to cannot be swapped. */
+  async function pinAddress(hostname: string): Promise<ResolvedAddress> {
+    const bare = hostname.replace(/^\[|\]$/g, "");
+    const literal = isIP(bare);
+    let addresses: ResolvedAddress[];
+    if (literal !== 0) {
+      addresses = [{ address: bare, family: literal === 6 ? 6 : 4 }];
+    } else {
+      try {
+        addresses = await deps.resolve(bare);
+      } catch (cause) {
+        throw new SafeFetchError("dns_failed", `could not resolve ${bare}`, { cause });
+      }
+    }
+    const first = addresses[0];
+    if (!first) throw new SafeFetchError("dns_failed", `no addresses for ${bare}`);
+    // Any private answer rejects the host: a mixed answer is a rebinding attempt.
+    for (const a of addresses) {
+      if (deps.isBlocked(a.address)) {
+        throw new SafeFetchError("blocked_address", `${bare} resolves to a blocked address`);
+      }
+    }
+    return first;
+  }
+
+  function parseUrl(raw: string, base?: URL): URL {
+    let url: URL;
+    try {
+      url = new URL(raw, base);
+    } catch (cause) {
+      throw new SafeFetchError("invalid_url", "not a valid URL", { cause });
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new SafeFetchError("invalid_url", `protocol ${url.protocol} is not allowed`);
+    }
+    if (url.username || url.password) {
+      throw new SafeFetchError("invalid_url", "credentials in URLs are not allowed");
+    }
+    return url;
+  }
+
+  function requestOnce(
+    url: URL,
+    pinned: ResolvedAddress,
+    options: Required<Pick<SafeFetchOptions, "maxBytes">> & SafeFetchOptions,
+    signal: AbortSignal,
+  ): Promise<SafeFetchResponse> {
+    // Node's connect calls this instead of DNS, so it can only reach the vetted address.
+    const pinnedLookup: LookupFunction = (_host, opts, callback) => {
+      if (opts.all) callback(null, [pinned]);
+      else callback(null, pinned.address, pinned.family);
+    };
+    const isHttps = url.protocol === "https:";
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
+
+    return new Promise((resolve, reject) => {
+      const req = (isHttps ? https : http).request(
+        {
+          protocol: url.protocol,
+          hostname,
+          port: url.port || (isHttps ? 443 : 80),
+          path: `${url.pathname}${url.search}`,
+          method: "GET",
+          headers: options.headers,
+          lookup: pinnedLookup,
+          // TLS still verifies the certificate against the real hostname.
+          servername: isHttps && isIP(hostname) === 0 ? hostname : undefined,
+          agent: false,
+          signal,
+        },
+        (res) => {
+          const status = res.statusCode ?? 0;
+          const declared = Number(res.headers["content-length"]);
+          if (Number.isFinite(declared) && declared > options.maxBytes) {
+            res.destroy();
+            reject(new SafeFetchError("too_large", `body is ${declared} bytes`));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          let size = 0;
+          res.on("data", (chunk: Buffer) => {
+            size += chunk.length;
+            if (size > options.maxBytes) {
+              res.destroy();
+              reject(new SafeFetchError("too_large", `body exceeds ${options.maxBytes} bytes`));
+              return;
+            }
+            chunks.push(chunk);
+          });
+          res.on("end", () => {
+            resolve({ url: url.href, status, headers: res.headers, body: Buffer.concat(chunks) });
+          });
+          res.on("error", (cause) => reject(toError(cause, signal)));
+        },
+      );
+      req.on("error", (cause) => reject(toError(cause, signal)));
+      req.end();
+    });
+  }
+
+  return async function safeFetch(
+    rawUrl: string,
+    options: SafeFetchOptions = {},
+  ): Promise<SafeFetchResponse> {
+    const timeoutMs = options.timeoutMs ?? 10_000;
+    const maxBytes = options.maxBytes ?? 5 * 1024 * 1024;
+    const maxRedirects = options.maxRedirects ?? 5;
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
+
+    let url = parseUrl(rawUrl);
+    let headers = options.headers ?? {};
+    for (let hop = 0; ; hop++) {
+      const pinned = await raceAbort(pinAddress(url.hostname), signal);
+      const res = await requestOnce(url, pinned, { ...options, headers, maxBytes }, signal);
+      const location = res.headers.location;
+      if (!redirectStatuses.has(res.status) || !location) return res;
+      if (hop >= maxRedirects) {
+        throw new SafeFetchError("too_many_redirects", `more than ${maxRedirects} redirects`);
+      }
+      const next = parseUrl(location, url);
+      // A redirect must not carry the caller's credentials to another site.
+      if (next.origin !== url.origin) headers = withoutCredentials(headers);
+      url = next;
+    }
+  };
+}
+
+const credentialHeaders = new Set(["authorization", "cookie", "proxy-authorization"]);
+
+function withoutCredentials(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => !credentialHeaders.has(name.toLowerCase())),
+  );
+}
+
+function toError(cause: unknown, signal: AbortSignal): SafeFetchError {
+  if (signal.aborted)
+    return new SafeFetchError("timeout", "request timed out or was aborted", { cause });
+  return new SafeFetchError("network", "request failed", { cause });
+}
+
+/** DNS lookups ignore abort signals, so the deadline has to cover them separately. */
+function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(toError(signal.reason, signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(toError(signal.reason, signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+export const safeFetch = createSafeFetch();
