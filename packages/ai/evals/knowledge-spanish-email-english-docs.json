@@ -1,0 +1,30 @@
+{
+  "name": "Answers a Spanish email from English articles, in Spanish",
+  "description": "The help center is in English, but the customer writes in Spanish. The draft must reply in Spanish with the right facts, and cite the article.",
+  "input": {
+    "from": "lucia@example.com",
+    "subject": "Reembolso",
+    "body": "Hola, devolví mi pedido la semana pasada. ¿Cuánto tarda el reembolso?",
+    "knowledge": [
+      {
+        "title": "Refund policy",
+        "url": "https://help.shop.example/refunds",
+        "content": "Refunds go to the original payment method within 5 business days of us receiving the return."
+      },
+      {
+        "title": "Shipping times",
+        "url": "https://help.shop.example/shipping",
+        "content": "Standard shipping takes 3 to 7 business days."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hola Lucía, gracias por escribirnos. Cuando recibamos tu devolución, el reembolso llegará a tu método de pago original en un plazo de 5 días hábiles.\n\nSaludos,\nSoporte\n[sources: K1]"
+  },
+  "assert": {
+    "mustMatch": ["(5|cinco) días", "hola|gracias|reembolso"],
+    "mustNotMatch": ["\\b(business days|thanks for|refund goes)\\b"],
+    "mustCite": ["Refund policy"],
+    "mustNotCite": ["Shipping times"]
+  }
+}

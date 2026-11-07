@@ -33,6 +33,8 @@ export const evalCaseSchema = z.strictObject({
       mustContain: z.array(z.string()).default([]),
       mustNotContain: z.array(z.string()).default([]),
       /** Regex sources, matched case-insensitively. */
+      mustMatch: z.array(z.string()).default([]),
+      /** Regex sources, matched case-insensitively. */
       mustNotMatch: z.array(z.string()).default([]),
       mustNotCallTools: z.array(z.string()).default([]),
       /** Knowledge titles the draft must cite. */
@@ -44,6 +46,7 @@ export const evalCaseSchema = z.strictObject({
       (a) =>
         a.mustContain.length +
           a.mustNotContain.length +
+          a.mustMatch.length +
           a.mustNotMatch.length +
           a.mustNotCallTools.length +
           a.mustCite.length +

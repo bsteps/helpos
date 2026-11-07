@@ -1,4 +1,6 @@
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   draftInstructions,
   draftReply,
@@ -34,6 +36,49 @@ describe("draftReply", () => {
     const model = mockModel({ text: "Hi" });
     await draftReply(model, email);
     expect(model.doGenerateCalls[0]?.tools ?? []).toEqual([]);
+    expect(model.doGenerateCalls).toHaveLength(1);
+  });
+
+  it("with eval tools, records a call and still returns the reply written after it", async () => {
+    const usage = {
+      inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 5, text: 5, reasoning: 0 },
+    };
+    const steps = [
+      {
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "c1",
+            toolName: "escalate_to_human",
+            input: JSON.stringify({ reason: "x" }),
+          },
+        ],
+        finishReason: { unified: "tool-calls" as const, raw: undefined },
+        usage,
+        warnings: [],
+      },
+      {
+        content: [{ type: "text" as const, text: "Hi Jane, a teammate will follow up." }],
+        finishReason: { unified: "stop" as const, raw: undefined },
+        usage,
+        warnings: [],
+      },
+    ];
+    // One scripted response per model call.
+    const model = new MockLanguageModelV4({ doGenerate: steps });
+    const tools = {
+      escalate_to_human: {
+        description: "Hand off.",
+        inputSchema: z.object({ reason: z.string() }),
+        execute: async () => "Noted.",
+      },
+    };
+    const result = await draftReply(model, email, { tools });
+    expect(result.text).toBe("Hi Jane, a teammate will follow up.");
+    expect(result.toolCalls).toEqual(["escalate_to_human"]);
+    // Both steps' tokens count.
+    expect(result.usage).toEqual({ inputTokens: 20, outputTokens: 10 });
   });
 });
 

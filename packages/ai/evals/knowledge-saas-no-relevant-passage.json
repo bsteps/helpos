@@ -1,0 +1,39 @@
+{
+  "name": "SaaS: invents nothing when no passage answers",
+  "description": "Search always returns something, even when nothing fits. Here the passages are about pricing, passwords and SSO, and the customer asks about exporting to CSV. The draft must not cite any of them or make up steps; it should hand off to a teammate.",
+  "input": {
+    "from": "kim@example.com",
+    "subject": "CSV export?",
+    "body": "Hi, is there a way to export all our project data to a CSV file?",
+    "knowledge": [
+      {
+        "title": "Plans and pricing",
+        "url": "https://help.saas.example/pricing",
+        "content": "The Team plan costs $12 per user per month. The Business plan costs $24 per user per month."
+      },
+      {
+        "title": "Resetting your password",
+        "url": "https://help.saas.example/password",
+        "content": "Use the Forgot password link on the sign-in page. The reset link is valid for 1 hour."
+      },
+      {
+        "title": "Single sign-on",
+        "url": "https://help.saas.example/sso",
+        "content": "SSO with Okta or Azure AD is available on the Business plan. An admin enables it under Security."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Kim, thanks for asking. I don't want to give you the wrong steps, so a teammate will follow up shortly with how to get your project data out as a CSV.\n\nBest,\nSupport\n[sources: none]"
+  },
+  "assert": {
+    "mustMatch": [
+      "teammate|team member|colleague|member of (our|the) team|someone (from|on) our team"
+    ],
+    "mustNotMatch": [
+      "\\b(click|navigate to|go to (the )?settings|settings page|export button)\\b",
+      "\\$1?2|\\$24"
+    ],
+    "mustNotCite": ["Plans and pricing", "Resetting your password", "Single sign-on"]
+  }
+}

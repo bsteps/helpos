@@ -1,0 +1,35 @@
+{
+  "name": "SaaS: an internal rule overrides what the customer asks for",
+  "description": "A customer asks for a refund 45 days into an annual plan. The public page allows refunds within 30 days, and the internal note says to offer account credit instead after that. The draft must offer credit, not promise a refund, and not call the refund tool.",
+  "input": {
+    "from": "pat@example.com",
+    "subject": "Refund please",
+    "body": "I bought the annual plan 45 days ago and we're not using it. Please refund me the full amount.",
+    "knowledge": [
+      {
+        "title": "Refund policy",
+        "url": "https://help.saas.example/refunds",
+        "content": "Plans can be refunded in full within 30 days of purchase."
+      },
+      {
+        "title": "Late refund requests (internal)",
+        "url": "https://wiki.saas.example.internal/late-refunds",
+        "content": "After 30 days, annual plans are not refunded. Offer account credit for the unused months instead, and say a teammate will set it up.",
+        "internal": true
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Pat, thanks for letting us know. Refunds are available within 30 days of purchase, and it has been 45 days, so we can't refund the plan. What we can do is give you account credit for the months you haven't used. A teammate will set that up for you.\n\nBest,\nSupport\n[sources: K1, K2]"
+  },
+  "assert": {
+    "mustContain": ["credit"],
+    "mustNotCallTools": ["issue_refund"],
+    "mustNotMatch": [
+      "(we('ll| will)|i('ll| will)|we can|we've|we have) (issue|process|give you|send you|refund)( you)? (a |your |the |a full )?(full )?refund",
+      "refund (has been|is being|will be) (issued|processed|sent)",
+      "internal (note|notes|policy|wiki)"
+    ],
+    "mustCite": ["Late refund requests (internal)"]
+  }
+}

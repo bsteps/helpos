@@ -1,4 +1,4 @@
-import { generateText, type LanguageModel, type ToolSet } from "ai";
+import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
 
 /** An earlier message on the same ticket, oldest first. */
 export type HistoryMessage = { direction: "inbound" | "outbound"; from: string; body: string };
@@ -189,6 +189,7 @@ export function parseSources(text: string, offered: number): { text: string; cit
  * Drafts a reply to one email. The instructions go in the system slot and the email (and any
  * knowledge) go in the prompt, quoted, so the model never sees that text as part of its rules.
  * `tools` is only for evals: the real drafting offers none, so a draft can't take any action.
+ * With tools there is a second step, so a model that calls one still writes the reply.
  */
 export async function draftReply(
   model: LanguageModel,
@@ -201,19 +202,19 @@ export async function draftReply(
     instructions:
       knowledge.length > 0 ? `${draftInstructions}\n${knowledgeInstructions}` : draftInstructions,
     prompt: [fenceKnowledge(knowledge), fenceEmail(input)].filter(Boolean).join("\n\n"),
-    ...(options.tools ? { tools: options.tools } : {}),
+    ...(options.tools ? { tools: options.tools, stopWhen: stepCountIs(2) } : {}),
   });
+  // The reply is the last text the model wrote; a step that only called a tool has none.
+  const reply = result.steps.map((step) => step.text).findLast((t) => t.trim() !== "") ?? "";
   const { text, cited } =
-    knowledge.length > 0
-      ? parseSources(result.text, knowledge.length)
-      : { text: result.text, cited: [] };
+    knowledge.length > 0 ? parseSources(reply, knowledge.length) : { text: reply, cited: [] };
   return {
     text,
     cited,
-    toolCalls: result.toolCalls.map((call) => call.toolName),
+    toolCalls: result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
     usage: {
-      inputTokens: result.usage.inputTokens ?? 0,
-      outputTokens: result.usage.outputTokens ?? 0,
+      inputTokens: result.totalUsage.inputTokens ?? 0,
+      outputTokens: result.totalUsage.outputTokens ?? 0,
     },
   };
 }
