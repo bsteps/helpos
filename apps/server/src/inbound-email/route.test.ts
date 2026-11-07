@@ -328,6 +328,30 @@ describe("automated mail: out-of-office, bounces, lists", () => {
     expect(ticket?.status).toBe("closed");
   });
 
+  it("a person replying on an automated ticket makes it a normal ticket", async () => {
+    const human = fixture("plain.eml")
+      .toString()
+      .replace("<plain-1@", "<human-2@")
+      .replace("From: Jane Customer <Jane@Customer.test>", "From: Pat <pat@customer.test>");
+    const opened = fixture("out-of-office.eml")
+      .toString()
+      .replace("<ooo-1@", "<ooo-pat@")
+      .replace("From: Jane Customer <jane@customer.test>", "From: Pat <pat@customer.test>");
+    const auto = await ingestEmail({ db, files }, new Uint8Array(Buffer.from(opened)));
+    if (auto.kind !== "created") throw new Error(`expected created, got ${auto.kind}`);
+    const followUp = await ingestEmail(
+      { db, files },
+      new Uint8Array(
+        Buffer.from(human.replace("Subject:", "In-Reply-To: <ooo-pat@customer.test>\nSubject:")),
+      ),
+    );
+    expect(followUp).toMatchObject({ kind: "created", threaded: true, draftReply: true });
+    const [ticket] = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.tickets).where(eq(schema.tickets.id, auto.ticketId)),
+    );
+    expect(ticket?.automated).toBe(false);
+  });
+
   it("a normal email is the only one that asks for a draft", async () => {
     const result = await ingestEmail({ db, files }, normal());
     if (result.kind !== "created") throw new Error(`expected created, got ${result.kind}`);

@@ -27,7 +27,10 @@ export type IngestResult =
       ticketId: string;
       messageId: string;
       threaded: boolean;
-      /** False for machine-sent mail. The draft-reply job is enqueued only when true. */
+      /**
+       * False for machine-sent mail. No draft job exists yet: the one #45 adds must be
+       * enqueued only when this is true.
+       */
       draftReply: boolean;
     };
 
@@ -104,8 +107,13 @@ async function store(
     ticketId = threadTicketId;
     await tx
       .update(tickets)
-      // An out-of-office reply to a closed ticket must not reopen it.
-      .set(email.automated ? { lastMessageAt: now } : { lastMessageAt: now, status: "open" })
+      // An out-of-office reply to a closed ticket must not reopen it. A person writing on a
+      // ticket a machine opened (e.g. answering a bounce) makes it a normal ticket.
+      .set(
+        email.automated
+          ? { lastMessageAt: now }
+          : { lastMessageAt: now, status: "open", automated: false },
+      )
       .where(eq(tickets.id, ticketId));
   } else {
     ticketId = uuidv7();

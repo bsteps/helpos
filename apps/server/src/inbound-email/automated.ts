@@ -39,9 +39,3 @@ export function detectAutomated(
   if (get("content-type").some((v) => /^multipart\/report\b/.test(v))) return "delivery_report";
   return null;
 }
-
-/**
- * Headers every outbound reply carries. Replies are human-approved, so they do not claim
- * `Auto-Submitted`, but they ask Exchange not to answer them with an out-of-office.
- */
-export const outboundReplyHeaders = { "X-Auto-Response-Suppress": "All" } as const;
