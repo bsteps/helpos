@@ -106,7 +106,7 @@ export function registerInboundEmail(app: OpenAPIHono, deps: InboundEmailDeps): 
         );
       case "created":
         deps.logger.info(
-          { ticketId: result.ticketId, threaded: result.threaded },
+          { ticketId: result.ticketId, threaded: result.threaded, draftReply: result.draftReply },
           "inbound email stored",
         );
         return c.json(

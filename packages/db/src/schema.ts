@@ -1,6 +1,7 @@
 import { type SQL, sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   check,
   foreignKey,
   index,
@@ -165,6 +166,8 @@ export const tickets = pgTable(
       .notNull()
       .default("open"),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Opened by machine-sent mail (out-of-office, bounce, list). Never gets an AI draft. */
+    automated: boolean("automated").notNull().default(false),
   },
   (t) => [
     unique("tickets_tenant_id_id").on(t.tenantId, t.id),
@@ -206,6 +209,8 @@ export const messages = pgTable(
     /** Files-adapter key of the raw MIME (ADR 0002). */
     rawFileKey: text("raw_file_key").notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** Why this inbound email looks machine-sent, or null for a person. Never drafted for. */
+    automatedReason: text("automated_reason"),
   },
   (t) => [
     unique("messages_tenant_id_id").on(t.tenantId, t.id),
