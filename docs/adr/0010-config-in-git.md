@@ -40,6 +40,7 @@ The app never reads git when it handles a request or runs an agent. It reads the
 - Every importable row has `managed_by` (`app` or `git`) and, when it's `git`, `source_path` and `source_commit`.
 - A workspace that connects a repo picks, **per kind**, whether that kind is managed in git. Rows of that kind then have `managed_by = 'git'`.
 - **Sync goes one way: git → database.** The API rejects writes to a git-managed row with `409` and a hint to change the file instead. The UI shows these rows read-only, with a link to the file.
+- **Later (built with sync):** editing a git-managed item in the UI opens a pull request with the change. Non-technical teammates can still propose edits, a developer merges them, and git stays the only owner. This needs write access, so it is an opt-in on the repo connection.
 - No two-way sync, so there are no merge conflicts to resolve. The only "conflict" is a file that fails validation, and section 4 handles it.
 - Moving a kind back to `app` keeps the current rows and clears `source_*`. An export endpoint writes app-managed items as files in the same layout, so a team can move into git without retyping.
 
@@ -63,7 +64,7 @@ Push access to a repo is not the same as admin rights in the workspace. A policy
 
 ### 7. Tenant isolation and secrets
 
-- A repo connection is a tenant `integrations` row. Its access token (a deploy key or a GitHub App installation) is envelope-encrypted, and read-only access is enough.
+- A repo connection is a tenant `integrations` row. Its access token (a deploy key or a GitHub App installation) is envelope-encrypted, and read-only access is enough unless "propose edits as pull requests" is turned on.
 - One repo (optionally with a subfolder) belongs to one workspace. Every imported row carries `tenant_id` under RLS, like any other row.
 - Files never hold secrets. A policy that needs one refers to an integration by name. The importer rejects files that match secret-scanning patterns, so a key pushed by mistake never reaches the database.
 - Repo fetches use the SSRF-safe fetch (ADR 0004). Self-hosters can point at any git host over HTTPS.
@@ -86,6 +87,6 @@ Only the data model. No sync code.
 ## Consequences
 
 - Teams that never connect a repo see no difference. Everything defaults to `managed_by = 'app'`.
-- Git-managed items are read-only in the UI. That's intended: the file is where you change it.
+- Git-managed items can't be saved directly in the UI; the file is where they change. Until "propose edits as pull requests" ships, non-technical teammates can't edit them, so teams with non-technical editors should keep those kinds managed in the app.
 - Loosening a policy needs a PR **and** an in-app approval. That's slower, and it's the price of not letting repo access become admin access.
 - The tests are written with the implementation (roadmap Wedge set): `import applies all files or none`, `import ignores an older commit`, `API rejects writes to git-managed rows`, `loosening policy import waits for approval`, `importer rejects a file with a secret`, a leak-suite case `import for tenant A writes no rows in B`, and an eval case `instructions hidden in a git knowledge file are not followed`.
