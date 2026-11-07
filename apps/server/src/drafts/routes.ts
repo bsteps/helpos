@@ -1,11 +1,23 @@
-import { and, asc, type Database, enqueue, eq, schema, type TenantTx, uuidv7 } from "@helpos/db";
+import {
+  and,
+  asc,
+  type Database,
+  desc,
+  enqueue,
+  eq,
+  isNull,
+  ne,
+  schema,
+  type TenantTx,
+  uuidv7,
+} from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
-import { sendReplyJob } from "./jobs.ts";
+import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 
-const { drafts, mailboxes, tickets } = schema;
+const { drafts, mailboxes, messages, tickets } = schema;
 type DraftRow = typeof drafts.$inferSelect;
 
 export interface DraftRoutesDeps {
@@ -116,6 +128,42 @@ const discardRoute = createRoute({
     200: json(draftSchema, "The discarded draft"),
     ...authErrors,
     409: json(errorSchema, "The draft is no longer pending"),
+  },
+});
+
+const createRoute_ = createRoute({
+  method: "post",
+  path: "/v1/tickets/{id}/drafts",
+  summary: "Write a draft, or ask the AI for a new one",
+  description:
+    "Answers the ticket's latest customer message. With `body`, saves that text as a " +
+    "`pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it " +
+    "appears in the list when ready. Either way, older pending drafts on the ticket are " +
+    "discarded. Nothing is sent until the draft is approved. Needs `drafts:write`.",
+  security,
+  request: {
+    params: idParams,
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: z.union([
+            z.strictObject({ body: z.string().trim().min(1).max(50_000) }),
+            z.strictObject({ regenerate: z.literal(true) }),
+          ]),
+        },
+      },
+    },
+  },
+  responses: {
+    201: json(draftSchema, "The new draft"),
+    202: json(z.object({ status: z.literal("queued") }), "An AI draft is being written"),
+    ...authErrors,
+    409: json(
+      errorSchema,
+      "No customer message to answer (`nothing_to_answer`), or the latest one already has " +
+        "an approved or sent reply (`already_answered`)",
+    ),
   },
 });
 
@@ -240,6 +288,95 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
   });
 
   registerDiscardRoute(app, deps);
+  registerCreateRoute(app, deps);
+}
+
+function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
+  app.openapi(createRoute_, async (c) => {
+    const principal = principalWith(c, "drafts:write");
+    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const { id: ticketId } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const { tenantId, actor } = principal;
+    const requestId = c.get("requestId");
+
+    const result = await deps.db.withTenant(tenantId, async (tx) => {
+      const [ticket] = await tx
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, ticketId))
+        // Serialises drafting on this ticket, so two calls can't both create a live draft.
+        .for("update");
+      if (!ticket) return "not_found" as const;
+
+      // The latest message from a person. Machine mail is never answered.
+      const [latest] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.ticketId, ticketId),
+            eq(messages.direction, "inbound"),
+            isNull(messages.automatedReason),
+          ),
+        )
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(1);
+      if (!latest) return "nothing_to_answer" as const;
+
+      const [answered] = await tx
+        .select({ id: drafts.id })
+        .from(drafts)
+        .where(
+          and(
+            eq(drafts.messageId, latest.id),
+            ne(drafts.status, "discarded"),
+            ne(drafts.status, "pending"),
+          ),
+        );
+      if (answered) return "already_answered" as const;
+
+      const stale = await tx
+        .update(drafts)
+        .set({ status: "discarded" })
+        .where(and(eq(drafts.ticketId, ticketId), eq(drafts.status, "pending")))
+        .returning({ id: drafts.id });
+      for (const { id } of stale) {
+        await recordAudit(tx, {
+          tenantId,
+          actor,
+          action: "draft.discarded",
+          target: { type: "draft", id },
+          requestId,
+        });
+      }
+
+      if ("regenerate" in input) {
+        await enqueue(tx, draftReplyJob, { tenantId, messageId: latest.id });
+        return "queued" as const;
+      }
+      const [draft] = await tx
+        .insert(drafts)
+        .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
+        .returning();
+      if (!draft) throw new Error("create draft: insert returned no row");
+      await recordAudit(tx, {
+        tenantId,
+        actor,
+        action: "draft.created",
+        target: { type: "draft", id: draft.id },
+        requestId,
+      });
+      return draft;
+    });
+
+    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "nothing_to_answer" || result === "already_answered") {
+      return c.json({ error: result }, 409);
+    }
+    if (result === "queued") return c.json({ status: "queued" as const }, 202);
+    return c.json(serialize(result), 201);
+  });
 }
 
 function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {

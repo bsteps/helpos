@@ -1,5 +1,5 @@
-import { draftReply, type LanguageModel } from "@helpos/ai";
-import { and, asc, eq, lt, ne, schema, type TenantTx } from "@helpos/db";
+import { draftReply, type LanguageModel, maxHistoryMessages } from "@helpos/ai";
+import { and, desc, eq, lt, ne, schema, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
 import { messageText } from "./html-text.ts";
@@ -44,8 +44,8 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     const [existing] = await tx
       .select({ id: drafts.id })
       .from(drafts)
-      .where(eq(drafts.messageId, payload.messageId));
-    if (existing) return; // a retry after the draft was saved
+      .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
+    if (existing) return; // a retry after the draft was saved, or already answered
 
     // The conversation before this message, so a follow-up is answered in context. Machine
     // mail on the ticket is left out: it's noise, and never something to answer.
@@ -65,13 +65,16 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           lt(messages.createdAt, row.createdAt),
         ),
       )
-      .orderBy(asc(messages.createdAt), asc(messages.id));
+      // Newest first, so the limit keeps the most recent; reversed below to oldest first.
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(maxHistoryMessages);
 
     const result = await draftReply(deps.model, {
       from: row.fromAddress,
       subject: row.subject,
       body: messageText(row),
       history: earlier
+        .reverse()
         .filter((m) => m.automatedReason === null)
         .map((m) => ({ direction: m.direction, from: m.from, body: messageText(m) })),
     });

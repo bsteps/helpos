@@ -384,6 +384,68 @@ describe("discarding", () => {
   });
 });
 
+describe("POST /v1/tickets/{id}/drafts", () => {
+  const live = async (ticketId: string) =>
+    (await draftsOf(ticketId)).filter((d) => d.status !== "discarded");
+
+  it("saves a hand-written draft and discards the AI one it replaces", async () => {
+    const email = await receiveEmail();
+    const ai = await waitForDraft(email.ticketId, "pending");
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+      body: "Hi Jane, I've reset your account myself.",
+    });
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; status: string; messageId: string };
+    expect(created).toMatchObject({ status: "pending", messageId: email.messageId });
+
+    expect((await live(email.ticketId)).map((d) => d.id)).toEqual([created.id]);
+    expect((await auditOf(ai.id)).map((e) => [e.action, e.actorType])).toEqual([
+      ["draft.created", "system"],
+      ["draft.discarded", "agent"],
+    ]);
+    expect((await auditOf(created.id)).map((e) => [e.action, e.actorId])).toEqual([
+      ["draft.created", "test-agent"],
+    ]);
+  });
+
+  it("regenerate queues a fresh AI draft after the last one was discarded", async () => {
+    const email = await receiveEmail();
+    const first = await waitForDraft(email.ticketId, "pending");
+    await call("POST", `/v1/drafts/${first.id}/discard`, "drafter");
+
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+      regenerate: true,
+    });
+    expect(res.status).toBe(202);
+    const fresh = await waitFor("a regenerated draft", async () =>
+      (await draftsOf(email.ticketId)).find((d) => d.id !== first.id && d.status === "pending"),
+    );
+    expect(fresh).toMatchObject({ messageId: email.messageId, body: draftText });
+    expect(await live(email.ticketId)).toHaveLength(1);
+  });
+
+  it("refuses once the latest message already has an approved reply", async () => {
+    const email = await receiveEmail();
+    const pending = await waitForDraft(email.ticketId, "pending");
+    await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", { body: pending.body });
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+      body: "A second answer",
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "already_answered" });
+  });
+
+  it("checks scope, workspace and input", async () => {
+    const email = await receiveEmail();
+    await waitForDraft(email.ticketId, "pending");
+    const path = `/v1/tickets/${email.ticketId}/drafts`;
+    expect((await call("POST", path, "outsider", { body: "x" })).status).toBe(404);
+    expect((await call("POST", path, "drafter", { regenerate: false })).status).toBe(400);
+    expect((await call("POST", path, "drafter", { body: "x", regenerate: true })).status).toBe(400);
+    expect((await call("POST", path, null, { body: "x" })).status).toBe(401);
+  });
+});
+
 describe("draft API access", () => {
   it.each([
     ["GET", "/v1/tickets/00000000-0000-7000-8000-000000000000/drafts"],
@@ -423,7 +485,7 @@ describe("draft API access", () => {
     const spec = (await (await app().request("/openapi.json")).json()) as {
       paths: Record<string, Record<string, unknown>>;
     };
-    expect(Object.keys(spec.paths["/v1/tickets/{id}/drafts"] ?? {})).toEqual(["get"]);
+    expect(Object.keys(spec.paths["/v1/tickets/{id}/drafts"] ?? {})).toEqual(["get", "post"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}"] ?? {})).toEqual(["patch"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}/approve"] ?? {})).toEqual(["post"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}/discard"] ?? {})).toEqual(["post"]);

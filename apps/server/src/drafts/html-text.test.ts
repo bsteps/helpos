@@ -12,6 +12,13 @@ describe("htmlToText", () => {
   it("leaves unknown entities alone and ignores invalid code points", () => {
     expect(htmlToText("a &bogus; b &#99999999; c")).toBe("a &bogus; b c");
   });
+
+  it("only reads a bounded prefix of a huge email", () => {
+    const huge = `<p>start</p>${"<b>x</b>".repeat(100_000)}<p>never reached</p>`;
+    const text = htmlToText(huge);
+    expect(text.startsWith("start")).toBe(true);
+    expect(text).not.toContain("never reached");
+  });
 });
 
 describe("messageText", () => {

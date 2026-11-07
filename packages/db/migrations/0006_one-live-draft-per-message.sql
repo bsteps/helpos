@@ -1,0 +1,2 @@
+ALTER TABLE "drafts" DROP CONSTRAINT "drafts_tenant_message";--> statement-breakpoint
+CREATE UNIQUE INDEX "drafts_tenant_message_live" ON "drafts" USING btree ("tenant_id","message_id") WHERE status <> 'discarded';

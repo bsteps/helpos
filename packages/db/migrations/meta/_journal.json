@@ -43,6 +43,13 @@
       "when": 1794035774887,
       "tag": "0005_drafts-and-audit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794036879399,
+      "tag": "0006_one-live-draft-per-message",
+      "breakpoints": true
     }
   ]
 }

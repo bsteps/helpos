@@ -14,5 +14,6 @@ export {
   draftReply,
   fenceEmail,
   type HistoryMessage,
+  maxHistoryMessages,
 } from "./draft-reply.ts";
 export { createModel } from "./model.ts";

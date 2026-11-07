@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { uuidv7 } from "./uuid.ts";
@@ -263,7 +264,10 @@ export const drafts = pgTable(
   {
     ...tenantColumns(),
     ticketId: uuid("ticket_id").notNull(),
-    /** The inbound message this replies to. One draft per message, so a job retry can't add two. */
+    /**
+     * The inbound message this replies to. At most one live (not discarded) draft per message,
+     * so a job retry can't add a second one.
+     */
     messageId: uuid("message_id").notNull(),
     body: text("body").notNull(),
     status: text("status", { enum: draftStatuses }).notNull().default("pending"),
@@ -279,7 +283,9 @@ export const drafts = pgTable(
   },
   (t) => [
     unique("drafts_tenant_id_id").on(t.tenantId, t.id),
-    unique("drafts_tenant_message").on(t.tenantId, t.messageId),
+    uniqueIndex("drafts_tenant_message_live")
+      .on(t.tenantId, t.messageId)
+      .where(sql`status <> 'discarded'`),
     check("drafts_status", sql`${t.status} in ('pending', 'approved', 'sent', 'discarded')`),
     foreignKey({
       name: "drafts_ticket_fk",
