@@ -1,3 +1,4 @@
+import { inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { z } from "zod";
@@ -10,6 +11,11 @@ import { users } from "./schema.ts";
 export interface AuthStore {
   /** Returns the user with this email, creating it if needed. Idempotent. */
   ensureUser(email: string): Promise<{ id: string; email: string }>;
+  /**
+   * The emails of these users, for notices to members of a workspace. Callers pass IDs read
+   * from that workspace's memberships, so this can't be used to list users.
+   */
+  emailsOf(userIds: string[]): Promise<string[]>;
   close(): Promise<void>;
 }
 
@@ -31,6 +37,14 @@ export function createAuthStore(authUrl: string): AuthStore {
       const user = rows[0];
       if (!user) throw new Error("ensureUser: insert returned no row");
       return user;
+    },
+    async emailsOf(userIds) {
+      if (userIds.length === 0) return [];
+      const rows = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(inArray(users.id, userIds));
+      return rows.map((r) => r.email).sort();
     },
     close: () => client.end({ timeout: 5 }),
   };

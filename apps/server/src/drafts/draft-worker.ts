@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { messageText } from "./html-text.ts";
+import { queueDraftNotice } from "./notice-worker.ts";
 
 const { drafts, messages, tickets } = schema;
 
@@ -183,6 +184,11 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       })
       .returning({ id: drafts.id });
     if (!draft) throw new Error("draft-reply: insert returned no row");
+    await queueDraftNotice(tx, {
+      tenantId: payload.tenantId,
+      id: draft.id,
+      ticketId: row.ticketId,
+    });
     await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
 
     await recordAudit(tx, {

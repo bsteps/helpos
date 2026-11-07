@@ -17,6 +17,7 @@ import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
+import { queueDraftNotice } from "./notice-worker.ts";
 
 const { drafts, mailboxes, messages, tickets } = schema;
 type DraftRow = typeof drafts.$inferSelect;
@@ -377,6 +378,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
         .returning();
       if (!draft) throw new Error("create draft: insert returned no row");
+      await queueDraftNotice(tx, draft);
       // The ticket has an answer now, so it's no longer waiting on a paused AI.
       await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
       await recordAudit(tx, {
