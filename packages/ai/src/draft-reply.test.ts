@@ -218,6 +218,13 @@ describe("parseSources", () => {
     expect(parseSources("Resources: K1", 2)).toEqual({ text: "Resources: K1", cited: [] });
   });
 
+  it("stays fast on a reply crafted to make the marker search backtrack", () => {
+    const hostile = `[source:k9${"\t".repeat(50_000)}x\n${" ".repeat(50_000)}x`;
+    const started = performance.now();
+    parseSources(hostile, 2);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it("removes a list cut off at the end of the reply", () => {
     expect(parseSources("Hi.\n[sources: K1, K", 2)).toEqual({ text: "Hi.", cited: [0] });
   });

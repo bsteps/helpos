@@ -123,8 +123,23 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
  * id or "none" and end right after the list, so a reply's own "[Sources: see our help
  * center]" or "Source: none of our plans…" is left alone.
  */
-const sourcesMarker =
-  /[ \t]*[*_`]*(?:\[\s*sources?\s*:\s*((?:k\d+|none)\s*(?:,[^\]\n]*)?)(?:\]|[ \t]*$)|\(\s*sources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)\s*\)|\bsources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)[*_`]*[ \t]*$)[*_`]*/gim;
+// Written so no two repeated parts can match the same characters: the reply is model output
+// steered by untrusted email, and overlapping repeats would make a crafted one slow to scan.
+const idList = String.raw`(?:k\d+|none)(?:[ \t]*,[ \t]*(?:k\d+|none))*`;
+const sourcesMarker = new RegExp(
+  [
+    // [sources: K1, K3], with any junk after the first id, or cut off at the end of a line
+    String.raw`\[[ \t]*sources?[ \t]*:[ \t]*((?:k\d+|none)[ \t]*(?:,[^,\]\n]*)*)(?:\]|$)`,
+    // (source: K1)
+    String.raw`\([ \t]*sources?[ \t]*:[ \t]*(${idList})[ \t]*\)`,
+    // Sources: K1, K2 at the end of a line
+    String.raw`\bsources?[ \t]*:[ \t]*(${idList})(?=[*_\x60]*[ \t]*$)`,
+  ].join("|"),
+  "gim",
+);
+
+/** Markdown a model may wrap the marker in: `**…**`, `_…_`, backticks. */
+const isWrapper = (c: string | undefined) => c === "*" || c === "_" || c === "`";
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may
@@ -134,7 +149,8 @@ const sourcesMarker =
  * that wasn't retrieved. Without a marker, nothing is cited and the text is kept whole.
  */
 export function parseSources(text: string, offered: number): { text: string; cited: number[] } {
-  const match = [...text.matchAll(sourcesMarker)].at(-1);
+  const matches = [...text.matchAll(sourcesMarker)];
+  const match = matches.at(-1);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
   for (const token of (match[1] ?? match[2] ?? match[3] ?? "").split(",")) {
@@ -142,10 +158,24 @@ export function parseSources(text: string, offered: number): { text: string; cit
     const index = n ? Number(n[1]) - 1 : -1;
     if (index >= 0 && index < offered) cited.add(index);
   }
+  // Cut each marker out with the markdown around it and the spaces before it.
+  let out = "";
+  let from = 0;
+  for (const m of matches) {
+    let start = m.index;
+    let end = start + m[0].length;
+    while (end < text.length && isWrapper(text[end])) end++;
+    while (start > from && isWrapper(text[start - 1])) start--;
+    while (start > from && (text[start - 1] === " " || text[start - 1] === "\t")) start--;
+    out += text.slice(from, start);
+    from = end;
+  }
+  out += text.slice(from);
   return {
-    text: text
-      .replaceAll(sourcesMarker, "")
-      .replaceAll(/[ \t]+$/gm, "")
+    text: out
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .join("\n")
       .replaceAll(/\n{3,}/g, "\n\n")
       .trim(),
     cited: [...cited].sort((a, b) => a - b),

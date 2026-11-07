@@ -155,12 +155,18 @@ export function extractHtml(html: string): ExtractedPage {
  * blank line between paragraphs.
  */
 export function tidyAuthored(text: string): string {
-  return text
-    .replaceAll(/\r\n?/g, "\n")
-    .replaceAll(/[ \t]+$/gm, "")
-    .replaceAll(/\n{3,}/g, "\n\n")
-    .replace(/^\n+/, "")
-    .trimEnd();
+  return (
+    text
+      .replaceAll(/\r\n?/g, "\n")
+      // Per line, not a `[ \t]+$` regex: on a page-long run of spaces that would rescan it from
+      // every position.
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .join("\n")
+      .replaceAll(/\n{3,}/g, "\n\n")
+      .replace(/^\n+/, "")
+      .trimEnd()
+  );
 }
 
 /**
