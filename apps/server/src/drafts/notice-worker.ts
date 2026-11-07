@@ -1,6 +1,7 @@
 import {
   type AuthStore,
   and,
+  asc,
   desc,
   enqueue,
   eq,
@@ -82,6 +83,7 @@ export interface NoticeWorkerDeps {
 export function handleDraftNotice(deps: NoticeWorkerDeps) {
   return async (payload: { tenantId: string; draftId: string }, tx: TenantTx): Promise<void> => {
     const { tenantId, draftId } = payload;
+    const delaySeconds = deps.noticeDelaySeconds ?? defaultNoticeDelaySeconds;
     const [queued] = await tx
       .select({ ticketId: drafts.ticketId })
       .from(drafts)
@@ -118,13 +120,37 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           eq(drafts.status, "pending"),
           // A draft that hasn't waited the full delay yet may still be approved in time. Its own
           // job, queued with it, runs once it has.
-          sql`${drafts.createdAt} <= now() - make_interval(secs => ${deps.noticeDelaySeconds ?? defaultNoticeDelaySeconds})`,
+          sql`${drafts.createdAt} <= now() - make_interval(secs => ${delaySeconds})`,
         ),
       )
       .orderBy(desc(drafts.createdAt))
       .limit(1);
-    // Approved or discarded meanwhile: nothing is waiting any more.
-    if (!row) return;
+    if (!row) {
+      // A pending draft that is still too young means this job ran early: the queue's delay is
+      // set from the app's clock, the age check uses the database's. Run again once it's old
+      // enough, at a time taken from the database clock, so it isn't skipped for good.
+      const [young] = await tx
+        .select({
+          id: drafts.id,
+          readyAt: sql<Date>`${drafts.createdAt} + make_interval(secs => ${delaySeconds})`.mapWith(
+            (v: string | Date) => new Date(v),
+          ),
+        })
+        .from(drafts)
+        .where(and(eq(drafts.ticketId, queued.ticketId), eq(drafts.status, "pending")))
+        .orderBy(asc(drafts.createdAt))
+        .limit(1);
+      if (young) {
+        await enqueue(
+          tx,
+          draftNoticeJob,
+          { tenantId, draftId: young.id },
+          { startAfter: young.readyAt },
+        );
+      }
+      // Otherwise it was approved or discarded meanwhile: nothing is waiting any more.
+      return;
+    }
 
     const [recent] = await tx
       .select({ at: auditEvents.createdAt })

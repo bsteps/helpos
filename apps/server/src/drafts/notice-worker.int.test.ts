@@ -185,22 +185,31 @@ describe("draft notice worker", () => {
     expect(await notify(first.id)).toHaveBeenCalledOnce();
   });
 
+  // The real worker, from here on. Its own age check uses 2 s; drafts are still queued with
+  // the default 5 minutes unless a job re-queues them.
+  const workerSend = vi.fn<EmailTransport["send"]>();
+  const sentFor = (ticketId: string) =>
+    workerSend.mock.calls.filter(([m]) =>
+      // Quoted-printable wraps long lines with "=" + CRLF, which can split the ticket ID.
+      new TextDecoder().decode(m.raw).replaceAll("=\r\n", "").includes(ticketId),
+    );
+
   it("a queued notice waits for the delay instead of sending right away", async () => {
-    const send = vi.fn<EmailTransport["send"]>();
     await runner.work(
       draftNoticeJob,
       handleDraftNotice({
-        transport: { send, close: () => {} },
+        transport: { send: workerSend, close: () => {} },
         auth,
         publicUrl: "http://helpdesk.test",
         logger,
+        noticeDelaySeconds: 2,
       }),
     );
     // Queued with the default 5-minute delay. The worker polls every 0.5 s, so an undelayed
     // job would have been sent well within this wait.
-    await pendingDraft();
+    const draft = await pendingDraft();
     await new Promise((r) => setTimeout(r, 3_000));
-    expect(send).not.toHaveBeenCalled();
+    expect(sentFor(draft.ticketId)).toEqual([]);
   });
 
   it("an older draft's job never emails about a draft that hasn't waited the full delay", async () => {
@@ -219,5 +228,16 @@ describe("draft notice worker", () => {
       });
     });
     expect(await notify(old.id, 300)).not.toHaveBeenCalled();
+  });
+
+  it("a job that runs before its draft is old enough runs again later, and then notifies", async () => {
+    const draft = await pendingDraft();
+    // Too early for a 2 s delay: nothing now, and the job is queued again for when it's old enough.
+    expect(await notify(draft.id, 2)).not.toHaveBeenCalled();
+    const deadline = Date.now() + 15_000;
+    while (sentFor(draft.ticketId).length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(sentFor(draft.ticketId)).toHaveLength(1);
   });
 });
