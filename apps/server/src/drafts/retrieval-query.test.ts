@@ -34,6 +34,11 @@ describe("retrievalQuery", () => {
     expect(retrievalQuery("Order", body)).toBe("Order\n\nOne more question about this.");
   });
 
+  it("doesn't take a customer's own 'On … as you wrote:' for a quote header", () => {
+    const body = "On my invoice the VAT line is wrong\nas you wrote:\nit should be 20%.";
+    expect(retrievalQuery("Invoice", body)).toBe(`Invoice\n\n${body}`);
+  });
+
   it("keeps the whole body when nothing is left after the quotes", () => {
     expect(retrievalQuery("Help", "> only a quote")).toBe("Help\n\n> only a quote");
   });

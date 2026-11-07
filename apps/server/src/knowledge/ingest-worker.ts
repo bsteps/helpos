@@ -295,14 +295,6 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
       });
 
-    const used = await transaction((tx) => usageOn(tx, day));
-    if (totalTokens(used) >= deps.dailyTokenBudget) {
-      // The budget resets at midnight UTC. One waiting job per source per day, however often
-      // it's asked for meanwhile.
-      const resetsAt = nextUtcDay(started);
-      return waitUntil("daily_budget_reached", resetsAt, `${sourceId}:after:${utcDay(resetsAt)}`);
-    }
-
     // A temporary problem gets one more try, 15 minutes later. A source already waiting on one
     // fails if it happens again, so a site or provider that stays down doesn't retry forever.
     const waitedOnce =
@@ -313,18 +305,38 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return waitUntil(reason, retryAt, `${sourceId}:retry:${retryAt.toISOString()}`);
     };
 
-    let page: PageText;
-    if (source.kind === "url") {
-      page = source.url ? await fetchWithRetries(deps, source.url) : { ok: false, error: "no_url" };
-    } else {
-      page = { ok: true, text: tidyAuthored(source.content ?? "") };
+    const used = await transaction((tx) => usageOn(tx, day));
+    if (totalTokens(used) >= deps.dailyTokenBudget) {
+      // The budget resets at midnight UTC. One waiting job per source per day, however often
+      // it's asked for meanwhile. A source that already had its one more try keeps that reason,
+      // so the budget wait doesn't give it another.
+      const resetsAt = nextUtcDay(started);
+      const reason = waitedOnce && source.error ? source.error : "daily_budget_reached";
+      return waitUntil(reason, resetsAt, `${sourceId}:after:${utcDay(resetsAt)}`);
     }
-    if (!page.ok) {
-      if (isTemporary(page.error) && !waitedOnce) return retryLater(page.error);
-      return fail(page.error);
+
+    let chunks: string[];
+    try {
+      let page: PageText;
+      if (source.kind === "url") {
+        page = source.url
+          ? await fetchWithRetries(deps, source.url)
+          : { ok: false, error: "no_url" };
+      } else {
+        page = { ok: true, text: tidyAuthored(source.content ?? "") };
+      }
+      if (!page.ok) {
+        if (isTemporary(page.error) && !waitedOnce) return retryLater(page.error);
+        return fail(page.error);
+      }
+      // Stops early on a huge page: past the limit, it fails anyway.
+      chunks = chunkText(page.text, maxChunks);
+    } catch (error) {
+      // Reading the page broke (a bug, or a page no parser expects). A retry would break the
+      // same way, and then the source would stay `pending` with no job: it fails instead.
+      deps.logger.warn({ err: errorSummary(error), sourceId }, "reading the page failed");
+      return fail("ingest_error");
     }
-    // Stops early on a huge page: past the limit, it fails anyway.
-    const chunks = chunkText(page.text, maxChunks);
     if (chunks.length === 0) return fail("no_text");
     if (chunks.length > maxChunks) return fail("too_long");
 
@@ -380,7 +392,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
           status: "ready",
           error: null,
           chunkCount: chunks.length,
-          ingestedAt: new Date(),
+          ingestedAt: now(),
           embeddingModel: modelId,
         })
         .where(eq(knowledgeSources.id, sourceId));

@@ -42,6 +42,9 @@ const maxQueryChars = 2_000;
  * Quoted earlier messages ("> …", "On … wrote:") and the signature are left out: in a short
  * follow-up they would be most of the query and match the old question instead of the new one.
  */
+const quoteHeader = /^on\b.{0,300}\bwrote:$/i;
+const namesSenderOrDate = /@|\b(19|20)\d\d\b/;
+
 export function retrievalQuery(subject: string, body: string): string {
   const lines: string[] = [];
   const all = body.split("\n");
@@ -50,7 +53,10 @@ export function retrievalQuery(subject: string, body: string): string {
     // The start of the quoted thread ("On … wrote:", which mail clients often wrap onto a
     // second line), or of the signature ("-- " by convention).
     const header = `${bare} ${all[i + 1]?.trim() ?? ""}`.trim();
-    if (/^on\b.{0,200}\bwrote:$/i.test(bare) || /^on\b.{0,300}\bwrote:$/i.test(header)) break;
+    // A real header names a sender (an address) or a date (a year), so a customer's own
+    // "On my invoice … as you wrote:" isn't one.
+    const isQuoteHeader = (s: string) => quoteHeader.test(s) && namesSenderOrDate.test(s);
+    if (isQuoteHeader(bare) || isQuoteHeader(header)) break;
     if (/^-{2,}\s*original message/i.test(bare) || line.trimEnd() === "--") break;
     if (bare.startsWith(">")) continue;
     lines.push(line);

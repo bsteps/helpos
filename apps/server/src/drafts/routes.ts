@@ -74,6 +74,12 @@ const draftSchema = z
      * caller without `knowledge:read`.
      */
     sources: z.array(draftSourceSchema),
+    /**
+     * True when the model was shown one of the team's internal notes while writing the draft.
+     * For every caller, even without `knowledge:read`: whoever approves the draft should check
+     * it doesn't reveal the note.
+     */
+    internalKnowledge: z.boolean(),
   })
   .openapi("Draft");
 type DraftJson = z.infer<typeof draftSchema>;
@@ -206,7 +212,7 @@ const createRoute_ = createRoute({
   },
 });
 
-function serialize(d: DraftRow, sources: DraftSourceJson[]): DraftJson {
+function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: boolean): DraftJson {
   return {
     id: d.id,
     ticketId: d.ticketId,
@@ -218,6 +224,7 @@ function serialize(d: DraftRow, sources: DraftSourceJson[]): DraftJson {
     approvedAt: d.approvedAt?.toISOString() ?? null,
     sentAt: d.sentAt?.toISOString() ?? null,
     sources,
+    internalKnowledge,
   };
 }
 
@@ -228,7 +235,7 @@ function serialize(d: DraftRow, sources: DraftSourceJson[]): DraftJson {
  */
 async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
   if (rows.length === 0) return [];
-  if (!principal.scopes.has("knowledge:read")) return rows.map((row) => serialize(row, []));
+  const canRead = principal.scopes.has("knowledge:read");
   const cited = await tx
     .select({
       draftId: draftCitations.draftId,
@@ -247,12 +254,14 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
       ),
     )
     .orderBy(asc(draftCitations.rank));
-  return rows.map((row) =>
-    serialize(
+  return rows.map((row) => {
+    const seen = cited.filter((c) => c.draftId === row.id);
+    return serialize(
       row,
-      cited.filter((c) => c.draftId === row.id).map(({ draftId: _, ...source }) => source),
-    ),
-  );
+      canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
+      seen.some((c) => c.visibility === "internal"),
+    );
+  });
 }
 
 async function presentOne(tx: TenantTx, principal: Principal, row: DraftRow): Promise<DraftJson> {

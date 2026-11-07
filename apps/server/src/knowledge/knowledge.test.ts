@@ -980,6 +980,31 @@ describe("limits", () => {
     expect(await ingested(acme, recovers)).toMatchObject({ status: "ready", error: null });
   });
 
+  it("a budget wait keeps a temporary reason, so it doesn't earn another try", async () => {
+    const id = await insertUrlSource("budget-after-503", "/refunds");
+    // As left by a first try that met a 503.
+    await db.withTenant(acme, (tx) =>
+      tx.update(knowledgeSources).set({ error: "http_503" }).where(eq(knowledgeSources.id, id)),
+    );
+    await handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
+      { tenantId: acme, sourceId: id },
+      tenantTransactions(db, acme),
+    );
+    expect(await sourceOf(acme, id)).toMatchObject({ status: "pending", error: "http_503" });
+  });
+
+  it("fails a source whose page can't be read, rather than leave it pending", async () => {
+    const id = await insertUrlSource("reader-breaks", "/refunds");
+    const broken: Fetcher = async () => {
+      throw new TypeError("a bug, not a fetch error");
+    };
+    await handleIngestSource({ embeddingModel, fetch: broken, logger, dailyTokenBudget: 1e6 })(
+      { tenantId: acme, sourceId: id },
+      tenantTransactions(db, acme),
+    );
+    expect(await sourceOf(acme, id)).toMatchObject({ status: "failed", error: "ingest_error" });
+  });
+
   it("the budget wait ends at the next midnight UTC", () => {
     expect(nextUtcDay(new Date("2026-03-31T23:59:59Z")).toISOString()).toBe(
       "2026-04-01T00:00:00.000Z",
@@ -1382,6 +1407,12 @@ describe("drafting with knowledge", () => {
     // Reading drafts isn't a way around knowledge:read: no titles, links or passages.
     expect(sources.length).toBeGreaterThan(0);
     expect(await sourcesOfDraft("ticketsOnly")).toEqual([]);
+    // But every reader learns an internal note was involved, so an approver knows to check.
+    for (const as of ["editor", "ticketsOnly"]) {
+      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
+      const { drafts: list } = (await res.json()) as { drafts: { internalKnowledge: boolean }[] };
+      expect(list[0]?.internalKnowledge).toBe(true);
+    }
 
     const citations = await db.withTenant(acme, (tx) =>
       tx.select().from(draftCitations).where(eq(draftCitations.draftId, draft.id)),

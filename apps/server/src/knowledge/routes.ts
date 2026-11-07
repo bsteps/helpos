@@ -319,9 +319,13 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         .update(knowledgeSources)
         .set({
           status: "pending",
-          // A pending source's error says why it waits (the budget, the provider). Asking
-          // again doesn't end the wait, so the reason stays until its job looks again.
-          error: found.status === "pending" ? found.error : null,
+          // Waiting for the budget: asking again doesn't end that wait, so the reason stays.
+          // Any other reason (a site or provider that was down) is cleared: asking again is a
+          // fresh try, with its own one more try if it fails.
+          error:
+            found.status === "pending" && found.error === "daily_budget_reached"
+              ? found.error
+              : null,
           ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
         })
         .where(eq(knowledgeSources.id, id))
