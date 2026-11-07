@@ -44,11 +44,14 @@ const maxQueryChars = 2_000;
  */
 export function retrievalQuery(subject: string, body: string): string {
   const lines: string[] = [];
-  for (const line of body.split("\n")) {
+  const all = body.split("\n");
+  for (const [i, line] of all.entries()) {
     const bare = line.trim();
-    // The start of the quoted thread, or of the signature ("-- " by convention).
-    if (/^on\b.{0,200}\bwrote:$/i.test(bare) || /^-{2,}\s*original message/i.test(bare)) break;
-    if (line.trimEnd() === "--") break;
+    // The start of the quoted thread ("On … wrote:", which mail clients often wrap onto a
+    // second line), or of the signature ("-- " by convention).
+    const header = `${bare} ${all[i + 1]?.trim() ?? ""}`.trim();
+    if (/^on\b.{0,200}\bwrote:$/i.test(bare) || /^on\b.{0,300}\bwrote:$/i.test(header)) break;
+    if (/^-{2,}\s*original message/i.test(bare) || line.trimEnd() === "--") break;
     if (bare.startsWith(">")) continue;
     lines.push(line);
   }

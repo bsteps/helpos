@@ -70,14 +70,16 @@ const supersededBy = new Set([
   "too_long",
   "too_large",
   "unsupported_content_type",
-  // Now behind a login, or withheld: the owner took it out of public view.
-  "http_401",
-  "http_403",
+  // Withheld for legal reasons. Not 401 or 403: a bot block answers those too, so the last
+  // good passages stay, and the source shows `failed` for someone to look at.
   "http_451",
 ]);
 
-/** How long a source waits after the embedding provider was down or rate-limited. */
-export const embedRetryDelayMs = 15 * 60_000;
+/**
+ * How long a source waits after a temporary problem (the site or the embedding provider down)
+ * before its one more try.
+ */
+export const retryDelayMs = 15 * 60_000;
 
 const htmlTypes = new Set(["text/html", "application/xhtml+xml"]);
 const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
@@ -202,11 +204,12 @@ export function nextUtcDay(now: Date): Date {
 
 /**
  * Turns one knowledge source into embedded chunks. A page that fails on a temporary error is
- * tried again a few seconds later. A source that can't be used (blocked URL, 404, no text,
- * embedding call failed) is marked `failed` with a short reason, and the job ends without a
- * retry, so a source never stays `pending` after its job is done. A spent daily budget is only
- * a wait: the source stays `pending` and runs again when the budget resets. Only database
- * errors throw, and pg-boss retries those. When a re-ingest fails, the chunks from the last
+ * tried again a few seconds later. If the site or the embedding provider is still down, the
+ * source waits, `pending` with the reason, for one more try 15 minutes later. A spent daily
+ * budget is a wait too, until it resets. A source that can't be used (blocked URL, 404, no
+ * text, wrong embedding key, still down after its wait) is marked `failed` with a short
+ * reason, so a source never stays `pending` with no job to run it. Only database errors
+ * throw, and pg-boss retries those. When a re-ingest fails, the chunks from the last
  * good ingest stay in use, so a flaky site doesn't empty the knowledge base, unless the page's
  * answer shows they no longer describe it (`supersededBy`).
  *
@@ -296,13 +299,26 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return waitUntil("daily_budget_reached", resetsAt, `${sourceId}:after:${utcDay(resetsAt)}`);
     }
 
+    // A temporary problem gets one more try, 15 minutes later. A source already waiting on one
+    // fails if it happens again, so a site or provider that stays down doesn't retry forever.
+    const waitedOnce =
+      source.error !== null &&
+      (source.error === "embedding_unavailable" || isTemporary(source.error));
+    const retryLater = (reason: string) => {
+      const retryAt = new Date(started.getTime() + retryDelayMs);
+      return waitUntil(reason, retryAt, `${sourceId}:retry:${retryAt.toISOString()}`);
+    };
+
     let page: PageText;
     if (source.kind === "url") {
       page = source.url ? await fetchWithRetries(deps, source.url) : { ok: false, error: "no_url" };
     } else {
       page = { ok: true, text: tidyAuthored(source.content ?? "") };
     }
-    if (!page.ok) return fail(page.error);
+    if (!page.ok) {
+      if (isTemporary(page.error) && !waitedOnce) return retryLater(page.error);
+      return fail(page.error);
+    }
     // Stops early on a huge page: past the limit, it fails anyway.
     const chunks = chunkText(page.text, maxChunks);
     if (chunks.length === 0) return fail("no_text");
@@ -321,17 +337,10 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
           recordUsage(tx, tenantId, day, { inputTokens: spent, outputTokens: 0 }),
         );
       }
-      // The provider is down or rate-limited: try again later. A wrong key or a broken model
-      // would end the same way every time, so that fails, rather than leave it `pending`.
-      if (isTemporaryAiFailure(error)) {
-        const retryAt = new Date(started.getTime() + embedRetryDelayMs);
-        return waitUntil(
-          "embedding_unavailable",
-          retryAt,
-          `${sourceId}:retry:${retryAt.toISOString()}`,
-        );
-      }
-      return fail("embedding_failed");
+      // The provider is down or rate-limited: try again later, once. A wrong key or a broken
+      // model would end the same way every time, so that fails at once.
+      if (!isTemporaryAiFailure(error)) return fail("embedding_failed");
+      return waitedOnce ? fail("embedding_unavailable") : retryLater("embedding_unavailable");
     }
     const { embeddings, tokens } = embedded;
     const modelId = embeddingModelId(deps.embeddingModel);

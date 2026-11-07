@@ -71,9 +71,10 @@ const sourceSchema = z
     /**
      * Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`, or `too_long` (more
      * passages than one source may have: split the document). On a `pending` source,
-     * `daily_budget_reached` means it waits for the daily AI budget to reset at midnight UTC,
-     * and `embedding_unavailable` that the embedding provider was down or rate-limited and it
-     * tries again in 15 minutes. Either way it then runs by itself.
+     * `daily_budget_reached` means it waits for the daily AI budget to reset at midnight UTC.
+     * A temporary problem (`embedding_unavailable`, or the site's `http_503`, `timeout`…)
+     * means it tries once more in 15 minutes, and fails if the problem is still there. Either
+     * way it then runs by itself.
      */
     error: z.string().nullable(),
     chunkCount: z.number().int(),

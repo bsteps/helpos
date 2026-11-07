@@ -24,6 +24,16 @@ describe("retrievalQuery", () => {
     expect(retrievalQuery("Fwd: Late refund", body)).toBe("Late refund\n\nStill waiting on this.");
   });
 
+  it("finds an 'On … wrote:' header wrapped onto two lines", () => {
+    const body = [
+      "One more question about this.",
+      "On Mon, Jan 5, 2026 at 10:00 AM Jane Smith <jane@example.com>",
+      "wrote:",
+      "Quoted text without any > marks.",
+    ].join("\n");
+    expect(retrievalQuery("Order", body)).toBe("Order\n\nOne more question about this.");
+  });
+
   it("keeps the whole body when nothing is left after the quotes", () => {
     expect(retrievalQuery("Help", "> only a quote")).toBe("Help\n\n> only a quote");
   });

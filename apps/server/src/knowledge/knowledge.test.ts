@@ -29,11 +29,11 @@ import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
 import {
-  embedRetryDelayMs,
   type Fetcher,
   handleIngestSource,
   maxPageBytes,
   nextUtcDay,
+  retryDelayMs,
 } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
@@ -147,7 +147,9 @@ const sequences: Record<string, { statuses: number[]; body: string; bodies?: str
     bodies: ["<p>This page has text at first.</p>", "<p></p>"],
   },
   "/removed-later": { statuses: [200, 404], body: "<p>This page is removed later.</p>" },
-  "/login-later": { statuses: [200, 401], body: "<p>Public at first, then behind a login.</p>" },
+  "/login-later": { statuses: [200, 403], body: "<p>Public at first, then blocked.</p>" },
+  "/withheld-later": { statuses: [200, 451], body: "<p>Withheld later.</p>" },
+  "/down-for-good": { statuses: [503], body: "" },
   "/down-later": { statuses: [200, 503], body: "<p>This page goes down later.</p>" },
 };
 const served: Record<string, number> = {};
@@ -552,34 +554,41 @@ describe("re-ingesting", () => {
     expect(served["/flaky"]).toBe(2);
   });
 
-  it("recovers a source that stayed down through every try, once re-ingested", async () => {
-    const added = await addSource("editor", {
-      kind: "url",
-      title: "Down a while",
-      url: pageUrl("/down-a-while"),
-    });
-    expect(await ingested(acme, added.id)).toMatchObject({ status: "failed", error: "http_503" });
+  it("gives a site still down after the quick tries one more try later, and recovers", async () => {
+    const id = await insertUrlSource("down-a-while", "/down-a-while");
+    // Started long enough ago that its one more try is due now: the worker runs it.
+    await handleIngestSource({
+      embeddingModel,
+      fetch: testFetch,
+      logger,
+      dailyTokenBudget: 1_000_000,
+      fetchRetryDelaysMs: [20, 20],
+      now: () => new Date(Date.now() - retryDelayMs - 60_000),
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(served["/down-a-while"]).toBe(3);
+    expect(await ingested(acme, id)).toMatchObject({ status: "ready", error: null });
+    expect((await chunksOf(acme, id))[0]?.content).toBe("Back up now.");
+    expect(served["/down-a-while"]).toBe(4);
+  });
 
-    const res = await reingest(added.id);
-    expect(res.status).toBe(202);
-    expect(await res.json()).toMatchObject({ status: "pending", error: null });
-    expect(await ingested(acme, added.id)).toMatchObject({ status: "ready", chunkCount: 1 });
-    expect((await chunksOf(acme, added.id))[0]?.content).toBe("Back up now.");
+  it("fails a site that is still down after its one more try, so it never retries forever", async () => {
+    const id = await insertUrlSource("down-for-good", "/down-for-good");
+    const ingest = () =>
+      handleIngestSource({
+        embeddingModel,
+        fetch: testFetch,
+        logger,
+        dailyTokenBudget: 1_000_000,
+        fetchRetryDelaysMs: [20, 20],
+      })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
+    await ingest();
+    expect(await sourceOf(acme, id)).toMatchObject({ status: "pending", error: "http_503" });
+    // The one more try (run here instead of in 15 minutes).
+    await ingest();
+    expect(await sourceOf(acme, id)).toMatchObject({ status: "failed", error: "http_503" });
 
-    const events = await db.withTenant(acme, (tx) =>
-      tx
-        .select({ action: auditEvents.action })
-        .from(auditEvents)
-        .where(eq(auditEvents.targetId, added.id))
-        .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id)),
-    );
-    expect(events.map((e) => e.action)).toEqual([
-      "knowledge_source.created",
-      "knowledge_source.failed",
-      "knowledge_source.reingest_requested",
-      "knowledge_source.ingested",
-    ]);
+    // Asked again by hand, it gets a fresh try and a fresh wait.
+    expect(await (await reingest(id)).json()).toMatchObject({ status: "pending", error: null });
   });
 
   it("keeps the last good passages when a re-ingest hits a temporary error", async () => {
@@ -592,11 +601,13 @@ describe("re-ingesting", () => {
     const before = await chunksOf(acme, added.id);
 
     expect((await reingest(added.id)).status).toBe(202);
-    expect(await ingested(acme, added.id)).toMatchObject({
-      status: "failed",
-      error: "http_503",
-      chunkCount: 1,
-    });
+    // It waits for its one more try; drafts keep using what they had.
+    expect(
+      await waitFor("the re-ingest to wait", async () => {
+        const row = await sourceOf(acme, added.id);
+        return row?.error === "http_503" ? row : undefined;
+      }),
+    ).toMatchObject({ status: "pending", chunkCount: 1 });
     expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(before.map((c) => c.id));
   });
 
@@ -634,7 +645,7 @@ describe("re-ingesting", () => {
     expect(await chunksOf(acme, added.id)).toEqual([]);
   });
 
-  it("drops the passages of a page that is now behind a login", async () => {
+  it("keeps the passages of a page that now answers 403: often a bot block, not a removal", async () => {
     const added = await addSource("editor", {
       kind: "url",
       title: "Login later",
@@ -645,7 +656,23 @@ describe("re-ingesting", () => {
     expect((await reingest(added.id)).status).toBe(202);
     expect(await ingested(acme, added.id)).toMatchObject({
       status: "failed",
-      error: "http_401",
+      error: "http_403",
+      chunkCount: 1,
+    });
+  });
+
+  it("drops the passages of a page that is now withheld for legal reasons", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Withheld later",
+      url: pageUrl("/withheld-later"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+
+    expect((await reingest(added.id)).status).toBe(202);
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "http_451",
       chunkCount: 0,
     });
     expect(await chunksOf(acme, added.id)).toEqual([]);
@@ -904,14 +931,7 @@ describe("limits", () => {
     expect(await res.json()).toMatchObject({ status: "pending", error: "daily_budget_reached" });
   });
 
-  it("waits and tries again when the embedding provider is down, instead of failing", async () => {
-    const [row] = await db.withTenant(acme, (tx) =>
-      tx
-        .insert(knowledgeSources)
-        .values({ tenantId: acme, slug: "embed-busy", kind: "markdown", title: "x", content: "Hi" })
-        .returning({ id: knowledgeSources.id }),
-    );
-    if (!row) throw new Error("no row");
+  it("waits once when the embedding provider is down, then fails if it still is", async () => {
     const busy = {
       specificationVersion: "v4",
       provider: "test",
@@ -922,23 +942,42 @@ describe("limits", () => {
         throw providerDownError();
       },
     } as const;
-    const ingestAt = (now: Date) =>
+    const markdownSource = async (slug: string) => {
+      const [row] = await db.withTenant(acme, (tx) =>
+        tx
+          .insert(knowledgeSources)
+          .values({ tenantId: acme, slug, kind: "markdown", title: "x", content: "Hi" })
+          .returning({ id: knowledgeSources.id }),
+      );
+      if (!row) throw new Error("no row");
+      return row.id;
+    };
+    const ingestAt = (id: string, now: Date) =>
       handleIngestSource({
         embeddingModel: busy,
         fetch: testFetch,
         logger,
         dailyTokenBudget: 1_000_000,
         now: () => now,
-      })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
+      })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
 
-    await ingestAt(new Date());
-    expect(await sourceOf(acme, row.id)).toMatchObject({
+    const stuck = await markdownSource("embed-busy");
+    await ingestAt(stuck, new Date());
+    expect(await sourceOf(acme, stuck)).toMatchObject({
       status: "pending",
       error: "embedding_unavailable",
     });
+    // Its one more try (run here instead of in 15 minutes) meets the same outage.
+    await ingestAt(stuck, new Date());
+    expect(await sourceOf(acme, stuck)).toMatchObject({
+      status: "failed",
+      error: "embedding_unavailable",
+    });
+
     // A wait that began long enough ago is due now, and the worker's working model runs it.
-    await ingestAt(new Date(Date.now() - embedRetryDelayMs - 60_000));
-    expect(await ingested(acme, row.id)).toMatchObject({ status: "ready", error: null });
+    const recovers = await markdownSource("embed-busy-then-up");
+    await ingestAt(recovers, new Date(Date.now() - retryDelayMs - 60_000));
+    expect(await ingested(acme, recovers)).toMatchObject({ status: "ready", error: null });
   });
 
   it("the budget wait ends at the next midnight UTC", () => {
