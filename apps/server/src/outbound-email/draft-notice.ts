@@ -14,7 +14,7 @@ export interface DraftNotice {
    * AI then drafts a reply to.
    */
   replyTo: string;
-  to: string[];
+  to: string;
   ticketUrl: string;
   /** The customer's message. Quoted as a short plain-text snippet, never in the subject. */
   customerText: string;
@@ -30,7 +30,9 @@ export const noticeSubject = `[${brand.name}] A draft reply is waiting for your 
 
 /** One line, no control characters, cut at a word boundary when possible. */
 export function snippet(text: string, max = noticeSnippetLength): string {
-  const visible = Array.from(text, (ch) => {
+  // Bounded first: the link patterns below backtrack, and a message can be megabytes long.
+  // Four times the snippet leaves room for what the replacements shorten.
+  const visible = Array.from(text.slice(0, max * 4), (ch) => {
     const code = ch.charCodeAt(0);
     return code < 0x20 || code === 0x7f ? " " : ch;
   }).join("");

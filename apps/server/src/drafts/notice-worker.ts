@@ -43,7 +43,7 @@ function mailboxDomain(mailbox: string): string {
  * notice can't land in the helpdesk and open a ticket.
  */
 export function noticeReplyTo(mailbox: string): string {
-  const domain = mailboxDomain(mailbox);
+  const domain = mailboxDomain(mailbox).toLowerCase();
   const address = `no-reply@${domain}`;
   return address === mailbox.toLowerCase() ? `no-reply-notices@${domain}` : address;
 }
@@ -140,15 +140,22 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     }
 
     const domain = mailboxDomain(row.mailbox);
-    const raw = await buildDraftNotice({
-      from: row.mailbox,
-      replyTo: noticeReplyTo(row.mailbox),
-      to,
-      ticketUrl: ticketUrl(deps.publicUrl, row.ticketId),
-      customerText: messageText(row),
-      messageId: `<notice-${uuidv7()}@${domain}>`,
-      date: new Date(),
-    });
+    const date = new Date();
+    // One email per owner, so owners don't see each other's addresses.
+    const notices = await Promise.all(
+      to.map(async (owner) => ({
+        to: owner,
+        raw: await buildDraftNotice({
+          from: row.mailbox,
+          replyTo: noticeReplyTo(row.mailbox),
+          to: owner,
+          ticketUrl: ticketUrl(deps.publicUrl, row.ticketId),
+          customerText: messageText(row),
+          messageId: `<notice-${uuidv7()}@${domain}>`,
+          date,
+        }),
+      })),
+    );
 
     // The audit event first and the send last: if the send fails, the event rolls back with
     // the transaction and pg-boss retries, so a failed send never blocks the next notice.
@@ -159,7 +166,9 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       target: { type: "ticket", id: row.ticketId },
       requestId: null,
     });
-    await deps.transport.send({ from: row.mailbox, to, raw });
+    for (const notice of notices) {
+      await deps.transport.send({ from: row.mailbox, to: [notice.to], raw: notice.raw });
+    }
     deps.logger.info({ draftId, ticketId: row.ticketId }, "draft notice sent");
   };
 }
