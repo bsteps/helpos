@@ -72,6 +72,11 @@ const pages: Record<
     type: "text/html",
     body: Buffer.from('<meta charset="windows-1252"><p>Crème brûlée is free.</p>', "latin1"),
   },
+  // No charset anywhere, and the bytes aren't valid UTF-8: an old Latin-1 page.
+  "/undeclared-latin1": {
+    type: "text/html",
+    body: Buffer.from("<p>Remboursé sous 5 jours.</p>", "latin1"),
+  },
   "/indented.md": {
     type: "text/markdown",
     body: "# Config\n\nSet this:\n\n```yaml\nrefunds:\n  window_days: 30\n```",
@@ -340,6 +345,14 @@ describe("adding and ingesting sources", () => {
     });
     expect((await ingested(acme, meta.id)).status).toBe("ready");
     expect((await chunksOf(acme, meta.id))[0]?.content).toBe("Crème brûlée is free.");
+
+    const undeclared = await addSource("editor", {
+      kind: "url",
+      title: "Old page",
+      url: pageUrl("/undeclared-latin1"),
+    });
+    expect((await ingested(acme, undeclared.id)).status).toBe("ready");
+    expect((await chunksOf(acme, undeclared.id))[0]?.content).toBe("Remboursé sous 5 jours.");
   });
 
   it("keeps the indentation of code in a markdown page", async () => {
@@ -655,6 +668,43 @@ describe("limits", () => {
     await db.withTenant(acme, (tx) =>
       handleIngestSource({
         embeddingModel: broken,
+        fetch: testFetch,
+        logger,
+        dailyTokenBudget: 1_000_000,
+      })({ tenantId: acme, sourceId: row.id }, tx),
+    );
+    expect(await ingested(acme, row.id)).toMatchObject({
+      status: "failed",
+      error: "embedding_failed",
+    });
+    expect(await chunksOf(acme, row.id)).toEqual([]);
+  });
+
+  it("marks a source failed, not stuck pending, when the server returns too few vectors", async () => {
+    const [row] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "embed-short",
+          kind: "markdown",
+          title: "x",
+          content: "Hi",
+        })
+        .returning({ id: knowledgeSources.id }),
+    );
+    if (!row) throw new Error("no row");
+    const short = {
+      specificationVersion: "v4",
+      provider: "test",
+      modelId: "short",
+      maxEmbeddingsPerCall: 100,
+      supportsParallelCalls: true,
+      doEmbed: async () => ({ embeddings: [], usage: { tokens: 3 }, warnings: [] }),
+    } as const;
+    await db.withTenant(acme, (tx) =>
+      handleIngestSource({
+        embeddingModel: short,
         fetch: testFetch,
         logger,
         dailyTokenBudget: 1_000_000,

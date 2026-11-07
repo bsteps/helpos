@@ -70,22 +70,33 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
 
   // `charset="iso-8859-1"` is valid too: the quotes aren't part of the label. Without one in
   // the header, a page can still say it in a <meta> tag.
-  const charset =
+  const declared =
     params
       .find((p) => p.startsWith("charset="))
       ?.slice(8)
       .replaceAll(/^["']|["']$/g, "")
-      .trim() ||
-    (isHtml ? metaCharset(res.body) : undefined) ||
-    "utf-8";
-  let body: string;
-  try {
-    body = new TextDecoder(charset).decode(res.body);
-  } catch {
-    // An unknown charset label: UTF-8 is the web's default and usually right.
-    body = new TextDecoder("utf-8").decode(res.body);
-  }
+      .trim() || (isHtml ? metaCharset(res.body) : undefined);
+  const body = decode(res.body, declared);
   return { ok: true, text: isHtml ? extractHtml(body).text : tidyAuthored(body) };
+}
+
+/**
+ * Bytes to text in the declared charset. Undeclared (or unknown): UTF-8 when the bytes are
+ * valid UTF-8, as nearly all pages are, else windows-1252, the old web's default.
+ */
+function decode(bytes: Uint8Array, charset: string | undefined): string {
+  if (charset) {
+    try {
+      return new TextDecoder(charset).decode(bytes);
+    } catch {
+      // An unknown label: guess as if none was given.
+    }
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
 }
 
 /**
@@ -158,7 +169,12 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const modelId = embeddingModelId(deps.embeddingModel);
     await recordUsage(tx, tenantId, day, { inputTokens: tokens, outputTokens: 0 });
     if (embeddings.length !== chunks.length) {
-      throw new Error(`ingest: ${embeddings.length} embeddings for ${chunks.length} chunks`);
+      // A broken server. Retrying would pay again for the same answer; the spend is recorded.
+      deps.logger.warn(
+        { sourceId, embeddings: embeddings.length, chunks: chunks.length },
+        "embedding server returned the wrong number of vectors",
+      );
+      return fail("embedding_failed");
     }
 
     await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));

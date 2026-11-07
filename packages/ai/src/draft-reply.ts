@@ -118,12 +118,13 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
 
 /**
  * `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks, or cut
- * off without its `]` at the very end, when the reply hit the output limit. Models also drift
- * to `Sources: K1`, `(source: K1)` and the like. Either way it must start with an id or
- * "none", so a reply's own "[Sources: see our help center]" is left alone.
+ * off without its `]` at the end of a line, when the reply hit the output limit. Models also
+ * drift to `(source: K1)`, or `Sources: K1, K2` ending a line. Every shape must start with an
+ * id or "none" and end right after the list, so a reply's own "[Sources: see our help
+ * center]" or "Source: none of our plans…" is left alone.
  */
 const sourcesMarker =
-  /[ \t]*[*_`]*(?:\[\s*sources?\s*:\s*((?:k\d|none)[^\]\n]*)(?:\]|\s*$)|\(?\bsources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)\b\s*\)?)[*_`]*/gi;
+  /[ \t]*[*_`]*(?:\[\s*sources?\s*:\s*((?:k\d+|none)\s*(?:,[^\]\n]*)?)(?:\]|[ \t]*$)|\(\s*sources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)\s*\)|\bsources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)[*_`]*[ \t]*$)[*_`]*/gim;
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may
@@ -136,7 +137,7 @@ export function parseSources(text: string, offered: number): { text: string; cit
   const match = [...text.matchAll(sourcesMarker)].at(-1);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
-  for (const token of (match[1] ?? match[2] ?? "").split(",")) {
+  for (const token of (match[1] ?? match[2] ?? match[3] ?? "").split(",")) {
     const n = /^\s*k(\d+)\s*$/i.exec(token);
     const index = n ? Number(n[1]) - 1 : -1;
     if (index >= 0 && index < offered) cited.add(index);
