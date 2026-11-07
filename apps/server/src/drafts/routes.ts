@@ -103,6 +103,22 @@ const approveRoute = createRoute({
   },
 });
 
+const discardRoute = createRoute({
+  method: "post",
+  path: "/v1/drafts/{id}/discard",
+  summary: "Discard a pending draft",
+  description:
+    "Marks a `pending` draft `discarded`, so it can never be approved or sent. Use it for a " +
+    "draft that shouldn't go out. Needs `drafts:write`.",
+  security,
+  request: { params: idParams },
+  responses: {
+    200: json(draftSchema, "The discarded draft"),
+    ...authErrors,
+    409: json(errorSchema, "The draft is no longer pending"),
+  },
+});
+
 function serialize(d: DraftRow): z.infer<typeof draftSchema> {
   return {
     id: d.id,
@@ -217,6 +233,35 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         { singletonKey: id },
       );
       return approved;
+    });
+    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    return c.json(serialize(result), 200);
+  });
+
+  registerDiscardRoute(app, deps);
+}
+
+function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
+  app.openapi(discardRoute, async (c) => {
+    const principal = principalWith(c, "drafts:write");
+    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const { id } = c.req.valid("param");
+    const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
+      const [discarded] = await tx
+        .update(drafts)
+        .set({ status: "discarded" })
+        .where(and(eq(drafts.id, id), eq(drafts.status, "pending")))
+        .returning();
+      if (!discarded) return (await draftExists(tx, id)) ? "conflict" : "not_found";
+      await recordAudit(tx, {
+        tenantId: principal.tenantId,
+        actor: principal.actor,
+        action: "draft.discarded",
+        target: { type: "draft", id },
+        requestId: c.get("requestId"),
+      });
+      return discarded;
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);

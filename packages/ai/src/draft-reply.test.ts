@@ -39,3 +39,24 @@ describe("fenceEmail", () => {
     expect(fenced.endsWith("\n</untrusted_email>")).toBe(true);
   });
 });
+
+describe("fenceEmail with history", () => {
+  it("quotes earlier messages inside the fence, oldest first, and keeps only the latest ten", () => {
+    const history = Array.from({ length: 12 }, (_, i) => ({
+      direction: i % 2 === 0 ? ("inbound" as const) : ("outbound" as const),
+      from: "x@test",
+      body: `message ${i}`,
+    }));
+    const fenced = fenceEmail({ ...email, history });
+    expect(fenced).not.toMatch(/message [01]\n/);
+    expect(fenced.indexOf("message 2")).toBeLessThan(fenced.indexOf("message 11"));
+    expect(fenced.indexOf("message 11")).toBeLessThan(fenced.indexOf("Where is my order?"));
+    expect(fenced).toContain("from us");
+    expect(fenced.match(/untrusted_email>/g)).toHaveLength(2);
+  });
+
+  it("cuts very long messages", () => {
+    const fenced = fenceEmail({ ...email, body: "a".repeat(10_000) });
+    expect(fenced.length).toBeLessThan(5_000);
+  });
+});

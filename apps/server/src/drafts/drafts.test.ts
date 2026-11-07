@@ -74,15 +74,20 @@ function call(method: string, path: string, as: string | null, body?: object) {
 
 let emailCount = 0;
 /** A fresh customer email to Acme, with a unique Message-ID and subject. */
-async function receiveEmail(body = "Hi, I cannot log in since this morning.") {
+async function receiveEmail(
+  body = "Hi, I cannot log in since this morning.",
+  options: { replyTo?: string; html?: boolean } = {},
+) {
   emailCount++;
   const raw = [
     "From: Jane Customer <jane@customer.test>",
     "To: support@acme.test",
     `Subject: Cannot log in ${emailCount}`,
     `Message-ID: <login-${emailCount}@customer.test>`,
-    "References: <earlier@customer.test>",
-    "Content-Type: text/plain; charset=utf-8",
+    ...(options.replyTo
+      ? [`In-Reply-To: ${options.replyTo}`, `References: ${options.replyTo}`]
+      : ["References: <earlier@customer.test>"]),
+    `Content-Type: text/${options.html ? "html" : "plain"}; charset=utf-8`,
     "",
     body,
   ].join("\r\n");
@@ -319,11 +324,72 @@ describe("nothing is sent without approval", () => {
   });
 });
 
+describe("drafting in context", () => {
+  it("a follow-up is drafted with the earlier messages, and discards the stale pending draft", async () => {
+    const first = await receiveEmail("My invoice for March is missing.");
+    const stale = await waitForDraft(first.ticketId, "pending");
+    const followUp = await receiveEmail("Also, the April one has the wrong VAT number.", {
+      replyTo: first.header,
+    });
+    expect(followUp.ticketId).toBe(first.ticketId);
+
+    const fresh = await waitFor("a second draft", async () =>
+      (await draftsOf(first.ticketId)).find((d) => d.id !== stale.id && d.status === "pending"),
+    );
+    expect(fresh.messageId).toBe(followUp.messageId);
+    const old = (await draftsOf(first.ticketId)).find((d) => d.id === stale.id);
+    expect(old?.status).toBe("discarded");
+    expect((await auditOf(stale.id)).map((e) => [e.action, e.actorId])).toEqual([
+      ["draft.created", "draft-reply"],
+      ["draft.discarded", "draft-reply"],
+    ]);
+
+    const prompt = JSON.stringify(
+      model.doGenerateCalls.find((c) => JSON.stringify(c.prompt).includes("wrong VAT"))?.prompt,
+    );
+    // Both messages, inside the one fence, earlier one first.
+    expect(prompt).toMatch(/<untrusted_email>.*invoice for March.*wrong VAT.*<\/untrusted_email>/);
+  });
+
+  it("an HTML-only email is drafted from its text, not from nothing", async () => {
+    const email = await receiveEmail("<p>My <b>export</b> button&nbsp;is greyed out.</p>", {
+      html: true,
+    });
+    await waitForDraft(email.ticketId, "pending");
+    const prompt = JSON.stringify(
+      model.doGenerateCalls.find((c) => JSON.stringify(c.prompt).includes("greyed out"))?.prompt,
+    );
+    expect(prompt).toContain("My export button is greyed out.");
+  });
+});
+
+describe("discarding", () => {
+  it("a discarded draft can never be approved or sent", async () => {
+    const email = await receiveEmail();
+    const pending = await waitForDraft(email.ticketId, "pending");
+    const res = await call("POST", `/v1/drafts/${pending.id}/discard`, "drafter");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "discarded" });
+
+    expect((await call("POST", `/v1/drafts/${pending.id}/discard`, "drafter")).status).toBe(409);
+    expect(
+      (await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", { body: pending.body }))
+        .status,
+    ).toBe(409);
+    expect((await call("POST", `/v1/drafts/${pending.id}/discard`, "outsider")).status).toBe(404);
+    expect((await auditOf(pending.id)).map((e) => [e.action, e.actorType])).toEqual([
+      ["draft.created", "system"],
+      ["draft.discarded", "agent"],
+    ]);
+  });
+});
+
 describe("draft API access", () => {
   it.each([
     ["GET", "/v1/tickets/00000000-0000-7000-8000-000000000000/drafts"],
     ["PATCH", "/v1/drafts/00000000-0000-7000-8000-000000000000"],
     ["POST", "/v1/drafts/00000000-0000-7000-8000-000000000000/approve"],
+    ["POST", "/v1/drafts/00000000-0000-7000-8000-000000000000/discard"],
     ["POST", "/v1/drafts/not-a-uuid/approve"],
   ])("%s %s is 401 without credentials, and by default for everyone", async (method, path) => {
     const body = method === "GET" ? undefined : { body: "x" };
@@ -360,5 +426,6 @@ describe("draft API access", () => {
     expect(Object.keys(spec.paths["/v1/tickets/{id}/drafts"] ?? {})).toEqual(["get"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}"] ?? {})).toEqual(["patch"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}/approve"] ?? {})).toEqual(["post"]);
+    expect(Object.keys(spec.paths["/v1/drafts/{id}/discard"] ?? {})).toEqual(["post"]);
   });
 });

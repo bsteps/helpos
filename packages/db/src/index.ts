@@ -1,5 +1,5 @@
 // Query operators, re-exported so callers share the db package's single drizzle-orm instance.
-export { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+export { and, asc, desc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 export { type AuthStore, createAuthStore } from "./auth.ts";
 export {
   createDatabase,

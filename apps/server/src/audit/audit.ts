@@ -5,7 +5,7 @@ export type AuditActor = { type: "user" | "agent" | "system"; id: string };
 export interface AuditEvent {
   tenantId: string;
   actor: AuditActor;
-  action: "draft.created" | "draft.edited" | "draft.approved" | "draft.sent";
+  action: "draft.created" | "draft.edited" | "draft.approved" | "draft.discarded" | "draft.sent";
   target: { type: "draft"; id: string };
   /** The HTTP request ID, or null when a background job acts. */
   requestId: string | null;

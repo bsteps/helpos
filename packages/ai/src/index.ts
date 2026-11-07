@@ -13,5 +13,6 @@ export {
   draftInstructions,
   draftReply,
   fenceEmail,
+  type HistoryMessage,
 } from "./draft-reply.ts";
 export { createModel } from "./model.ts";
