@@ -48,7 +48,7 @@ export function createApp({
   });
 
   registerInboundEmail(app, { db, files, logger, inboundSecret });
-  registerDraftRoutes(app, { db, authenticate });
+  registerDraftRoutes(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
   registerAiUsageRoute(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.

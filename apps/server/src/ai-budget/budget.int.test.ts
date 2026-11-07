@@ -173,6 +173,39 @@ describe("daily AI budget", () => {
     expect(ma.doGenerateCalls.length + mb.doGenerateCalls.length).toBe(1);
   });
 
+  it("regenerate is refused up front when the budget is spent, and keeps the current draft", async () => {
+    clock = new Date("2026-11-10T09:00:00Z");
+    const email = await receive(9);
+    await draft(acme, email.messageId);
+    await db.withTenant(acme, (tx) =>
+      recordUsage(tx, acme, "2026-11-10", { inputTokens: 500, outputTokens: 0 }),
+    );
+    const app = createApp({
+      db,
+      files,
+      logger,
+      inboundSecret: undefined,
+      dailyTokenBudget: budget,
+      now,
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(["drafts:write"] as const),
+      }),
+    });
+    const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ regenerate: true }),
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "daily_budget_reached" });
+    const drafts = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+    );
+    expect(drafts.map((d) => d.status)).toEqual(["pending"]);
+  });
+
   it("resets at UTC midnight, and a new draft clears the pause", async () => {
     clock = new Date("2026-11-08T00:00:01Z");
     const email = await receive(5);
