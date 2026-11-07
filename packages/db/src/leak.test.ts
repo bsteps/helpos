@@ -7,6 +7,7 @@ import { isUniqueViolation } from "./errors.ts";
 import { searchKnowledge } from "./knowledge.ts";
 import {
   aiUsage,
+  apiTokens,
   attachments,
   auditEvents,
   customers,
@@ -45,6 +46,8 @@ const b = {
   source: uuidv7(),
   chunk: uuidv7(),
   citation: uuidv7(),
+  token: uuidv7(),
+  tokenHash: "b".repeat(64),
   userId: "",
 };
 
@@ -126,6 +129,13 @@ async function seedB(tx: TenantTx): Promise<void> {
     rank: 0,
     cited: true,
   });
+  await tx.insert(apiTokens).values({
+    id: b.token,
+    tenantId,
+    name: "b-bot",
+    tokenHash: b.tokenHash,
+    scopes: ["tickets:read"],
+  });
   await tx.insert(auditEvents).values({
     id: b.auditEvent,
     tenantId,
@@ -204,6 +214,17 @@ describe("leak: acting as tenant A", () => {
   it("cannot read B's audit_events", async () => {
     const rows = await db.withTenant(tenantA, (tx) => tx.select().from(auditEvents));
     expect(rows).toEqual([]);
+  });
+
+  // Not in `tables`: the app role can't DELETE tokens at all (schema.test.ts).
+  it("cannot read or revoke B's api_tokens", async () => {
+    const seen = await db.withTenant(tenantA, (tx) => tx.select().from(apiTokens));
+    expect(seen).toEqual([]);
+    const revoked = await db.withTenant(tenantA, (tx) =>
+      tx.update(apiTokens).set({ revokedAt: new Date() }).returning(),
+    );
+    expect(revoked).toEqual([]);
+    expect((await db.resolveApiToken(b.tokenHash))?.revokedAt).toBeNull();
   });
 
   it("cannot insert a row tagged with B's tenant_id", async () => {
@@ -408,6 +429,54 @@ describe("mailbox routing", () => {
         (e: unknown) => e,
       );
     expect(isUniqueViolation(error, "mailboxes_address")).toBe(true);
+  });
+});
+
+describe("agent token lookup", () => {
+  it("resolves a hash to its token and workspace", async () => {
+    expect(await db.resolveApiToken(b.tokenHash)).toEqual({
+      id: b.token,
+      tenantId: tenantB,
+      name: "b-bot",
+      tokenHash: b.tokenHash,
+      scopes: ["tickets:read"],
+      revokedAt: null,
+    });
+  });
+
+  it("returns null for an unknown or malformed hash", async () => {
+    expect(await db.resolveApiToken("c".repeat(64))).toBeNull();
+    expect(await db.resolveApiToken("")).toBeNull();
+    expect(await db.resolveApiToken("B".repeat(64))).toBeNull();
+  });
+
+  it("shows only the asked-for token, never the others", async () => {
+    await db.withTenant(tenantA, (tx) =>
+      tx.insert(apiTokens).values({
+        tenantId: tenantA,
+        name: "a-bot",
+        tokenHash: "a".repeat(64),
+        scopes: ["tickets:read"],
+      }),
+    );
+    const rows = await db.withTenant(uuidv7(), async (tx) => {
+      await tx.execute(sql`select set_config('app.token_hash', ${b.tokenHash}, true)`);
+      return tx.select().from(apiTokens);
+    });
+    expect(rows.map((r) => r.id)).toEqual([b.token]);
+  });
+
+  it("the hash policy only reads: it can't revoke B's token", async () => {
+    const revoked = await db.withTenant(tenantA, async (tx) => {
+      await tx.execute(sql`select set_config('app.token_hash', ${b.tokenHash}, true)`);
+      return tx
+        .update(apiTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(apiTokens.id, b.token))
+        .returning();
+    });
+    expect(revoked).toEqual([]);
+    expect((await db.resolveApiToken(b.tokenHash))?.revokedAt).toBeNull();
   });
 });
 

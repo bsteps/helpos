@@ -49,7 +49,7 @@ let shadowed: string;
 /** HELPOS_ALLOW_SHADOW_MODE_OFF, as the app under test sees it. */
 let allowShadowModeOff = false;
 
-/** Test credentials: the bearer value names a principal. Real tokens come with #49. */
+/** Test credentials: the bearer value names a principal (real tokens: tokens.int.test.ts). */
 const principals: Record<string, () => Principal> = {
   approver: () => principal(acme, ["tickets:read", "drafts:write", "drafts:approve"]),
   drafter: () => principal(acme, ["tickets:read", "drafts:write"]),
@@ -673,10 +673,10 @@ describe("draft API access", () => {
     ["POST", "/v1/drafts/00000000-0000-7000-8000-000000000000/approve"],
     ["POST", "/v1/drafts/00000000-0000-7000-8000-000000000000/discard"],
     ["POST", "/v1/drafts/not-a-uuid/approve"],
-  ])("%s %s is 401 without credentials, and by default for everyone", async (method, path) => {
+  ])("%s %s is 401 without credentials, and by default for a fake token", async (method, path) => {
     const body = method === "GET" ? undefined : { body: "x" };
     expect((await call(method, path, null, body)).status).toBe(401);
-    // createApp() without an authenticator refuses even a request that looks authenticated.
+    // createApp() without an authenticator accepts only real agent tokens, not test names.
     const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(path, {
       method,
       headers: { authorization: "Bearer approver", "content-type": "application/json" },

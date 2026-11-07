@@ -1284,7 +1284,7 @@ describe("knowledge API", () => {
     ["GET", "/v1/knowledge/sources"],
     ["POST", "/v1/knowledge/sources"],
     ["DELETE", "/v1/knowledge/sources/00000000-0000-7000-8000-000000000000"],
-  ])("%s %s is 401 without credentials, and by default for everyone", async (method, path) => {
+  ])("%s %s is 401 without credentials, and by default for a fake token", async (method, path) => {
     const body = method === "POST" ? { kind: "markdown", title: "x", content: "x" } : undefined;
     expect((await call(method, path, null, body)).status).toBe(401);
     const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(path, {

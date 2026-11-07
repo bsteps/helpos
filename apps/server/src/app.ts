@@ -6,19 +6,25 @@ import { requestId } from "hono/request-id";
 import type { Logger } from "pino";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { registerAiUsageRoute } from "./ai-budget/routes.ts";
-import { type Authenticate, refuseAll } from "./auth/principal.ts";
+import { type Authenticate, authenticateRequest, refuseAll } from "./auth/principal.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
+import { registerTicketRoutes } from "./tickets/routes.ts";
+import { agentTokens } from "./tokens/authenticate.ts";
+import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 
 export interface AppDeps {
-  db: Pick<Database, "ping" | "withTenant" | "resolveMailbox">;
+  db: Pick<Database, "ping" | "withTenant" | "resolveMailbox" | "resolveApiToken">;
   files: FileStore;
   logger: Pick<Logger, "error" | "warn" | "info">;
   /** HELPOS_INBOUND_SECRET. When unset, the inbound email endpoint refuses every request. */
   inboundSecret: string | undefined;
-  /** Resolves API callers. Defaults to refusing everyone until agent tokens and sessions exist. */
+  /**
+   * Resolves API callers. Defaults to agent tokens (`hos_…`); human sessions refuse everyone
+   * until #46 plugs in. Tests replace it to act as a signed-in human.
+   */
   authenticate?: Authenticate;
   /** Reported by the usage endpoint. The worker enforces it. */
   dailyTokenBudget?: number;
@@ -35,7 +41,7 @@ export function createApp({
   files,
   logger,
   inboundSecret,
-  authenticate = refuseAll,
+  authenticate = authenticateRequest({ tokens: agentTokens(db), session: refuseAll }),
   dailyTokenBudget = defaultDailyTokenBudget,
   now,
   noticeDelaySeconds,
@@ -55,7 +61,17 @@ export function createApp({
     return c.json({ status: "error", database: "unreachable" }, 503);
   });
 
+  app.openAPIRegistry.registerComponent("securitySchemes", "apiAuth", {
+    type: "http",
+    scheme: "bearer",
+    description:
+      "An agent token: `Authorization: Bearer hos_…`, created through `POST /v1/tokens`. " +
+      "Human sessions (#46) will work here too.",
+  });
+
   registerInboundEmail(app, { db, files, logger, inboundSecret });
+  registerTokenRoutes(app, { db, authenticate });
+  registerTicketRoutes(app, { db, authenticate });
   registerDraftRoutes(app, {
     db,
     authenticate,

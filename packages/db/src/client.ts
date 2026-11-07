@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { z } from "zod";
+import type { ApiTokenScope } from "./schema.ts";
 import * as schema from "./schema.ts";
 
 type Db = PostgresJsDatabase<typeof schema>;
@@ -21,6 +22,12 @@ export interface Database {
    */
   resolveMailbox(address: string): Promise<MailboxRoute | null>;
   /**
+   * Finds the agent token with this SHA-256 hash, before any tenant is known. Sees only the
+   * one row whose hash is passed in (policy `resolve_by_token_hash`). Revoked tokens are
+   * returned too, so the caller decides; null when no token has this hash.
+   */
+  resolveApiToken(tokenHash: string): Promise<ApiTokenRecord | null>;
+  /**
    * Lists the workspaces a user belongs to, across tenants (ADR 0009 §1, policy
    * `own_memberships`). Read-only.
    */
@@ -35,6 +42,15 @@ export interface MailboxRoute {
   mailboxId: string;
 }
 
+export interface ApiTokenRecord {
+  id: string;
+  tenantId: string;
+  name: string;
+  tokenHash: string;
+  scopes: ApiTokenScope[];
+  revokedAt: Date | null;
+}
+
 export interface MembershipSummary {
   tenantId: string;
   role: "owner" | "member";
@@ -44,6 +60,7 @@ export type PingResult = { ok: true } | { ok: false; error: unknown };
 
 const tenantIdSchema = z.uuid();
 const addressSchema = z.string().trim().toLowerCase().min(3).max(320);
+const tokenHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 export function createDatabase(url: string): Database {
   const client = postgres(url, { max: 10, connect_timeout: 5, onnotice: () => {} });
@@ -68,6 +85,27 @@ export function createDatabase(url: string): Database {
           .select({ tenantId: schema.mailboxes.tenantId, mailboxId: schema.mailboxes.id })
           .from(schema.mailboxes)
           .where(eq(schema.mailboxes.address, address));
+        return rows[0] ?? null;
+      });
+    },
+    async resolveApiToken(rawHash) {
+      const parsed = tokenHashSchema.safeParse(rawHash);
+      if (!parsed.success) return null;
+      const tokenHash = parsed.data;
+      const t = schema.apiTokens;
+      return db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('app.token_hash', ${tokenHash}, true)`);
+        const rows = await tx
+          .select({
+            id: t.id,
+            tenantId: t.tenantId,
+            name: t.name,
+            tokenHash: t.tokenHash,
+            scopes: t.scopes,
+            revokedAt: t.revokedAt,
+          })
+          .from(t)
+          .where(eq(t.tokenHash, tokenHash));
         return rows[0] ?? null;
       });
     },

@@ -2,6 +2,7 @@
 export { and, asc, desc, eq, gt, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 export { type AuthStore, createAuthStore } from "./auth.ts";
 export {
+  type ApiTokenRecord,
   createDatabase,
   type Database,
   type MailboxRoute,
@@ -35,6 +36,6 @@ export {
   searchKnowledge,
 } from "./knowledge.ts";
 export { runMigrations } from "./migrate.ts";
-export type { KnowledgeVisibility } from "./schema.ts";
+export type { ApiTokenScope, KnowledgeVisibility } from "./schema.ts";
 export * as schema from "./schema.ts";
 export { uuidv7 } from "./uuid.ts";
