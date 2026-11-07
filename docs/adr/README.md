@@ -13,6 +13,7 @@ Each file records **one decision**: the context, what we chose, what we rejected
 | [0007](0007-licensing-and-open-core.md)          | AGPL-3.0 + CLA, private cloud repo                    | Accepted (CLA tooling superseded by 0008) |
 | [0008](0008-cla-assistant.md)                    | Collect CLA signatures with cla-assistant.io          | Accepted                                  |
 | [0009](0009-tenant-isolation-extended.md)        | Tenant isolation for auth, jobs, realtime and vectors | Accepted                                  |
+| [0010](0010-config-in-git.md)                    | Config, knowledge and policies in git                 | Accepted                                  |
 
 For how the decisions fit together, see [the architecture overview](../architecture/overview.md).
 
