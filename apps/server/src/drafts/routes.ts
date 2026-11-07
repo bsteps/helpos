@@ -352,7 +352,12 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       }
 
       if ("regenerate" in input) {
-        await enqueue(tx, draftReplyJob, { tenantId, messageId: latest.id });
+        await enqueue(
+          tx,
+          draftReplyJob,
+          { tenantId, messageId: latest.id },
+          { singletonKey: latest.id },
+        );
         return "queued" as const;
       }
       const [draft] = await tx

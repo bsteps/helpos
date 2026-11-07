@@ -1,5 +1,5 @@
 import { draftReply, type LanguageModel, maxHistoryMessages } from "@helpos/ai";
-import { and, desc, eq, lt, ne, schema, type TenantTx } from "@helpos/db";
+import { and, desc, eq, gt, isNull, lt, ne, schema, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
 import { messageText } from "./html-text.ts";
@@ -82,12 +82,48 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     // Thrown, not saved: pg-boss retries, and nobody is asked to approve an empty reply.
     if (body === "") throw new Error("draft-reply: the model returned an empty draft");
 
-    // A newer message makes older pending drafts stale. Discard them, so nobody approves an
-    // answer to a question the customer has moved past. Approved ones are already on their way.
+    // The model call took a while. Lock the ticket (as the create endpoint does) and look again,
+    // so a slow job never overwrites what happened meanwhile.
+    await tx
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(eq(tickets.id, row.ticketId))
+      .for("update");
+    const [answered] = await tx
+      .select({ id: drafts.id })
+      .from(drafts)
+      .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
+    if (answered) return;
+    const [newer] = await tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.ticketId, row.ticketId),
+          eq(messages.direction, "inbound"),
+          isNull(messages.automatedReason),
+          ne(messages.id, payload.messageId),
+          // Postgres keeps microseconds and a JS Date only milliseconds, so the row itself would
+          // count as "newer" without the id check above.
+          gt(messages.createdAt, row.createdAt),
+        ),
+      )
+      .limit(1);
+    // The customer wrote again: that message's own job drafts the answer.
+    if (newer) return;
+
+    // This is the latest message, so pending drafts for earlier ones are stale. Discard them,
+    // so nobody approves an answer to a question the customer has moved past.
     const stale = await tx
       .update(drafts)
       .set({ status: "discarded" })
-      .where(and(eq(drafts.ticketId, row.ticketId), eq(drafts.status, "pending")))
+      .where(
+        and(
+          eq(drafts.ticketId, row.ticketId),
+          eq(drafts.status, "pending"),
+          ne(drafts.messageId, payload.messageId),
+        ),
+      )
       .returning({ id: drafts.id });
     for (const { id } of stale) {
       await recordAudit(tx, {

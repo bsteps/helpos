@@ -20,6 +20,7 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
+import { handleDraftReply } from "./draft-worker.ts";
 import { handleSendReply } from "./send-worker.ts";
 
 // The whole loop against real Postgres, real pg-boss and a real SMTP server (Mailpit):
@@ -349,6 +350,23 @@ describe("drafting in context", () => {
     );
     // Both messages, inside the one fence, earlier one first.
     expect(prompt).toMatch(/<untrusted_email>.*invoice for March.*wrong VAT.*<\/untrusted_email>/);
+  });
+
+  it("a late job for an older message never discards the newer message's draft", async () => {
+    const first = await receiveEmail("Question one.");
+    await waitForDraft(first.ticketId, "pending");
+    const second = await receiveEmail("Question two.", { replyTo: first.header });
+    const newer = await waitFor("the newer draft", async () =>
+      (await draftsOf(first.ticketId)).find(
+        (d) => d.messageId === second.messageId && d.status === "pending",
+      ),
+    );
+    // Replays the older message's job, as if it had been slow or retried.
+    await db.withTenant(acme, (tx) =>
+      handleDraftReply({ model, logger })({ tenantId: acme, messageId: first.messageId }, tx),
+    );
+    const live = (await draftsOf(first.ticketId)).filter((d) => d.status !== "discarded");
+    expect(live.map((d) => d.id)).toEqual([newer.id]);
   });
 
   it("an HTML-only email is drafted from its text, not from nothing", async () => {
