@@ -22,6 +22,7 @@ import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import {
   noKnowledge,
+  SearchError,
   type SearchProvider,
   type SearchQuery,
   type SearchResult,
@@ -68,7 +69,8 @@ async function searchOrNothing(
     return await tx.transaction((sp) => search.search(sp, query));
   } catch (error) {
     deps.logger.warn({ err: errorSummary(error) }, "knowledge search failed: drafting without it");
-    return noKnowledge;
+    // Its embedding call may have been paid for before the failure.
+    return { ...noKnowledge, tokens: error instanceof SearchError ? error.tokens : 0 };
   }
 }
 

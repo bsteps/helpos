@@ -415,6 +415,11 @@ export const knowledgeSources = pgTable(
     /** Why ingestion failed, as a short code such as `blocked_address`. Never page content. */
     error: text("error"),
     chunkCount: integer("chunk_count").notNull().default(0),
+    /**
+     * Counts requests to ingest it again. An ingest job writes its result only if no newer
+     * request came in while it was fetching, so a page change asked for meanwhile isn't lost.
+     */
+    ingestRequests: integer("ingest_requests").notNull().default(0),
     ingestedAt: timestamp("ingested_at", { withTimezone: true }),
     /** The embedding model of its current chunks. Another model's search skips them. */
     embeddingModel: text("embedding_model"),

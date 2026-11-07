@@ -19,7 +19,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
-import type { SearchProvider } from "../knowledge/search.ts";
+import { SearchError, type SearchProvider } from "../knowledge/search.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
 import { draftNoticeJob, draftReplyJob } from "./jobs.ts";
@@ -172,6 +172,19 @@ describe("drafting with knowledge: spend and limits", () => {
     await expect(draftWith(search, email.messageId, failingModel())).rejects.toThrow();
     expect((await usedToday()) - before).toBe(42);
     expect(await draftsOf(email.ticketId)).toEqual([]);
+  });
+
+  it("counts a search's embedding tokens when its query then fails", async () => {
+    const email = await receive(++received);
+    const before = await usedToday();
+    const search: SearchProvider = {
+      search: async () => {
+        throw new SearchError(17, { cause: new Error("division by zero") });
+      },
+    };
+    await draftWith(search, email.messageId);
+    expect(await draftsOf(email.ticketId)).toHaveLength(1);
+    expect((await usedToday()) - before).toBe(17);
   });
 
   it("stores citations only for the passages the model was shown", async () => {

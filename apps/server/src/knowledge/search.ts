@@ -37,6 +37,16 @@ export interface SearchProvider {
 
 export const noKnowledge: SearchResult = { hits: [], tokens: 0 };
 
+/** A search that failed after its embedding call. That call was paid for, so it still counts. */
+export class SearchError extends Error {
+  readonly tokens: number;
+  constructor(tokens: number, options: { cause: unknown }) {
+    super("knowledge search failed after embedding the query", options);
+    this.name = "SearchError";
+    this.tokens = tokens;
+  }
+}
+
 export function createVectorSearch(model: EmbeddingModel): SearchProvider {
   const modelId = embeddingModelId(model);
   return {
@@ -57,16 +67,20 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
         .limit(1);
       if (!any) return noKnowledge;
       const { embeddings, tokens } = await embedTexts(model, [query.text]);
-      const [embedding] = embeddings;
-      if (!embedding) throw new Error("search: the embedding model returned no vector");
-      const hits = await searchKnowledge(tx, {
-        tenantId: query.tenantId,
-        embedding,
-        embeddingModel: modelId,
-        limit: query.limit,
-        visibility: query.visibility,
-      });
-      return { hits, tokens };
+      try {
+        const [embedding] = embeddings;
+        if (!embedding) throw new Error("search: the embedding model returned no vector");
+        const hits = await searchKnowledge(tx, {
+          tenantId: query.tenantId,
+          embedding,
+          embeddingModel: modelId,
+          limit: query.limit,
+          visibility: query.visibility,
+        });
+        return { hits, tokens };
+      } catch (cause) {
+        throw new SearchError(tokens, { cause });
+      }
     },
   };
 }

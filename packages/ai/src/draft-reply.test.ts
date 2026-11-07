@@ -263,6 +263,15 @@ describe("parseSources", () => {
       expect(parseSources(own, 2)).toEqual({ text: own, cited: [] });
     }
     expect(parseSources("Resources: K1", 2)).toEqual({ text: "Resources: K1", cited: [] });
+    // A line of the reply that ends like a bare marker, but doesn't start like one.
+    for (const own of ["Our data source: none", "Hi.\nThe power source: K1", "Open source: none"]) {
+      expect(parseSources(own, 2)).toEqual({ text: own, cited: [] });
+    }
+    // And it can't take over from the real marker at the end.
+    expect(parseSources("Data source: K2\nHi.\n[sources: K1]", 2)).toEqual({
+      text: "Data source: K2\nHi.",
+      cited: [0],
+    });
   });
 
   it("stays fast on a reply crafted to make the marker search backtrack", () => {

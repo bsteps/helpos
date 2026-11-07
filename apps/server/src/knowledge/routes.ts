@@ -1,4 +1,13 @@
-import { asc, type Database, enqueue, eq, isUniqueViolation, schema, uuidv7 } from "@helpos/db";
+import {
+  asc,
+  type Database,
+  enqueue,
+  eq,
+  isUniqueViolation,
+  schema,
+  sql,
+  uuidv7,
+} from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
@@ -157,8 +166,11 @@ const reingestRoute = createRoute({
   description:
     "Sets the source back to `pending` and queues it, e.g. after a `failed` ingest, after the " +
     "page changed, or after the embedding model changed. Until the new ingest is done, drafts " +
-    "keep using the current passages; if it fails, they stay. Asking again while it's pending " +
-    "queues nothing new. Needs `knowledge:write`.",
+    "keep using the current passages. If it fails on a temporary problem (the site is down, " +
+    "the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable " +
+    "(no text, too long, not a page), they're removed. Asking again while it's pending queues " +
+    "nothing new, but a request made during a fetch gets a fetch of its own. " +
+    "Needs `knowledge:write`.",
   security,
   request: { params: idParams },
   responses: {
@@ -299,7 +311,11 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       if (found.managedBy === "git") return "managed_in_git" as const;
       const [row] = await tx
         .update(knowledgeSources)
-        .set({ status: "pending", error: null })
+        .set({
+          status: "pending",
+          error: null,
+          ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
+        })
         .where(eq(knowledgeSources.id, id))
         .returning();
       if (!row) throw new Error("reingest: update returned no row");
@@ -311,7 +327,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         requestId: c.get("requestId"),
       });
       // Already pending: reuse its job rather than queue two. If that job is already fetching,
-      // it sees this request when it writes (the row changed) and queues a run for it.
+      // it sees this request when it writes (the count went up) and queues a run for it.
       // Otherwise always queue a new one. The last job may have committed but still look
       // unfinished to pg-boss, and reusing it would leave this source pending with no job. An
       // extra job is harmless: the worker skips a source that isn't pending.

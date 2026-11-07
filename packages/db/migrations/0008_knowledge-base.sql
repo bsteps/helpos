@@ -44,6 +44,7 @@ CREATE TABLE "knowledge_sources" (
 	"status" text DEFAULT 'pending' NOT NULL,
 	"error" text,
 	"chunk_count" integer DEFAULT 0 NOT NULL,
+	"ingest_requests" integer DEFAULT 0 NOT NULL,
 	"ingested_at" timestamp with time zone,
 	"embedding_model" text,
 	"managed_by" text DEFAULT 'app' NOT NULL,

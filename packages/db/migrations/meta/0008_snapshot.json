@@ -991,6 +991,13 @@
           "notNull": true,
           "default": 0
         },
+        "ingest_requests": {
+          "name": "ingest_requests",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "ingested_at": {
           "name": "ingested_at",
           "type": "timestamp with time zone",

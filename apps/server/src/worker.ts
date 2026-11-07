@@ -23,6 +23,8 @@ export interface WorkerDeps {
   embeddingModel: EmbeddingModel | undefined;
   /** For tests only. Every knowledge URL is fetched through the SSRF-safe fetch. */
   fetch?: Fetcher;
+  /** For tests only: how long a knowledge page fetch waits before trying again. */
+  fetchRetryDelaysMs?: readonly number[];
   /** Tokens per workspace per UTC day. */
   dailyTokenBudget: number;
   now?: () => Date;

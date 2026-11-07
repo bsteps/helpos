@@ -14,6 +14,7 @@ import {
   eq,
   type JobRunner,
   schema,
+  sql,
   tenantTransactions,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
@@ -108,8 +109,15 @@ const pages: Record<
 };
 
 /** Pages whose answer changes per request: the nth request gets the nth status (last repeats). */
-const sequences: Record<string, { statuses: number[]; body: string }> = {
+const sequences: Record<string, { statuses: number[]; body: string; bodies?: string[] }> = {
   "/flaky": { statuses: [503, 200], body: "<p>The flaky page says hello.</p>" },
+  // Down for longer than one ingest's tries (the first and two more).
+  "/down-a-while": { statuses: [503, 503, 503, 200], body: "<p>Back up now.</p>" },
+  "/emptied-later": {
+    statuses: [200],
+    body: "",
+    bodies: ["<p>This page has text at first.</p>", "<p></p>"],
+  },
   "/removed-later": { statuses: [200, 404], body: "<p>This page is removed later.</p>" },
   "/down-later": { statuses: [200, 503], body: "<p>This page goes down later.</p>" },
 };
@@ -124,7 +132,8 @@ const handler: RequestListener = (req, res) => {
     const status = sequence.statuses[Math.min(n, sequence.statuses.length - 1)] ?? 500;
     res.writeHead(status, { "content-type": "text/html" });
     // A fixed body, never the request URL: echoing input into HTML is a pattern to avoid.
-    res.end(status === 200 ? sequence.body : "");
+    const body = sequence.bodies?.[Math.min(n, sequence.bodies.length - 1)] ?? sequence.body;
+    res.end(status === 200 ? body : "");
     return;
   }
   const page = pages[req.url ?? ""];
@@ -290,6 +299,7 @@ beforeAll(async () => {
     model,
     embeddingModel,
     fetch: testFetch,
+    fetchRetryDelaysMs: [20, 20],
     transport: undefined,
     auth: undefined,
     publicUrl: "http://helpdesk.test",
@@ -471,19 +481,31 @@ describe("adding and ingesting sources", () => {
 });
 
 describe("re-ingesting", () => {
-  it("recovers a source that failed on a temporary error", async () => {
+  it("tries a page again by itself after a temporary error", async () => {
     const added = await addSource("editor", {
       kind: "url",
       title: "Flaky",
       url: pageUrl("/flaky"),
     });
+    expect(await ingested(acme, added.id)).toMatchObject({ status: "ready", chunkCount: 1 });
+    expect((await chunksOf(acme, added.id))[0]?.content).toBe("The flaky page says hello.");
+    expect(served["/flaky"]).toBe(2);
+  });
+
+  it("recovers a source that stayed down through every try, once re-ingested", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Down a while",
+      url: pageUrl("/down-a-while"),
+    });
     expect(await ingested(acme, added.id)).toMatchObject({ status: "failed", error: "http_503" });
+    expect(served["/down-a-while"]).toBe(3);
 
     const res = await reingest(added.id);
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ status: "pending", error: null });
     expect(await ingested(acme, added.id)).toMatchObject({ status: "ready", chunkCount: 1 });
-    expect((await chunksOf(acme, added.id))[0]?.content).toBe("The flaky page says hello.");
+    expect((await chunksOf(acme, added.id))[0]?.content).toBe("Back up now.");
 
     const events = await db.withTenant(acme, (tx) =>
       tx
@@ -516,6 +538,23 @@ describe("re-ingesting", () => {
       chunkCount: 1,
     });
     expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(before.map((c) => c.id));
+  });
+
+  it("drops the passages of a page that now has no text: they describe a page that's gone", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Emptied later",
+      url: pageUrl("/emptied-later"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+
+    expect((await reingest(added.id)).status).toBe(202);
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "no_text",
+      chunkCount: 0,
+    });
+    expect(await chunksOf(acme, added.id)).toEqual([]);
   });
 
   it("drops the passages of a page that is now gone, so drafts stop citing it", async () => {
@@ -560,9 +599,12 @@ describe("re-ingesting", () => {
       tenantTransactions(db, acme),
     );
     await started;
-    // Stands in for a re-ingest request that reused this very job: it updates the row only.
+    // Stands in for a re-ingest request that reused this very job: it only counts up.
     await db.withTenant(acme, (tx) =>
-      tx.update(knowledgeSources).set({ error: null }).where(eq(knowledgeSources.id, id)),
+      tx
+        .update(knowledgeSources)
+        .set({ ingestRequests: sql`${knowledgeSources.ingestRequests} + 1` })
+        .where(eq(knowledgeSources.id, id)),
     );
     release();
     await run;

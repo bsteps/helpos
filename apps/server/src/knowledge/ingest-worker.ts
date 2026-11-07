@@ -21,6 +21,8 @@ export interface IngestWorkerDeps {
   /** Embedding tokens count toward the same daily budget as drafting. */
   dailyTokenBudget: number;
   now?: () => Date;
+  /** Waits before each new try of a page that failed on a temporary error. Shorter in tests. */
+  fetchRetryDelaysMs?: readonly number[] | undefined;
 }
 
 export const ingestActor = { type: "system", id: "ingest-source" } as const;
@@ -30,6 +32,28 @@ export const maxPageBytes = 2 * 1024 * 1024;
 const fetchTimeoutMs = 15_000;
 
 type PageText = { ok: true; text: string } | { ok: false; error: string };
+
+/** A site mid-deploy or briefly overloaded: worth another try in a few seconds. */
+export function isTemporary(error: string): boolean {
+  return (
+    ["timeout", "network", "dns_failed", "http_408", "http_425", "http_429"].includes(error) ||
+    /^http_5\d\d$/.test(error)
+  );
+}
+const defaultFetchRetryDelaysMs = [2_000, 10_000];
+
+/**
+ * The page's answer says the old passages no longer describe it: it's gone, or it now has no
+ * text, too much, or isn't a page. They're removed, so drafts stop citing them. Other failures
+ * (a 5xx, a timeout, a blocked address) may pass, so the last good passages stay.
+ */
+const supersededBy = new Set([
+  "http_404",
+  "http_410",
+  "no_text",
+  "too_long",
+  "unsupported_content_type",
+]);
 
 const htmlTypes = new Set(["text/html", "application/xhtml+xml"]);
 const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
@@ -43,6 +67,17 @@ function metaCharset(bytes: Uint8Array): string | undefined {
   const label = /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head)?.[1];
   // A page readable as ASCII so far can't really be UTF-16; browsers read it as UTF-8.
   return label && /^utf-16/i.test(label) ? "utf-8" : label;
+}
+
+/** Fetches a page, trying again after a temporary error. No transaction is open meanwhile. */
+async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<PageText> {
+  let page = await fetchPageText(deps, url);
+  for (const delay of deps.fetchRetryDelaysMs ?? defaultFetchRetryDelaysMs) {
+    if (page.ok || !isTemporary(page.error)) return page;
+    await new Promise((done) => setTimeout(done, delay));
+    page = await fetchPageText(deps, url);
+  }
+  return page;
 }
 
 /** Fetches one page through the SSRF-safe fetch and returns its text, or why it couldn't. */
@@ -106,13 +141,14 @@ export function nextUtcDay(now: Date): Date {
 }
 
 /**
- * Turns one knowledge source into embedded chunks. A source that can't be used (blocked URL,
- * 404, no text, embedding call failed) is marked `failed` with a short reason, and the job
- * ends without a retry, so a source never stays `pending` after its job is done. A spent daily
- * budget is only a wait: the source stays `pending` and runs again when the budget resets.
- * Only database errors throw, and pg-boss retries those. When a re-ingest fails, the chunks
- * from the last good ingest stay in use, so a flaky site doesn't empty the knowledge base,
- * unless the page answers 404 or 410: then it is gone, and so are its passages.
+ * Turns one knowledge source into embedded chunks. A page that fails on a temporary error is
+ * tried again a few seconds later. A source that can't be used (blocked URL, 404, no text,
+ * embedding call failed) is marked `failed` with a short reason, and the job ends without a
+ * retry, so a source never stays `pending` after its job is done. A spent daily budget is only
+ * a wait: the source stays `pending` and runs again when the budget resets. Only database
+ * errors throw, and pg-boss retries those. When a re-ingest fails, the chunks from the last
+ * good ingest stay in use, so a flaky site doesn't empty the knowledge base, unless the page's
+ * answer shows they no longer describe it (`supersededBy`).
  *
  * The fetch and the embedding call run with no transaction open, so a slow site holds no
  * connection or row lock: a delete or re-ingest of the source never waits for it.
@@ -129,9 +165,9 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     );
     if (!source) return; // deleted before the job ran
     if (source.status !== "pending") return; // a retry after the work was done
-    // Every request to ingest it again updates the row. If one comes in while this run is
-    // fetching, the result is from before it: see `lockIfCurrent`.
-    const requestedAt = source.updatedAt.getTime();
+    // Every request to ingest it again counts up. If one comes in while this run is fetching,
+    // the result is from before it: see `lockIfCurrent`.
+    const requests = source.ingestRequests;
 
     /**
      * Locks the source and checks this run's result is still wanted. Deleted: nothing to
@@ -140,12 +176,12 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
      */
     const lockIfCurrent = async (tx: TenantTx): Promise<boolean> => {
       const [current] = await tx
-        .select({ status: knowledgeSources.status, updatedAt: knowledgeSources.updatedAt })
+        .select({ status: knowledgeSources.status, requests: knowledgeSources.ingestRequests })
         .from(knowledgeSources)
         .where(eq(knowledgeSources.id, sourceId))
         .for("update");
       if (current?.status !== "pending") return false;
-      if (current.updatedAt.getTime() === requestedAt) return true;
+      if (current.requests === requests) return true;
       await enqueue(tx, ingestSourceJob, { tenantId, sourceId });
       return false;
     };
@@ -153,9 +189,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const fail = (error: string) =>
       transaction(async (tx) => {
         if (!(await lockIfCurrent(tx))) return;
-        // The page says it's gone, so its old passages must stop being cited. Any other
-        // failure (a 5xx, a timeout) may pass, so the last good passages stay.
-        const gone = error === "http_404" || error === "http_410";
+        const gone = supersededBy.has(error);
         if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
         await tx
           .update(knowledgeSources)
@@ -177,7 +211,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
 
     let page: PageText;
     if (source.kind === "url") {
-      page = source.url ? await fetchPageText(deps, source.url) : { ok: false, error: "no_url" };
+      page = source.url ? await fetchWithRetries(deps, source.url) : { ok: false, error: "no_url" };
     } else {
       page = { ok: true, text: tidyAuthored(source.content ?? "") };
     }

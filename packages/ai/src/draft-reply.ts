@@ -121,7 +121,7 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
 /**
  * `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks, or cut
  * off without its `]` at the end of a line, when the reply hit the output limit. Models also
- * drift to `(source: K1)`, or `Sources: K1, K2` ending a line. Every shape must start with an
+ * drift to `(source: K1)`, or `Sources: K1, K2` on a line of its own. Every shape must start with an
  * id or "none" and end right after the list, so a reply's own "[Sources: see our help
  * center]" or "Source: none of our plans…" is left alone.
  */
@@ -134,9 +134,9 @@ const sourcesMarker = new RegExp(
     String.raw`\[[ \t]*sources?[ \t]*:[ \t]*((?:k\d+|none)[ \t]*(?:,[^,\]\n]*)*)(?:\]|$)`,
     // (source: K1)
     String.raw`\([ \t]*sources?[ \t]*:[ \t]*(${idList})[ \t]*\)`,
-    // Sources: K1, K2 at the end of a line
-    // (Not \b: "_" counts as a word character, and "_Sources: K1_" is italics.)
-    String.raw`(?<![a-z0-9])sources?[ \t]*:[ \t]*(${idList})(?=[*_\x60]*[ \t]*$)`,
+    // Sources: K1, K2 as a line of its own (after a bullet or markdown), so a reply's own
+    // "Data source: none" at the end of a sentence is left alone
+    String.raw`^[ \t]*(?:[-*+][ \t]+)?[*_\x60]*sources?[ \t]*:[ \t]*(${idList})(?=[*_\x60]*[ \t]*$)`,
   ].join("|"),
   "gim",
 );
