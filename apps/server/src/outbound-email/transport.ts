@@ -31,6 +31,10 @@ export interface ReplyEmail {
   inReplyTo: string | null;
   references: string[];
   date: Date;
+  /** Where answers to this email go, if not to `from`. */
+  replyTo?: string;
+  /** Extra headers, e.g. the intended recipient of a shadowed reply. */
+  headers?: Record<string, string>;
 }
 
 /** "Re: " once, never "Re: Re: ". */
@@ -49,6 +53,8 @@ export function buildReply(email: ReplyEmail): Promise<Uint8Array> {
     date: email.date,
     ...(email.inReplyTo ? { inReplyTo: email.inReplyTo } : {}),
     ...(email.references.length > 0 ? { references: email.references } : {}),
+    ...(email.replyTo ? { replyTo: email.replyTo } : {}),
+    ...(email.headers ? { headers: email.headers } : {}),
   });
   return new Promise((resolve, reject) => {
     composer.compile().build((error, message) => {

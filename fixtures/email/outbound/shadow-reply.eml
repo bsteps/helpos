@@ -1,0 +1,17 @@
+X-Helpos-Intended-To: jane@customer.test
+From: support@acme.test
+To: partner@acme.test
+Reply-To: no-reply@acme.test
+In-Reply-To: <login-1@customer.test>
+References: <login-1@customer.test>
+Subject: Re: Cannot log in
+Message-ID: <reply-1@acme.test>
+Date: Sat, 07 Nov 2026 10:00:00 +0000
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+[HelpOS shadow mode] This reply was NOT sent to the customer.
+It would have gone to: jane@customer.test
+----
+Hi Jane, we reset your session. Please try again.

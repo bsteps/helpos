@@ -2,9 +2,11 @@ import { and, eq, schema, type TenantTx, uuidv7 } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
+import { planDelivery } from "../outbound-email/shadow.ts";
 import { buildReply, type EmailTransport, replySubject } from "../outbound-email/transport.ts";
+import { noticeReplyTo } from "./notice-worker.ts";
 
-const { customers, drafts, mailboxes, messages, tickets } = schema;
+const { customers, drafts, mailboxes, messages, tenants, tickets } = schema;
 
 export interface SendWorkerDeps {
   transport: EmailTransport;
@@ -15,8 +17,9 @@ export interface SendWorkerDeps {
 export const sendWorkerActor = { type: "system", id: "send-reply" } as const;
 
 /**
- * Sends one approved draft as a threaded reply, from the workspace mailbox to the customer.
- * The only code that sends email. A draft that isn't `approved` is never sent.
+ * Sends one approved draft as a threaded reply, from the workspace mailbox to the customer, or
+ * in shadow mode to the shadow recipient instead. The only code that sends replies. A draft
+ * that isn't `approved` is never sent.
  */
 export function handleSendReply(deps: SendWorkerDeps) {
   return async (payload: { tenantId: string; draftId: string }, tx: TenantTx): Promise<void> => {
@@ -31,12 +34,14 @@ export function handleSendReply(deps: SendWorkerDeps) {
         },
         mailbox: mailboxes.address,
         customer: customers.email,
+        shadow: { shadowMode: tenants.shadowMode, shadowRecipient: tenants.shadowRecipient },
       })
       .from(drafts)
       .innerJoin(messages, eq(messages.id, drafts.messageId))
       .innerJoin(tickets, eq(tickets.id, drafts.ticketId))
       .innerJoin(mailboxes, eq(mailboxes.id, tickets.mailboxId))
       .innerJoin(customers, eq(customers.id, tickets.customerId))
+      .innerJoin(tenants, eq(tenants.id, drafts.tenantId))
       .where(eq(drafts.id, draftId))
       // Locks the draft, so two workers can't both send it.
       .for("update", { of: drafts });
@@ -56,16 +61,26 @@ export function handleSendReply(deps: SendWorkerDeps) {
     const references = inbound.messageIdHeader
       ? [...inbound.references, inbound.messageIdHeader]
       : inbound.references;
-    const raw = await buildReply({
-      from: row.mailbox,
-      to: row.customer,
-      subject,
-      text: draft.body,
-      messageId: draft.outboundMessageIdHeader,
-      inReplyTo: inbound.messageIdHeader,
-      references,
-      date: now,
-    });
+    const delivery = planDelivery(
+      {
+        from: row.mailbox,
+        to: row.customer,
+        subject,
+        text: draft.body,
+        messageId: draft.outboundMessageIdHeader,
+        inReplyTo: inbound.messageIdHeader,
+        references,
+        date: now,
+      },
+      { ...row.shadow, shadowReplyTo: noticeReplyTo(row.mailbox) },
+    );
+    if (delivery.kind === "no_recipient") {
+      // Thrown, not skipped: the draft stays approved and pg-boss retries, so it goes out once
+      // a shadow recipient is set. It must never fall through to the customer.
+      throw new Error("send-reply: shadow mode is on but no shadow recipient is set");
+    }
+    const { email } = delivery;
+    const raw = await buildReply(email);
 
     // Database writes first and the send last: if the send fails, the transaction rolls back,
     // the draft stays `approved` and pg-boss retries.
@@ -78,9 +93,10 @@ export function handleSendReply(deps: SendWorkerDeps) {
       ticketId: draft.ticketId,
       direction: "outbound",
       fromAddress: row.mailbox,
-      toAddresses: [row.customer],
+      // Who really got it: in shadow mode, the shadow recipient, never the customer.
+      toAddresses: [email.to],
       subject,
-      textBody: draft.body,
+      textBody: email.text,
       messageIdHeader: draft.outboundMessageIdHeader,
       inReplyTo: inbound.messageIdHeader,
       references,
@@ -102,7 +118,10 @@ export function handleSendReply(deps: SendWorkerDeps) {
       requestId: null,
     });
 
-    await deps.transport.send({ from: row.mailbox, to: [row.customer], raw });
-    deps.logger.info({ draftId, ticketId: draft.ticketId }, "reply sent");
+    await deps.transport.send({ from: row.mailbox, to: [email.to], raw });
+    deps.logger.info(
+      { draftId, ticketId: draft.ticketId, shadow: delivery.kind === "shadow" },
+      "reply sent",
+    );
   };
 }

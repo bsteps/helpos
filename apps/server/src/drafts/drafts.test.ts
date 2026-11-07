@@ -1,6 +1,7 @@
 import { mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
+  and,
   asc,
   createAuthStore,
   createDatabase,
@@ -18,6 +19,7 @@ import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { noticeSubject } from "../outbound-email/draft-notice.ts";
+import { intendedToHeader } from "../outbound-email/shadow.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
@@ -42,12 +44,17 @@ let runner: JobRunner;
 let transport: EmailTransport;
 let acme: string;
 let other: string;
+let shadowed: string;
+/** HELPOS_ALLOW_SHADOW_MODE_OFF, as the app under test sees it. */
+let allowShadowModeOff = false;
 
 /** Test credentials: the bearer value names a principal. Real tokens come with #49. */
 const principals: Record<string, () => Principal> = {
   approver: () => principal(acme, ["tickets:read", "drafts:write", "drafts:approve"]),
   drafter: () => principal(acme, ["tickets:read", "drafts:write"]),
   outsider: () => principal(other, ["tickets:read", "drafts:write", "drafts:approve"]),
+  shadowApprover: () => principal(shadowed, ["tickets:read", "drafts:write", "drafts:approve"]),
+  shadowAdmin: () => principal(shadowed, ["tickets:read", "workspace:admin"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -61,6 +68,7 @@ const app = () =>
     inboundSecret: undefined,
     // No wait in tests, so the Mailpit case doesn't take 5 minutes.
     noticeDelaySeconds: 0,
+    allowShadowModeOff,
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -81,12 +89,12 @@ let emailCount = 0;
 /** A fresh customer email to Acme, with a unique Message-ID and subject. */
 async function receiveEmail(
   body = "Hi, I cannot log in since this morning.",
-  options: { replyTo?: string; html?: boolean } = {},
+  options: { replyTo?: string; html?: boolean; to?: string } = {},
 ) {
   emailCount++;
   const raw = [
     "From: Jane Customer <jane@customer.test>",
-    "To: support@acme.test",
+    `To: ${options.to ?? "support@acme.test"}`,
     `Subject: Cannot log in ${emailCount}`,
     `Message-ID: <login-${emailCount}@customer.test>`,
     ...(options.replyTo
@@ -182,8 +190,19 @@ beforeAll(async () => {
     { workspace: "Other", mailbox: "help@other.test", owner: "owner@other.test" },
   );
   if (!a.ok || !o.ok) throw new Error("setup failed");
+  const s = await initWorkspace(
+    { db, auth },
+    { workspace: "Shadowed", mailbox: "support@shadowed.test", owner: "partner@shadowed.test" },
+  );
+  if (!s.ok) throw new Error("setup failed");
   acme = a.tenantId;
   other = o.tenantId;
+  shadowed = s.tenantId;
+  // The other tests check real delivery to the customer, so Acme runs with shadow mode off.
+  // Set directly: the API refuses it while HELPOS_ALLOW_SHADOW_MODE_OFF is unset.
+  await db.withTenant(acme, (tx) =>
+    tx.update(schema.tenants).set({ shadowMode: false }).where(eq(schema.tenants.id, acme)),
+  );
 });
 
 afterAll(async () => {
@@ -286,6 +305,118 @@ describe("draft → approve → send", () => {
     expect(audit[2]?.requestId).toBe(requestId);
   });
 });
+
+describe("shadow mode", () => {
+  it("a new workspace is in shadow mode, sending to its owner", async () => {
+    const res = await call("GET", "/v1/workspace/shadow-mode", "shadowAdmin");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ enabled: true, recipient: "partner@shadowed.test" });
+  });
+
+  it("the reply goes to the shadow recipient, never the customer", async () => {
+    const email = await receiveEmail("Hi, where is my order?", { to: "support@shadowed.test" });
+    const pending = await waitFor("shadowed draft", async () =>
+      (
+        await db.withTenant(shadowed, (tx) =>
+          tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+        )
+      ).find((d) => d.status === "pending"),
+    );
+    const approve = await call("POST", `/v1/drafts/${pending.id}/approve`, "shadowApprover", {
+      body: pending.body,
+    });
+    expect(approve.status).toBe(200);
+
+    const mail = await waitFor("shadowed mail in Mailpit", async () =>
+      (await mailpitMessages()).find((m) => m.Subject === `Re: ${email.subject}`),
+    );
+    expect(mail.To.map((t) => t.Address)).toEqual(["partner@shadowed.test"]);
+    const headers = (await (
+      await fetch(`${mailpitApi}/api/v1/message/${mail.ID}/headers`)
+    ).json()) as Record<string, string[]>;
+    const intended = Object.entries(headers).find(
+      ([name]) => name.toLowerCase() === intendedToHeader.toLowerCase(),
+    );
+    expect(intended?.[1]).toEqual(["jane@customer.test"]);
+    const detail = (await (await fetch(`${mailpitApi}/api/v1/message/${mail.ID}`)).json()) as {
+      Text: string;
+    };
+    expect(detail.Text).toContain("It would have gone to: jane@customer.test");
+
+    // Not one copy reached the customer, not even as Cc or Bcc in the SMTP envelope.
+    const forThisTicket = (await mailpitMessages()).filter((m) =>
+      m.Subject.includes(email.subject),
+    );
+    expect(forThisTicket).toHaveLength(1);
+    const full = (await (await fetch(`${mailpitApi}/api/v1/message/${mail.ID}`)).json()) as {
+      Cc: { Address: string }[];
+      Bcc: { Address: string }[];
+    };
+    const everyone = [...mail.To, ...full.Cc, ...full.Bcc].map((t) => t.Address);
+    expect(everyone).not.toContain("jane@customer.test");
+
+    // The ticket records who really got it.
+    const [outbound] = await db.withTenant(shadowed, (tx) =>
+      tx
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.ticketId, email.ticketId),
+            eq(schema.messages.direction, "outbound"),
+          ),
+        ),
+    );
+    expect(outbound?.toAddresses).toEqual(["partner@shadowed.test"]);
+  });
+
+  it("turning it off is refused while the server flag is unset, and nothing changes", async () => {
+    const res = await call("PATCH", "/v1/workspace/shadow-mode", "shadowAdmin", { enabled: false });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "shadow_mode_locked" });
+    const after = await call("GET", "/v1/workspace/shadow-mode", "shadowAdmin");
+    expect(await after.json()).toMatchObject({ enabled: true });
+    expect(await shadowAudit()).toHaveLength(0);
+  });
+
+  it("needs workspace:admin", async () => {
+    const res = await call("PATCH", "/v1/workspace/shadow-mode", "shadowApprover", {
+      recipient: "x@shadowed.test",
+    });
+    expect(res.status).toBe(403);
+    expect((await call("GET", "/v1/workspace/shadow-mode", null)).status).toBe(401);
+  });
+
+  it("with the flag set, turning it off is audit-logged with who did it", async () => {
+    allowShadowModeOff = true;
+    try {
+      const res = await call("PATCH", "/v1/workspace/shadow-mode", "shadowAdmin", {
+        enabled: false,
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ enabled: false, recipient: "partner@shadowed.test" });
+      const audit = await shadowAudit();
+      expect(audit.map((e) => [e.action, e.actorType, e.actorId, e.targetId])).toEqual([
+        ["workspace.shadow_mode_disabled", "agent", "test-agent", shadowed],
+      ]);
+      expect(audit[0]?.requestId).toBe(res.headers.get("x-request-id"));
+    } finally {
+      allowShadowModeOff = false;
+      // Back on, so nothing later in this file can reach a customer from this workspace.
+      await call("PATCH", "/v1/workspace/shadow-mode", "shadowAdmin", { enabled: true });
+    }
+  });
+});
+
+function shadowAudit() {
+  return db.withTenant(shadowed, (tx) =>
+    tx
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.targetType, "workspace"))
+      .orderBy(asc(schema.auditEvents.createdAt)),
+  );
+}
 
 describe("draft waiting notice", () => {
   /** Notices in Mailpit that link to this ticket. */
