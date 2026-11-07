@@ -13,10 +13,15 @@ export interface AuditEvent {
     | "draft.sent"
     | "draft.notice_sent"
     | "ai.paused"
+    | "knowledge_source.created"
+    | "knowledge_source.deleted"
+    | "knowledge_source.reingest_requested"
+    | "knowledge_source.ingested"
+    | "knowledge_source.failed"
     | "workspace.shadow_mode_enabled"
     | "workspace.shadow_mode_disabled"
     | "workspace.shadow_recipient_changed";
-  target: { type: "draft" | "ticket" | "workspace"; id: string };
+  target: { type: "draft" | "ticket" | "knowledge_source" | "workspace"; id: string };
   /** The HTTP request ID, or null when a background job acts. */
   requestId: string | null;
 }

@@ -9,6 +9,7 @@ import { registerAiUsageRoute } from "./ai-budget/routes.ts";
 import { type Authenticate, refuseAll } from "./auth/principal.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
+import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 
 export interface AppDeps {
@@ -63,6 +64,7 @@ export function createApp({
     ...(noticeDelaySeconds !== undefined ? { noticeDelaySeconds } : {}),
   });
   registerAiUsageRoute(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
+  registerKnowledgeRoutes(app, { db, authenticate });
   registerShadowModeRoutes(app, { db, authenticate, allowShadowModeOff });
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.

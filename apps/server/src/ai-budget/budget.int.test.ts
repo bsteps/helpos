@@ -8,6 +8,7 @@ import {
   eq,
   type JobRunner,
   schema,
+  tenantTransactions,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -53,8 +54,9 @@ async function receive(n: number, to = "support@acme.test") {
 
 /** Runs the draft job for one message, as the worker would. */
 async function draft(tenantId: string, messageId: string, model = mockModel(callCost)) {
-  await db.withTenant(tenantId, (tx) =>
-    handleDraftReply({ model, logger, dailyTokenBudget: budget, now })({ tenantId, messageId }, tx),
+  await handleDraftReply({ model, logger, dailyTokenBudget: budget, now })(
+    { tenantId, messageId },
+    tenantTransactions(db, tenantId),
   );
   return model;
 }

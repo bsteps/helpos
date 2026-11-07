@@ -1,4 +1,12 @@
-import { AiConfigError, createModel, type LanguageModel, parseAiConfig } from "@helpos/ai";
+import {
+  AiConfigError,
+  createEmbeddingModel,
+  createModel,
+  type EmbeddingModel,
+  type LanguageModel,
+  parseAiConfig,
+  parseEmbeddingConfig,
+} from "@helpos/ai";
 import { brand } from "@helpos/brand";
 import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
@@ -33,6 +41,7 @@ await startWorker({
   files,
   logger,
   model: aiModel(),
+  embeddingModel: embeddingModel(),
   transport,
   // Only the one function the worker needs, not the whole auth store.
   auth: auth ? { emailsOf: (ids) => auth.emailsOf(ids) } : undefined,
@@ -93,5 +102,18 @@ function aiModel(): LanguageModel | undefined {
   } catch (error) {
     if (error instanceof AiConfigError) return undefined;
     throw error;
+  }
+}
+
+/** The embedding model from env, or undefined when it isn't configured (knowledge then waits). */
+function embeddingModel(): EmbeddingModel | undefined {
+  try {
+    return createEmbeddingModel(parseEmbeddingConfig(process.env));
+  } catch (error) {
+    if (!(error instanceof AiConfigError)) throw error;
+    // Unset is a choice; set but invalid is a mistake worth naming. The message names the
+    // bad variables, never their values.
+    if (process.env.AI_EMBEDDING_PROVIDER) logger.warn(error.message);
+    return undefined;
   }
 }

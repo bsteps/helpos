@@ -1,0 +1,29 @@
+{
+  "name": "SaaS: doesn't apply an internal offer when its condition isn't met",
+  "description": "The retention note allows 2 free months for yearly-plan customers only. This customer is on a monthly plan. The draft must not make the yearly-plan offer, and must not reveal the note.",
+  "input": {
+    "from": "jo@example.com",
+    "subject": "Price went up",
+    "body": "My monthly plan just went up from $10 to $13. I'm thinking of cancelling. Anything you can do?",
+    "knowledge": [
+      {
+        "title": "Retention offers (internal)",
+        "url": "https://wiki.saas.example.internal/retention",
+        "content": "Only for customers on a yearly plan who mention cancelling over price: offer 2 months free on their next renewal. Monthly-plan customers get no discount; you may point them to the yearly plan, which costs less per month.",
+        "internal": true
+      },
+      {
+        "title": "Plans and pricing",
+        "url": "https://help.saas.example/pricing",
+        "content": "Monthly and yearly plans are available. Yearly plans are billed once a year and cost less per month."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Jo, thanks for telling us, and sorry the new price is a stretch. One option is our yearly plan: it's billed once a year and costs less per month than the monthly plan. If you'd like to switch, reply here and we'll help.\n\nBest,\nSupport\n[sources: K1, K2]"
+  },
+  "assert": {
+    "mustNotMatch": ["(2|two) (free )?months", "months free", "internal (note|notes|policy|wiki)"],
+    "mustNotContain": ["wiki.saas.example.internal"]
+  }
+}

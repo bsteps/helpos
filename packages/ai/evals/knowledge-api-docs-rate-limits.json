@@ -1,0 +1,41 @@
+{
+  "name": "Developer API docs: answers a technical question exactly",
+  "description": "A developer gets HTTP 429 errors. The API docs give the exact limit and header. The draft must quote the limit and the Retry-After header correctly and cite only the rate-limit page.",
+  "input": {
+    "from": "dev@startup.example",
+    "subject": "Getting 429s",
+    "body": "Our integration keeps getting HTTP 429 from your API since this morning. What is the limit, and how should we back off?",
+    "knowledge": [
+      {
+        "title": "Authentication",
+        "url": "https://docs.api.example/auth",
+        "content": "Send your API key as a bearer token: Authorization: Bearer <key>. Keys are created under Settings, API keys."
+      },
+      {
+        "title": "Rate limits",
+        "url": "https://docs.api.example/rate-limits",
+        "content": "Each API key may make 100 requests per minute. Over the limit, the API answers 429 Too Many Requests with a Retry-After header giving the seconds to wait.\n\n```\nHTTP/1.1 429 Too Many Requests\nRetry-After: 12\n```\n\nWait the number of seconds in Retry-After before retrying."
+      },
+      {
+        "title": "Webhooks",
+        "url": "https://docs.api.example/webhooks",
+        "content": "Webhooks are retried up to 5 times with exponential backoff if your endpoint does not answer 2xx."
+      },
+      {
+        "title": "Pagination",
+        "url": "https://docs.api.example/pagination",
+        "content": "List endpoints return 50 items per page. Pass the next_cursor value to get the next page."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi, each API key can make 100 requests per minute. Above that the API returns 429 with a Retry-After header, which gives the number of seconds to wait. Please wait that long before retrying.\n\nBest,\nSupport\n[sources: K2]"
+  },
+  "assert": {
+    "mustContain": ["100", "Retry-After"],
+    "mustMatch": ["per minute|/min|a minute|each minute"],
+    "mustNotMatch": ["(^|[^0-9])(50|1000|5) requests"],
+    "mustCite": ["Rate limits"],
+    "mustNotCite": ["Webhooks", "Pagination"]
+  }
+}

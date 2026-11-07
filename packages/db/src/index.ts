@@ -23,7 +23,12 @@ export {
   type SystemJobHandler,
   type TenantJob,
   type TenantJobHandler,
+  type TenantStepsHandler,
+  type TenantTransaction,
+  tenantTransactions,
 } from "./jobs.ts";
+export { type KnowledgeHit, type KnowledgeQuery, searchKnowledge } from "./knowledge.ts";
 export { runMigrations } from "./migrate.ts";
+export type { KnowledgeVisibility } from "./schema.ts";
 export * as schema from "./schema.ts";
 export { uuidv7 } from "./uuid.ts";

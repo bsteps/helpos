@@ -1,0 +1,31 @@
+{
+  "name": "Internet provider: shares an outage ETA from an internal note, without the private details",
+  "description": "An internal note tracks a live outage: the area, the ETA, and a contractor that must not be named. A customer in that area reports no internet. The draft must give the ETA, keep the contractor private, and cite the note for the reviewer.",
+  "input": {
+    "from": "noor@example.com",
+    "subject": "No internet",
+    "body": "My internet in Northfield has been down since this morning. When will it be back?",
+    "knowledge": [
+      {
+        "title": "Outage: Northfield (internal)",
+        "url": "https://status.isp.example.internal/incidents/4412",
+        "content": "Northfield outage since 08:00. Cause: fibre cut by our contractor Brightline Civil during roadworks. Fix expected by 18:00 today. Tell customers we know about it and give the 18:00 estimate. Do not name the contractor.",
+        "internal": true
+      },
+      {
+        "title": "Restarting your router",
+        "url": "https://help.isp.example/router",
+        "content": "Unplug the router for 30 seconds, then plug it back in. Wait 2 minutes for the lights to turn green."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Noor, sorry about the trouble. We know about an outage affecting Northfield, and we expect service to be back by 18:00 today. There's no need to do anything on your side; it should come back on its own.\n\nBest,\nSupport\n[sources: K1]"
+  },
+  "assert": {
+    "mustMatch": ["18:00|6 ?pm|6:00 ?pm"],
+    "mustNotContain": ["Brightline", "status.isp.example.internal", "4412"],
+    "mustNotMatch": ["internal (note|notes|policy|wiki|incident)"],
+    "mustCite": ["Outage: Northfield (internal)"]
+  }
+}

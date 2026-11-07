@@ -5,6 +5,7 @@ import {
   desc,
   enqueue,
   eq,
+  inArray,
   isNull,
   ne,
   schema,
@@ -16,11 +17,16 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
-import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
+import {
+  type Authenticate,
+  type Principal,
+  requirePrincipal,
+  type Scope,
+} from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
-const { drafts, mailboxes, messages, tickets } = schema;
+const { draftCitations, drafts, mailboxes, messages, tickets } = schema;
 type DraftRow = typeof drafts.$inferSelect;
 
 export interface DraftRoutesDeps {
@@ -34,6 +40,23 @@ export interface DraftRoutesDeps {
 }
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
+const draftSourceSchema = z
+  .object({
+    /** Null when the source has since been deleted; the rest is what the draft saw. */
+    sourceId: z.uuid().nullable(),
+    title: z.string(),
+    url: z.string().nullable(),
+    /**
+     * `internal` sources are the team's notes: the draft may follow them, so check it doesn't
+     * reveal them before approving.
+     */
+    visibility: z.enum(schema.knowledgeVisibilities),
+    /** The passage the model was given. */
+    excerpt: z.string(),
+    /** True when the model says it used this passage; false when it was offered but unused. */
+    cited: z.boolean(),
+  })
+  .openapi("DraftSource");
 const draftSchema = z
   .object({
     id: z.uuid(),
@@ -46,8 +69,21 @@ const draftSchema = z
     updatedAt: z.iso.datetime(),
     approvedAt: z.iso.datetime().nullable(),
     sentAt: z.iso.datetime().nullable(),
+    /**
+     * Knowledge passages the draft was written with, best match first. Always empty for a
+     * caller without `knowledge:read`.
+     */
+    sources: z.array(draftSourceSchema),
+    /**
+     * True when the model was shown one of the team's internal notes while writing the draft.
+     * For every caller, even without `knowledge:read`: whoever approves the draft should check
+     * it doesn't reveal the note.
+     */
+    internalKnowledge: z.boolean(),
   })
   .openapi("Draft");
+type DraftJson = z.infer<typeof draftSchema>;
+type DraftSourceJson = z.infer<typeof draftSourceSchema>;
 
 const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
 const json = <T extends z.ZodType>(schema: T, description: string) => ({
@@ -176,7 +212,7 @@ const createRoute_ = createRoute({
   },
 });
 
-function serialize(d: DraftRow): z.infer<typeof draftSchema> {
+function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: boolean): DraftJson {
   return {
     id: d.id,
     ticketId: d.ticketId,
@@ -187,7 +223,51 @@ function serialize(d: DraftRow): z.infer<typeof draftSchema> {
     updatedAt: d.updatedAt.toISOString(),
     approvedAt: d.approvedAt?.toISOString() ?? null,
     sentAt: d.sentAt?.toISOString() ?? null,
+    sources,
+    internalKnowledge,
   };
+}
+
+/**
+ * The drafts as the API shows them to `principal`. Their knowledge sources only with
+ * `knowledge:read`: titles, links and passages of internal notes are knowledge, and reading
+ * drafts must not be a way around that scope.
+ */
+async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
+  if (rows.length === 0) return [];
+  const canRead = principal.scopes.has("knowledge:read");
+  const cited = await tx
+    .select({
+      draftId: draftCitations.draftId,
+      sourceId: draftCitations.sourceId,
+      title: draftCitations.title,
+      url: draftCitations.url,
+      visibility: draftCitations.visibility,
+      excerpt: draftCitations.excerpt,
+      cited: draftCitations.cited,
+    })
+    .from(draftCitations)
+    .where(
+      inArray(
+        draftCitations.draftId,
+        rows.map((r) => r.id),
+      ),
+    )
+    .orderBy(asc(draftCitations.rank));
+  return rows.map((row) => {
+    const seen = cited.filter((c) => c.draftId === row.id);
+    return serialize(
+      row,
+      canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
+      seen.some((c) => c.visibility === "internal"),
+    );
+  });
+}
+
+async function presentOne(tx: TenantTx, principal: Principal, row: DraftRow): Promise<DraftJson> {
+  const [json] = await present(tx, principal, [row]);
+  if (!json) throw new Error("present draft: no result");
+  return json;
 }
 
 /** The principal set by requirePrincipal(), if it holds `scope`. */
@@ -215,11 +295,16 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
       if (!ticket) return null;
-      return tx.select().from(drafts).where(eq(drafts.ticketId, id)).orderBy(asc(drafts.createdAt));
+      const rows = await tx
+        .select()
+        .from(drafts)
+        .where(eq(drafts.ticketId, id))
+        .orderBy(asc(drafts.createdAt));
+      return present(tx, principal, rows);
     });
     // Another workspace's ticket looks exactly like one that doesn't exist.
     if (!result) return c.json({ error: "not_found" }, 404);
-    return c.json({ drafts: result.map(serialize) }, 200);
+    return c.json({ drafts: result }, 200);
   });
 
   app.openapi(editRoute, async (c) => {
@@ -242,11 +327,11 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         target: { type: "draft", id },
         requestId: c.get("requestId"),
       });
-      return updated;
+      return presentOne(tx, principal, updated);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
-    return c.json(serialize(result), 200);
+    return c.json(result, 200);
   });
 
   app.openapi(approveRoute, async (c) => {
@@ -290,11 +375,11 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         { tenantId: principal.tenantId, draftId: id },
         { singletonKey: id },
       );
-      return approved;
+      return presentOne(tx, principal, approved);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
-    return c.json(serialize(result), 200);
+    return c.json(result, 200);
   });
 
   registerDiscardRoute(app, deps);
@@ -392,7 +477,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         target: { type: "draft", id: draft.id },
         requestId,
       });
-      return draft;
+      return presentOne(tx, principal, draft);
     });
 
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
@@ -404,7 +489,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return c.json({ error: result }, 409);
     }
     if (result === "queued") return c.json({ status: "queued" as const }, 202);
-    return c.json(serialize(result), 201);
+    return c.json(result, 201);
   });
 }
 
@@ -427,11 +512,11 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         target: { type: "draft", id },
         requestId: c.get("requestId"),
       });
-      return discarded;
+      return presentOne(tx, principal, discarded);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
-    return c.json(serialize(result), 200);
+    return c.json(result, 200);
   });
 }
 

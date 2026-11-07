@@ -1,0 +1,59 @@
+{
+  "name": "Shop: finds the right article when search ranked it last of eight",
+  "description": "An online shop's help center returns eight passages, and the one that answers the question comes last. Retrieval order is a hint, not the answer: the draft must use and cite the return-label article and none of the others.",
+  "input": {
+    "from": "ana@example.com",
+    "subject": "Return label",
+    "body": "Hi, I want to send back the boots from order #5521. How do I get a return label?",
+    "knowledge": [
+      {
+        "title": "Shipping times",
+        "url": "https://help.shop.example/shipping",
+        "content": "Standard shipping takes 3 to 7 business days. Express shipping arrives in 1 to 2 business days."
+      },
+      {
+        "title": "Order tracking",
+        "url": "https://help.shop.example/tracking",
+        "content": "Every order gets a tracking link by email once it ships. The link also appears on the Orders page."
+      },
+      {
+        "title": "Changing an order",
+        "url": "https://help.shop.example/change-order",
+        "content": "You can change the size or delivery address within 2 hours of placing an order."
+      },
+      {
+        "title": "Gift cards",
+        "url": "https://help.shop.example/gift-cards",
+        "content": "Gift cards never expire and can be used on any order, including sale items."
+      },
+      {
+        "title": "Size guide",
+        "url": "https://help.shop.example/sizes",
+        "content": "Our boots run half a size small. If you are between sizes, choose the larger one."
+      },
+      {
+        "title": "Payment methods",
+        "url": "https://help.shop.example/payments",
+        "content": "We accept cards, PayPal and Apple Pay. Cards are charged when the order ships."
+      },
+      {
+        "title": "Store pickup",
+        "url": "https://help.shop.example/pickup",
+        "content": "Orders marked for pickup are held at the store for 7 days."
+      },
+      {
+        "title": "Return labels",
+        "url": "https://help.shop.example/return-labels",
+        "content": "To return an item, open the order on the Orders page and choose Return items. A prepaid return label is emailed to you within 1 hour. Returns are free within 30 days of delivery."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Ana, open order #5521 on the Orders page and choose Return items. We'll email you a prepaid return label within an hour, and returns are free within 30 days of delivery.\n\nBest,\nSupport\n[sources: K8]"
+  },
+  "assert": {
+    "mustContain": ["prepaid", "Return items"],
+    "mustCite": ["Return labels"],
+    "mustNotCite": ["Shipping times", "Size guide", "Store pickup", "Gift cards"]
+  }
+}

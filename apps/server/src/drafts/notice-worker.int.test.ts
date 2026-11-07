@@ -8,6 +8,7 @@ import {
   eq,
   type JobRunner,
   schema,
+  tenantTransactions,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -45,11 +46,9 @@ async function pendingDraft() {
   ].join("\r\n");
   const email = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (email.kind !== "created") throw new Error(email.kind);
-  await db.withTenant(acme, (tx) =>
-    handleDraftReply({ model: mockModel({ text: "On it." }), logger, dailyTokenBudget: 1e6 })(
-      { tenantId: acme, messageId: email.messageId },
-      tx,
-    ),
+  await handleDraftReply({ model: mockModel({ text: "On it." }), logger, dailyTokenBudget: 1e6 })(
+    { tenantId: acme, messageId: email.messageId },
+    tenantTransactions(db, acme),
   );
   const [draft] = await db.withTenant(acme, (tx) =>
     tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),

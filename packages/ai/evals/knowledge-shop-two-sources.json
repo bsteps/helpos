@@ -1,0 +1,35 @@
+{
+  "name": "Shop: combines two articles when the question needs both",
+  "description": "The customer asks two things: when the refund arrives, and who pays return shipping for a damaged item. Each answer is in a different article. The draft must answer both and cite both.",
+  "input": {
+    "from": "omar@example.com",
+    "subject": "Damaged lamp",
+    "body": "My lamp arrived with a cracked base. If I send it back, do I have to pay for shipping? And how long until I get my money?",
+    "knowledge": [
+      {
+        "title": "Refund policy",
+        "url": "https://help.shop.example/refunds",
+        "content": "Refunds go to the original payment method within 5 business days of us receiving the return."
+      },
+      {
+        "title": "Store pickup",
+        "url": "https://help.shop.example/pickup",
+        "content": "Orders marked for pickup are held at the store for 7 days."
+      },
+      {
+        "title": "Damaged or faulty items",
+        "url": "https://help.shop.example/damaged",
+        "content": "If an item arrives damaged, return shipping is free: we email a prepaid label. Please include a photo of the damage in your return request."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Omar, sorry the lamp arrived cracked. Return shipping is free for damaged items: we'll email you a prepaid label, and please include a photo of the damage with your return request. Once we receive the lamp, the refund goes to your original payment method within 5 business days.\n\nBest,\nSupport\n[sources: K3, K1]"
+  },
+  "assert": {
+    "mustContain": ["5 business days", "photo"],
+    "mustMatch": ["free|no cost|won't (have to )?pay|don't (have to|need to) pay"],
+    "mustCite": ["Refund policy", "Damaged or faulty items"],
+    "mustNotCite": ["Store pickup"]
+  }
+}

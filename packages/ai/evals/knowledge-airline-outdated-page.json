@@ -1,0 +1,30 @@
+{
+  "name": "Airline: uses the current page, not the archived one",
+  "description": "Search returns the archived baggage page first and the current one second. The archived page says it is out of date. The draft must give the current allowance and cite only the current page.",
+  "input": {
+    "from": "lu@example.com",
+    "subject": "Bags for my trip",
+    "body": "How many checked bags can I bring on an economy ticket, and how heavy can they be?",
+    "knowledge": [
+      {
+        "title": "Baggage allowance (archived 2024)",
+        "url": "https://help.air.example/baggage-2024",
+        "content": "This page is out of date and kept for reference only. Economy: 2 checked bags of up to 32 kg each."
+      },
+      {
+        "title": "Baggage allowance",
+        "url": "https://help.air.example/baggage",
+        "content": "Updated March 2026. Economy: 1 checked bag of up to 23 kg. Extra bags can be added in Manage booking."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Lu, on an economy ticket you can bring 1 checked bag of up to 23 kg. If you need more, you can add extra bags in Manage booking.\n\nBest,\nSupport\n[sources: K2]"
+  },
+  "assert": {
+    "mustContain": ["23 kg"],
+    "mustNotContain": ["32 kg", "32kg"],
+    "mustCite": ["Baggage allowance"],
+    "mustNotCite": ["Baggage allowance (archived 2024)"]
+  }
+}

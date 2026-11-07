@@ -23,12 +23,32 @@ export interface TestDatabase {
 export async function startTestDatabase(): Promise<TestDatabase> {
   const container = await new PostgreSqlContainer("pgvector/pgvector:pg17")
     .withCopyFilesToContainer([{ source: initSql, target: "/docker-entrypoint-initdb.d/init.sql" }])
+    // A throwaway database: durability only costs disk writes, and small buffers let several
+    // run at once in Docker Desktop's default VM without it running out of memory.
+    .withCommand([
+      "postgres",
+      "-c",
+      "fsync=off",
+      "-c",
+      "synchronous_commit=off",
+      "-c",
+      "full_page_writes=off",
+      "-c",
+      "shared_buffers=32MB",
+    ])
     .start();
   const hostPort = `${container.getHost()}:${container.getPort()}`;
   const ownerUrl = `postgres://helpos_owner:helpos_owner@${hostPort}/helpos`;
-  await runMigrations(ownerUrl);
   const jobsUrl = `postgres://helpos_jobs:helpos_jobs@${hostPort}/helpos`;
-  await installJobs(jobsUrl);
+  try {
+    await runMigrations(ownerUrl);
+    await installJobs(jobsUrl);
+  } catch (error) {
+    // The test file never gets the container to stop, so stop it here rather than leave it
+    // running until Testcontainers' reaper notices.
+    await container.stop();
+    throw error;
+  }
   return {
     container,
     ownerUrl,

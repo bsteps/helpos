@@ -10,6 +10,7 @@ import {
   eq,
   type JobRunner,
   schema,
+  tenantTransactions,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -174,6 +175,7 @@ beforeAll(async () => {
     files,
     logger,
     model,
+    embeddingModel: undefined,
     transport,
     auth,
     publicUrl: "http://helpdesk.test",
@@ -561,11 +563,9 @@ describe("drafting in context", () => {
       ),
     );
     // Replays the older message's job, as if it had been slow or retried.
-    await db.withTenant(acme, (tx) =>
-      handleDraftReply({ model, logger, dailyTokenBudget: 1_000_000 })(
-        { tenantId: acme, messageId: first.messageId },
-        tx,
-      ),
+    await handleDraftReply({ model, logger, dailyTokenBudget: 1_000_000 })(
+      { tenantId: acme, messageId: first.messageId },
+      tenantTransactions(db, acme),
     );
     const live = (await draftsOf(first.ticketId)).filter((d) => d.status !== "discarded");
     expect(live.map((d) => d.id)).toEqual([newer.id]);

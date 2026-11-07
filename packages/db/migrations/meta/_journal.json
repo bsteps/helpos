@@ -64,6 +64,13 @@
       "when": 1794059157291,
       "tag": "0008_shadow-mode",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794080696632,
+      "tag": "0009_knowledge-base",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,29 @@
+{
+  "name": "Shop: answers the part it knows, and makes up nothing for the rest",
+  "description": "The customer asks how long a refund takes and whether there is a restocking fee. The passage covers only the timing. The draft must give the timing and not invent anything about fees.",
+  "input": {
+    "from": "ravi@example.com",
+    "subject": "Refund and fees",
+    "body": "If I return my TV, how long does the refund take, and is there a restocking fee?",
+    "knowledge": [
+      {
+        "title": "Refund policy",
+        "url": "https://help.shop.example/refunds",
+        "content": "Refunds go to the original payment method within 5 business days of us receiving the return."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Hi Ravi, once we receive the TV, your refund goes to your original payment method within 5 business days. A teammate will confirm the details on fees for you.\n\nBest,\nSupport\n[sources: K1]"
+  },
+  "assert": {
+    "mustContain": ["5 business days"],
+    "mustNotMatch": [
+      "no restocking fee|isn't a restocking fee|is not a restocking fee|there's no fee|there is no fee|free of charge|fee[- ]free",
+      "restocking fee (is|of) ",
+      "\\$[0-9]",
+      "[0-9]+ ?%"
+    ],
+    "mustCite": ["Refund policy"]
+  }
+}

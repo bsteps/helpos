@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { mockModel } from "../testing.ts";
+import { evalCaseSchema } from "./case.ts";
 import { runEvals } from "./runner.ts";
 import { draftReplyTask } from "./task.ts";
 
@@ -61,5 +62,30 @@ describe("runEvals", () => {
     failing.doGenerate = () => Promise.reject(new Error("provider down"));
     const results = await runEvals(evalsDir, failing);
     expect(results.every((r) => r.failures[0] === "task threw: provider down")).toBe(true);
+  });
+});
+
+describe("eval case schema", () => {
+  const base = {
+    name: "n",
+    description: "d",
+    input: { from: "a@x.test", subject: "s", body: "b" },
+    mock: { text: "ok" },
+    assert: { mustContain: ["ok"] },
+  };
+
+  it("refuses two passages with the same title, since citations are checked by title", () => {
+    const twice = { title: "Refunds", content: "x" };
+    const parsed = evalCaseSchema.safeParse({
+      ...base,
+      input: { ...base.input, knowledge: [twice, { ...twice, internal: true }] },
+    });
+    expect(parsed.success).toBe(false);
+    expect(
+      evalCaseSchema.safeParse({
+        ...base,
+        input: { ...base.input, knowledge: [twice, { title: "Shipping", content: "y" }] },
+      }).success,
+    ).toBe(true);
   });
 });
