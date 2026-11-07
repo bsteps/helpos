@@ -1,11 +1,29 @@
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import type { TenantTx } from "./client.ts";
+import { isUniqueViolation } from "./errors.ts";
 import {
   type KnowledgeVisibility,
   knowledgeEmbeddingDimensions,
   knowledgeVisibilities,
 } from "./schema.ts";
+
+/**
+ * The form a `url` source's URL is stored in, so one page is one source. WHATWG parsing already
+ * lowercases the host and drops a default port. The fragment is dropped here: it names a spot
+ * on the same page, which the fetch never sends. Path and query stay as they are, since a
+ * server may treat their case as meaningful.
+ */
+export function normalizeKnowledgeUrl(url: string): string {
+  const parsed = new URL(url);
+  parsed.hash = "";
+  return parsed.href;
+}
+
+/** True when an insert failed because the workspace already has a source for this URL. */
+export function isKnowledgeUrlTaken(error: unknown): boolean {
+  return isUniqueViolation(error, "knowledge_sources_tenant_url");
+}
 
 /** One retrieved passage, with the source it came from. */
 export interface KnowledgeHit {

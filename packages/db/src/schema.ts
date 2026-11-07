@@ -452,6 +452,9 @@ export const knowledgeSources = pgTable(
     unique("knowledge_sources_tenant_id_id").on(t.tenantId, t.id),
     // Per tenant, so A can't learn from an error that B uses a slug.
     unique("knowledge_sources_tenant_slug").on(t.tenantId, t.slug),
+    // One source per page, so drafts don't see the same passages twice. Per tenant too, and
+    // `url` is stored normalised (normalizeKnowledgeUrl()) so case or a fragment don't slip by.
+    uniqueIndex("knowledge_sources_tenant_url").on(t.tenantId, t.url).where(sql`${t.kind} = 'url'`),
     check("knowledge_sources_kind", sql`${t.kind} in ('url', 'markdown')`),
     check("knowledge_sources_status", sql`${t.status} in ('pending', 'ready', 'failed')`),
     check("knowledge_sources_visibility", sql`${t.visibility} in ('public', 'internal')`),
