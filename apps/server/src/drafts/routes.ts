@@ -17,7 +17,12 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
-import { type Authenticate, requirePrincipal, type Scope } from "../auth/principal.ts";
+import {
+  type Authenticate,
+  type Principal,
+  requirePrincipal,
+  type Scope,
+} from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -46,8 +51,11 @@ const draftSourceSchema = z
      * reveal them before approving.
      */
     visibility: z.enum(schema.knowledgeVisibilities),
-    /** The passage the model was given. */
-    excerpt: z.string(),
+    /**
+     * The passage the model was given. Null unless the caller has `knowledge:read`: internal
+     * notes are knowledge, and reading drafts shouldn't be a way around that scope.
+     */
+    excerpt: z.string().nullable(),
     /** True when the model says it used this passage; false when it was offered but unused. */
     cited: z.boolean(),
   })
@@ -213,8 +221,9 @@ function serialize(d: DraftRow, sources: DraftSourceJson[]): DraftJson {
   };
 }
 
-/** The drafts as the API shows them, each with its knowledge sources. */
-async function present(tx: TenantTx, rows: DraftRow[]): Promise<DraftJson[]> {
+/** The drafts as the API shows them to `principal`, each with its knowledge sources. */
+async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
+  const showExcerpts = principal.scopes.has("knowledge:read");
   if (rows.length === 0) return [];
   const cited = await tx
     .select({
@@ -237,13 +246,18 @@ async function present(tx: TenantTx, rows: DraftRow[]): Promise<DraftJson[]> {
   return rows.map((row) =>
     serialize(
       row,
-      cited.filter((c) => c.draftId === row.id).map(({ draftId: _, ...source }) => source),
+      cited
+        .filter((c) => c.draftId === row.id)
+        .map(({ draftId: _, excerpt, ...source }) => ({
+          ...source,
+          excerpt: showExcerpts ? excerpt : null,
+        })),
     ),
   );
 }
 
-async function presentOne(tx: TenantTx, row: DraftRow): Promise<DraftJson> {
-  const [json] = await present(tx, [row]);
+async function presentOne(tx: TenantTx, principal: Principal, row: DraftRow): Promise<DraftJson> {
+  const [json] = await present(tx, principal, [row]);
   if (!json) throw new Error("present draft: no result");
   return json;
 }
@@ -278,7 +292,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         .from(drafts)
         .where(eq(drafts.ticketId, id))
         .orderBy(asc(drafts.createdAt));
-      return present(tx, rows);
+      return present(tx, principal, rows);
     });
     // Another workspace's ticket looks exactly like one that doesn't exist.
     if (!result) return c.json({ error: "not_found" }, 404);
@@ -305,7 +319,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         target: { type: "draft", id },
         requestId: c.get("requestId"),
       });
-      return presentOne(tx, updated);
+      return presentOne(tx, principal, updated);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
@@ -353,7 +367,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         { tenantId: principal.tenantId, draftId: id },
         { singletonKey: id },
       );
-      return presentOne(tx, approved);
+      return presentOne(tx, principal, approved);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
@@ -455,7 +469,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         target: { type: "draft", id: draft.id },
         requestId,
       });
-      return presentOne(tx, draft);
+      return presentOne(tx, principal, draft);
     });
 
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
@@ -490,7 +504,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         target: { type: "draft", id },
         requestId: c.get("requestId"),
       });
-      return presentOne(tx, discarded);
+      return presentOne(tx, principal, discarded);
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);

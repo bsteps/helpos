@@ -51,6 +51,15 @@ describe("extractHtml", () => {
     expect(extractHtml("<p>x</p>").title).toBeNull();
   });
 
+  it("keeps line breaks in code blocks and separates table cells", () => {
+    const page =
+      "<p>Run:</p><pre>npm install\nnpm start</pre>" +
+      "<table><tr><th>Plan</th><th>Price</th></tr><tr><td>Pro</td><td>$20</td></tr></table>";
+    expect(extractHtml(page).text).toBe(
+      "Run:\n\nnpm install\nnpm start\n\nPlan | Price\n\nPro | $20",
+    );
+  });
+
   it("keeps a title without <head> out of the text, and ignores an icon's <svg> title", () => {
     const page = "<title>Refunds</title><svg><title>Close icon</title></svg><p>Five days.</p>";
     expect(extractHtml(page)).toEqual({ title: "Refunds", text: "Five days." });

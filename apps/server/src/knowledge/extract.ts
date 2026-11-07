@@ -69,6 +69,9 @@ export function extractHtml(html: string): ExtractedPage {
   let svgDepth = 0;
   let skipDepth = 0;
   let mainDepth = 0;
+  // Code and commands keep their line breaks; table cells keep a separator.
+  let preDepth = 0;
+  let cellsInRow = 0;
 
   const emit = (s: string) => {
     all.push(s);
@@ -85,6 +88,12 @@ export function extractHtml(html: string): ExtractedPage {
           return;
         }
         if (mainDepth > 0 || name === "main" || attribs.role === "main") mainDepth++;
+        if (name === "pre") preDepth++;
+        if (name === "tr") cellsInRow = 0;
+        if (name === "td" || name === "th") {
+          if (cellsInRow > 0) emit(" | ");
+          cellsInRow++;
+        }
         const heading = /^h([1-6])$/.exec(name);
         if (heading) emit(`\n\n${"#".repeat(Number(heading[1]))} `);
         else if (name === "li") emit("\n- ");
@@ -92,7 +101,8 @@ export function extractHtml(html: string): ExtractedPage {
       },
       ontext(data) {
         if (inTitle) title += data;
-        if (skipDepth === 0) emit(data.replaceAll(/\s+/g, " "));
+        if (skipDepth > 0) return;
+        emit(preDepth > 0 ? data : data.replaceAll(/\s+/g, " "));
       },
       onclosetag(name) {
         if (name === "svg") svgDepth = Math.max(0, svgDepth - 1);
@@ -105,6 +115,7 @@ export function extractHtml(html: string): ExtractedPage {
           return;
         }
         if (/^h[1-6]$/.test(name) || blockTags.has(name)) emit("\n\n");
+        if (name === "pre") preDepth = Math.max(0, preDepth - 1);
         if (mainDepth > 0) mainDepth--;
       },
     },

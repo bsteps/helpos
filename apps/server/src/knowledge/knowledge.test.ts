@@ -92,6 +92,7 @@ const pages: Record<
 const sequences: Record<string, { statuses: number[]; body: string }> = {
   "/flaky": { statuses: [503, 200], body: "<p>The flaky page says hello.</p>" },
   "/removed-later": { statuses: [200, 404], body: "<p>This page is removed later.</p>" },
+  "/down-later": { statuses: [200, 503], body: "<p>This page goes down later.</p>" },
 };
 const served: Record<string, number> = {};
 
@@ -137,6 +138,8 @@ const principals: Record<string, () => Principal> = {
   editor: () =>
     principal(acme, ["knowledge:read", "knowledge:write", "tickets:read", "drafts:write"]),
   reader: () => principal(acme, ["knowledge:read", "tickets:read"]),
+  /** Can read tickets and their drafts, but not the knowledge base. */
+  ticketsOnly: () => principal(acme, ["tickets:read"]),
   outsider: () => principal(other, ["knowledge:read", "knowledge:write", "tickets:read"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
@@ -403,11 +406,11 @@ describe("re-ingesting", () => {
     ]);
   });
 
-  it("keeps the last good passages when a re-ingest fails", async () => {
+  it("keeps the last good passages when a re-ingest hits a temporary error", async () => {
     const added = await addSource("editor", {
       kind: "url",
-      title: "Removed later",
-      url: pageUrl("/removed-later"),
+      title: "Down later",
+      url: pageUrl("/down-later"),
     });
     expect((await ingested(acme, added.id)).status).toBe("ready");
     const before = await chunksOf(acme, added.id);
@@ -415,10 +418,28 @@ describe("re-ingesting", () => {
     expect((await reingest(added.id)).status).toBe(202);
     expect(await ingested(acme, added.id)).toMatchObject({
       status: "failed",
-      error: "http_404",
+      error: "http_503",
       chunkCount: 1,
     });
     expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(before.map((c) => c.id));
+  });
+
+  it("drops the passages of a page that is now gone, so drafts stop citing it", async () => {
+    const added = await addSource("editor", {
+      kind: "url",
+      title: "Removed later",
+      url: pageUrl("/removed-later"),
+    });
+    expect((await ingested(acme, added.id)).status).toBe("ready");
+
+    expect((await reingest(added.id)).status).toBe(202);
+    expect(await ingested(acme, added.id)).toMatchObject({
+      status: "failed",
+      error: "http_404",
+      chunkCount: 0,
+      embeddingModel: null,
+    });
+    expect(await chunksOf(acme, added.id)).toEqual([]);
   });
 
   it("queues a new job even while the last one for the source still looks unfinished", async () => {
@@ -838,10 +859,10 @@ describe("drafting with knowledge", () => {
       cited: boolean;
       url: string | null;
       visibility: string;
-      excerpt: string;
+      excerpt: string | null;
     };
-    const sourcesOfDraft = async (): Promise<Source[]> => {
-      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, "editor");
+    const sourcesOfDraft = async (as = "editor"): Promise<Source[]> => {
+      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
       expect(res.status).toBe(200);
       const { drafts: list } = (await res.json()) as { drafts: { sources: Source[] }[] };
       return list[0]?.sources ?? [];
@@ -860,6 +881,10 @@ describe("drafting with knowledge", () => {
     expect(sources.slice(1).length).toBeGreaterThan(0);
     expect(sources.slice(1).every((s) => s.visibility === "internal")).toBe(true);
     expect(sources.map((s) => s.title)).not.toContain("Other refund policy");
+    // Reading drafts isn't a way around knowledge:read: the passages' text is left out.
+    expect(await sourcesOfDraft("ticketsOnly")).toEqual(
+      sources.map((s) => ({ ...s, excerpt: null })),
+    );
 
     const citations = await db.withTenant(acme, (tx) =>
       tx.select().from(draftCitations).where(eq(draftCitations.draftId, draft.id)),

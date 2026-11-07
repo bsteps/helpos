@@ -109,7 +109,10 @@ function embeddingModel(): EmbeddingModel | undefined {
   try {
     return createEmbeddingModel(parseEmbeddingConfig(process.env));
   } catch (error) {
-    if (error instanceof AiConfigError) return undefined;
-    throw error;
+    if (!(error instanceof AiConfigError)) throw error;
+    // Unset is a choice; set but invalid is a mistake worth naming. The message names the
+    // bad variables, never their values.
+    if (process.env.AI_EMBEDDING_PROVIDER) logger.warn(error.message);
+    return undefined;
   }
 }

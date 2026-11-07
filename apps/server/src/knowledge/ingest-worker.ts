@@ -2,7 +2,7 @@ import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
 import { eq, schema, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
-import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
+import { recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
@@ -79,7 +79,8 @@ async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageT
  * 404, no text, budget spent, embedding call failed) is marked `failed` with a short reason,
  * and the job ends without a retry, so a source never stays `pending` after its job is done.
  * Only database errors throw, and pg-boss retries those. When a re-ingest fails, the chunks
- * from the last good ingest stay in use, so a flaky site doesn't empty the knowledge base.
+ * from the last good ingest stay in use, so a flaky site doesn't empty the knowledge base,
+ * unless the page answers 404 or 410: then it is gone, and so are its passages.
  */
 export function handleIngestSource(deps: IngestWorkerDeps) {
   return async (payload: { tenantId: string; sourceId: string }, tx: TenantTx): Promise<void> => {
@@ -94,9 +95,13 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if (source.status !== "pending") return; // a retry after the work was done
 
     const fail = async (error: string) => {
+      // The page says it's gone, so its old passages must stop being cited. Any other
+      // failure (a 5xx, a timeout, the budget) may pass, so the last good passages stay.
+      const gone = error === "http_404" || error === "http_410";
+      if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
       await tx
         .update(knowledgeSources)
-        .set({ status: "failed", error })
+        .set({ status: "failed", error, ...(gone ? { chunkCount: 0, embeddingModel: null } : {}) })
         .where(eq(knowledgeSources.id, sourceId));
       await recordAudit(tx, {
         tenantId,
@@ -119,9 +124,11 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if (chunks.length === 0) return fail("no_text");
     if (chunks.length > maxChunks) return fail("too_long");
 
-    // Checked after the fetch, so the budget row isn't locked while a slow site answers.
+    // Read, not locked: holding the budget row through the embedding call would stop every
+    // draft in the workspace until this ingest commits. Concurrent ingests can each pass the
+    // check and overshoot by one embedding call, like a draft that starts just under the cap.
     const day = utcDay((deps.now ?? (() => new Date()))());
-    const used = await lockUsage(tx, tenantId, day);
+    const used = await usageOn(tx, day);
     if (totalTokens(used) >= deps.dailyTokenBudget) return fail("daily_budget_reached");
 
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
