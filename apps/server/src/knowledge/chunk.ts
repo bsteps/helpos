@@ -16,7 +16,10 @@ function splitLong(paragraph: string, limit: number): string[] {
   let rest = paragraph;
   while (rest.length > limit) {
     const window = rest.slice(0, limit);
-    const sentence = Math.max(window.lastIndexOf(". "), window.lastIndexOf("? "));
+    // Chinese and Japanese end sentences with full-width marks and no space after them.
+    const sentence = Math.max(
+      ...[". ", "? ", "! ", "。", "！", "？"].map((end) => window.lastIndexOf(end)),
+    );
     const space = window.lastIndexOf(" ");
     const cut = sentence > limit / 2 ? sentence + 1 : space > limit / 2 ? space : limit;
     parts.push(rest.slice(0, cut).trim());

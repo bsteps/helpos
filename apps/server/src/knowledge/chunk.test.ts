@@ -62,6 +62,13 @@ describe("chunkText", () => {
     expect(chunk).toContain("Body.");
   });
 
+  it("splits Chinese or Japanese text at sentence ends, not mid-sentence", () => {
+    const sentence = `${"退款".repeat(40)}。`;
+    const chunks = chunkText(sentence.repeat(30));
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((c) => c.endsWith("。"))).toBe(true);
+  });
+
   it("doesn't take a # comment in a code block for a heading", () => {
     const doc = "# Install\n\n```bash\n# get the deps\nnpm install\n\n# start it\nnpm start\n```";
     expect(chunkText(doc)).toEqual([doc]);

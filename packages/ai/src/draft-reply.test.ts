@@ -202,6 +202,15 @@ describe("parseSources", () => {
     expect(parseSources("See [sources: K1] here.", 2)).toEqual({ text: "See here.", cited: [0] });
   });
 
+  it("understands the shapes models drift to, but leaves a reply's own 'Sources:' alone", () => {
+    expect(parseSources("Hi.\nSources: K1, K2", 2)).toEqual({ text: "Hi.", cited: [0, 1] });
+    expect(parseSources("Hi. (source: K2)", 2)).toEqual({ text: "Hi.", cited: [1] });
+    expect(parseSources("Hi.\n[source: K1]", 2)).toEqual({ text: "Hi.", cited: [0] });
+    const own = "Sources: our help center and the FAQ.";
+    expect(parseSources(own, 2)).toEqual({ text: own, cited: [] });
+    expect(parseSources("Resources: K1", 2)).toEqual({ text: "Resources: K1", cited: [] });
+  });
+
   it("removes a list cut off at the end of the reply", () => {
     expect(parseSources("Hi.\n[sources: K1, K", 2)).toEqual({ text: "Hi.", cited: [0] });
   });

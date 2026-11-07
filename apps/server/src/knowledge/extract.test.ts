@@ -51,6 +51,14 @@ describe("extractHtml", () => {
     expect(extractHtml("<p>x</p>").title).toBeNull();
   });
 
+  it("keeps a page wrapped in a <form>, and an article's own header and notes", () => {
+    const page = `<body><form><header>Site logo</header>
+      <article><header><h1>Refunds</h1></header><p>Five days.</p>
+      <aside>Tip: keep your receipt.</aside></article>
+      <button>Submit</button></form></body>`;
+    expect(extractHtml(page).text).toBe("# Refunds\n\nFive days.\n\nTip: keep your receipt.");
+  });
+
   it("keeps line breaks in code blocks and separates table cells", () => {
     const page =
       "<p>Run:</p><pre>npm install\nnpm start</pre>" +

@@ -118,9 +118,12 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
 
 /**
  * `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks, or cut
- * off without its `]` at the very end, when the reply hit the output limit.
+ * off without its `]` at the very end, when the reply hit the output limit. Models also drift
+ * to `Sources: K1`, `(source: K1)` and the like: without brackets it counts only when a list of
+ * ids follows, so a reply's own "Sources: our help center" is left alone.
  */
-const sourcesMarker = /[ \t]*[*_`]*\[\s*sources\s*:([^\]\n]*)(?:\][*_`]*|\s*$)/gi;
+const sourcesMarker =
+  /[ \t]*[*_`]*(?:\[\s*sources?\s*:([^\]\n]*)(?:\]|\s*$)|\(?\bsources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)\b\s*\)?)[*_`]*/gi;
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may
@@ -133,7 +136,7 @@ export function parseSources(text: string, offered: number): { text: string; cit
   const match = [...text.matchAll(sourcesMarker)].at(-1);
   if (!match) return { text, cited: [] };
   const cited = new Set<number>();
-  for (const token of (match[1] ?? "").split(",")) {
+  for (const token of (match[1] ?? match[2] ?? "").split(",")) {
     const n = /^\s*k(\d+)\s*$/i.exec(token);
     const index = n ? Number(n[1]) - 1 : -1;
     if (index >= 0 && index < offered) cited.add(index);

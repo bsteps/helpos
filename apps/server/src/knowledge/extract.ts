@@ -13,13 +13,16 @@ const skippedTags = new Set([
   "iframe",
   "object",
   "nav",
-  "header",
-  "footer",
-  "aside",
-  "form",
   "button",
   "select",
+  "textarea",
 ]);
+/**
+ * The page's own header, footer and sidebars are chrome. Inside <main> or <article> they are
+ * the article's: its title block, its notes. <form> is never skipped as a whole: some sites
+ * wrap the entire page in one; its controls are skipped above.
+ */
+const chromeTags = new Set(["header", "footer", "aside"]);
 const blockTags = new Set([
   "p",
   "div",
@@ -72,6 +75,7 @@ export function extractHtml(html: string): ExtractedPage {
   // Code and commands keep their line breaks; table cells keep a separator.
   let preDepth = 0;
   let cellsInRow = 0;
+  let articleDepth = 0;
 
   const emit = (s: string) => {
     all.push(s);
@@ -83,12 +87,14 @@ export function extractHtml(html: string): ExtractedPage {
       onopentag(name, attribs) {
         if (name === "svg") svgDepth++;
         if (name === "title" && svgDepth === 0 && !titleDone) inTitle = true;
-        if (skipDepth > 0 || skippedTags.has(name) || isHidden(attribs)) {
+        const chrome = chromeTags.has(name) && mainDepth === 0 && articleDepth === 0;
+        if (skipDepth > 0 || skippedTags.has(name) || chrome || isHidden(attribs)) {
           skipDepth++;
           return;
         }
         if (mainDepth > 0 || name === "main" || attribs.role === "main") mainDepth++;
         if (name === "pre") preDepth++;
+        if (name === "article") articleDepth++;
         if (name === "tr") cellsInRow = 0;
         if (name === "td" || name === "th") {
           if (cellsInRow > 0) emit(" | ");
@@ -116,6 +122,7 @@ export function extractHtml(html: string): ExtractedPage {
         }
         if (/^h[1-6]$/.test(name) || blockTags.has(name)) emit("\n\n");
         if (name === "pre") preDepth = Math.max(0, preDepth - 1);
+        if (name === "article") articleDepth = Math.max(0, articleDepth - 1);
         if (mainDepth > 0) mainDepth--;
       },
     },
