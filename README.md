@@ -33,6 +33,8 @@ Every feature and exit goal is in [docs/roadmap.md](docs/roadmap.md).
 
 ## Contributing
 
+Running it yourself? See [docs/self-hosting.md](docs/self-hosting.md) for Postgres (pgvector) and AI settings.
+
 We'd love your help. Start with [CONTRIBUTING.md](CONTRIBUTING.md). New to open source? Read [docs/OPEN_SOURCE_101.md](docs/OPEN_SOURCE_101.md). To see how the system fits together, read [docs/architecture/overview.md](docs/architecture/overview.md).
 
 Using an AI coding agent? It should read [AGENTS.md](AGENTS.md) first.
