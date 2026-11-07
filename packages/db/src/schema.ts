@@ -15,6 +15,7 @@ import {
   unique,
   uniqueIndex,
   uuid,
+  vector,
 } from "drizzle-orm/pg-core";
 import { uuidv7 } from "./uuid.ts";
 
@@ -359,4 +360,133 @@ export const aiUsage = pgTable(
     calls: integer("calls").notNull().default(0),
   },
   (t) => [unique("ai_usage_tenant_day").on(t.tenantId, t.day), tenantIsolation()],
+);
+
+// --- Knowledge base --------------------------------------------------------------------------
+
+/** Who owns an item's content (ADR 0010): the app, or a file in the workspace's git repo. */
+export const managedByValues = ["app", "git"] as const;
+export type ManagedBy = (typeof managedByValues)[number];
+
+/**
+ * The columns every git-importable table has (ADR 0010 §3). Only `app` exists until git sync
+ * ships, but the shape is here now, so adding git later moves no rows.
+ */
+function gitManageable() {
+  return {
+    managedBy: text("managed_by", { enum: managedByValues }).notNull().default("app"),
+    /** The file it was imported from, when `managed_by = 'git'`. */
+    sourcePath: text("source_path"),
+    sourceCommit: text("source_commit"),
+  };
+}
+
+/** A text column, so new kinds (e.g. `git`) are a check-constraint change, not a new shape. */
+export const knowledgeSourceKinds = ["url", "markdown"] as const;
+export type KnowledgeSourceKind = (typeof knowledgeSourceKinds)[number];
+export const knowledgeSourceStatuses = ["pending", "ready", "failed"] as const;
+export type KnowledgeSourceStatus = (typeof knowledgeSourceStatuses)[number];
+
+/**
+ * One knowledge document: a web page to fetch or a markdown doc. The ingest job turns it into
+ * `knowledge_chunks`. Its content is data, quoted to the AI, never instructions (ADR 0004).
+ */
+export const knowledgeSources = pgTable(
+  "knowledge_sources",
+  {
+    ...tenantColumns(),
+    /** Stable and unique in the workspace, so it can map to a file path such as `billing/refunds`. */
+    slug: text("slug").notNull(),
+    kind: text("kind", { enum: knowledgeSourceKinds }).notNull(),
+    title: text("title").notNull(),
+    /** The page to fetch, for `url` sources. Always fetched through the SSRF-safe fetch. */
+    url: text("url"),
+    /** The document itself, for `markdown` sources. */
+    content: text("content"),
+    status: text("status", { enum: knowledgeSourceStatuses }).notNull().default("pending"),
+    /** Why ingestion failed, as a short code such as `blocked_address`. Never page content. */
+    error: text("error"),
+    chunkCount: integer("chunk_count").notNull().default(0),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true }),
+    /** The embedding model of its current chunks. Another model's search skips them. */
+    embeddingModel: text("embedding_model"),
+    ...gitManageable(),
+  },
+  (t) => [
+    unique("knowledge_sources_tenant_id_id").on(t.tenantId, t.id),
+    // ADR 0009 §7: per tenant, so A can't learn from an error that B uses a slug.
+    unique("knowledge_sources_tenant_slug").on(t.tenantId, t.slug),
+    check("knowledge_sources_kind", sql`${t.kind} in ('url', 'markdown')`),
+    check("knowledge_sources_status", sql`${t.status} in ('pending', 'ready', 'failed')`),
+    check("knowledge_sources_managed_by", sql`${t.managedBy} in ('app', 'git')`),
+    check("knowledge_sources_git_path", sql`${t.managedBy} = 'app' or ${t.sourcePath} is not null`),
+    check("knowledge_sources_url", sql`${t.kind} <> 'url' or ${t.url} is not null`),
+    check("knowledge_sources_content", sql`${t.kind} <> 'markdown' or ${t.content} is not null`),
+    tenantIsolation(),
+  ],
+);
+
+/** Must match the embedding model's output (`embeddingDimensions` in @helpos/ai). */
+export const knowledgeEmbeddingDimensions = 1024;
+
+/** A passage of a knowledge source with its embedding. Replaced whenever the source is ingested. */
+export const knowledgeChunks = pgTable(
+  "knowledge_chunks",
+  {
+    ...tenantColumns(),
+    sourceId: uuid("source_id").notNull(),
+    /** Order within the source, from 0. */
+    position: integer("position").notNull(),
+    content: text("content").notNull(),
+    embedding: vector("embedding", { dimensions: knowledgeEmbeddingDimensions }).notNull(),
+    /**
+     * The model that made `embedding`. Vectors from different models aren't comparable, so
+     * search only ever matches chunks from the model it embedded the query with.
+     */
+    embeddingModel: text("embedding_model").notNull(),
+  },
+  (t) => [
+    unique("knowledge_chunks_tenant_id_id").on(t.tenantId, t.id),
+    foreignKey({
+      name: "knowledge_chunks_source_fk",
+      columns: [t.tenantId, t.sourceId],
+      foreignColumns: [knowledgeSources.tenantId, knowledgeSources.id],
+    }).onDelete("cascade"),
+    index("knowledge_chunks_tenant_source").on(t.tenantId, t.sourceId),
+    // One index for all tenants. It ignores RLS while it searches, so every query also filters
+    // on tenant_id and scans iteratively (ADR 0009 §4, see searchKnowledge()).
+    index("knowledge_chunks_embedding").using("hnsw", t.embedding.op("vector_cosine_ops")),
+    tenantIsolation(),
+  ],
+);
+
+/**
+ * The knowledge passages a draft was written with, so the approver sees its sources. `cited`
+ * marks the ones the model says it used; the rest were offered but not used.
+ */
+export const draftCitations = pgTable(
+  "draft_citations",
+  {
+    ...tenantColumns(),
+    draftId: uuid("draft_id").notNull(),
+    chunkId: uuid("chunk_id").notNull(),
+    /** Retrieval rank, from 0 (best match). */
+    rank: integer("rank").notNull(),
+    cited: boolean("cited").notNull(),
+  },
+  (t) => [
+    unique("draft_citations_tenant_draft_chunk").on(t.tenantId, t.draftId, t.chunkId),
+    foreignKey({
+      name: "draft_citations_draft_fk",
+      columns: [t.tenantId, t.draftId],
+      foreignColumns: [drafts.tenantId, drafts.id],
+    }),
+    // Deleting a source removes it from drafts' source lists too: nothing points at gone content.
+    foreignKey({
+      name: "draft_citations_chunk_fk",
+      columns: [t.tenantId, t.chunkId],
+      foreignColumns: [knowledgeChunks.tenantId, knowledgeChunks.id],
+    }).onDelete("cascade"),
+    tenantIsolation(),
+  ],
 );

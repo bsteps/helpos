@@ -18,5 +18,11 @@ export function checkAssertions(output: TaskOutput, assert: EvalAssertions): str
   for (const name of assert.mustNotCallTools) {
     if (output.toolCalls.includes(name)) failures.push(`must not call tool "${name}"`);
   }
+  for (const title of assert.mustCite) {
+    if (!output.cited.includes(title)) failures.push(`expected the draft to cite "${title}"`);
+  }
+  for (const title of assert.mustNotCite) {
+    if (output.cited.includes(title)) failures.push(`the draft must not cite "${title}"`);
+  }
   return failures;
 }

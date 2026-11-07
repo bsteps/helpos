@@ -1,4 +1,12 @@
-import { AiConfigError, createModel, type LanguageModel, parseAiConfig } from "@helpos/ai";
+import {
+  AiConfigError,
+  createEmbeddingModel,
+  createModel,
+  type EmbeddingModel,
+  type LanguageModel,
+  parseAiConfig,
+  parseEmbeddingConfig,
+} from "@helpos/ai";
 import { brand } from "@helpos/brand";
 import { createDatabase, createJobRunner } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
@@ -25,7 +33,15 @@ const runner = createJobRunner({
 const transport = env.HELPOS_SMTP_URL ? createSmtpTransport(env.HELPOS_SMTP_URL) : undefined;
 await runner.start();
 const dailyTokenBudget = env.HELPOS_AI_DAILY_TOKEN_BUDGET;
-await startWorker({ runner, files, logger, model: aiModel(), transport, dailyTokenBudget });
+await startWorker({
+  runner,
+  files,
+  logger,
+  model: aiModel(),
+  embeddingModel: embeddingModel(),
+  transport,
+  dailyTokenBudget,
+});
 
 const app = createApp({ db, files, logger, inboundSecret, dailyTokenBudget });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
@@ -67,6 +83,16 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 function aiModel(): LanguageModel | undefined {
   try {
     return createModel(parseAiConfig(process.env));
+  } catch (error) {
+    if (error instanceof AiConfigError) return undefined;
+    throw error;
+  }
+}
+
+/** The embedding model from env, or undefined when it isn't configured (knowledge then waits). */
+function embeddingModel(): EmbeddingModel | undefined {
+  try {
+    return createEmbeddingModel(parseEmbeddingConfig(process.env));
   } catch (error) {
     if (error instanceof AiConfigError) return undefined;
     throw error;

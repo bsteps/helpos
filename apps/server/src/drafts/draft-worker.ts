@@ -3,9 +3,15 @@ import { and, desc, eq, gt, isNull, lt, ne, schema, type TenantTx } from "@helpo
 import type { Logger } from "pino";
 import { lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
+import { noKnowledge, type SearchProvider } from "../knowledge/search.ts";
 import { messageText } from "./html-text.ts";
 
-const { drafts, messages, tickets } = schema;
+const { draftCitations, drafts, messages, tickets } = schema;
+
+/** Passages retrieved per draft. More cost tokens and dilute the answer. */
+export const knowledgeLimit = 5;
+/** The retrieval query is the email's start: subject and opening lines say what it's about. */
+const maxQueryChars = 2_000;
 
 export interface DraftWorkerDeps {
   model: LanguageModel;
@@ -14,6 +20,8 @@ export interface DraftWorkerDeps {
   dailyTokenBudget: number;
   /** For tests: the clock the budget day is read from. */
   now?: () => Date;
+  /** The workspace's knowledge. Without it, drafts are written from the email alone. */
+  search?: SearchProvider | undefined;
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
@@ -97,18 +105,32 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(maxHistoryMessages);
 
+    const emailBody = messageText(row);
+    // Only this workspace's knowledge: the search runs in this job's withTenant() transaction.
+    const knowledge = deps.search
+      ? await deps.search.search(tx, {
+          tenantId: payload.tenantId,
+          text: `${row.subject}\n\n${emailBody}`.slice(0, maxQueryChars),
+          limit: knowledgeLimit,
+        })
+      : noKnowledge;
+
     const result = await draftReply(deps.model, {
       from: row.fromAddress,
       subject: row.subject,
-      body: messageText(row),
+      body: emailBody,
       history: earlier
         .reverse()
         .filter((m) => m.automatedReason === null)
         .map((m) => ({ direction: m.direction, from: m.from, body: messageText(m) })),
+      knowledge: knowledge.hits.map((h) => ({ title: h.title, url: h.url, content: h.content })),
     });
     // Recorded right away, in this transaction. An unexpected error later rolls it back with
     // the rest of the job, so that one attempt goes uncounted; the cap is still checked on retry.
-    await recordUsage(tx, payload.tenantId, day, result.usage);
+    await recordUsage(tx, payload.tenantId, day, {
+      inputTokens: result.usage.inputTokens + knowledge.tokens,
+      outputTokens: result.usage.outputTokens,
+    });
     const body = result.text.trim();
     if (body === "") {
       // Not thrown: a retry would spend more tokens on the same answer. A person can
@@ -183,6 +205,18 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       })
       .returning({ id: drafts.id });
     if (!draft) throw new Error("draft-reply: insert returned no row");
+    // Every passage the model saw, so the approver can check the draft against its sources.
+    if (knowledge.hits.length > 0) {
+      await tx.insert(draftCitations).values(
+        knowledge.hits.map((hit, rank) => ({
+          tenantId: payload.tenantId,
+          draftId: draft.id,
+          chunkId: hit.chunkId,
+          rank,
+          cited: result.cited.includes(rank),
+        })),
+      );
+    }
     await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
 
     await recordAudit(tx, {

@@ -5,6 +5,12 @@ const toolCallSchema = z.object({
   input: z.record(z.string(), z.unknown()),
 });
 
+const knowledgeSchema = z.strictObject({
+  title: z.string().min(1),
+  url: z.string().optional(),
+  content: z.string().min(1),
+});
+
 export const evalCaseSchema = z.strictObject({
   name: z.string().min(1),
   description: z.string().min(1),
@@ -12,6 +18,8 @@ export const evalCaseSchema = z.strictObject({
     from: z.string(),
     subject: z.string(),
     body: z.string(),
+    /** Knowledge passages, as retrieval would hand them to the drafter, best match first. */
+    knowledge: z.array(knowledgeSchema).optional(),
   }),
   /** What the mock model answers. Scripted like a plausible good reply; ignored with EVAL_LIVE=1. */
   mock: z.strictObject({
@@ -25,13 +33,19 @@ export const evalCaseSchema = z.strictObject({
       /** Regex sources, matched case-insensitively. */
       mustNotMatch: z.array(z.string()).default([]),
       mustNotCallTools: z.array(z.string()).default([]),
+      /** Knowledge titles the draft must cite. */
+      mustCite: z.array(z.string()).default([]),
+      /** Knowledge titles the draft must not cite. */
+      mustNotCite: z.array(z.string()).default([]),
     })
     .refine(
       (a) =>
         a.mustContain.length +
           a.mustNotContain.length +
           a.mustNotMatch.length +
-          a.mustNotCallTools.length >
+          a.mustNotCallTools.length +
+          a.mustCite.length +
+          a.mustNotCite.length >
         0,
       "A case needs at least one assertion",
     ),
