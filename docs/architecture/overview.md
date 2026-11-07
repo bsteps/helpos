@@ -36,15 +36,16 @@ flowchart LR
   K --> SMTP
 ```
 
-| Unit             | Role                                                                                                                                                                  | May import                         |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `apps/server`    | HTTP API: routes, auth middleware, validation (Zod), OpenAPI spec at `/openapi.json`                                                                                  | any `packages/*`                   |
-| worker role      | Background jobs (AI drafts, sending, webhooks). Same code as `apps/server`, started in a different mode. Inside the server process during the MVP (#18 splits it out) | any `packages/*`                   |
-| `apps/web`       | Dashboard: React + Vite SPA, TanStack Router/Query, shadcn/ui. Uses **only** a client generated from `/openapi.json`                                                  | `packages/brand`, generated client |
-| `packages/db`    | Drizzle schema, migrations, `withTenant()`. **The only place that touches the raw DB client** (ADR 0003, enforced by Biome)                                           | —                                  |
-| `packages/ai`    | Builds the AI model from env, prompt helpers, the mock model for tests                                                                                                | —                                  |
-| `packages/brand` | Product name and branding. Never hardcode the name                                                                                                                    | —                                  |
-| `evals/`         | AI eval cases, run by `pnpm eval` (ADR 0005)                                                                                                                          | `packages/ai`                      |
+| Unit                  | Role                                                                                                                                                                  | May import                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `apps/server`         | HTTP API: routes, auth middleware, validation (Zod), OpenAPI spec at `/openapi.json`                                                                                  | any `packages/*`                   |
+| worker role           | Background jobs (AI drafts, sending, webhooks). Same code as `apps/server`, started in a different mode. Inside the server process during the MVP (#18 splits it out) | any `packages/*`                   |
+| `apps/web`            | Dashboard: React + Vite SPA, TanStack Router/Query, shadcn/ui. Uses **only** a client generated from `/openapi.json`                                                  | `packages/brand`, generated client |
+| `packages/db`         | Drizzle schema, migrations, `withTenant()`. **The only place that touches the raw DB client** (ADR 0003, enforced by Biome)                                           | —                                  |
+| `packages/ai`         | Builds the AI model from env, prompt helpers, the mock model for tests                                                                                                | —                                  |
+| `packages/brand`      | Product name and branding. Never hardcode the name                                                                                                                    | —                                  |
+| `packages/safe-fetch` | SSRF-safe HTTP GET for imports and webhooks: blocks private, loopback, link-local and metadata addresses after DNS and on every redirect; timeouts and size limits    | —                                  |
+| `evals/`              | AI eval cases, run by `pnpm eval` (ADR 0005)                                                                                                                          | `packages/ai`                      |
 
 Each feature (inbound email, drafts, tokens, GitHub…) is a folder inside `apps/server` that owns its routes, domain logic and tests (AGENTS.md). Pure domain logic stays separate from I/O.
 

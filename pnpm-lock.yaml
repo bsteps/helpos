@@ -261,6 +261,12 @@ importers:
 
   packages/files: {}
 
+  packages/safe-fetch:
+    dependencies:
+      '@helpos/brand':
+        specifier: workspace:*
+        version: link:../brand
+
 packages:
 
   '@ai-sdk/anthropic@4.0.96':
