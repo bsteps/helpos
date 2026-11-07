@@ -11,6 +11,9 @@ describe("envSchema", () => {
     expect(env.HELPOS_LOG_LEVEL).toBe("info");
     expect(env.HELPOS_SMTP_URL).toBeUndefined();
     expect(env.HELPOS_AI_DAILY_TOKEN_BUDGET).toBe(200_000);
+    expect(env.HELPOS_DATABASE_AUTH_URL).toBeUndefined();
+    expect(env.HELPOS_PUBLIC_URL).toBe("http://localhost:3000");
+    expect(env.HELPOS_NOTICE_DELAY_SECONDS).toBe(300);
   });
 
   it("rejects a missing jobs database URL", () => {

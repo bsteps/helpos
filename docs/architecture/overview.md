@@ -78,6 +78,8 @@ sequenceDiagram
 
 Only the worker sends email, so only the worker role needs SMTP settings. An SMTP send can't be part of a database transaction, so approving doesn't send directly. Because pg-boss lives in Postgres, the approval, its audit event and the `send-reply` job commit together: either all three happen or none do. The job retries a failed send, and the draft stays `approved` until the send succeeds.
 
+Owners also hear when there is something to approve. Every new pending draft queues a `draft-notice` job in the same transaction, delayed by 5 minutes (`HELPOS_NOTICE_DELAY_SECONDS`). A draft approved within that time never causes an email. The job emails the workspace owners a short notice that links to the ticket, at most once per ticket every 15 minutes. The subject never contains customer text, and the body quotes one short plain-text line. The notice comes from the workspace mailbox, but its `Reply-To` is a `no-reply@` address that is not a helpdesk mailbox, so an owner who answers it doesn't open a ticket. Owner emails are read through a narrow auth-store function, because the app role can't read `auth.users`.
+
 The full MVP loop adds one more step (#37): a ticket becomes a GitHub issue, and when that issue is closed, a "fixed" draft goes through the same approve-and-send flow.
 
 ## Core data model

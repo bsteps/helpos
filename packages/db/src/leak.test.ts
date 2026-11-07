@@ -282,6 +282,11 @@ describe("auth tables (ADR 0009 §1)", () => {
     expect((await auth.ensureUser("Owner@B.test")).id).toBe(b.userId);
   });
 
+  it("emailsOf returns only the emails of the IDs given", async () => {
+    expect(await auth.emailsOf([b.userId])).toEqual(["owner@b.test"]);
+    expect(await auth.emailsOf([])).toEqual([]);
+  });
+
   it("the auth role cannot read tenant tables", async () => {
     const authSql = postgres(testDb.authUrl, { max: 1, onnotice: () => {} });
     try {

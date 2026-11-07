@@ -11,6 +11,7 @@ export interface AuditEvent {
     | "draft.approved"
     | "draft.discarded"
     | "draft.sent"
+    | "draft.notice_sent"
     | "ai.paused";
   target: { type: "draft" | "ticket"; id: string };
   /** The HTTP request ID, or null when a background job acts. */
