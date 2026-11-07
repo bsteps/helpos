@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { installJobs } from "./jobs.ts";
 import { runMigrations } from "./migrate.ts";
 
 const initSql = fileURLToPath(new URL("../../../docker/postgres/init.sql", import.meta.url));
@@ -11,6 +12,8 @@ export interface TestDatabase {
   ownerUrl: string;
   /** URL for the auth role, the only one that can use the `auth` schema (ADR 0009). */
   authUrl: string;
+  /** URL for the jobs role, owner of the `pgboss` schema. */
+  jobsUrl: string;
 }
 
 /**
@@ -24,10 +27,13 @@ export async function startTestDatabase(): Promise<TestDatabase> {
   const hostPort = `${container.getHost()}:${container.getPort()}`;
   const ownerUrl = `postgres://helpos_owner:helpos_owner@${hostPort}/helpos`;
   await runMigrations(ownerUrl);
+  const jobsUrl = `postgres://helpos_jobs:helpos_jobs@${hostPort}/helpos`;
+  await installJobs(jobsUrl);
   return {
     container,
     ownerUrl,
     appUrl: `postgres://helpos_app:helpos_app@${hostPort}/helpos`,
     authUrl: `postgres://helpos_auth:helpos_auth@${hostPort}/helpos`,
+    jobsUrl,
   };
 }

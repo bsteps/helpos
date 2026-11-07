@@ -1,6 +1,16 @@
-import { type Database, isUniqueViolation, schema, type TenantTx, uuidv7 } from "@helpos/db";
+import {
+  and,
+  type Database,
+  desc,
+  eq,
+  inArray,
+  isUniqueViolation,
+  schema,
+  sql,
+  type TenantTx,
+  uuidv7,
+} from "@helpos/db";
 import type { FileStore } from "@helpos/files";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { type ParsedEmail, parseEmail } from "./parse.ts";
 
 const { attachments, customers, messages, tickets } = schema;
