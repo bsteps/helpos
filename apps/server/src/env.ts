@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 
 /** Server configuration, validated once at startup. Every variable is documented in .env.example. */
 export const envSchema = z.object({
@@ -14,6 +15,8 @@ export const envSchema = z.object({
   // Where approved replies are sent from. Optional: without it, approved drafts wait in the
   // queue until it's set. Locally smtp://localhost:1025 is Mailpit.
   HELPOS_SMTP_URL: z.url().optional(),
+  // Hard cap on AI tokens per workspace per UTC day. Over it, drafting pauses until midnight UTC.
+  HELPOS_AI_DAILY_TOKEN_BUDGET: z.coerce.number().int().min(0).default(defaultDailyTokenBudget),
 });
 
 export type Env = z.infer<typeof envSchema>;

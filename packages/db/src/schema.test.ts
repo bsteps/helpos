@@ -37,6 +37,7 @@ describe("migrations", () => {
       where n.nspname = 'public' and c.relkind = 'r'
       order by c.relname`;
     expect(rows.map((r) => r.table)).toEqual([
+      "ai_usage",
       "attachments",
       "audit_events",
       "customers",

@@ -1,7 +1,12 @@
 import { MockLanguageModelV4 } from "ai/test";
 
 export type MockToolCall = { toolName: string; input: Record<string, unknown> };
-export type MockResponse = { text?: string | undefined; toolCalls?: MockToolCall[] | undefined };
+export type MockResponse = {
+  text?: string | undefined;
+  toolCalls?: MockToolCall[] | undefined;
+  /** Tokens the mock reports per call, e.g. to test spend caps. Zero by default. */
+  usage?: { inputTokens: number; outputTokens: number } | undefined;
+};
 
 /**
  * A model that returns a scripted response and never touches the network.
@@ -9,6 +14,8 @@ export type MockResponse = { text?: string | undefined; toolCalls?: MockToolCall
  */
 export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
   const toolCalls = response.toolCalls ?? [];
+  const input = response.usage?.inputTokens ?? 0;
+  const output = response.usage?.outputTokens ?? 0;
   return new MockLanguageModelV4({
     provider: "mock",
     modelId: "mock-model",
@@ -24,8 +31,8 @@ export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
       ],
       finishReason: { unified: toolCalls.length > 0 ? "tool-calls" : "stop", raw: undefined },
       usage: {
-        inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: 0, text: 0, reasoning: 0 },
+        inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: output, text: output, reasoning: 0 },
       },
       warnings: [],
     },

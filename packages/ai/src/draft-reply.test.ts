@@ -19,6 +19,11 @@ describe("draftReply", () => {
     expect(JSON.stringify(user)).toContain("Where is my order?");
   });
 
+  it("returns the token usage the model reports", async () => {
+    const model = mockModel({ text: "Hi", usage: { inputTokens: 120, outputTokens: 30 } });
+    expect((await draftReply(model, email)).usage).toEqual({ inputTokens: 120, outputTokens: 30 });
+  });
+
   it("offers the model no tools", async () => {
     const model = mockModel({ text: "Hi" });
     await draftReply(model, email);

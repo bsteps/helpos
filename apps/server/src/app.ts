@@ -4,6 +4,8 @@ import type { FileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { requestId } from "hono/request-id";
 import type { Logger } from "pino";
+import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
+import { registerAiUsageRoute } from "./ai-budget/routes.ts";
 import { type Authenticate, refuseAll } from "./auth/principal.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
@@ -16,6 +18,10 @@ export interface AppDeps {
   inboundSecret: string | undefined;
   /** Resolves API callers. Defaults to refusing everyone until agent tokens and sessions exist. */
   authenticate?: Authenticate;
+  /** Reported by the usage endpoint. The worker enforces it. */
+  dailyTokenBudget?: number;
+  /** For tests: the clock "today" is read from. */
+  now?: () => Date;
 }
 
 export function createApp({
@@ -24,6 +30,8 @@ export function createApp({
   logger,
   inboundSecret,
   authenticate = refuseAll,
+  dailyTokenBudget = defaultDailyTokenBudget,
+  now,
 }: AppDeps): OpenAPIHono {
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
@@ -41,6 +49,7 @@ export function createApp({
 
   registerInboundEmail(app, { db, files, logger, inboundSecret });
   registerDraftRoutes(app, { db, authenticate });
+  registerAiUsageRoute(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.
   app.onError((err, c) => {
