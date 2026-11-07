@@ -1,9 +1,12 @@
 import {
+  and,
   asc,
   type Database,
   enqueue,
   eq,
+  isKnowledgeUrlTaken,
   isUniqueViolation,
+  normalizeKnowledgeUrl,
   schema,
   sql,
   uuidv7,
@@ -58,6 +61,13 @@ const createBody = z.discriminatedUnion("kind", [
 ]);
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
+const conflictSchema = z
+  .object({
+    error: z.string(),
+    /** With `url_taken`: the source that already has this URL, e.g. to re-ingest it. */
+    sourceId: z.uuid().optional(),
+  })
+  .openapi("KnowledgeSourceConflict");
 const sourceSchema = z
   .object({
     id: z.uuid(),
@@ -136,7 +146,12 @@ const createSourceRoute = createRoute({
   responses: {
     201: json(sourceSchema, "The new source, status `pending`"),
     ...authErrors,
-    409: json(errorSchema, "The workspace already has a source with this slug (`slug_taken`)"),
+    409: json(
+      conflictSchema,
+      "The workspace already has a source with this slug (`slug_taken`), or with this URL " +
+        "(`url_taken`, with its `sourceId`). URLs are compared without the fragment, host case " +
+        "or a default port.",
+    ),
   },
 });
 
@@ -242,6 +257,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
     const id = uuidv7();
+    const url = input.kind === "url" ? normalizeKnowledgeUrl(input.url) : null;
     const base = slugify(input.title);
     // A slug the caller chose is kept or refused. One made from the title gets a random
     // suffix when another source already has it (two pages can share a title), a new one on
@@ -255,11 +271,32 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
           ...Array.from({ length: 3 }, () => `${base || "source"}-${suffix()}`),
         ];
 
-    for (const slug of slugs) {
-      const created = await insertSource(slug);
-      if (created) return c.json(serialize(created), 201);
+    try {
+      for (const slug of slugs) {
+        const created = await insertSource(slug);
+        if (created) return c.json(serialize(created), 201);
+      }
+    } catch (error) {
+      if (!url || !isKnowledgeUrlTaken(error)) throw error;
+      const sourceId = await sourceWithUrl(url);
+      // Deleted between the failed insert and this read: rare, and a retry would succeed.
+      return c.json({ error: "url_taken", ...(sourceId ? { sourceId } : {}) }, 409);
     }
+    // Postgres may report the slug before the URL, so a repeat with the same slug lands here.
+    const sourceId = url ? await sourceWithUrl(url) : undefined;
+    if (sourceId) return c.json({ error: "url_taken", sourceId }, 409);
     return c.json({ error: "slug_taken" }, 409);
+
+    /** Read in this workspace only, so it can only ever name the caller's own source. */
+    async function sourceWithUrl(url: string): Promise<string | undefined> {
+      const [existing] = await deps.db.withTenant(tenantId, (tx) =>
+        tx
+          .select({ id: knowledgeSources.id })
+          .from(knowledgeSources)
+          .where(and(eq(knowledgeSources.kind, "url"), eq(knowledgeSources.url, url))),
+      );
+      return existing?.id;
+    }
 
     /** The new source, or undefined when the workspace already uses the slug. */
     async function insertSource(slug: string): Promise<SourceRow | undefined> {
@@ -273,7 +310,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
               slug,
               kind: input.kind,
               title: input.title,
-              url: input.kind === "url" ? input.url : null,
+              url,
               content: input.kind === "markdown" ? input.content : null,
               ...(input.visibility ? { visibility: input.visibility } : {}),
             })

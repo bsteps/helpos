@@ -155,11 +155,13 @@ const sequences: Record<string, { statuses: number[]; body: string; bodies?: str
 const served: Record<string, number> = {};
 
 const handler: RequestListener = (req, res) => {
-  requests.push(req.url ?? "");
-  const sequence = sequences[req.url ?? ""];
+  // By path: tests tell sources of one page apart by their query (one source per URL).
+  const path = new URL(req.url ?? "/", "http://localhost").pathname;
+  requests.push(path);
+  const sequence = sequences[path];
   if (sequence) {
-    const n = served[req.url ?? ""] ?? 0;
-    served[req.url ?? ""] = n + 1;
+    const n = served[path] ?? 0;
+    served[path] = n + 1;
     const status = sequence.statuses[Math.min(n, sequence.statuses.length - 1)] ?? 500;
     res.writeHead(status, { "content-type": "text/html" });
     // A fixed body, never the request URL: echoing input into HTML is a pattern to avoid.
@@ -167,7 +169,7 @@ const handler: RequestListener = (req, res) => {
     res.end(status === 200 ? body : "");
     return;
   }
-  const page = pages[req.url ?? ""];
+  const page = pages[path];
   if (!page) {
     res.writeHead(404).end();
     return;
@@ -267,12 +269,21 @@ const sourceOf = async (tenantId: string, id: string) => {
   return row;
 };
 
-/** A URL source added straight to the table, so no job is queued for it. */
+/**
+ * A URL source added straight to the table, so no job is queued for it. The slug goes in the
+ * query: a workspace has one source per URL, and several tests use the same page.
+ */
 async function insertUrlSource(slug: string, path: string): Promise<string> {
   const [row] = await db.withTenant(acme, (tx) =>
     tx
       .insert(knowledgeSources)
-      .values({ tenantId: acme, slug, kind: "url", title: slug, url: pageUrl(path) })
+      .values({
+        tenantId: acme,
+        slug,
+        kind: "url",
+        title: slug,
+        url: pageUrl(`${path}?source=${slug}`),
+      })
       .returning({ id: knowledgeSources.id }),
   );
   if (!row) throw new Error("no row");
@@ -1202,6 +1213,42 @@ describe("knowledge API", () => {
     expect((await addSource("outsider", { ...body, slug: "billing/faq" })).slug).toBe(
       "billing/faq",
     );
+  });
+
+  it("a URL is one source per workspace only", async () => {
+    const post = (as: string, url: string, title = "Refund policy") =>
+      call("POST", "/v1/knowledge/sources", as, { kind: "url", title, url });
+    const first = await post("editor", "https://Docs.Example.test:443/refunds?lang=en");
+    expect(first.status).toBe(201);
+    const { id, slug } = (await first.json()) as SourceJson;
+    // The same page: other fragment, host case, default port, or title (so another slug).
+    for (const url of [
+      "https://docs.example.test/refunds?lang=en",
+      "https://DOCS.example.test/refunds?lang=en#step-2",
+      "https://docs.example.test:443/refunds?lang=en#",
+    ]) {
+      const again = await post("editor", url, "Refunds again");
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: "url_taken", sourceId: id });
+    }
+    // The same slug too: whichever constraint Postgres checks first, it's the URL that's taken.
+    const sameSlug = await call("POST", "/v1/knowledge/sources", "editor", {
+      kind: "url",
+      title: "Refund policy",
+      url: "https://docs.example.test/refunds?lang=en",
+      slug,
+    });
+    expect(await sameSlug.json()).toEqual({ error: "url_taken", sourceId: id });
+    // A different path or query is a different page.
+    expect((await post("editor", "https://docs.example.test/Refunds?lang=en")).status).toBe(201);
+    expect((await post("editor", "https://docs.example.test/refunds?lang=fr")).status).toBe(201);
+    // Another workspace can add it, and its conflict names only its own source.
+    const theirs = await post("outsider", "https://docs.example.test/refunds?lang=en");
+    expect(theirs.status).toBe(201);
+    const { id: theirId } = (await theirs.json()) as SourceJson;
+    expect(theirId).not.toBe(id);
+    const theirAgain = await post("outsider", "https://docs.example.test/refunds?lang=en#x");
+    expect(await theirAgain.json()).toEqual({ error: "url_taken", sourceId: theirId });
   });
 
   it("makes a unique slug when another source has the same title", async () => {

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
-import { searchKnowledge } from "./knowledge.ts";
+import { normalizeKnowledgeUrl, searchKnowledge } from "./knowledge.ts";
 import {
   type KnowledgeVisibility,
   knowledgeEmbeddingDimensions,
@@ -215,5 +215,15 @@ describe("eval: vector recall for a small tenant among large ones", () => {
       });
     });
     expect(hits).toHaveLength(3);
+  });
+});
+
+describe("normalizeKnowledgeUrl", () => {
+  it("drops what doesn't change the page, keeps what may", () => {
+    expect(normalizeKnowledgeUrl("HTTPS://Docs.Example.test:443/A?b=C#top")).toBe(
+      "https://docs.example.test/A?b=C",
+    );
+    expect(normalizeKnowledgeUrl("http://x.test:80")).toBe("http://x.test/");
+    expect(normalizeKnowledgeUrl("http://x.test:8080/")).toBe("http://x.test:8080/");
   });
 });

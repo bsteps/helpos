@@ -27,7 +27,13 @@ export {
   type TenantTransaction,
   tenantTransactions,
 } from "./jobs.ts";
-export { type KnowledgeHit, type KnowledgeQuery, searchKnowledge } from "./knowledge.ts";
+export {
+  isKnowledgeUrlTaken,
+  type KnowledgeHit,
+  type KnowledgeQuery,
+  normalizeKnowledgeUrl,
+  searchKnowledge,
+} from "./knowledge.ts";
 export { runMigrations } from "./migrate.ts";
 export type { KnowledgeVisibility } from "./schema.ts";
 export * as schema from "./schema.ts";
