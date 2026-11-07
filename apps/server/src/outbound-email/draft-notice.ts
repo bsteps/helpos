@@ -40,6 +40,8 @@ export function snippet(text: string, max = noticeSnippetLength): string {
     // The notice comes from the workspace's own address, so a customer's link must not look
     // like one we sent. The full message is on the ticket.
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link]")
+    // Bare domains too: mail clients autolink them. Catches some file names; that's fine here.
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b\S*/gi, "[link]")
     .replace(/\s+/g, " ")
     .trim();
   if (flat.length <= max) return flat;

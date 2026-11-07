@@ -61,5 +61,6 @@ describe("draft notice email", () => {
     expect(snippet("Log in at https://evil.test/login?x=1 or www.evil.test now")).toBe(
       "Log in at [link] or [link] now",
     );
+    expect(snippet("Pay at acme-billing.com/pay, e.g. today")).toBe("Pay at [link] e.g. today");
   });
 });

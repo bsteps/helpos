@@ -8,6 +8,7 @@ import {
   isNull,
   ne,
   schema,
+  sql,
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
@@ -266,7 +267,8 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         .update(drafts)
         .set({
           status: "approved",
-          approvedAt: new Date(),
+          // The database clock, like the audit events the notice window compares it with.
+          approvedAt: sql`now()`,
           outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
         })
         // Bound to the exact text reviewed: an edit made after review can't ride on the approval.

@@ -120,6 +120,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     if (recent) {
       // The window batches notices for the same waiting answer. Once a draft on the ticket was
       // approved after that notice, the owners acted on it, so a new draft is news again.
+      // A discard doesn't count: a replacement draft is the same waiting answer, reworded.
       const [actedOn] = await tx
         .select({ id: drafts.id })
         .from(drafts)
