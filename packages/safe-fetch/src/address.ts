@@ -24,6 +24,7 @@ const v6Blocked: [string, number][] = [
   ["::", 128], // unspecified
   ["::1", 128], // loopback
   ["::", 96], // IPv4-compatible (deprecated), would reach an IPv4 host
+  ["::ffff:0:0:0", 96], // IPv4-translated, would reach an IPv4 host
   ["64:ff9b::", 96], // NAT64, would reach an IPv4 host
   ["64:ff9b:1::", 48], // local NAT64
   ["100::", 64], // discard

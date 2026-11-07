@@ -134,10 +134,11 @@ describe("safeFetch", () => {
     expect(res.url).toBe(`http://docs.example:${port}/new`);
   });
 
-  it("drops credential headers on a cross-origin redirect, keeps them on the same origin", async () => {
+  it("keeps only harmless headers on a cross-origin redirect, keeps them on the same origin", async () => {
     const seen: Record<string, string | undefined> = {};
     const port = await serve((req, res) => {
-      seen[`${req.headers.host}${req.url}`] = req.headers.authorization;
+      seen[`${req.headers.host}${req.url}`] =
+        `${req.headers.authorization}|${req.headers["x-api-key"]}|${req.headers.accept}`;
       if (req.url === "/start") {
         res.writeHead(302, { location: "/same" });
       } else if (req.url === "/same") {
@@ -147,11 +148,11 @@ describe("safeFetch", () => {
     });
     const fetcher = fetcherWith({ "docs.example": ["127.0.0.1"], "other.example": ["127.0.0.1"] });
     await fetcher(`http://docs.example:${port}/start`, {
-      headers: { Authorization: "Bearer secret" },
+      headers: { Authorization: "Bearer secret", "X-Api-Key": "k", Accept: "text/html" },
     });
-    expect(seen[`docs.example:${port}/start`]).toBe("Bearer secret");
-    expect(seen[`docs.example:${port}/same`]).toBe("Bearer secret");
-    expect(seen[`other.example:${port}/away`]).toBeUndefined();
+    expect(seen[`docs.example:${port}/start`]).toBe("Bearer secret|k|text/html");
+    expect(seen[`docs.example:${port}/same`]).toBe("Bearer secret|k|text/html");
+    expect(seen[`other.example:${port}/away`]).toBe("undefined|undefined|text/html");
   });
 
   it("stops after too many redirects", async () => {

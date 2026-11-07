@@ -184,17 +184,19 @@ export function createSafeFetch(deps: SafeFetchDeps = defaultDeps) {
       }
       const next = parseUrl(location, url);
       // A redirect must not carry the caller's credentials to another site.
-      if (next.origin !== url.origin) headers = withoutCredentials(headers);
+      if (next.origin !== url.origin) headers = onlySafeHeaders(headers);
       url = next;
     }
   };
 }
 
-const credentialHeaders = new Set(["authorization", "cookie", "proxy-authorization"]);
+// Custom headers often carry secrets (API keys under any name), so another site only gets
+// headers known to be harmless.
+const crossOriginSafeHeaders = new Set(["accept", "accept-language", "user-agent"]);
 
-function withoutCredentials(headers: Record<string, string>): Record<string, string> {
+function onlySafeHeaders(headers: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(headers).filter(([name]) => !credentialHeaders.has(name.toLowerCase())),
+    Object.entries(headers).filter(([name]) => crossOriginSafeHeaders.has(name.toLowerCase())),
   );
 }
 

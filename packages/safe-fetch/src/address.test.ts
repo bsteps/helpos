@@ -25,6 +25,7 @@ describe("isBlockedAddress", () => {
     "64:ff9b::a9fe:a9fe", // NAT64 to metadata
     "2002:7f00:1::", // 6to4 to loopback
     "2001:0:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+    "::ffff:0:7f00:1", // IPv4-translated loopback
     "[::1]",
     "not-an-ip",
     "",
