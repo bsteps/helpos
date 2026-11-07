@@ -1,7 +1,7 @@
 import type { Database } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
-import { totalTokens, usageOn, utcDay } from "./budget.ts";
+import { dailyBudget, totalTokens, usageOn, utcDay } from "./budget.ts";
 
 export interface AiUsageRouteDeps {
   db: Pick<Database, "withTenant">;
@@ -18,6 +18,7 @@ const usageSchema = z
     outputTokens: z.number().int(),
     totalTokens: z.number().int(),
     calls: z.number().int(),
+    /** The effective budget: the workspace's own, capped by the server-wide ceiling. */
     dailyTokenBudget: z.number().int(),
     remainingTokens: z.number().int(),
     /** True when drafting is paused until the next UTC day. */
@@ -51,15 +52,18 @@ export function registerAiUsageRoute(app: OpenAPIHono, deps: AiUsageRouteDeps): 
     const principal = c.get("principal");
     if (!principal.scopes.has("tickets:read")) return c.json({ error: "forbidden" }, 403);
     const day = utcDay((deps.now ?? (() => new Date()))());
-    const usage = await deps.db.withTenant(principal.tenantId, (tx) => usageOn(tx, day));
+    const [usage, budget] = await deps.db.withTenant(principal.tenantId, async (tx) => [
+      await usageOn(tx, day),
+      await dailyBudget(tx, deps.dailyTokenBudget),
+    ]);
     const total = totalTokens(usage);
     return c.json(
       {
         ...usage,
         totalTokens: total,
-        dailyTokenBudget: deps.dailyTokenBudget,
-        remainingTokens: Math.max(0, deps.dailyTokenBudget - total),
-        paused: total >= deps.dailyTokenBudget,
+        dailyTokenBudget: budget,
+        remainingTokens: Math.max(0, budget - total),
+        paused: total >= budget,
       },
       200,
     );

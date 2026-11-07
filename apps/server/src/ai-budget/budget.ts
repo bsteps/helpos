@@ -1,12 +1,26 @@
 import { eq, schema, sql, type TenantTx } from "@helpos/db";
 
-const { aiUsage } = schema;
+const { aiUsage, tenants } = schema;
 
 /**
  * Tokens per workspace per UTC day. Low on purpose: an email flood to a public demo mailbox
  * must not become an unbounded bill. Override with HELPOS_AI_DAILY_TOKEN_BUDGET.
  */
 export const defaultDailyTokenBudget = 200_000;
+
+/**
+ * The budget that applies: the workspace's own, but never above the server-wide ceiling, so a
+ * bad or missing value can't mean an unlimited bill. Null means the workspace has none of its own.
+ */
+export function effectiveBudget(workspaceBudget: number | null, ceiling: number): number {
+  return workspaceBudget === null ? ceiling : Math.min(workspaceBudget, ceiling);
+}
+
+/** The current workspace's effective daily budget, given the server-wide ceiling. */
+export async function dailyBudget(tx: TenantTx, ceiling: number): Promise<number> {
+  const [row] = await tx.select({ budget: tenants.aiDailyTokenBudget }).from(tenants);
+  return effectiveBudget(row?.budget ?? null, ceiling);
+}
 
 export type DailyUsage = { day: string; inputTokens: number; outputTokens: number; calls: number };
 

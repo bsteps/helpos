@@ -17,7 +17,14 @@ import {
   type TenantTx,
 } from "@helpos/db";
 import type { Logger } from "pino";
-import { lockUsage, recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import {
+  dailyBudget,
+  lockUsage,
+  recordUsage,
+  totalTokens,
+  usageOn,
+  utcDay,
+} from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import {
@@ -69,7 +76,7 @@ export function retrievalQuery(subject: string, body: string): string {
 export interface DraftWorkerDeps {
   model: LanguageModel;
   logger: Pick<Logger, "info" | "warn">;
-  /** Tokens per workspace per UTC day. At or over it, no model call is made. */
+  /** Server-wide ceiling on tokens per workspace per UTC day; a workspace may have less. */
   dailyTokenBudget: number;
   /** For tests: the clock the budget day is read from. */
   now?: () => Date;
@@ -191,15 +198,13 @@ function draftInTransaction(deps: DraftWorkerDeps) {
         target: { type: "ticket", id: row.ticketId },
         requestId: null,
       });
-      deps.logger.warn(
-        { ticketId: row.ticketId, usedTokens, budget: deps.dailyTokenBudget },
-        "AI paused: daily budget reached",
-      );
+      deps.logger.warn({ ticketId: row.ticketId, usedTokens }, "AI paused: daily budget reached");
     };
     // Read first, without the lock, so nothing is paid for over the cap, and the email's
     // embedding below doesn't hold up the workspace's other drafts.
+    const budget = await dailyBudget(tx, deps.dailyTokenBudget);
     const before = totalTokens(await usageOn(tx, day));
-    if (before >= deps.dailyTokenBudget) return pause(before);
+    if (before >= budget) return pause(before);
 
     // The conversation before this message, so a follow-up is answered in context. Machine
     // mail on the ticket is left out: it's noise, and never something to answer.
@@ -235,7 +240,7 @@ function draftInTransaction(deps: DraftWorkerDeps) {
 
     // Now locked, and held across the model call, so two drafts can't both pass the cap.
     const used = totalTokens(await lockUsage(tx, payload.tenantId, day));
-    if (used >= deps.dailyTokenBudget) return pause(used);
+    if (used >= budget) return pause(used);
     // Another job for this message (a retry overlapping a slow attempt) may have drafted it
     // while this one searched and waited for the lock. Looked at again before paying the model.
     const [drafted] = await tx
