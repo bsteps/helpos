@@ -19,6 +19,7 @@
     "helpos:init": "pnpm --filter @helpos/server init",
     "helpos:ai-budget": "pnpm --filter @helpos/server ai-budget",
     "helpos:token": "pnpm --filter @helpos/server token",
+    "db:seed": "pnpm --filter @helpos/server seed",
     "dev:send-email": "node --env-file-if-exists=.env scripts/send-email.mjs",
     "rename-brand": "node scripts/rename-brand.mjs"
   },

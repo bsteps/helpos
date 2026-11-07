@@ -11,6 +11,7 @@
     "init": "node --env-file-if-exists=../../.env src/cli/init.ts",
     "ai-budget": "node --env-file-if-exists=../../.env src/cli/ai-budget.ts",
     "token": "node --env-file-if-exists=../../.env src/cli/token.ts",
+    "seed": "node --env-file-if-exists=../../.env src/cli/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

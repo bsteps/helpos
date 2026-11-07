@@ -17,6 +17,7 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 ```bash
 pnpm install          # install (pnpm version is pinned in package.json)
 pnpm dev              # Postgres + Mailpit (Docker), migrations, server on :3000
+pnpm db:seed          # demo data: 2 workspaces, users, agent tokens, tickets (local DBs only)
 pnpm check            # lint + format check (Biome)
 pnpm check:fix        # auto-fix lint + format
 pnpm typecheck        # TypeScript, all packages
