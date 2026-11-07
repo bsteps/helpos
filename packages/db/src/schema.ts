@@ -497,6 +497,8 @@ export const draftCitations = pgTable(
   },
   (t) => [
     unique("draft_citations_tenant_draft_rank").on(t.tenantId, t.draftId, t.rank),
+    // Deleting a source finds its citations through this, instead of scanning them all.
+    index("draft_citations_source").on(t.tenantId, t.sourceId),
     foreignKey({
       name: "draft_citations_draft_fk",
       columns: [t.tenantId, t.draftId],

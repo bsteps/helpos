@@ -28,6 +28,16 @@ describe("embedTexts", () => {
     expect(wrong.doEmbedCalls[0]?.dimensions).toBe(embeddingDimensions);
   });
 
+  it("estimates the tokens when the server reports no usage", async () => {
+    const silent = new MockEmbeddingModelV4({
+      doEmbed: async () => ({
+        embeddings: [new Array(embeddingDimensions).fill(0.1)],
+        warnings: [],
+      }),
+    });
+    expect((await embedTexts(silent, ["x".repeat(40)])).tokens).toBe(10);
+  });
+
   it("makes no call for no texts", async () => {
     const model = mockEmbeddingModel();
     expect(await embedTexts(model, [])).toEqual({ embeddings: [], tokens: 0 });

@@ -119,11 +119,11 @@ export function fenceKnowledge(articles: KnowledgeArticle[]): string {
 /**
  * `[sources: K1, K3]`, also inline or wrapped in markdown such as `**…**` or backticks, or cut
  * off without its `]` at the very end, when the reply hit the output limit. Models also drift
- * to `Sources: K1`, `(source: K1)` and the like: without brackets it counts only when a list of
- * ids follows, so a reply's own "Sources: our help center" is left alone.
+ * to `Sources: K1`, `(source: K1)` and the like. Either way it must start with an id or
+ * "none", so a reply's own "[Sources: see our help center]" is left alone.
  */
 const sourcesMarker =
-  /[ \t]*[*_`]*(?:\[\s*sources?\s*:([^\]\n]*)(?:\]|\s*$)|\(?\bsources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)\b\s*\)?)[*_`]*/gi;
+  /[ \t]*[*_`]*(?:\[\s*sources?\s*:\s*((?:k\d|none)[^\]\n]*)(?:\]|\s*$)|\(?\bsources?\s*:\s*((?:k\d+|none)(?:\s*,\s*(?:k\d+|none))*)\b\s*\)?)[*_`]*/gi;
 
 /**
  * Splits the model's source list off the reply. It should be the last line, but a model may

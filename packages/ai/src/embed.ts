@@ -90,5 +90,12 @@ export async function embedTexts(model: EmbeddingModel, values: string[]): Promi
       throw new Error(`embedding has ${e.length} dimensions, expected ${embeddingDimensions}`);
     }
   }
-  return { embeddings: result.embeddings, tokens: result.usage.tokens };
+  // Some OpenAI-compatible servers report no usage. Estimate (about 4 characters a token)
+  // rather than count nothing, so the daily budget still sees the spend.
+  const reported = result.usage?.tokens;
+  const tokens =
+    typeof reported === "number" && Number.isFinite(reported) && reported > 0
+      ? reported
+      : Math.ceil(values.reduce((sum, v) => sum + v.length, 0) / 4);
+  return { embeddings: result.embeddings, tokens };
 }

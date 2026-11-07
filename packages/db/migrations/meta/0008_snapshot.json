@@ -1,5 +1,5 @@
 {
-  "id": "7380a567-47ff-48c1-aa07-64fd991bdad2",
+  "id": "53d5e77a-cc94-42a0-a3fd-513485064a9a",
   "prevId": "a34c741f-06cc-44ad-97e2-82de7dd8a196",
   "version": "7",
   "dialect": "postgresql",
@@ -505,7 +505,29 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "draft_citations_source": {
+          "name": "draft_citations_source",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "draft_citations_tenant_id_tenants_id_fk": {
           "name": "draft_citations_tenant_id_tenants_id_fk",

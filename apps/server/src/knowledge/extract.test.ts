@@ -59,6 +59,13 @@ describe("extractHtml", () => {
     expect(extractHtml(page).text).toBe("# Refunds\n\nFive days.\n\nTip: keep your receipt.");
   });
 
+  it("keeps the indentation of a code block", () => {
+    const page = "<pre>refunds:\n  window_days: 30\n    strict: true</pre><p>  Spaced   out. </p>";
+    expect(extractHtml(page).text).toBe(
+      "refunds:\n  window_days: 30\n    strict: true\n\nSpaced out.",
+    );
+  });
+
   it("keeps line breaks in code blocks and separates table cells", () => {
     const page =
       "<p>Run:</p><pre>npm install\nnpm start</pre>" +

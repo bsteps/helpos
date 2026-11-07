@@ -44,6 +44,12 @@ const blockTags = new Set([
   "figcaption",
 ]);
 
+/**
+ * Marks text from a <pre> block until tidy() has run. A private-use character, removed from
+ * the page's own text first, so a page can't fake it.
+ */
+const preMark = "\uE000";
+
 /** Text a reader of the page can't see is often the vehicle for hidden instructions. */
 function isHidden(attribs: Record<string, string>): boolean {
   if ("hidden" in attribs || attribs["aria-hidden"] === "true") return true;
@@ -108,7 +114,13 @@ export function extractHtml(html: string): ExtractedPage {
       ontext(data) {
         if (inTitle) title += data;
         if (skipDepth > 0) return;
-        emit(preDepth > 0 ? data : data.replaceAll(/\s+/g, " "));
+        const clean = data.replaceAll(preMark, "");
+        // Each line of a code block is marked, so tidy() keeps its indentation.
+        emit(
+          preDepth > 0
+            ? preMark + clean.replaceAll("\n", `\n${preMark}`)
+            : clean.replaceAll(/\s+/g, " "),
+        );
       },
       onclosetag(name) {
         if (name === "svg") svgDepth = Math.max(0, svgDepth - 1);
@@ -159,7 +171,12 @@ export function tidy(text: string): string {
   return text
     .replaceAll(/\r\n?/g, "\n")
     .split("\n")
-    .map((line) => line.replaceAll(/[ \t]+/g, " ").trim())
+    .map((line) =>
+      // A line from a code block keeps its spacing: indentation is meaning there.
+      line.includes(preMark)
+        ? line.replaceAll(preMark, "").trimEnd()
+        : line.replaceAll(/[ \t]+/g, " ").trim(),
+    )
     .join("\n")
     .replaceAll(/\n{3,}/g, "\n\n")
     .trim();
