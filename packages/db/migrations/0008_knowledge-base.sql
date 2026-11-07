@@ -19,7 +19,7 @@ CREATE TABLE "knowledge_chunks" (
 	"source_id" uuid NOT NULL,
 	"position" integer NOT NULL,
 	"content" text NOT NULL,
-	"embedding" vector(1536) NOT NULL,
+	"embedding" vector(1024) NOT NULL,
 	"embedding_model" text NOT NULL,
 	CONSTRAINT "knowledge_chunks_tenant_id_id" UNIQUE("tenant_id","id")
 );

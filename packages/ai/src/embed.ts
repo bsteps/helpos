@@ -4,20 +4,40 @@ import { z } from "zod";
 import { AiConfigError } from "./config.ts";
 
 /**
- * The vector size every stored embedding has. Fixed, because the database column and its
- * index are. OpenAI's text-embedding-3 models return this size when asked.
+ * The vector size every stored embedding has. Fixed, because the database column and its index
+ * are. 1024 is the size most embedding models can give: OpenAI's text-embedding-3 (asked for
+ * it), Voyage, Cohere, Mistral, Bedrock Titan, Gemini, and local models such as
+ * mxbai-embed-large or bge-m3. A model that returns another size is refused with a clear error.
  */
-export const embeddingDimensions = 1536;
+export const embeddingDimensions = 1024;
 
 export const embeddingProviders = ["openai"] as const;
 export type EmbeddingProvider = (typeof embeddingProviders)[number];
-export type EmbeddingConfig = { provider: EmbeddingProvider; model: string; apiKey: string };
+export type EmbeddingConfig = {
+  provider: EmbeddingProvider;
+  model: string;
+  /** Absent only for a self-hosted server that needs none. */
+  apiKey: string | undefined;
+  /** An OpenAI-compatible server instead of OpenAI itself, e.g. Ollama. */
+  baseURL: string | undefined;
+};
 
-const embeddingEnvSchema = z.object({
-  AI_EMBEDDING_PROVIDER: z.enum(embeddingProviders),
-  AI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
-  AI_EMBEDDING_API_KEY: z.string().min(1),
-});
+/** An empty variable (as `.env.example` leaves them) means unset, not invalid. */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
+const embeddingEnvSchema = z
+  .object({
+    AI_EMBEDDING_PROVIDER: z.enum(embeddingProviders),
+    AI_EMBEDDING_MODEL: optional(z.string().min(1)),
+    AI_EMBEDDING_API_KEY: optional(z.string().min(1)),
+    AI_EMBEDDING_BASE_URL: optional(z.url({ protocol: /^https?$/ })),
+  })
+  // OpenAI itself needs a key. A local server (Ollama, LM Studio) usually doesn't.
+  .refine((env) => env.AI_EMBEDDING_API_KEY || env.AI_EMBEDDING_BASE_URL, {
+    path: ["AI_EMBEDDING_API_KEY"],
+    message: "required unless AI_EMBEDDING_BASE_URL points at a server that needs none",
+  });
 
 /**
  * Reads the embedding settings from env. Separate from the chat model's, because not every
@@ -31,15 +51,20 @@ export function parseEmbeddingConfig(env: Record<string, string | undefined>): E
   }
   return {
     provider: parsed.data.AI_EMBEDDING_PROVIDER,
-    model: parsed.data.AI_EMBEDDING_MODEL,
+    model: parsed.data.AI_EMBEDDING_MODEL ?? "text-embedding-3-small",
     apiKey: parsed.data.AI_EMBEDDING_API_KEY,
+    baseURL: parsed.data.AI_EMBEDDING_BASE_URL,
   };
 }
 
 export function createEmbeddingModel(config: EmbeddingConfig): EmbeddingModel {
   switch (config.provider) {
     case "openai":
-      return createOpenAI({ apiKey: config.apiKey }).embedding(config.model);
+      return createOpenAI({
+        // The SDK refuses to call without a key, even for a server that ignores it.
+        apiKey: config.apiKey ?? "not-needed",
+        ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      }).embedding(config.model);
   }
 }
 

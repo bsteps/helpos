@@ -24,7 +24,7 @@ const query = (() => {
 
 /**
  * Adds `count` chunks whose vectors are `lean` along axis 0 plus noise along `axis`. Built in
- * SQL, so a thousand 1536-dimension rows don't travel over the wire.
+ * SQL, so a thousand 1024-dimension rows don't travel over the wire.
  */
 async function seedChunks(
   tx: TenantTx,

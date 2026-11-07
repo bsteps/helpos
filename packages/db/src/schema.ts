@@ -427,7 +427,7 @@ export const knowledgeSources = pgTable(
 );
 
 /** Must match the embedding model's output (`embeddingDimensions` in @helpos/ai). */
-export const knowledgeEmbeddingDimensions = 1536;
+export const knowledgeEmbeddingDimensions = 1024;
 
 /** A passage of a knowledge source with its embedding. Replaced whenever the source is ingested. */
 export const knowledgeChunks = pgTable(
