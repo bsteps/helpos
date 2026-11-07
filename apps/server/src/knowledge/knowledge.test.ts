@@ -1252,6 +1252,20 @@ describe("drafting with knowledge", () => {
     expect(fresh.doEmbedCalls).toEqual([]);
   });
 
+  it("a search that allows no visibility finds nothing, and makes no call", async () => {
+    const fresh = mockEmbeddingModel();
+    const result = await db.withTenant(acme, (tx) =>
+      createVectorSearch(fresh).search(tx, {
+        tenantId: acme,
+        text: "refunds",
+        limit: 5,
+        visibility: [],
+      }),
+    );
+    expect(result).toEqual({ hits: [], tokens: 0 });
+    expect(fresh.doEmbedCalls).toEqual([]);
+  });
+
   it("a public-only search never returns internal notes", async () => {
     const search = createVectorSearch(embeddingModel);
     const result = await db.withTenant(acme, (tx) =>

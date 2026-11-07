@@ -51,6 +51,8 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
   const modelId = embeddingModelId(model);
   return {
     async search(tx, query) {
+      // No visibility allowed means no knowledge, not an error.
+      if (query.visibility?.length === 0) return noKnowledge;
       // Most workspaces start with no knowledge (or none of the wanted visibility): skip the
       // embedding call, its cost and latency.
       const { knowledgeChunks, knowledgeSources } = schema;

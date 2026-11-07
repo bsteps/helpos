@@ -59,7 +59,8 @@ const codeFence = "```";
 function isHidden(attribs: Record<string, string>): boolean {
   if ("hidden" in attribs || attribs["aria-hidden"] === "true") return true;
   const style = inlineStyle(attribs.style ?? "");
-  const is = (property: string, test: RegExp) => test.test(style.get(property) ?? "");
+  const is = (property: string, test: RegExp) =>
+    (style.get(property) ?? []).some((value) => test.test(value));
   const zero = /^-?0(\.0*)?[a-z%]*$/;
   const offScreen = /^-\d{3,}/;
   return (
@@ -73,11 +74,13 @@ function isHidden(attribs: Record<string, string>): boolean {
 }
 
 /**
- * An inline style's declarations, as a browser reads them: comments removed, the last
- * declaration of a property wins, and `!important` doesn't change the value. Property names
- * are compared whole, so a comment or odd spacing before one can't hide it.
+ * An inline style's declarations: comments removed, and every value each property is given.
+ * Property names are compared whole, so a comment or odd spacing before one can't hide it.
+ * Every value counts, not only the last as in a browser: a browser skips a later value it
+ * can't parse ("display:none; display:x" stays hidden), and guessing which ones it skips
+ * would let hidden text through. A page that hides and then shows something loses that text.
  */
-function inlineStyle(css: string): Map<string, string> {
+function inlineStyle(css: string): Map<string, string[]> {
   // Comments out in one pass. An unclosed one runs to the end, as in a browser.
   let text = "";
   let i = 0;
@@ -92,7 +95,7 @@ function inlineStyle(css: string): Map<string, string> {
     if (close === -1) break;
     i = close + 2;
   }
-  const declarations = new Map<string, string>();
+  const declarations = new Map<string, string[]>();
   for (const declaration of text.split(";")) {
     const colon = declaration.indexOf(":");
     if (colon === -1) continue;
@@ -102,7 +105,9 @@ function inlineStyle(css: string): Map<string, string> {
       .toLowerCase()
       .replace(/!\s*important\s*$/, "")
       .replaceAll(/\s+/g, "");
-    declarations.set(property, value);
+    const values = declarations.get(property);
+    if (values) values.push(value);
+    else declarations.set(property, [value]);
   }
   return declarations;
 }

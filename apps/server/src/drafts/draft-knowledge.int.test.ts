@@ -214,6 +214,31 @@ describe("drafting with knowledge: spend and limits", () => {
     expect(await draftsOf(email.ticketId)).toHaveLength(1);
   });
 
+  it("doesn't pay the model when another job drafted the message meanwhile", async () => {
+    const email = await receive(++received);
+    const before = await usedToday();
+    // Stands in for an overlapping job that drafted the message while this one searched.
+    const raced: SearchProvider = {
+      search: async (tx) => {
+        await tx.insert(schema.drafts).values({
+          tenantId: acme,
+          ticketId: email.ticketId,
+          messageId: email.messageId,
+          body: "Drafted by the other job.",
+        });
+        return { hits: [], tokens: 5 };
+      },
+    };
+    const model = mockModel({ text: "A second draft." });
+    await draftWith(raced, email.messageId, model);
+    expect(model.doGenerateCalls).toEqual([]);
+    expect((await draftsOf(email.ticketId)).map((d) => d.body)).toEqual([
+      "Drafted by the other job.",
+    ]);
+    // The search was paid for, so it counts.
+    expect((await usedToday()) - before).toBe(5);
+  });
+
   it("stores citations only for the passages the model was shown", async () => {
     const sourceId = await addSource();
     const hits = Array.from({ length: maxKnowledgeArticles + 3 }, (_, i) => hit(sourceId, i));

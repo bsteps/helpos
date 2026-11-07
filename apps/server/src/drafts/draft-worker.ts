@@ -37,6 +37,26 @@ export const knowledgeLimit = Math.min(5, maxKnowledgeArticles);
 /** The retrieval query is the email's start: subject and opening lines say what it's about. */
 const maxQueryChars = 2_000;
 
+/**
+ * What the email asks, to search the knowledge base with: the subject and the new text only.
+ * Quoted earlier messages ("> …", "On … wrote:") and the signature are left out: in a short
+ * follow-up they would be most of the query and match the old question instead of the new one.
+ */
+export function retrievalQuery(subject: string, body: string): string {
+  const lines: string[] = [];
+  for (const line of body.split("\n")) {
+    const bare = line.trim();
+    // The start of the quoted thread, or of the signature ("-- " by convention).
+    if (/^on\b.{0,200}\bwrote:$/i.test(bare) || /^-{2,}\s*original message/i.test(bare)) break;
+    if (line.trimEnd() === "--") break;
+    if (bare.startsWith(">")) continue;
+    lines.push(line);
+  }
+  const text = lines.join("\n").trim();
+  const topic = subject.replace(/^((re|fwd?|aw|sv)\s*:\s*)+/i, "").trim();
+  return `${topic}\n\n${text || body}`.slice(0, maxQueryChars);
+}
+
 export interface DraftWorkerDeps {
   model: LanguageModel;
   logger: Pick<Logger, "info" | "warn">;
@@ -197,7 +217,7 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     const emailBody = messageText(row);
     const knowledge = await searchOrNothing(deps, tx, {
       tenantId: payload.tenantId,
-      text: `${row.subject}\n\n${emailBody}`.slice(0, maxQueryChars),
+      text: retrievalQuery(row.subject, emailBody),
       limit: knowledgeLimit,
     });
     spent.inputTokens += knowledge.tokens;
@@ -207,6 +227,16 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     // Now locked, and held across the model call, so two drafts can't both pass the cap.
     const used = totalTokens(await lockUsage(tx, payload.tenantId, day));
     if (used >= deps.dailyTokenBudget) return pause(used);
+    // Another job for this message (a retry overlapping a slow attempt) may have drafted it
+    // while this one searched and waited for the lock. Looked at again before paying the model.
+    const [drafted] = await tx
+      .select({ id: drafts.id })
+      .from(drafts)
+      .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
+    if (drafted) {
+      if (totalTokens(spent) > 0) await recordUsage(tx, payload.tenantId, day, spent);
+      return;
+    }
 
     const result = await draftReply(deps.model, {
       from: row.fromAddress,

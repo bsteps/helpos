@@ -188,6 +188,13 @@ function decode(bytes: Uint8Array, declared: string | undefined): string {
   }
 }
 
+/** The vector for one chunk. The count was checked, so a missing one is a bug: say so. */
+function vectorAt(embeddings: number[][], position: number): number[] {
+  const vector = embeddings[position];
+  if (!vector) throw new Error(`ingest: no vector for chunk ${position}`);
+  return vector;
+}
+
 /** The start of the next UTC day, when the daily budget resets. */
 export function nextUtcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
@@ -296,7 +303,8 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       page = { ok: true, text: tidyAuthored(source.content ?? "") };
     }
     if (!page.ok) return fail(page.error);
-    const chunks = chunkText(page.text);
+    // Stops early on a huge page: past the limit, it fails anyway.
+    const chunks = chunkText(page.text, maxChunks);
     if (chunks.length === 0) return fail("no_text");
     if (chunks.length > maxChunks) return fail("too_long");
 
@@ -349,7 +357,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
           sourceId,
           position,
           content,
-          embedding: embeddings[position] ?? [],
+          embedding: vectorAt(embeddings, position),
           embeddingModel: modelId,
         })),
       );

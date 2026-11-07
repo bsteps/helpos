@@ -46,8 +46,10 @@ describe("extractHtml", () => {
       <div style="display: none !important">secret three</div>
       <div style="display:block; display:none">secret four</div>
       <div style="opacity:0/* trailing">secret five</div>
-      <div style="display:none; display:block">Shown: the last rule wins.</div>`;
-    expect(extractHtml(page).text).toBe("Visible fact.\n\nShown: the last rule wins.");
+      <div style="display:none; display:bogus">secret six: a browser skips "bogus"</div>
+      <div style="font-family:'a;b'; display:none">secret seven</div>
+      <div style="display:block">Shown.</div>`;
+    expect(extractHtml(page).text).toBe("Visible fact.\n\nShown.");
   });
 
   it("keeps only <main> when the page has one", () => {

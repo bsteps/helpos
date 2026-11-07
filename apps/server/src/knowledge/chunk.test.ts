@@ -101,6 +101,27 @@ describe("chunkText", () => {
     expect(echoed).toEqual(lines);
   });
 
+  it("repeats only a code block's fence after a cut, so a long opening line isn't copied", () => {
+    const opener = `\`\`\`sh ${"x".repeat(1_400)}`;
+    const lines = Array.from({ length: 2_000 }, (_, i) => `${i}`);
+    const text = `${opener}\n${lines.join("\n")}\n\`\`\``;
+    const chunks = chunkText(text);
+    // Without the cap, each part would start with the 1,400-character line again.
+    expect(chunks.join("").length).toBeLessThan(text.length * 1.2);
+    expect(chunks.slice(1).every((c) => c.startsWith("```sh\n"))).toBe(true);
+  });
+
+  it("stops once it has more passages than the caller allows", () => {
+    const text = Array.from({ length: 50 }, (_, i) => `# Part ${i}\n\nText ${i}.`).join("\n\n");
+    expect(chunkText(text, 10)).toHaveLength(11);
+    expect(chunkText(text)).toHaveLength(50);
+  });
+
+  it("makes no empty passage from a long run of spaces", () => {
+    const chunks = chunkText(`${" ".repeat(maxChunkChars * 2)}Words at the end.`);
+    expect(chunks).toEqual(["Words at the end."]);
+  });
+
   it("never cuts a character in half, even in text with no spaces", () => {
     // Each emoji is two UTF-16 units; an odd offset puts the hard cut between the two.
     const text = `x${String.fromCodePoint(0x1f600).repeat(maxChunkChars)}`;

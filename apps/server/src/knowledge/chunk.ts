@@ -25,7 +25,9 @@ function splitLong(paragraph: string, limit: number): string[] {
     // Never between the two halves of one character (an emoji, a rare CJK character).
     const code = rest.charCodeAt(cut - 1);
     if (code >= 0xd800 && code <= 0xdbff) cut--;
-    parts.push(rest.slice(0, cut).trim());
+    // A run of spaces as long as the window leaves nothing: no empty passage for it.
+    const part = rest.slice(0, cut).trim();
+    if (part) parts.push(part);
     rest = rest.slice(cut).trim();
   }
   if (rest) parts.push(rest);
@@ -44,20 +46,30 @@ function splitBlock(block: string, limit: number): string[] {
   const parts: string[] = [];
   let current: string[] = [];
   let size = 0;
-  let opener: string | undefined;
+  // The open code block's fence, as repeated after a cut: its marks and a short language
+  // name only, never the rest of its line, so a long opening line can't be copied into every
+  // part and make the passages far bigger than the page.
+  let reopen: string | undefined;
+  let closer = "```";
   for (const line of lines) {
-    const closer = opener?.trimStart().startsWith("~~~") ? "~~~" : "```";
-    const closing = opener !== undefined && fenceLine.test(line);
+    const closing = reopen !== undefined && fenceLine.test(line);
     // Room is kept for the closing fence a cut inside the code needs.
-    const reserve = opener !== undefined && !closing ? closer.length + 1 : 0;
+    const reserve = reopen !== undefined && !closing ? closer.length + 1 : 0;
     if (current.length > 0 && size + line.length + 1 + reserve > limit) {
-      parts.push([...current, ...(opener !== undefined ? [closer] : [])].join("\n"));
-      current = opener !== undefined ? [opener] : [];
-      size = opener !== undefined ? opener.length + 1 : 0;
+      parts.push([...current, ...(reopen !== undefined ? [closer] : [])].join("\n"));
+      current = reopen !== undefined ? [reopen] : [];
+      size = reopen !== undefined ? reopen.length + 1 : 0;
     }
     current.push(line);
     size += line.length + 1;
-    if (fenceLine.test(line)) opener = opener === undefined ? line : undefined;
+    if (!fenceLine.test(line)) continue;
+    if (reopen !== undefined) {
+      reopen = undefined;
+      continue;
+    }
+    const fence = /^ {0,3}(`{3,}|~{3,})[ \t]*([\w+.#-]{0,20})/.exec(line);
+    closer = fence?.[1] ?? "```";
+    reopen = `${closer}${fence?.[2] ?? ""}`;
   }
   if (current.length > 0) parts.push(current.join("\n"));
   // A single line longer than the limit still has to be cut.
@@ -67,9 +79,10 @@ function splitBlock(block: string, limit: number): string[] {
 /**
  * Splits a document (plain text or markdown) into passages for embedding. A heading starts a
  * new passage, paragraphs are packed up to `maxChunkChars`, and a section's later passages
- * repeat its heading so each one still says what it's about.
+ * repeat its heading so each one still says what it's about. With `stopAfter`, it stops once
+ * it has more passages than that: the caller only needs to know the document is too long.
  */
-export function chunkText(text: string): string[] {
+export function chunkText(text: string, stopAfter = Number.POSITIVE_INFINITY): string[] {
   const chunks: string[] = [];
   let heading = "";
   let current: string[] = [];
@@ -112,6 +125,7 @@ export function chunkText(text: string): string[] {
     else blocks.push(paragraph);
   }
   for (const block of blocks) {
+    if (chunks.length > stopAfter) return chunks;
     // A heading glued to its first paragraph (no blank line) still starts a section.
     const [first = "", ...restLines] = block.split("\n");
     if (headingLine.test(first)) {
