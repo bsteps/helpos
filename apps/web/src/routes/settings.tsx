@@ -60,7 +60,11 @@ function connectProblem(error: unknown): string {
 function GithubSettings() {
   const { me } = useRouteContext({ from: "/signed-in" });
   const isAdmin = me.scopes.includes("workspace:admin");
-  const github = useQuery({ ...githubQuery, enabled: me.scopes.includes("github:write") });
+  // An admin sees the connection too, so they never connect over one they can't see.
+  const github = useQuery({
+    ...githubQuery,
+    enabled: isAdmin || me.scopes.includes("github:write"),
+  });
   const connect = useConnectGithub();
   const disconnect = useDisconnectGithub();
   const rotate = useRotateGithubWebhookSecret();
@@ -107,7 +111,7 @@ function GithubSettings() {
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
-        {github.isPending && me.scopes.includes("github:write") ? (
+        {github.isPending && (isAdmin || me.scopes.includes("github:write")) ? (
           <Loader size={16} label="Loading" />
         ) : null}
         {status?.connected ? (

@@ -63,8 +63,9 @@ export interface GithubRoutesDeps {
 /**
  * A `creating` claim older than this belongs to a request that died; the next try takes over.
  * Longer than one request can take, so a slow but live one is never taken over: its GitHub
- * calls are bounded (two issue searches of at most a minute each, a create and a state read of
- * at most ten seconds each), about two and a half minutes at worst.
+ * calls are bounded (two issue searches of at most a minute each, plus the ten-second page
+ * that may still be running when that minute ends, and a create and a state read of at most ten
+ * seconds each), about three minutes at worst.
  */
 const staleClaimSeconds = 300;
 
@@ -349,7 +350,10 @@ function registerConnectionRoutes(
 ): void {
   app.openapi(getRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("github:write")) return c.json({ error: "forbidden" }, 403);
+    // An admin may read it too: they connect and disconnect, so they must see what's there.
+    if (!principal.scopes.has("github:write") && !principal.scopes.has("workspace:admin")) {
+      return c.json({ error: "forbidden" }, 403);
+    }
     const [row] = await deps.db.withTenant(principal.tenantId, (tx) =>
       tx
         .select({ repo: integrations.repo })
@@ -410,36 +414,34 @@ function registerConnectionRoutes(
         !input.rotateWebhookSecret &&
         readable(box, current.webhookSecretCiphertext, tenantId);
       const secret = keep ? null : randomBytes(32).toString("hex");
+      const sealedSecret = secret
+        ? box.seal(secret, { tenantId, purpose: "github-webhook-secret" })
+        : null;
       const values = {
         repo: repoString(repo),
         tokenCiphertext,
-        ...(secret
-          ? {
-              webhookSecretCiphertext: box.seal(secret, {
-                tenantId,
-                purpose: "github-webhook-secret",
-              }),
-            }
-          : {}),
+        ...(sealedSecret ? { webhookSecretCiphertext: sealedSecret } : {}),
       };
-      const [row] = current
-        ? await tx
-            .update(integrations)
-            .set({ ...values, updatedAt: new Date() })
-            .where(eq(integrations.provider, "github"))
-            .returning({ id: integrations.id })
-        : await tx
-            .insert(integrations)
-            .values({
-              tenantId,
-              provider: "github",
-              ...values,
-              webhookSecretCiphertext: box.seal(secret ?? "", {
-                tenantId,
-                purpose: "github-webhook-secret",
-              }),
-            })
-            .returning({ id: integrations.id });
+      let row: { id: string } | undefined;
+      if (current) {
+        [row] = await tx
+          .update(integrations)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(integrations.provider, "github"))
+          .returning({ id: integrations.id });
+      } else {
+        // A first connection always gets a new secret (nothing to keep): never an empty one.
+        if (!sealedSecret) throw new Error("github connect: a new connection has no secret");
+        [row] = await tx
+          .insert(integrations)
+          .values({
+            tenantId,
+            provider: "github",
+            ...values,
+            webhookSecretCiphertext: sealedSecret,
+          })
+          .returning({ id: integrations.id });
+      }
       if (!row) throw new Error("github connect: write returned no row");
       await recordAudit(tx, {
         tenantId,
@@ -762,7 +764,8 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
               target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId],
             });
         });
-        return c.json({ error: "github_unavailable" }, 502);
+        // What GitHub said: a revoked token should be fixed, not retried forever.
+        return c.json({ error: earlier.ok ? "github_unavailable" : earlier.reason }, 502);
       }
       if (earlier.ok && earlier.value) {
         created = { ok: true, value: earlier.value };

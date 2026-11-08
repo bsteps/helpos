@@ -1031,6 +1031,29 @@ describe("creating the issue", () => {
     ).toMatchObject({ githubIssue: { state: "closed" } });
   });
 
+  it("says what GitHub said when a stale claim's search is refused, not 'unavailable'", async () => {
+    const email = await receiveEmail();
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.ticketGithubIssues).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        repo: "acme/app",
+        state: "creating",
+        createdAt: longAgo,
+        updatedAt: longAgo,
+      }),
+    );
+    // The token lost access: retrying won't help, fixing the token will.
+    userHidden = true;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "token_rejected" });
+  });
+
   it("doesn't block a ticket on a stale claim in a repo the token can no longer see", async () => {
     const email = await receiveEmail();
     // A claim from before the workspace switched repos; this token can't see that one at all.
