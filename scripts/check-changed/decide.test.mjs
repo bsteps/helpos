@@ -45,7 +45,7 @@ test("files outside the workspace that aren't config skip typecheck", () => {
 });
 
 test("normalises Windows paths and drops duplicates", () => {
-  const d = decide(["appsservera.ts", "apps/server/a.ts", ""]);
+  const d = decide([String.raw`apps\server\a.ts`, "apps/server/a.ts", ""]);
   assert.deepEqual(d.lintFiles, ["apps/server/a.ts"]);
   assert.equal(d.scope, "affected");
 });

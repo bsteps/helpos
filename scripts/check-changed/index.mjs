@@ -15,6 +15,7 @@ const lines = (/** @type {string} */ s) => (s ? s.split("\n") : []);
 
 // pnpm sets npm_execpath to itself: a JS entry (run it with Node) or a standalone binary.
 // Calling it directly skips Windows' pnpm.cmd shim, which only starts through a shell.
+// biome-ignore lint/suspicious/noUndeclaredEnvVars: set by pnpm for this script, not read by any Turbo task
 const pnpmPath = process.env.npm_execpath ?? "";
 if (!pnpmPath) throw new Error("Run this through pnpm: pnpm check:changed");
 /** @returns {[string, string[]]} */
