@@ -4,13 +4,16 @@ import { hashToken } from "../tokens/token.ts";
 import { buildDemoData, type DemoData } from "./demo-data.ts";
 
 export type SeedResult =
-  | { ok: true; data: DemoData }
+  /** `skipped`: demo workspaces that were already there, left exactly as they were. */
+  | { ok: true; data: DemoData; skipped: string[] }
   /** Another workspace already has one of the demo mailboxes: we never write into it. */
   | { ok: false; reason: "mailbox_taken"; mailbox: string };
 
 /**
  * Writes the demo data, one transaction per workspace through withTenant(). Safe to run again:
- * every row has a fixed ID and is inserted only if missing, so a second run changes nothing.
+ * a demo workspace that already exists is skipped whole. Merging row by row would break when
+ * the demo data changes between versions (new drafts pointing at messages an older run wrote
+ * under other IDs), so to pick up changes you reset the database instead.
  * Knowledge sources are queued for ingestion like any new source, so the worker embeds them
  * with whichever embedding model is configured.
  */
@@ -22,18 +25,23 @@ export async function seedDemoData(deps: {
 }): Promise<SeedResult> {
   const data = buildDemoData();
 
+  const skipped: string[] = [];
   for (const t of data.tenants) {
     const route = await deps.db.resolveMailbox(t.mailbox.address);
     if (route && route.tenantId !== t.tenant.id) {
       return { ok: false, reason: "mailbox_taken", mailbox: t.mailbox.address };
     }
+    if (route) skipped.push(t.key);
   }
+  const toWrite = data.tenants.filter((t) => !skipped.includes(t.key));
 
   await deps.jobs.ensureQueue(ingestSourceJob);
   const userIds = new Map<string, string>();
-  for (const u of data.users) userIds.set(u.email, (await deps.auth.ensureUser(u.email)).id);
+  const emails = new Set(toWrite.flatMap((t) => t.memberships.map((m) => m.email)));
+  for (const u of data.users.filter((u) => emails.has(u.email)))
+    userIds.set(u.email, (await deps.auth.ensureUser(u.email)).id);
 
-  for (const t of data.tenants) {
+  for (const t of toWrite) {
     await deps.db.withTenant(t.tenant.id, async (tx) => {
       await tx.insert(schema.tenants).values(t.tenant).onConflictDoNothing();
       await tx.insert(schema.mailboxes).values(t.mailbox).onConflictDoNothing();
@@ -73,5 +81,5 @@ export async function seedDemoData(deps: {
       }
     });
   }
-  return { ok: true, data };
+  return { ok: true, data, skipped };
 }

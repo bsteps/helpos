@@ -42,6 +42,12 @@ try {
     process.stderr.write(`The mailbox ${result.mailbox} belongs to another workspace.\n`);
     process.exitCode = 1;
   } else {
+    if (result.skipped.length > 0) {
+      process.stdout.write(
+        `Already seeded, left as is: ${result.skipped.join(", ")}. ` +
+          "To pick up changed demo data, reset the database (docker compose down -v, then pnpm dev).\n",
+      );
+    }
     for (const t of result.data.tenants) {
       process.stdout.write(
         `\n${t.tenant.name} (${t.mailbox.address}), ${t.tickets.length} tickets\n`,

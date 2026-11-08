@@ -67,10 +67,14 @@ async function snapshot() {
 describe("seedDemoData", () => {
   it("writes the demo data, and a second run changes nothing", async () => {
     const first = await seedDemoData({ db, auth, jobs });
-    expect(first.ok).toBe(true);
+    expect(first).toMatchObject({ ok: true, skipped: [] });
     const before = await snapshot();
 
-    expect((await seedDemoData({ db, auth, jobs })).ok).toBe(true);
+    // The second run finds both workspaces and leaves them alone.
+    expect(await seedDemoData({ db, auth, jobs })).toMatchObject({
+      ok: true,
+      skipped: ["northwind", "lumen"],
+    });
     expect(await snapshot()).toEqual(before);
 
     // What was written is exactly what was planned, with the planned IDs.

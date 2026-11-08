@@ -539,13 +539,16 @@ export function buildDemoData() {
     for (const ts of spec.tickets) {
       const customer = customerByEmail.get(ts.customer);
       if (!customer) throw new Error(`demo ticket ${ts.key}: unknown customer ${ts.customer}`);
-      const opened = at(ts.hours * 60);
+      // The ticket opens when its first message arrives, to the second.
+      const times = ts.messages.map((m) => at(ts.hours * 60 + m.minutes));
+      const opened = times[0];
+      if (!opened) throw new Error(`demo ticket ${ts.key} has no messages`);
       const ticketId = id(`ticket:${ts.key}`, opened);
       const headers = ts.messages.map(
         (m, i) => `<${ts.key}.${i}@${m.from === "customer" ? "mail.example.test" : spec.domain}>`,
       );
       const ticketMessages = ts.messages.map((m, i) => {
-        const sentAt = at(ts.hours * 60 + m.minutes);
+        const sentAt = times[i] ?? opened;
         const inbound = m.from === "customer";
         return {
           id: id(`message:${ts.key}:${i}`, sentAt),
