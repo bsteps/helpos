@@ -1,0 +1,2 @@
+ALTER TABLE "api_tokens" DROP CONSTRAINT "api_tokens_scopes";--> statement-breakpoint
+ALTER TABLE "api_tokens" ADD CONSTRAINT "api_tokens_scopes" CHECK (cardinality("api_tokens"."scopes") > 0 and "api_tokens"."scopes" <@ array['tickets:read', 'tickets:write', 'drafts:write', 'drafts:approve', 'knowledge:read', 'knowledge:write', 'github:write', 'stats:read']::text[]);

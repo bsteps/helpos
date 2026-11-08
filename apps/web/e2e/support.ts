@@ -18,6 +18,9 @@ export interface E2eState {
   githubToken: string;
   /** The title the AI suggests for every GitHub issue. */
   issueTitle: string;
+  /** The owner of the seeded Northwind Cycles workspace (demo data), and their password. */
+  seedOwner: string;
+  seedPassword: string;
 }
 
 export function state(): E2eState {

@@ -1450,6 +1450,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/stats/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many drafts were approved unchanged
+         * @description Outcomes of the drafts created in a date range: approved unchanged, approved after an edit (by anyone), discarded, still pending, and the share of approved drafts that went out unchanged. The range is at most 400 days. Needs `stats:read`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Start of the range. Defaults to 14 days before `to`. */
+                    from?: string;
+                    /** @description End of the range, exclusive. Defaults to now. */
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The counts */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DraftStats"];
+                    };
+                };
+                /** @description `from` is not before `to`, or the range is too long */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspace/shadow-mode": {
         parameters: {
             query?: never;
@@ -2144,13 +2215,13 @@ export interface components {
                 id: string;
                 name: string;
             };
-            scopes: ("tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "workspace:admin")[];
+            scopes: ("tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read" | "workspace:admin")[];
         };
         CreatedApiToken: components["schemas"]["ApiToken"] & {
             token: string;
         };
         /** @enum {string} */
-        TokenScope: "tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write";
+        TokenScope: "tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read";
         ApiToken: {
             /** Format: uuid */
             id: string;
@@ -2278,6 +2349,17 @@ export interface components {
             error: string;
             /** Format: uuid */
             sourceId?: string;
+        };
+        DraftStats: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            approvedUnchanged: number;
+            approvedEdited: number;
+            discarded: number;
+            pending: number;
+            unchangedRate: number | null;
         };
         ShadowMode: {
             enabled: boolean;

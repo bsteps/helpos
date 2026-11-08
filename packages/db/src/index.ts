@@ -1,5 +1,5 @@
 // Query operators, re-exported so callers share the db package's single drizzle-orm instance.
-export { and, asc, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+export { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 export {
   type AuthStore,
   createAuthStore,
@@ -43,6 +43,6 @@ export {
   searchKnowledge,
 } from "./knowledge.ts";
 export { runMigrations } from "./migrate.ts";
-export type { ApiTokenScope, KnowledgeVisibility } from "./schema.ts";
+export type { ActorType, ApiTokenScope, DraftStatus, KnowledgeVisibility } from "./schema.ts";
 export * as schema from "./schema.ts";
 export { uuidv7 } from "./uuid.ts";
