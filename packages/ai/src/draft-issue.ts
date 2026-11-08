@@ -56,11 +56,36 @@ const urlPattern =
   /(?:(?<![a-z])[a-z]+:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>[\]{}"'`]+/gi;
 // A markdown link or image target that is still there: a relative path links too.
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
-const trailingPunctuation = /[.,;:!?*_~]+$/;
+/** Punctuation that ends a sentence, not a link: "see https://x.test." */
+const sentenceMarks = new Set(".,;:!?*_~");
 /** A character that can be in an email address before its `@`. */
 const addressChar = /[A-Za-z0-9._%+-]/;
-/** The part after the `@`, matched only right there (sticky). */
-const domainAt = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/y;
+const labelChar = /[A-Za-z0-9-]/;
+const letter = /[A-Za-z]/;
+
+/**
+ * How long the domain starting at `i` is: labels of letters, digits and `-` joined by dots,
+ * the last starting with two letters or more, as long as it can be (`b.test` in `b.test.x`).
+ * Zero when there is none. A scan, not a pattern, so each character is read once however the
+ * text is built.
+ */
+function domainLength(text: string, i: number): number {
+  let end = 0;
+  let pos = i;
+  for (;;) {
+    let next = pos;
+    while (next < text.length && labelChar.test(text.charAt(next))) next++;
+    if (next === pos) break;
+    if (pos > i) {
+      let letters = pos;
+      while (letters < next && letter.test(text.charAt(letters))) letters++;
+      if (letters - pos >= 2) end = letters;
+    }
+    if (text.charAt(next) !== ".") break;
+    pos = next + 1;
+  }
+  return end === 0 ? 0 : end - i;
+}
 
 /**
  * Every email address, as "[email removed]". Found from each `@`, stepping back over the
@@ -75,11 +100,10 @@ function removeEmails(text: string): string {
     let start = at;
     while (start > from && addressChar.test(text.charAt(start - 1))) start--;
     if (start === at) continue;
-    domainAt.lastIndex = at + 1;
-    const domain = domainAt.exec(text);
-    if (!domain) continue;
+    const domain = domainLength(text, at + 1);
+    if (domain === 0) continue;
     out += `${text.slice(from, start)}[email removed]`;
-    from = at + 1 + domain[0].length;
+    from = at + 1 + domain;
     at = from - 1;
   }
   return out + text.slice(from);
@@ -106,9 +130,12 @@ function trailingPart(link: string): string {
   let rest = link;
   let trail = "";
   for (;;) {
-    const marks = rest.match(trailingPunctuation)?.[0] ?? "";
-    rest = rest.slice(0, rest.length - marks.length);
-    trail = marks + trail;
+    // Stepping back from the end, not a `[…]+$` pattern: that retries from every position of
+    // a long run of marks that doesn't reach the end, and takes quadratic time.
+    let cut = rest.length;
+    while (cut > 0 && sentenceMarks.has(rest.charAt(cut - 1))) cut--;
+    trail = rest.slice(cut) + trail;
+    rest = rest.slice(0, cut);
     const unmatched = rest.split(")").length > rest.split("(").length;
     if (!rest.endsWith(")") || !unmatched) return trail;
     rest = rest.slice(0, -1);

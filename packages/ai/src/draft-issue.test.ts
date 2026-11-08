@@ -106,11 +106,21 @@ describe("sanitizeIssueText on long hostile input", () => {
     for (const before of ["-", ".", "+", "1", "_", "x+"]) {
       expect(sanitizeIssueText(`${before}https://evil.test/a`)).toBe(`${before}[link removed]`);
     }
+    // The domain is as long as it can be, ending at a label that starts with two letters.
+    expect(sanitizeIssueText("mail a@b.test1 or a@b.c-d.org.x now")).toBe(
+      "mail [email removed]1 or [email removed].x now",
+    );
     // Addresses written back to back are each removed.
     expect(sanitizeIssueText("a@b.test.x@c.test and a@b.test-x@c.test")).toBe(
       "[email removed][email removed] and [email removed][email removed]",
     );
-    for (const hostile of ["a@".repeat(30_000), `x@${"a.".repeat(30_000)}`]) {
+    for (const hostile of [
+      "a@".repeat(30_000),
+      `x@${"a.".repeat(30_000)}`,
+      `x@${"-".repeat(60_000)}`,
+      `x@-${".-".repeat(30_000)}`,
+      `https://x.test/${"!".repeat(60_000)}a`,
+    ]) {
       const started = performance.now();
       sanitizeIssueText(hostile);
       expect(performance.now() - started).toBeLessThan(500);
