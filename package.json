@@ -14,6 +14,8 @@
     "test": "turbo run test",
     "check": "biome check .",
     "check:fix": "biome check --write .",
+    "check:changed": "node scripts/check-changed/index.mjs",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "verify": "biome ci . && turbo run typecheck test build && pnpm eval && pnpm demo:check",
     "eval": "pnpm --filter @helpos/ai eval",
     "helpos:init": "pnpm --filter @helpos/server run init",
