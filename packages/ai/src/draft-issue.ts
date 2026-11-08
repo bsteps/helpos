@@ -76,9 +76,19 @@ const trailingPart = (link: string) => link.match(trailingPunctuation)?.[0] ?? "
  * start or end) on each side and nothing next to it, such as `@a@b`, can change how it parses.
  */
 function quietWord(word: string): string {
-  if (ownSpan.test(word) || !notifying.test(word)) return word;
+  if (ownSpan.test(word)) return escapePipes(word);
+  if (!notifying.test(word)) return word;
   const [, lead = "", core = "", trail = ""] = wordParts.exec(word) ?? [];
-  return `${lead}\`${core}\`${trail}`;
+  return `${lead}\`${escapePipes(core)}\`${trail}`;
+}
+
+/**
+ * In a GitHub table row, `|` splits cells before code spans are read, so `x|@ceo` in a code
+ * span would leave `@ceo` live in the next cell. An escaped `\|` stays in its cell. Pipes that
+ * are already escaped are left alone, so cleaning cleaned text changes nothing.
+ */
+function escapePipes(text: string): string {
+  return text.replaceAll(/(?<!\\)\|/g, "\\|");
 }
 
 /**

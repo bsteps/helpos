@@ -111,6 +111,14 @@ describe("sanitizeIssue", () => {
     expect(drafted.body).toContain("### Steps to reproduce");
   });
 
+  it("escapes pipes in code spans, so a table row can't split a mention back out", () => {
+    const row = "| `x|@ceo` | y|@cto | ok |";
+    const cleaned = sanitizeIssueText(row);
+    expect(cleaned).toBe("| `x\\|@ceo` | `y\\|@cto` | ok |");
+    // Every pipe inside a span is escaped; cleaning again changes nothing.
+    expect(sanitizeIssueText(cleaned)).toBe(cleaned);
+  });
+
   it("still splits a span that isn't a whole word, so it can't pair with another", () => {
     expect(sanitizeIssueText("a`b @ceo c`d")).toBe("a'b `@ceo` c'd");
   });
