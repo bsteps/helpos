@@ -51,7 +51,9 @@ export function seedToken(name: string): string {
 
 type Msg = { from: "customer" | "team"; text: string; minutes: number };
 type DraftSpec = {
-  status: "pending" | "approved" | "sent" | "discarded";
+  // No "approved": a real approval also fixes the Message-ID and queues the send, which a seed
+  // row would lack, so it would be stuck. Approve a pending one through the API instead.
+  status: "pending" | "sent" | "discarded";
   text: string;
   /** Knowledge sources offered to the draft, by slug, best match first. */
   sources: { slug: string; cited: boolean }[];
@@ -175,7 +177,7 @@ const tenantSpecs: TenantSpec[] = [
           },
         ],
         draft: {
-          status: "approved",
+          status: "pending",
           text: "Hi Priya,\n\nSorry they don't fit! You can return unused items within 30 days: start a return from your order page and we'll email you a prepaid label. Your refund goes back to your original payment method within 5 working days of the return reaching us.\n\nBest,\nNorthwind Cycles",
           sources: [{ slug: "returns/policy", cited: true }],
         },
@@ -402,7 +404,7 @@ const tenantSpecs: TenantSpec[] = [
           },
         ],
         draft: {
-          status: "approved",
+          status: "pending",
           text: "Hi Dana,\n\nSorry for the wait. Very large dashboards can currently time out on first load; a fix is planned for an upcoming release. Until then, splitting the dashboard into two smaller ones will get it loading again in time for your review.\n\nBest,\nLumen Analytics",
           sources: [
             { slug: "internal/known-issues", cited: true },
@@ -605,10 +607,7 @@ export function buildDemoData() {
         throw new Error(`demo ticket ${ts.key}: sent draft needs an outbound message`);
       }
       const draftedAt = new Date(repliesTo.createdAt.getTime() + 2 * 60_000);
-      const approvedAt =
-        d.status === "approved" || d.status === "sent"
-          ? new Date(draftedAt.getTime() + 10 * 60_000)
-          : null;
+      const approvedAt = d.status === "sent" ? new Date(draftedAt.getTime() + 10 * 60_000) : null;
       const draftId = id(`draft:${ts.key}`, draftedAt);
       drafts.push({
         id: draftId,

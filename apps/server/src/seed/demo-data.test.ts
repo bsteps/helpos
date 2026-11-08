@@ -25,7 +25,7 @@ describe("buildDemoData", () => {
       expect(t.tokens.length).toBeGreaterThan(0);
       expect(t.tickets.length).toBeGreaterThan(3);
       expect(t.sources.length).toBeGreaterThan(0);
-      for (const status of ["pending", "approved", "sent"]) {
+      for (const status of ["pending", "sent"]) {
         expect(t.drafts.some((d) => d.status === status)).toBe(true);
       }
     }
