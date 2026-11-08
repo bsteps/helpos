@@ -84,7 +84,8 @@ const draftSchema = z
     /**
      * True when the body repeats one of those internal notes word for word (a long run, not a
      * stock phrase). Checked against the current body, so it clears once the quote is edited
-     * out. A strong hint the draft leaks the note: read it closely before approving.
+     * out. A strong hint the draft leaks the note: read it closely before approving. Always
+     * false for a caller without `knowledge:read`, who still gets `internalKnowledge`.
      */
     quotesInternalNote: z.boolean(),
   })
@@ -274,8 +275,9 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
       row,
       canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
       internal.length > 0,
-      // Only a yes or no, so it tells a caller without knowledge:read nothing about the note.
-      quotesInternalPassage(row.body, internal),
+      // Only with knowledge:read: otherwise someone who can edit drafts could guess text, save
+      // it, and watch the flag to piece the note together.
+      canRead && quotesInternalPassage(row.body, internal),
     );
   });
 }

@@ -1513,7 +1513,8 @@ describe("drafting with knowledge", () => {
     const edit = (body: string) => call("PATCH", `/v1/drafts/${draft.id}`, "editor", { body });
     expect((await edit(`${draftText}\n\nStaff notes: ${note}`)).status).toBe(200);
     expect(await quotes("editor")).toBe(true);
-    expect(await quotes("ticketsOnly")).toBe(true);
+    // Not to a caller without knowledge:read: edit after edit, the flag would let them guess the note.
+    expect(await quotes("ticketsOnly")).toBe(false);
     expect((await edit(draftText)).status).toBe(200);
     expect(await quotes("editor")).toBe(false);
 
