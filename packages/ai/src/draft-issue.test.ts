@@ -51,13 +51,17 @@ describe("sanitizeIssueText", () => {
 
   it("turns the model's own backticks into quotes, so no mention slips out of a code span", () => {
     expect(sanitizeIssueText("x `@ceo and `#42")).toBe("x '`@ceo` and '`#42`");
-    // A backslash can't escape the opening backtick of the span.
+    expect(sanitizeIssueText("Run `@decorator` now")).toBe("Run '`@decorator`' now");
+  });
+
+  it("wraps the whole word, so neighbours like @a@b or a backslash can't break out", () => {
+    expect(sanitizeIssueText("@a@b @a#1@b @a#1#2")).toBe("`@a@b` `@a#1@b` `@a#1#2`");
+    // The span opens after a space, so no backslash can sit in front of its backtick.
     expect(sanitizeIssueText(String.raw`\@ceo and \#42`)).toBe(
-      String.raw`\\` + "`@ceo` and " + String.raw`\\` + "`#42`",
+      `\`${String.raw`\@ceo`}\` and \`${String.raw`\#42`}\``,
     );
-    expect(sanitizeIssueText("Run `@decorator` with 3 # signs")).toBe(
-      "Run '`@decorator`' with 3 # signs",
-    );
+    // Markdown headings and stray hashes go quiet too; plain words are left alone.
+    expect(sanitizeIssueText("### Heading with 3 # signs")).toBe("`###` Heading with 3 `#` signs");
   });
 });
 

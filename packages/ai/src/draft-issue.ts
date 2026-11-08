@@ -46,44 +46,45 @@ const urlPattern =
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
 const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-// `@user` or `@org/team`, not inside a word.
-const mentionPattern = /(^|[^\w])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9_.-]+)?)/g;
-// `#12`, `owner/repo#12` and `GH-12` all link (and notify) another issue on GitHub.
-const referencePattern = /(^|[^\w/.-])((?:[\w.-]+\/[\w.-]+)?#\d+|GH-\d+)(?![\w-])/g;
+// `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues on GitHub.
+const notifying = /[@#]|\bGH-\d/i;
+// A word's own punctuation stays outside its code span: "(see #12)." → "(see `#12`)."
+const wordParts = /^([([{"']*)(.*?)([.,;:!?)\]}"']*)$/;
 
 /** The sentence's own punctuation after a link ("see https://x.test."), which stays. */
 const trailingPart = (link: string) => link.match(trailingPunctuation)?.[0] ?? "";
 
 /**
- * Wraps mentions and issue references in code spans: GitHub neither links nor notifies those.
- * `<` is escaped, so no HTML tag (`<a>`, `<img>`) or `<autolink>` gets through.
+ * Puts a whole word in a code span when it could notify someone or link an issue: GitHub does
+ * neither inside code. Whole words, split on whitespace, so every span has a space (or the
+ * start or end) on each side and nothing next to it, such as `@a@b`, can change how it parses.
  */
-function quiet(text: string): string {
-  return text
-    .replaceAll("<", "&lt;")
-    .replaceAll(emailPattern, "[email removed]")
-    .replaceAll(mentionPattern, "$1`@$2`")
-    .replaceAll(referencePattern, "$1`$2`");
+function quietWord(word: string): string {
+  if (!notifying.test(word)) return word;
+  const [, lead = "", core = "", trail = ""] = wordParts.exec(word) ?? [];
+  return `${lead}\`${core}\`${trail}`;
 }
 
 /**
- * Cleans one piece of model text for GitHub: links and email addresses are removed, and
- * @mentions and issue references can't notify anyone. Links go first, so a link's `#fragment`
- * isn't mistaken for an issue reference.
+ * Cleans one piece of model text for GitHub: links and email addresses are removed, HTML is
+ * escaped (no `<a>`, `<img>` or `<autolink>`), and @mentions and issue references can't notify
+ * anyone. Links go first, so a link's `#fragment` isn't mistaken for an issue reference.
  */
 export function sanitizeIssueText(raw: string): string {
-  // The code spans added below are what keep mentions and references quiet, so nothing in the
-  // model's text may change how they parse: a stray backtick could pair with one of them, and a
-  // backslash right before one would escape it. Backslashes are doubled (they still show as
-  // one), and backticks become quotes.
-  const text = raw.replaceAll("\\", "\\\\").replaceAll("`", "'");
+  // The model's own backticks become quotes: the only code spans are the ones added here.
+  const text = raw
+    .replaceAll("`", "'")
+    .replaceAll("<", "&lt;")
+    .replaceAll(emailPattern, "[email removed]");
   let out = "";
   let from = 0;
   for (const match of text.matchAll(urlPattern)) {
-    out += `${quiet(text.slice(from, match.index))}[link removed]${trailingPart(match[0])}`;
+    out += `${text.slice(from, match.index)}[link removed]${trailingPart(match[0])}`;
     from = match.index + match[0].length;
   }
-  return (out + quiet(text.slice(from))).replaceAll(markdownTarget, "]([link removed])");
+  return (out + text.slice(from))
+    .replaceAll(markdownTarget, "]([link removed])")
+    .replaceAll(/\S+/g, quietWord);
 }
 
 const oneLine = (s: string) => s.replaceAll(/\s+/g, " ").trim();
