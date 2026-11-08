@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { type Database, enqueue, eq, schema, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
@@ -9,7 +8,8 @@ import { githubWebhookActor } from "./fixed-notice.ts";
 import { markIssueClosed, markIssueReopened, tiedLinks } from "./issue-state.ts";
 import { recheckAfter, recheckIssueJob } from "./recheck.ts";
 import { createGate, defaultGateLimits, type GateLimits, recentIds } from "./verify-gate.ts";
-import { signatureMatches } from "./webhook-signature.ts";
+import { createWebhookSecrets, type WebhookSecrets } from "./webhook-secrets.ts";
+import { signatureHeader, signatureMatches } from "./webhook-signature.ts";
 
 const { integrations } = schema;
 
@@ -20,6 +20,8 @@ export interface GithubWebhookDeps {
   noticeDelaySeconds?: number | undefined;
   /** For tests: how long before a tied event's issue state is read from GitHub. */
   issueRecheckSeconds?: number | undefined;
+  /** Shared with the routes that change the secret, so they can forget it at once. */
+  secrets?: WebhookSecrets;
   /** For tests: how many deliveries are checked at once, and how many may wait. */
   verifyLimits?: GateLimits;
 }
@@ -28,8 +30,11 @@ export const webhookPath = "/v1/integrations/github/webhook";
 /** A webhook delivery is a few KB; GitHub caps them at 25 MB. Nothing we read is near this. */
 export const maxWebhookBytes = 1024 * 1024;
 
-/** What GitHub sends; anything else is refused without touching the database. */
-const signatureShape = /^sha256=[0-9a-fA-F]{64}$/;
+/**
+ * A cached secret older than this is read again when a signature doesn't match it: the secret
+ * may have been rotated by another server process. Younger, a mismatch is simply refused.
+ */
+const refreshAfterMs = 5_000;
 
 /** GitHub's form content type wraps the same JSON in a `payload` field. */
 const formPayload = z.object({ payload: z.string() });
@@ -124,47 +129,85 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
   // Unsigned requests can't be told from GitHub's until a secret is read from the database,
   // so a flood of forged ones would each take a pooled connection: they take turns instead.
   const gate = createGate(deps.verifyLimits ?? defaultGateLimits);
-  // Workspaces with a delivery verified lately: their deliveries go first (see the gate).
+  const secrets = deps.secrets ?? createWebhookSecrets();
+  // Workspaces with a delivery verified lately: their lookups go first (see the gate).
   const known = recentIds(10_000);
   // Workspaces already warned about an unreadable secret: once each, not once per request, so
   // forged requests can't flood the log with it.
   const warned = recentIds(10_000);
+  const warnUnreadable = (tenantId: string) => {
+    if (warned.has(tenantId)) return;
+    warned.add(tenantId);
+    deps.logger.warn(
+      { tenantId },
+      "github webhook: stored secret can't be read; reconnect the repo",
+    );
+  };
+  // One lookup per workspace at a time: requests arriving meanwhile share its answer, so a
+  // burst naming one workspace takes at most one place in the gate's line.
+  const lookups = new Map<string, Promise<string | null | "busy">>();
+  const secretFor = async (
+    tenantId: string,
+    body: Uint8Array,
+    signature: string,
+  ): Promise<string | null | "busy"> => {
+    const cached = secrets.get(tenantId);
+    // Read moments ago, or it matches: no database work. A mismatch on an older entry reads
+    // again (another server process may have rotated the secret), but only then.
+    if (
+      cached &&
+      (cached.ageMs < refreshAfterMs ||
+        (cached.secret !== null && signatureMatches(cached.secret, body, signature)))
+    ) {
+      return cached.secret;
+    }
+    const running = lookups.get(tenantId);
+    if (running) return running;
+    const lookup = (async () => {
+      const release = await gate(tenantId, known.has(tenantId));
+      if (!release) return "busy" as const;
+      try {
+        const secret = await loadSecret(deps, tenantId, warnUnreadable);
+        secrets.set(tenantId, secret);
+        return secret;
+      } finally {
+        release();
+      }
+    })();
+    lookups.set(tenantId, lookup);
+    try {
+      return await lookup;
+    } finally {
+      lookups.delete(tenantId);
+    }
+  };
   // Before validation, so a caller without the secret learns nothing, not even a 400. A
   // request that isn't even shaped like a signed delivery is refused before any database work.
   app.use(webhookPath, async (c, next) => {
     const signature = c.req.header("x-hub-signature-256") ?? "";
     const workspace = z.uuid().safeParse(c.req.query("workspace"));
-    if (!signatureShape.test(signature) || !workspace.success) {
+    if (!signatureHeader.test(signature) || !workspace.success) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    // One spelling per workspace: the gate's share and the secret's binding both key on it.
+    // One spelling per workspace: the cache, the gate's share and the secret's binding all key
+    // on it.
     const tenantId = workspace.data.toLowerCase();
-    // The body first, outside the limit: a client sending it slowly holds no slot. Hono keeps
-    // it, so verification reads these same bytes.
-    await c.req.arrayBuffer();
-    const release = await gate(tenantId, known.has(tenantId));
-    if (!release) {
+    // The body first: a client sending it slowly holds no place in line. Hono keeps it, so
+    // validation afterwards parses these same bytes.
+    const body = new Uint8Array(await c.req.arrayBuffer());
+    const secret = await secretFor(tenantId, body, signature);
+    if (secret === "busy") {
       c.header("Retry-After", "5");
       return c.json({ error: "busy" }, 503);
     }
-    let verified: { tenantId: string } | null;
-    try {
-      verified = await verifyWebhook(c, deps, tenantId, (id) => {
-        if (warned.has(id)) return;
-        warned.add(id);
-        deps.logger.warn(
-          { tenantId: id },
-          "github webhook: stored secret can't be read; reconnect the repo",
-        );
-      });
-    } finally {
-      release();
-    }
-    if (!verified) return c.json({ error: "unauthorized" }, 401);
+    // The HMAC is computed whether or not there is a secret, so an unknown workspace's 401
+    // takes as long as a wrong signature's. Every miss gives the same 401.
+    const matches = signatureMatches(secret ?? "", body, signature);
+    if (secret === null || !matches) return c.json({ error: "unauthorized" }, 401);
     known.add(tenantId);
     // Readable again (reconnected): if it breaks later, that's worth a warning again.
     warned.delete(tenantId);
-    c.set("githubWebhook", verified);
+    c.set("githubWebhook", { tenantId });
     return next();
   });
 
@@ -261,16 +304,15 @@ function readPayload(
 }
 
 /**
- * The workspace a webhook is for, once its signature checks out under that workspace's own
- * secret. An unknown workspace, one with no repo, an unreadable secret and a bad signature all
- * give the same null, so a caller can't tell which workspaces exist.
+ * The workspace's webhook secret, or null when it has no repo connected or the secret can't
+ * be read. Both do the same work (open a sealed secret), so the timing doesn't tell which
+ * workspaces exist: a workspace with no repo opens a throwaway secret instead.
  */
-async function verifyWebhook(
-  c: Context,
+async function loadSecret(
   deps: GithubWebhookDeps,
   tenantId: string,
   unreadable: (tenantId: string) => void,
-): Promise<{ tenantId: string } | null> {
+): Promise<string | null> {
   const box = deps.secretBox;
   if (!box) return null;
   const [row] = await deps.db.withTenant(tenantId, (tx) =>
@@ -279,23 +321,17 @@ async function verifyWebhook(
       .from(integrations)
       .where(eq(integrations.provider, "github")),
   );
-  // Every path does the same work from here: open a sealed secret, read the body, compute the
-  // HMAC. A workspace with no repo uses a throwaway secret that can never match, so its 401
-  // takes as long as a wrong signature's and the timing doesn't tell which workspaces exist.
-  let secret: string | null = null;
   try {
-    secret = box.open(row?.webhookSecretCiphertext ?? decoySecret(box), {
+    const secret = box.open(row?.webhookSecretCiphertext ?? decoySecret(box), {
       tenantId: row ? tenantId : decoyTenant,
       purpose: "github-webhook-secret",
     });
+    return row ? secret : null;
   } catch (error) {
     if (!(error instanceof SecretBoxError)) throw error;
     unreadable(tenantId);
+    return null;
   }
-  // Read once here and cached by Hono, so validation afterwards parses these same bytes.
-  const body = new Uint8Array(await c.req.arrayBuffer());
-  const matches = signatureMatches(secret ?? "", body, c.req.header("x-hub-signature-256"));
-  return row && secret !== null && matches ? { tenantId } : null;
 }
 
 /** A tenant ID no workspace has: the decoy secret is sealed for it alone. */

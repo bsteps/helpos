@@ -32,6 +32,11 @@ import { type CreatedIssue, type GithubApiFactory, parseRepo, repoString } from 
 import { markIssueClosed } from "./issue-state.ts";
 import { recheckAfter, recheckIssueJob } from "./recheck.ts";
 import { registerGithubWebhook, webhookPath } from "./webhook.ts";
+import {
+  createWebhookSecrets,
+  defaultWebhookSecretsOptions,
+  type WebhookSecrets,
+} from "./webhook-secrets.ts";
 
 const { integrations, messages, ticketGithubIssues, tickets } = schema;
 
@@ -51,10 +56,20 @@ export interface GithubRoutesDeps {
   noticeDelaySeconds?: number | undefined;
   /** For tests: how long before a failed state check is tried again in the background. */
   issueRecheckSeconds?: number | undefined;
+  /** For tests: how long a webhook secret read from the database is trusted (see webhook-secrets). */
+  webhookSecretCacheMs?: number | undefined;
 }
 
-/** A `creating` claim older than this belongs to a request that died; the next try takes over. */
-const staleClaimSeconds = 120;
+/**
+ * A `creating` claim older than this belongs to a request that died; the next try takes over.
+ * Longer than one request can take, so a slow but live one is never taken over: its GitHub
+ * calls are bounded (two issue searches of at most a minute each, a create and a state read of
+ * at most ten seconds each), about two and a half minutes at worst.
+ */
+const staleClaimSeconds = 300;
+
+/** Thrown to roll back a stale claim's removal when another request claimed the ticket first. */
+class ClaimTaken extends Error {}
 
 const integrationPath = "/v1/integrations/github";
 
@@ -268,7 +283,7 @@ const createIssueRoute = createRoute({
       errorSchema,
       "No repo is connected (`not_connected`), the ticket already has an issue " +
         "(`already_linked`), one is being opened or GitHub's answer to the last try was lost " +
-        "(`creation_pending`: try again in two minutes; nothing is opened twice), or the stored " +
+        "(`creation_pending`: try again in five minutes; nothing is opened twice), or the stored " +
         "token can't be read with the server's key and the repo must be connected again " +
         "(`reconnect_required`)",
     ),
@@ -277,7 +292,7 @@ const createIssueRoute = createRoute({
       "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), " +
         "or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't " +
         "answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays " +
-        "claimed, and a try after two minutes first looks for that issue again",
+        "claimed, and a try after five minutes first looks for that issue again",
     ),
     500: json(
       z.object({ error: z.string(), url: z.string() }),
@@ -316,12 +331,22 @@ export function registerGithubRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): 
   app.use("/v1/tickets/:id/github-issue", auth);
   app.use("/v1/tickets/:id/github-issue/draft", auth);
 
-  registerConnectionRoutes(app, deps);
+  // Read by the webhook, forgotten here whenever the secret changes.
+  const secrets = createWebhookSecrets(
+    deps.webhookSecretCacheMs === undefined
+      ? defaultWebhookSecretsOptions
+      : { ...defaultWebhookSecretsOptions, maxAgeMs: deps.webhookSecretCacheMs },
+  );
+  registerConnectionRoutes(app, deps, secrets);
   registerIssueRoutes(app, deps);
-  registerGithubWebhook(app, deps);
+  registerGithubWebhook(app, { ...deps, secrets });
 }
 
-function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
+function registerConnectionRoutes(
+  app: OpenAPIHono,
+  deps: GithubRoutesDeps,
+  secrets: WebhookSecrets,
+): void {
   app.openapi(getRoute, async (c) => {
     const principal = c.get("principal");
     if (!principal.scopes.has("github:write")) return c.json({ error: "forbidden" }, 403);
@@ -425,6 +450,7 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
       });
       return secret;
     });
+    secrets.forget(tenantId);
     // Never cached: when there is a new secret, the response is its only copy.
     c.header("Cache-Control", "no-store");
     return c.json(
@@ -465,6 +491,8 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
       return true;
     });
     if (!rotated) return c.json({ error: "not_connected" }, 404);
+    // The old secret stops working now, not once the webhook's copy of it expires.
+    secrets.forget(tenantId);
     // Never cached: the response is the secret's only copy.
     c.header("Cache-Control", "no-store");
     return c.json({ webhookSecret: secret }, 200);
@@ -490,6 +518,7 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
         });
       }
     });
+    secrets.forget(principal.tenantId);
     return c.body(null, 204);
   });
 }
@@ -612,61 +641,71 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const { tenantId } = principal;
 
     // 1. Claim the ticket's issue slot, so a double click can't open two issues.
-    const claim = await deps.db.withTenant(tenantId, async (tx) => {
-      const [ticket] = await tx
-        .select({ id: tickets.id })
-        .from(tickets)
-        .where(eq(tickets.id, ticketId));
-      if (!ticket) return "not_found" as const;
-      const [integration] = await tx
-        .select({ repo: integrations.repo, tokenCiphertext: integrations.tokenCiphertext })
-        .from(integrations)
-        .where(eq(integrations.provider, "github"));
-      if (!integration) return "not_connected" as const;
-      let token: string;
-      try {
-        token = box.open(integration.tokenCiphertext, { tenantId, purpose: "github-token" });
-      } catch (error) {
-        if (!(error instanceof SecretBoxError)) throw error;
-        return "reconnect_required" as const;
-      }
-      // A claim whose request died or never heard back from GitHub doesn't block the ticket
-      // for good. Its ID comes along: that request's issue may exist, and is looked for first.
-      const stale = await tx
-        .delete(ticketGithubIssues)
-        .where(
-          and(
-            eq(ticketGithubIssues.ticketId, ticketId),
-            eq(ticketGithubIssues.state, "creating"),
-            lt(
-              ticketGithubIssues.updatedAt,
-              sql`now() - make_interval(secs => ${staleClaimSeconds})`,
+    const claim = await deps.db
+      .withTenant(tenantId, async (tx) => {
+        const [ticket] = await tx
+          .select({ id: tickets.id })
+          .from(tickets)
+          .where(eq(tickets.id, ticketId));
+        if (!ticket) return "not_found" as const;
+        const [integration] = await tx
+          .select({ repo: integrations.repo, tokenCiphertext: integrations.tokenCiphertext })
+          .from(integrations)
+          .where(eq(integrations.provider, "github"));
+        if (!integration) return "not_connected" as const;
+        let token: string;
+        try {
+          token = box.open(integration.tokenCiphertext, { tenantId, purpose: "github-token" });
+        } catch (error) {
+          if (!(error instanceof SecretBoxError)) throw error;
+          return "reconnect_required" as const;
+        }
+        // A claim whose request died or never heard back from GitHub doesn't block the ticket
+        // for good. Its ID comes along: that request's issue may exist, and is looked for first.
+        const stale = await tx
+          .delete(ticketGithubIssues)
+          .where(
+            and(
+              eq(ticketGithubIssues.ticketId, ticketId),
+              eq(ticketGithubIssues.state, "creating"),
+              lt(
+                ticketGithubIssues.updatedAt,
+                sql`now() - make_interval(secs => ${staleClaimSeconds})`,
+              ),
             ),
-          ),
-        )
-        .returning({
-          id: ticketGithubIssues.id,
-          repo: ticketGithubIssues.repo,
-          createdAt: ticketGithubIssues.createdAt,
-          updatedAt: ticketGithubIssues.updatedAt,
-        });
-      const [claimed] = await tx
-        .insert(ticketGithubIssues)
-        .values({ tenantId, ticketId, repo: integration.repo, state: "creating" })
-        .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
-        .returning({ id: ticketGithubIssues.id });
-      if (!claimed) {
-        const [existing] = await tx
-          .select({ state: ticketGithubIssues.state })
-          .from(ticketGithubIssues)
-          .where(eq(ticketGithubIssues.ticketId, ticketId));
-        // Another request is opening it right now, or GitHub never told us how it went.
-        return existing?.state === "creating"
-          ? ("creation_pending" as const)
-          : ("already_linked" as const);
-      }
-      return { claimId: claimed.id, repo: integration.repo, token, stale: stale[0] };
-    });
+          )
+          .returning({
+            id: ticketGithubIssues.id,
+            repo: ticketGithubIssues.repo,
+            createdAt: ticketGithubIssues.createdAt,
+            updatedAt: ticketGithubIssues.updatedAt,
+          });
+        const [claimed] = await tx
+          .insert(ticketGithubIssues)
+          .values({ tenantId, ticketId, repo: integration.repo, state: "creating" })
+          .onConflictDoNothing({
+            target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId],
+          })
+          .returning({ id: ticketGithubIssues.id });
+        if (!claimed) {
+          // Another request claimed the ticket between this one's removal of the stale claim and
+          // its own: put the stale one back (by rolling back), so its marker is still searched.
+          if (stale.length > 0) throw new ClaimTaken();
+          const [existing] = await tx
+            .select({ state: ticketGithubIssues.state })
+            .from(ticketGithubIssues)
+            .where(eq(ticketGithubIssues.ticketId, ticketId));
+          // Another request is opening it right now, or GitHub never told us how it went.
+          return existing?.state === "creating"
+            ? ("creation_pending" as const)
+            : ("already_linked" as const);
+        }
+        return { claimId: claimed.id, repo: integration.repo, token, stale: stale[0] };
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ClaimTaken) return "creation_pending" as const;
+        throw error;
+      });
     if (claim === "not_found") return c.json({ error: claim }, 404);
     if (typeof claim === "string") return c.json({ error: claim }, 409);
 

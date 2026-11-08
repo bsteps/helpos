@@ -37,6 +37,9 @@ function draftProblem(error: unknown): string {
   return "The AI couldn't draft this issue. Write it yourself, or try again later.";
 }
 
+/** Errors after which an issue may exist on GitHub: "No issue was created" would be wrong. */
+const mayHaveIssue = new Set(["github_outcome_unknown", "issue_not_linked"]);
+
 function createProblem(error: unknown): string {
   if (!(error instanceof ApiError)) return "That didn't work. Try again.";
   switch (error.code) {
@@ -49,9 +52,9 @@ function createProblem(error: unknown): string {
     case "already_linked":
       return "This ticket already has an issue.";
     case "github_outcome_unknown":
-      return "GitHub didn't answer, so it isn't known whether the issue was opened. Check the repo; if it isn't there, try again in two minutes.";
+      return "GitHub didn't answer, so it isn't known whether the issue was opened. Check the repo; if it isn't there, try again in five minutes.";
     case "creation_pending":
-      return "An issue for this ticket is being opened, or GitHub's answer to the last try was lost. Try again in two minutes: nothing is opened twice.";
+      return "An issue for this ticket is being opened, or GitHub's answer to the last try was lost. Try again in five minutes: nothing is opened twice.";
     case "issue_not_linked":
       return "The issue was opened on GitHub, but couldn't be linked to this ticket. Find it in the repo before creating another.";
     case "reconnect_required":
@@ -219,7 +222,11 @@ function IssueComposer({
               <Alert variant="destructive">
                 <AlertIcon />
                 <AlertContent>
-                  <AlertTitle>No issue was created</AlertTitle>
+                  <AlertTitle>
+                    {create.error instanceof ApiError && mayHaveIssue.has(create.error.code)
+                      ? "Check GitHub"
+                      : "No issue was created"}
+                  </AlertTitle>
                   <AlertDescription>{createProblem(create.error)}</AlertDescription>
                 </AlertContent>
               </Alert>

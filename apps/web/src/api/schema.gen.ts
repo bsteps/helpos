@@ -1974,7 +1974,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in two minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
+                /** @description No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -1995,7 +1995,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after two minutes first looks for that issue again */
+                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after five minutes first looks for that issue again */
                 502: {
                     headers: {
                         [name: string]: unknown;

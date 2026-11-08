@@ -64,6 +64,8 @@ export interface AppDeps {
   github?: GithubApiFactory;
   /** For tests: how long before a failed GitHub issue state check is tried again. */
   issueRecheckSeconds?: number;
+  /** For tests: how long a webhook secret read from the database is trusted. */
+  webhookSecretCacheMs?: number;
 }
 
 export function createApp({
@@ -84,6 +86,7 @@ export function createApp({
   secretBox,
   github = octokitGithub({ baseUrl: "https://api.github.com" }),
   issueRecheckSeconds,
+  webhookSecretCacheMs,
 }: AppDeps): OpenAPIHono {
   const trustedOrigin = new URL(publicUrl).origin;
   const resolve =
@@ -145,6 +148,7 @@ export function createApp({
     dailyTokenBudget,
     noticeDelaySeconds,
     issueRecheckSeconds,
+    webhookSecretCacheMs,
     ...(now ? { now } : {}),
   });
 

@@ -1,8 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+/** What GitHub sends in `X-Hub-Signature-256`; anything else is refused before any work. */
+export const signatureHeader = /^sha256=([0-9a-fA-F]{64})$/;
+
+const hmac = (secret: string, body: Uint8Array | string) =>
+  createHmac("sha256", secret).update(body).digest();
+
 /** `X-Hub-Signature-256` for `body`: `sha256=` and the hex HMAC-SHA256 under the secret. */
 export function signWebhook(secret: string, body: Uint8Array | string): string {
-  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+  return `sha256=${hmac(secret, body).toString("hex")}`;
 }
 
 /**
@@ -14,8 +20,7 @@ export function signatureMatches(
   body: Uint8Array,
   header: string | undefined,
 ): boolean {
-  const given = /^sha256=([0-9a-fA-F]{64})$/.exec(header ?? "")?.[1];
+  const given = signatureHeader.exec(header ?? "")?.[1];
   if (!given) return false;
-  const expected = createHmac("sha256", secret).update(body).digest();
-  return timingSafeEqual(Buffer.from(given, "hex"), expected);
+  return timingSafeEqual(Buffer.from(given, "hex"), hmac(secret, body));
 }

@@ -221,6 +221,7 @@ function makeApp(
     model?: LanguageModel | undefined;
     budget?: number;
     db?: Database;
+    webhookSecretCacheMs?: number;
   } = {},
 ) {
   return createApp({
@@ -235,6 +236,9 @@ function makeApp(
     secretBox: "secretBox" in overrides ? undefined : box,
     github: fakeGithub,
     issueRecheckSeconds: 0,
+    ...(overrides.webhookSecretCacheMs === undefined
+      ? {}
+      : { webhookSecretCacheMs: overrides.webhookSecretCacheMs }),
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -324,6 +328,20 @@ async function createIssue(ticketId: string) {
   });
   expect(res.status, await res.clone().text()).toBe(201);
   return (await res.json()) as { number: number; url: string };
+}
+
+/** A ping signed with a secret nobody has, to `app`, naming `workspace`. */
+function forgedPing(target: { request: typeof app.request }, workspace: string) {
+  const body = JSON.stringify({ zen: "hi" });
+  return target.request(`/v1/integrations/github/webhook?workspace=${workspace}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-github-event": "ping",
+      "x-hub-signature-256": signWebhook("forged", body),
+    },
+    body,
+  });
 }
 
 function deliver(
@@ -1070,6 +1088,30 @@ describe("creating the issue", () => {
     }
   });
 
+  it("opens one issue when two requests take over the same stale claim at once", async () => {
+    const email = await receiveEmail();
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.ticketGithubIssues).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        repo: "acme/app",
+        state: "creating",
+        createdAt: longAgo,
+        updatedAt: longAgo,
+      }),
+    );
+    const posts = () => githubCalls.filter((c) => c.method === "POST").length;
+    const before = posts();
+    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const answers = await Promise.all([
+      call("POST", path, "githubAgent", { title: "t", body: "b" }),
+      call("POST", path, "githubAgent", { title: "t", body: "b" }),
+    ]);
+    expect(answers.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(posts() - before).toBe(1);
+  });
+
   it("still links the issue when this request's claim was taken as stale meanwhile", async () => {
     const email = await receiveEmail();
     duringCreate = () =>
@@ -1423,10 +1465,16 @@ describe("the webhook", () => {
       logger.warn.mock.calls.filter((call) => JSON.stringify(call).includes("can't be read"))
         .length;
     const before = warnings();
-    for (let i = 0; i < 3; i++) {
-      expect((await deliver(secret, { zen: "hi" }, { event: "ping" })).status).toBe(401);
+    // The key is changed behind the app's back here, so nothing the app read before is kept.
+    app = makeApp({ webhookSecretCacheMs: 0 });
+    try {
+      for (let i = 0; i < 3; i++) {
+        expect((await deliver(secret, { zen: "hi" }, { event: "ping" })).status).toBe(401);
+      }
+      expect(warnings() - before).toBe(1);
+    } finally {
+      app = makeApp();
     }
-    expect(warnings() - before).toBe(1);
     // Mended by connecting again, as the warning says.
     secret = await connect();
     expect((await deliver(secret, { zen: "hi" }, { event: "ping" })).status).toBe(200);
@@ -1593,26 +1641,56 @@ describe("the webhook", () => {
       secretBox: box,
       verifyLimits: { concurrent: 1, waiting: 0, perWorkspace: 1, waitMs: 1_000 },
     });
-    const send = () => {
-      const body = JSON.stringify({ zen: "hi" });
-      return small.request(`/v1/integrations/github/webhook?workspace=${acme}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-github-event": "ping",
-          "x-hub-signature-256": signWebhook("forged", body),
-        },
-        body,
-      });
-    };
-    const first = send();
+    const first = forgedPing(small, acme);
     await waitFor("the first lookup", async () => (lookups > 0 ? true : undefined));
-    const second = await send();
+    // The same workspace again shares the lookup in progress: no second place in line.
+    const again = forgedPing(small, acme);
+    // Another workspace finds the line full.
+    const second = await forgedPing(small, other);
     expect(second.status).toBe(503);
     expect(await second.json()).toEqual({ error: "busy" });
     expect(lookups).toBe(1);
     release();
     expect((await first).status).toBe(401);
+    expect((await again).status).toBe(401);
+    expect(lookups).toBe(1);
+  });
+
+  it("refuses forged requests for a workspace looked up moments ago with no database work", async () => {
+    let lookups = 0;
+    const countingDb: Pick<Database, "withTenant"> = {
+      withTenant: (tenantId, fn) => {
+        lookups++;
+        return db.withTenant(tenantId, fn);
+      },
+    };
+    const small = new OpenAPIHono();
+    small.use(async (c, next) => {
+      c.set("requestId", "test");
+      await next();
+    });
+    registerGithubWebhook(small, { db: countingDb, logger, secretBox: box });
+    // Read once, for the first request.
+    expect((await forgedPing(small, acme)).status).toBe(401);
+    const once = lookups;
+    expect(once).toBeGreaterThan(0);
+    // A flood naming this workspace: each checked in memory, none reaching the database, so
+    // none can hold up the workspace's real deliveries.
+    for (let i = 0; i < 20; i++) expect((await forgedPing(small, acme)).status).toBe(401);
+    expect(lookups).toBe(once);
+    // The real secret still works, from memory too.
+    const body = JSON.stringify({ zen: "hi" });
+    const real = await small.request(`/v1/integrations/github/webhook?workspace=${acme}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "ping",
+        "x-hub-signature-256": signWebhook(secret, body),
+      },
+      body,
+    });
+    expect(real.status).toBe(200);
+    expect(lookups).toBe(once);
   });
 
   it("closed as not planned or duplicate → no 'fixed' draft", async () => {

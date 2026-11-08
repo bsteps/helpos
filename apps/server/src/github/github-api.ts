@@ -122,6 +122,8 @@ function failed(error: unknown): { ok: false; reason: GithubFailure; uncertain: 
  * Running out of pages is "don't know", never "not there": that could open a duplicate.
  */
 const lookupPages = 20;
+/** And at most this long in all: an issue search must end well before a claim goes stale. */
+const lookupBudgetMs = 60_000;
 
 export function octokitGithub(options: OctokitOptions): GithubApiFactory {
   const timeoutMs = options.timeoutMs ?? 10_000;
@@ -174,7 +176,8 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
           const me = await octokit.request("GET /user", { request: { signal: signal() } });
           let match: CreatedIssue | undefined;
           let searchedAll = false;
-          for (let page = 1; page <= lookupPages; page++) {
+          const deadline = Date.now() + lookupBudgetMs;
+          for (let page = 1; page <= lookupPages && Date.now() < deadline; page++) {
             // Newest first, so the search can stop at the first issue older than `since`.
             const res = await octokit.request("GET /repos/{owner}/{repo}/issues", {
               owner: repo.owner,
