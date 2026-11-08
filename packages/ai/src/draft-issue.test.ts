@@ -1,5 +1,12 @@
+import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
 import { describe, expect, it } from "vitest";
-import { draftGithubIssue, formatIssue, sanitizeIssueText } from "./draft-issue.ts";
+import {
+  draftGithubIssue,
+  failedDraftCost,
+  formatIssue,
+  issueDraftTokenEstimate,
+  sanitizeIssueText,
+} from "./draft-issue.ts";
 import { mockModel } from "./testing.ts";
 
 describe("sanitizeIssueText", () => {
@@ -102,6 +109,58 @@ describe("formatIssue", () => {
     });
     expect(body).toContain("1. Not stated in the ticket");
     expect(body).toContain("### Expected\nNot stated in the ticket");
+  });
+});
+
+describe("issueDraftTokenEstimate", () => {
+  it("counts UTF-8 bytes, so text in any language is never underestimated", () => {
+    const ascii = issueDraftTokenEstimate({
+      from: "a@b.test",
+      subject: "s",
+      body: "x".repeat(300),
+    });
+    // 300 CJK characters are 900 bytes, and can be up to 900 tokens.
+    const cjk = issueDraftTokenEstimate({ from: "a@b.test", subject: "s", body: "字".repeat(300) });
+    expect(cjk - ascii).toBe(600);
+    expect(ascii).toBeGreaterThan(2_000 + 300);
+  });
+});
+
+describe("failedDraftCost", () => {
+  const apiError = (statusCode?: number) =>
+    new APICallError({
+      message: "failed",
+      url: "https://api.test",
+      requestBodyValues: {},
+      ...(statusCode === undefined ? {} : { statusCode }),
+    });
+
+  type NoObjectArgs = ConstructorParameters<typeof NoObjectGeneratedError>[0];
+  const unusableAnswer = (usage: NoObjectArgs["usage"]) =>
+    new NoObjectGeneratedError({
+      response: { id: "r", timestamp: new Date(0), modelId: "m" } as NoObjectArgs["response"],
+      usage,
+      finishReason: "stop",
+    });
+
+  it("counts the usage of an answer that wasn't usable: it was still billed", () => {
+    const usage = { inputTokens: 900, outputTokens: 50 } as NoObjectArgs["usage"];
+    expect(failedDraftCost(unusableAnswer(usage))).toEqual({
+      inputTokens: 900,
+      outputTokens: 50,
+    });
+  });
+
+  it("calls a refusal with an error status free, but an unknown failure unknown", () => {
+    expect(failedDraftCost(apiError(529))).toBe("none");
+    expect(
+      failedDraftCost(
+        new RetryError({ message: "x", reason: "maxRetriesExceeded", errors: [apiError(503)] }),
+      ),
+    ).toBe("none");
+    // No status: the connection dropped, maybe after the provider did the work.
+    expect(failedDraftCost(apiError())).toBe("unknown");
+    expect(failedDraftCost(new Error("socket hang up"))).toBe("unknown");
   });
 });
 

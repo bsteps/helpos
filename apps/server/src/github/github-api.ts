@@ -4,8 +4,9 @@ import { Octokit } from "@octokit/core";
  * The GitHub calls the helpdesk makes, and nothing more:
  * - read the repo, to check a token when it is connected;
  * - open an issue, sending only a title and a body;
- * - list the repo's newest issues, to find one it opened when GitHub's answer was lost.
- * All of them fit the token's "Issues: read and write" permission. There is no way to pass
+ * - list the repo's newest issues, to find one it opened when GitHub's answer was lost, and
+ *   read which account the token belongs to, so it only ever recognises its own issues.
+ * All of them fit the token's "Issues: read and write" permission (`GET /user` needs none). There is no way to pass
  * labels, assignees or milestones through here, so neither the AI nor a caller can add them:
  * what the customer wrote is data, never instructions.
  */
@@ -142,6 +143,11 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
       async findIssue(repo, lookup) {
         const comment = markerComment(lookup.marker);
         try {
+          // Anyone who can read the repo can see a marker and copy it into an issue of their
+          // own. So only an issue opened by this token's own account counts, with the marker
+          // as its very last line, and of several, the oldest: the one we opened came first.
+          const me = await octokit.request("GET /user", { request: { signal: signal() } });
+          let match: CreatedIssue | undefined;
           for (let page = 1; page <= lookupPages; page++) {
             // Newest first, so the search can stop at the first issue older than `since`.
             const res = await octokit.request("GET /repos/{owner}/{repo}/issues", {
@@ -155,12 +161,18 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
               page,
               request: { signal: signal() },
             });
-            const found = res.data.find((i) => !i.pull_request && i.body?.includes(comment));
-            if (found) return { ok: true, value: { number: found.number, url: found.html_url } };
+            // Newest first, so a later match on a later page is older: keep the last one seen.
+            for (const i of res.data) {
+              const ours =
+                !i.pull_request &&
+                i.user?.login === me.data.login &&
+                (i.body ?? "").trimEnd().endsWith(comment);
+              if (ours) match = { number: i.number, url: i.html_url };
+            }
             const last = res.data.at(-1);
             if (res.data.length < 50 || !last || new Date(last.created_at) < lookup.since) break;
           }
-          return { ok: true, value: null };
+          return { ok: true, value: match ?? null };
         } catch (error) {
           return failed(error);
         }

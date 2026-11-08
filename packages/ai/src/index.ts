@@ -8,6 +8,7 @@ export {
 } from "./config.ts";
 export {
   draftGithubIssue,
+  failedDraftCost,
   formatIssue,
   type IssueDraft,
   type IssueFields,

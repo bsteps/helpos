@@ -73,7 +73,15 @@ let rejectCreate = false;
 /** Runs while GitHub "creates" the issue, e.g. to take this request's claim away meanwhile. */
 let duringCreate: (() => Promise<void>) | undefined;
 let nextIssue = 100;
-const openedIssues: { number: number; title: string; body: string; created_at: string }[] = [];
+/** The account the test token belongs to. */
+const botLogin = "helpdesk-bot";
+const openedIssues: {
+  number: number;
+  title: string;
+  body: string;
+  created_at: string;
+  user: { login: string };
+}[] = [];
 
 const fakeGithubFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -91,6 +99,7 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
   if (githubDown) return reply(503, { message: "unavailable" });
   if (authorization !== `token ${pat}`) return reply(401, { message: "Bad credentials" });
   if (request.method === "GET" && path === "/repos/acme/app") return reply(200, { private: true });
+  if (request.method === "GET" && path === "/user") return reply(200, { login: botLogin });
   const html = (number: number) => `https://github.com/acme/app/issues/${number}`;
   if (request.method === "POST" && path === "/repos/acme/app/issues") {
     if (rejectCreate) return reply(422, { message: "Validation Failed" });
@@ -101,6 +110,7 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
       number,
       title,
       body: body.replaceAll("\n", "\r\n"),
+      user: { login: botLogin },
       created_at: new Date().toISOString(),
     });
     await duringCreate?.();
@@ -519,7 +529,8 @@ describe("drafting an issue with the AI", () => {
       // The reservation became the real cost: one call, 300 in, 100 out.
       expect(await usage()).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 });
 
-      // A failed call costs nothing and gives its reservation back.
+      // A failure whose cost can't be told keeps its reservation counted: the budget may
+      // overcount, never undercount. (Which failures are free is unit-tested in @helpos/ai.)
       await db.withTenant(other, (tx) =>
         tx
           .update(schema.tenants)
@@ -528,7 +539,9 @@ describe("drafting an issue with the AI", () => {
       );
       app = makeApp({ model: failingModel() });
       expect((await call("POST", path, "otherOwner")).status).toBe(502);
-      expect(await usage()).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 });
+      const after = await usage();
+      expect(after).toMatchObject({ outputTokens: 100, calls: 2 });
+      expect(after?.inputTokens).toBeGreaterThan(300 + 2_000);
     } finally {
       app = makeApp();
     }
@@ -671,7 +684,11 @@ describe("creating the issue", () => {
     const linked = (await res.json()) as { number: number };
     const calls = githubCalls.slice(before).map((c) => `${c.method} ${c.path}`);
     // One create, then a lookup: never a second create.
-    expect(calls).toEqual(["POST /repos/acme/app/issues", "GET /repos/acme/app/issues"]);
+    expect(calls).toEqual([
+      "POST /repos/acme/app/issues",
+      "GET /user",
+      "GET /repos/acme/app/issues",
+    ]);
     expect(linked.number).toBe(openedIssues[0]?.number);
     expect(
       await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json(),
@@ -752,6 +769,25 @@ describe("creating the issue", () => {
     expect(later.status, await later.clone().text()).toBe(201);
     expect(((await later.json()) as { number: number }).number).toBe(openedIssues[0]?.number);
     expect(posts() - before).toBe(1);
+  });
+
+  it("adopts only its own issue when someone copied the marker into theirs", async () => {
+    const email = await receiveEmail();
+    loseCreateAnswer = true;
+    // Someone who can read the repo copies the hidden marker into a newer issue of their own.
+    duringCreate = async () => {
+      const ours = openedIssues[0];
+      if (!ours) throw new Error("no issue opened");
+      openedIssues.unshift({ ...ours, number: 9_999, user: { login: "mallory" } });
+    };
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    const linked = ((await res.json()) as { number: number }).number;
+    expect(linked).not.toBe(9_999);
+    expect(linked).toBe(openedIssues.find((i) => i.user.login === botLogin)?.number);
   });
 
   it("counts a link an earlier attempt already committed as success, not a clash", async () => {

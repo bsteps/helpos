@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   draftGithubIssue,
+  failedDraftCost,
   issueDraftTokenEstimate,
   type LanguageModel,
   maxIssueTitleChars,
@@ -427,7 +428,14 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       draft = await draftGithubIssue(model, prepared.input);
     } catch (error) {
       deps.logger.warn({ err: errorSummary(error) }, "github issue draft: AI call failed");
-      await deps.db.withTenant(tenantId, (tx) => settleUsage(tx, day, prepared.reserved, null));
+      // Count what the failure cost: what the model reported when it answered, nothing when
+      // the provider plainly refused, and when that can't be told, the reservation stays.
+      const cost = failedDraftCost(error);
+      if (cost !== "unknown") {
+        await deps.db.withTenant(tenantId, (tx) =>
+          settleUsage(tx, day, prepared.reserved, cost === "none" ? null : cost),
+        );
+      }
       return c.json({ error: "ai_unavailable" }, 502);
     }
 

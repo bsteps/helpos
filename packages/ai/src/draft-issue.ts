@@ -1,4 +1,11 @@
-import { generateText, type LanguageModel, Output } from "ai";
+import {
+  APICallError,
+  generateText,
+  type LanguageModel,
+  NoObjectGeneratedError,
+  Output,
+  RetryError,
+} from "ai";
 import { z } from "zod";
 import { type DraftInput, type DraftUsage, fenceEmail } from "./draft-reply.ts";
 
@@ -121,15 +128,37 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
 /** Room for the model's answer: a title and a few short sections. */
 const maxIssueOutputTokens = 2_000;
 
+const utf8 = new TextEncoder();
+
 /**
  * An upper bound on the tokens one draft costs, to reserve from the daily budget before the
- * call. Tokens run about four characters each; counting three per token errs high, so the
- * reservation, settled to the real figure afterwards, is never too small.
+ * call: the prompt's size in UTF-8 bytes, because the byte-level tokenizers the providers use
+ * never make more tokens than bytes, whatever the language. Plus the output cap. It errs high
+ * (English runs about four bytes a token), and the reservation is settled to the real figure.
  */
 export function issueDraftTokenEstimate(input: DraftInput): number {
-  return (
-    Math.ceil((issueInstructions.length + fenceEmail(input).length) / 3) + maxIssueOutputTokens
-  );
+  const prompt = utf8.encode(issueInstructions).length + utf8.encode(fenceEmail(input)).length;
+  return prompt + maxIssueOutputTokens;
+}
+
+/**
+ * What a failed draft cost, as far as can be told:
+ * - the usage the model reported, when it answered but its answer wasn't usable (still billed);
+ * - "none" when the provider answered with an error status, which isn't billed;
+ * - "unknown" otherwise (a dropped connection, a timeout): keep the reservation counted.
+ */
+export function failedDraftCost(error: unknown): DraftUsage | "none" | "unknown" {
+  if (NoObjectGeneratedError.isInstance(error)) {
+    return error.usage
+      ? { inputTokens: error.usage.inputTokens ?? 0, outputTokens: error.usage.outputTokens ?? 0 }
+      : "unknown";
+  }
+  const refused = (e: unknown) => APICallError.isInstance(e) && e.statusCode !== undefined;
+  if (refused(error)) return "none";
+  if (RetryError.isInstance(error) && error.errors.length > 0 && error.errors.every(refused)) {
+    return "none";
+  }
+  return "unknown";
 }
 
 /** Drafts the issue. The ticket goes in the prompt, quoted; the rules go in the system slot. */
