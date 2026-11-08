@@ -24,6 +24,7 @@
     "db:seed": "pnpm --filter @helpos/server run seed",
     "dev:send-email": "node --env-file-if-exists=.env scripts/send-email.mjs",
     "rename-brand": "node scripts/rename-brand.mjs",
+    "setup:worktree": "node scripts/setup-worktree.mjs",
     "demo:check": "node scripts/check-demo-compose.mjs",
     "test:e2e": "pnpm --filter @helpos/web build && pnpm --filter @helpos/web test:e2e"
   },
