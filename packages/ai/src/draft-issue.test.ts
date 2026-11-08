@@ -49,9 +49,10 @@ describe("sanitizeIssueText", () => {
     );
   });
 
-  it("leaves code spans and plain text alone", () => {
+  it("turns the model's own backticks into quotes, so no mention slips out of a code span", () => {
+    expect(sanitizeIssueText("x `@ceo and `#42")).toBe("x '`@ceo` and '`#42`");
     expect(sanitizeIssueText("Run `@decorator` with 3 # signs")).toBe(
-      "Run `@decorator` with 3 # signs",
+      "Run '`@decorator`' with 3 # signs",
     );
   });
 });

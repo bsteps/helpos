@@ -46,10 +46,10 @@ const urlPattern =
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
 const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-// `@user` or `@org/team`, not inside a word or code span.
-const mentionPattern = /(^|[^\w`])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9_.-]+)?)/g;
+// `@user` or `@org/team`, not inside a word.
+const mentionPattern = /(^|[^\w])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9_.-]+)?)/g;
 // `#12`, `owner/repo#12` and `GH-12` all link (and notify) another issue on GitHub.
-const referencePattern = /(^|[^\w`/.-])((?:[\w.-]+\/[\w.-]+)?#\d+|GH-\d+)(?![\w-])/g;
+const referencePattern = /(^|[^\w/.-])((?:[\w.-]+\/[\w.-]+)?#\d+|GH-\d+)(?![\w-])/g;
 
 /** The sentence's own punctuation after a link ("see https://x.test."), which stays. */
 const trailingPart = (link: string) => link.match(trailingPunctuation)?.[0] ?? "";
@@ -71,7 +71,10 @@ function quiet(text: string): string {
  * @mentions and issue references can't notify anyone. Links go first, so a link's `#fragment`
  * isn't mistaken for an issue reference.
  */
-export function sanitizeIssueText(text: string): string {
+export function sanitizeIssueText(raw: string): string {
+  // The model's own backticks go first. The code spans added below are what keep mentions and
+  // references quiet, and a stray backtick could pair with one of them and let a mention out.
+  const text = raw.replaceAll("`", "'");
   let out = "";
   let from = 0;
   for (const match of text.matchAll(urlPattern)) {
