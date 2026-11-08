@@ -72,9 +72,11 @@ function quiet(text: string): string {
  * isn't mistaken for an issue reference.
  */
 export function sanitizeIssueText(raw: string): string {
-  // The model's own backticks go first. The code spans added below are what keep mentions and
-  // references quiet, and a stray backtick could pair with one of them and let a mention out.
-  const text = raw.replaceAll("`", "'");
+  // The code spans added below are what keep mentions and references quiet, so nothing in the
+  // model's text may change how they parse: a stray backtick could pair with one of them, and a
+  // backslash right before one would escape it. Backslashes are doubled (they still show as
+  // one), and backticks become quotes.
+  const text = raw.replaceAll("\\", "\\\\").replaceAll("`", "'");
   let out = "";
   let from = 0;
   for (const match of text.matchAll(urlPattern)) {

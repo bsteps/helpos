@@ -51,6 +51,10 @@ describe("sanitizeIssueText", () => {
 
   it("turns the model's own backticks into quotes, so no mention slips out of a code span", () => {
     expect(sanitizeIssueText("x `@ceo and `#42")).toBe("x '`@ceo` and '`#42`");
+    // A backslash can't escape the opening backtick of the span.
+    expect(sanitizeIssueText(String.raw`\@ceo and \#42`)).toBe(
+      String.raw`\\` + "`@ceo` and " + String.raw`\\` + "`#42`",
+    );
     expect(sanitizeIssueText("Run `@decorator` with 3 # signs")).toBe(
       "Run '`@decorator`' with 3 # signs",
     );
