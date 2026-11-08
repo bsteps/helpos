@@ -92,8 +92,9 @@ let endlessList = false;
 let userHidden = false;
 /** Runs when the issue's state is read, after the link is written. */
 let duringStateCheck: (() => Promise<void>) | undefined;
-/** How many of the next reads of an issue's state fail with a 503. */
+/** How many of the next reads of an issue's state fail, and with which status. */
 let stateFailures = 0;
+let stateFailureStatus = 503;
 
 const fakeGithubFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -120,7 +121,7 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
     await duringStateCheck?.();
     if (stateFailures > 0) {
       stateFailures--;
-      return reply(503, { message: "unavailable" });
+      return reply(stateFailureStatus, { message: "refused" });
     }
     return reply(200, { state: found.state ?? "open", state_reason: found.state_reason ?? null });
   }
@@ -434,6 +435,7 @@ beforeEach(() => {
   duringCreate = undefined;
   duringStateCheck = undefined;
   stateFailures = 0;
+  stateFailureStatus = 503;
 });
 
 afterAll(async () => {
@@ -1078,6 +1080,72 @@ describe("creating the issue", () => {
     expect(res.status, await res.clone().text()).toBe(201);
     expect(await res.json()).toMatchObject({ repo: "acme/app", number: openedIssues[0]?.number });
     expect(posts() - before).toBe(1);
+  });
+
+  it("keeps rechecking after a refusal an admin can fix, such as an expired token", async () => {
+    const email = await receiveEmail();
+    duringCreate = async () => {
+      const opened = openedIssues[0];
+      if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
+    };
+    // GitHub refuses the token for the check after linking and for the first recheck.
+    stateFailureStatus = 401;
+    stateFailures = 2;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    const fixed = await waitFor("the recheck's fixed draft", async () => {
+      const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+      return drafts.length > 0 ? drafts : undefined;
+    });
+    expect(fixed).toHaveLength(1);
+  });
+
+  it("keeps a stale claim, and so its marker, even if making it stale again fails", async () => {
+    const email = await receiveEmail();
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    const [stale] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(schema.ticketGithubIssues)
+        .values({
+          tenantId: acme,
+          ticketId: email.ticketId,
+          repo: "acme/app",
+          state: "creating",
+          createdAt: longAgo,
+          updatedAt: longAgo,
+        })
+        .returning(),
+    );
+    // GitHub is down for the search, and the database fails the write after the claim.
+    githubDown = true;
+    let calls = 0;
+    const flaky: Database = {
+      ...db,
+      withTenant: (tenantId, fn) =>
+        ++calls === 2 ? Promise.reject(new Error("pool timeout")) : db.withTenant(tenantId, fn),
+    };
+    try {
+      app = makeApp({ db: flaky });
+      const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+        title: "t",
+        body: "b",
+      });
+      expect(res.status).toBe(502);
+    } finally {
+      app = makeApp();
+    }
+    // Taken over in place: the same claim, so its marker is still the one searched for.
+    const [claim] = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.ticketGithubIssues)
+        .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+    );
+    expect(claim?.id).toBe(stale?.id);
+    expect(claim?.state).toBe("creating");
   });
 
   it("keeps a recheck waiting while the repo is being reconnected, instead of dropping it", async () => {

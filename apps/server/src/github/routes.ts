@@ -69,9 +69,6 @@ export interface GithubRoutesDeps {
  */
 const staleClaimSeconds = 300;
 
-/** Thrown to roll back a stale claim's removal when another request claimed the ticket first. */
-class ClaimTaken extends Error {}
-
 const integrationPath = "/v1/integrations/github";
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
@@ -329,7 +326,8 @@ export function registerGithubRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): 
   // The exact path only: the webhook below authenticates with its signature instead.
   app.use(integrationPath, auth);
   app.use(rotatePath, auth);
-  // Only this feature's ticket paths: the ticket and draft routes authenticate their own.
+  // This feature's ticket paths. The ticket routes' `/v1/tickets/*` covers them too; a second
+  // pass is a no-op, and these stay correct even if that one changes.
   app.use("/v1/tickets/:id/github-issue", auth);
   app.use("/v1/tickets/:id/github-issue/draft", auth);
 
@@ -644,71 +642,74 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const { tenantId } = principal;
 
     // 1. Claim the ticket's issue slot, so a double click can't open two issues.
-    const claim = await deps.db
-      .withTenant(tenantId, async (tx) => {
-        const [ticket] = await tx
-          .select({ id: tickets.id })
-          .from(tickets)
-          .where(eq(tickets.id, ticketId));
-        if (!ticket) return "not_found" as const;
-        const [integration] = await tx
-          .select({ repo: integrations.repo, tokenCiphertext: integrations.tokenCiphertext })
-          .from(integrations)
-          .where(eq(integrations.provider, "github"));
-        if (!integration) return "not_connected" as const;
-        let token: string;
-        try {
-          token = box.open(integration.tokenCiphertext, { tenantId, purpose: "github-token" });
-        } catch (error) {
-          if (!(error instanceof SecretBoxError)) throw error;
-          return "reconnect_required" as const;
-        }
-        // A claim whose request died or never heard back from GitHub doesn't block the ticket
-        // for good. Its ID comes along: that request's issue may exist, and is looked for first.
-        const stale = await tx
-          .delete(ticketGithubIssues)
-          .where(
-            and(
-              eq(ticketGithubIssues.ticketId, ticketId),
-              eq(ticketGithubIssues.state, "creating"),
-              lt(
-                ticketGithubIssues.updatedAt,
-                sql`now() - make_interval(secs => ${staleClaimSeconds})`,
-              ),
+    const claim = await deps.db.withTenant(tenantId, async (tx) => {
+      const [ticket] = await tx
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, ticketId));
+      if (!ticket) return "not_found" as const;
+      const [integration] = await tx
+        .select({ repo: integrations.repo, tokenCiphertext: integrations.tokenCiphertext })
+        .from(integrations)
+        .where(eq(integrations.provider, "github"));
+      if (!integration) return "not_connected" as const;
+      let token: string;
+      try {
+        token = box.open(integration.tokenCiphertext, { tenantId, purpose: "github-token" });
+      } catch (error) {
+        if (!(error instanceof SecretBoxError)) throw error;
+        return "reconnect_required" as const;
+      }
+      // A claim whose request died or never heard back from GitHub doesn't block the ticket
+      // for good: this request takes it over, as it is, ID and all. That request's issue may
+      // exist with this ID as its marker, so it is looked for first, and if this request
+      // fails too, the claim (and so its marker) is still there for the next one. Locked, so
+      // two requests can't both take it over.
+      const [stale] = await tx
+        .select({
+          id: ticketGithubIssues.id,
+          repo: ticketGithubIssues.repo,
+          createdAt: ticketGithubIssues.createdAt,
+          updatedAt: ticketGithubIssues.updatedAt,
+        })
+        .from(ticketGithubIssues)
+        .where(
+          and(
+            eq(ticketGithubIssues.ticketId, ticketId),
+            eq(ticketGithubIssues.state, "creating"),
+            lt(
+              ticketGithubIssues.updatedAt,
+              sql`now() - make_interval(secs => ${staleClaimSeconds})`,
             ),
-          )
-          .returning({
-            id: ticketGithubIssues.id,
-            repo: ticketGithubIssues.repo,
-            createdAt: ticketGithubIssues.createdAt,
-            updatedAt: ticketGithubIssues.updatedAt,
-          });
-        const [claimed] = await tx
-          .insert(ticketGithubIssues)
-          .values({ tenantId, ticketId, repo: integration.repo, state: "creating" })
-          .onConflictDoNothing({
-            target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId],
-          })
-          .returning({ id: ticketGithubIssues.id });
-        if (!claimed) {
-          // Another request claimed the ticket between this one's removal of the stale claim and
-          // its own: put the stale one back (by rolling back), so its marker is still searched.
-          if (stale.length > 0) throw new ClaimTaken();
-          const [existing] = await tx
-            .select({ state: ticketGithubIssues.state })
-            .from(ticketGithubIssues)
-            .where(eq(ticketGithubIssues.ticketId, ticketId));
-          // Another request is opening it right now, or GitHub never told us how it went.
-          return existing?.state === "creating"
-            ? ("creation_pending" as const)
-            : ("already_linked" as const);
-        }
-        return { claimId: claimed.id, repo: integration.repo, token, stale: stale[0] };
-      })
-      .catch((error: unknown) => {
-        if (error instanceof ClaimTaken) return "creation_pending" as const;
-        throw error;
-      });
+          ),
+        )
+        .for("update");
+      if (stale) {
+        await tx
+          .update(ticketGithubIssues)
+          .set({ updatedAt: new Date() })
+          .where(eq(ticketGithubIssues.id, stale.id));
+        return { claimId: stale.id, repo: integration.repo, token, stale };
+      }
+      const [claimed] = await tx
+        .insert(ticketGithubIssues)
+        .values({ tenantId, ticketId, repo: integration.repo, state: "creating" })
+        .onConflictDoNothing({
+          target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId],
+        })
+        .returning({ id: ticketGithubIssues.id });
+      if (!claimed) {
+        const [existing] = await tx
+          .select({ state: ticketGithubIssues.state })
+          .from(ticketGithubIssues)
+          .where(eq(ticketGithubIssues.ticketId, ticketId));
+        // Another request is opening it right now, or GitHub never told us how it went.
+        return existing?.state === "creating"
+          ? ("creation_pending" as const)
+          : ("already_linked" as const);
+      }
+      return { claimId: claimed.id, repo: integration.repo, token, stale: undefined };
+    });
     if (claim === "not_found") return c.json({ error: claim }, 404);
     if (typeof claim === "string") return c.json({ error: claim }, 409);
 
@@ -722,11 +723,12 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     // The repo the linked issue is in: the connected one, unless an earlier try's is adopted.
     let issueRepo = claim.repo;
     if (claim.stale) {
+      const stale = claim.stale;
       // In the repo that claim was for: the workspace may have switched repos since.
-      const staleRepo = parseRepo(claim.stale.repo) ?? repo;
+      const staleRepo = parseRepo(stale.repo) ?? repo;
       const earlier = await github.findIssue(staleRepo, {
-        marker: claim.stale.id,
-        since: new Date(claim.stale.createdAt.getTime() - slack),
+        marker: claim.claimId,
+        since: new Date(stale.createdAt.getTime() - slack),
       });
       // A definite refusal for another repo than the connected one means the token can't see
       // it any more (the workspace switched repos). Asking again never changes that, so it
@@ -736,41 +738,42 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         earlier.reason !== "github_unavailable" &&
         repoString(staleRepo) !== repoString(repo);
       if (!earlier.ok && !unreachable) {
-        // The old claim was replaced by this request's, so its marker would never be looked for
-        // again and its issue, if GitHub opened one, would be duplicated by the next try. Put
-        // the old claim back, still stale, so the next try searches for its marker first.
-        const old = claim.stale;
-        await deps.db.withTenant(tenantId, async (tx) => {
-          await tx
-            .delete(ticketGithubIssues)
-            .where(
-              and(
-                eq(ticketGithubIssues.id, claim.claimId),
-                eq(ticketGithubIssues.state, "creating"),
+        // Not known whether that issue exists. The claim keeps its ID, so its marker is still
+        // searched; it is made stale again, so the next try needn't wait to search. If even
+        // that fails, the claim is just fresh for a while: nothing is lost.
+        try {
+          await deps.db.withTenant(tenantId, (tx) =>
+            tx
+              .update(ticketGithubIssues)
+              .set({ updatedAt: stale.updatedAt })
+              .where(
+                and(
+                  eq(ticketGithubIssues.id, claim.claimId),
+                  eq(ticketGithubIssues.state, "creating"),
+                ),
               ),
-            );
-          await tx
-            .insert(ticketGithubIssues)
-            .values({
-              id: old.id,
-              tenantId,
-              ticketId,
-              repo: old.repo,
-              state: "creating",
-              createdAt: old.createdAt,
-              // Its own timestamp, so it is exactly as stale as it was.
-              updatedAt: old.updatedAt,
-            })
-            .onConflictDoNothing({
-              target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId],
-            });
-        });
+          );
+        } catch (error) {
+          deps.logger.warn(
+            { err: errorSummary(error), ticketId },
+            "github issue: claim kept fresh",
+          );
+        }
         // What GitHub said: a revoked token should be fixed, not retried forever.
         return c.json({ error: earlier.ok ? "github_unavailable" : earlier.reason }, 502);
       }
       if (earlier.ok && earlier.value) {
         created = { ok: true, value: earlier.value };
-        issueRepo = claim.stale.repo;
+        issueRepo = stale.repo;
+      } else if (stale.repo !== claim.repo) {
+        // A new issue goes in the connected repo: the claim says so, so a later search for
+        // its marker looks there.
+        await deps.db.withTenant(tenantId, (tx) =>
+          tx
+            .update(ticketGithubIssues)
+            .set({ repo: claim.repo })
+            .where(eq(ticketGithubIssues.id, claim.claimId)),
+        );
       }
     }
     if (!created) {
@@ -906,12 +909,10 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         deps.logger.warn({ err: errorSummary(error), ticketId }, "github issue: close not applied");
         await recheckLater("close not applied");
       }
-    } else if (now && !now.ok && now.reason === "github_unavailable") {
-      // A close before the link had no link to match, and its webhook won't come again.
-      await recheckLater("state not checked");
     } else if (now && !now.ok) {
-      // A refusal, not an outage: asking again won't help. A later close still arrives by webhook.
-      deps.logger.warn({ ticketId, reason: now.reason }, "github issue: state not checked");
+      // A close before the link had no link to match, and its webhook won't come again. An
+      // outage passes and a refused token can be fixed, so the worker reads it later.
+      await recheckLater(`state not checked (${now.reason})`);
     }
     return c.json({ repo: link.repo, number: made.number, url: made.url, state }, 201);
   });

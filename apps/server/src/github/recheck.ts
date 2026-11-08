@@ -103,12 +103,9 @@ export function handleRecheckIssue(
     if (!repo) return;
     const now = await deps.github(target.token).issueState(repo, target.number);
     if (!now.ok) {
-      // GitHub said no (the issue or repo is gone, the token lost access): asking again won't
-      // change that. Only an outage, a timeout or a rate limit is worth waiting out.
-      if (now.reason !== "github_unavailable") {
-        deps.logger.warn({ linkId, reason: now.reason }, "github recheck: GitHub refused");
-        return;
-      }
+      // An outage, or a refusal an admin can fix (an expired token, access to the repo taken
+      // away): either way, asking again later, within the day, can still tell the customer.
+      deps.logger.warn({ linkId, reason: now.reason }, "github recheck: not read");
       await later(now.reason, target.since);
       return;
     }
