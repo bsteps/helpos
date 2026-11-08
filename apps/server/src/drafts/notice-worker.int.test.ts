@@ -184,6 +184,46 @@ describe("draft notice worker", () => {
     expect(await notify(first.id)).toHaveBeenCalledOnce();
   });
 
+  it("a 'fixed' draft after a reply's notice is other news, even inside the window", async () => {
+    const reply = await pendingDraft();
+    expect(await notify(reply.id)).toHaveBeenCalledOnce();
+    // The linked GitHub issue closes: a fix notice now waits too, next to the reply.
+    const [fixed] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(schema.drafts)
+        .values({
+          tenantId: acme,
+          ticketId: reply.ticketId,
+          messageId: reply.messageId,
+          kind: "fixed",
+          body: "It's fixed.",
+        })
+        .returning(),
+    );
+    if (!fixed) throw new Error("no fixed draft");
+    expect(await notify(fixed.id)).toHaveBeenCalledOnce();
+    // Told about that one now: nothing more within the window.
+    expect(await notify(fixed.id)).not.toHaveBeenCalled();
+    // The reply is reworded: a kind already announced, so the same news, not a new notice.
+    const [reworded] = await db.withTenant(acme, async (tx) => {
+      await tx
+        .update(schema.drafts)
+        .set({ status: "discarded" })
+        .where(eq(schema.drafts.id, reply.id));
+      return tx
+        .insert(schema.drafts)
+        .values({
+          tenantId: acme,
+          ticketId: reply.ticketId,
+          messageId: reply.messageId,
+          body: "On it, reworded.",
+        })
+        .returning();
+    });
+    if (!reworded) throw new Error("no reworded draft");
+    expect(await notify(reworded.id)).not.toHaveBeenCalled();
+  });
+
   // The real worker, from here on. Its own age check uses 2 s; drafts are still queued with
   // the default 5 minutes unless a job re-queues them.
   const workerSend = vi.fn<EmailTransport["send"]>();

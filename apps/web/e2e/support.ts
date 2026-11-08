@@ -13,6 +13,11 @@ export interface E2eState {
   /** An internal note, and the phrase that makes the mock AI paste it into a draft. */
   internalNote: string;
   pasteTrigger: string;
+  /** The one repo the fake GitHub knows, and the one token it accepts. */
+  githubRepo: string;
+  githubToken: string;
+  /** The title the AI suggests for every GitHub issue. */
+  issueTitle: string;
 }
 
 export function state(): E2eState {

@@ -1,11 +1,11 @@
-import { and, asc, type Database, desc, eq, schema, type TenantTx } from "@helpos/db";
+import { and, asc, type Database, desc, eq, ne, schema, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 
-const { customers, messages, tickets } = schema;
+const { customers, messages, ticketGithubIssues, tickets } = schema;
 
 export interface TicketRoutesDeps {
   db: Pick<Database, "withTenant">;
@@ -52,7 +52,21 @@ const messageSchema = z
   })
   .openapi("Message");
 const ticketDetailSchema = ticketSchema
-  .extend({ messages: z.array(messageSchema) })
+  .extend({
+    messages: z.array(messageSchema),
+    /**
+     * The GitHub issue made from this ticket (`POST /v1/tickets/{id}/github-issue`), or null.
+     * `closed` once GitHub says it was closed.
+     */
+    githubIssue: z
+      .object({
+        repo: z.string(),
+        number: z.int(),
+        url: z.string(),
+        state: z.enum(["open", "closed"]),
+      })
+      .nullable(),
+  })
   .openapi("TicketDetail");
 
 const json = <T extends z.ZodType>(s: T, description: string) => ({
@@ -181,7 +195,12 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
         .from(messages)
         .where(eq(messages.ticketId, id))
         .orderBy(asc(messages.createdAt), asc(messages.id));
-      return { ticket, rows };
+      const [issue] = await tx
+        .select()
+        .from(ticketGithubIssues)
+        // One still being created isn't shown until GitHub has answered.
+        .where(and(eq(ticketGithubIssues.ticketId, id), ne(ticketGithubIssues.state, "creating")));
+      return { ticket, rows, issue };
     });
     // Another workspace's ticket looks exactly like one that doesn't exist.
     if (!result) return c.json({ error: "not_found" }, 404);
@@ -198,6 +217,15 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
           html: m.htmlBody ? sanitizeEmailHtml(m.htmlBody) : null,
           createdAt: m.createdAt.toISOString(),
         })),
+        githubIssue:
+          result.issue?.issueNumber && result.issue.issueUrl && result.issue.state !== "creating"
+            ? {
+                repo: result.issue.repo,
+                number: result.issue.issueNumber,
+                url: result.issue.issueUrl,
+                state: result.issue.state,
+              }
+            : null,
       },
       200,
     );

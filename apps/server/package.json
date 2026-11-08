@@ -25,6 +25,7 @@
     "@helpos/safe-fetch": "workspace:*",
     "@hono/node-server": "2.1.6",
     "@hono/zod-openapi": "1.6.3",
+    "@octokit/core": "7.0.8",
     "hono": "4.13.16",
     "htmlparser2": "12.0.0",
     "nodemailer": "10.3.1",

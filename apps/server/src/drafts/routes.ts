@@ -64,6 +64,11 @@ const draftSchema = z
     ticketId: z.uuid(),
     /** The inbound message this draft answers. */
     messageId: z.uuid(),
+    /**
+     * `reply` answers the customer. `fixed` tells them the GitHub issue made from their ticket
+     * is closed as done; it is written when GitHub says so, and approved like any reply.
+     */
+    kind: z.enum(schema.draftKinds),
     status: z.enum(schema.draftStatuses),
     body: z.string(),
     createdAt: z.iso.datetime(),
@@ -190,8 +195,9 @@ const createRoute_ = createRoute({
   description:
     "Answers the ticket's latest customer message. With `body`, saves that text as a " +
     "`pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it " +
-    "appears in the list when ready. Either way, older pending drafts on the ticket are " +
-    "discarded. Nothing is sent until the draft is approved. Needs `drafts:write`.",
+    "appears in the list when ready. Either way, older pending replies on the ticket are " +
+    "discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is " +
+    "approved. Needs `drafts:write`.",
   security,
   request: {
     params: idParams,
@@ -230,6 +236,7 @@ function serialize(
     id: d.id,
     ticketId: d.ticketId,
     messageId: d.messageId,
+    kind: d.kind,
     status: d.status,
     body: d.body,
     createdAt: d.createdAt.toISOString(),
@@ -438,6 +445,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .where(
           and(
             eq(drafts.messageId, latest.id),
+            eq(drafts.kind, "reply"),
             ne(drafts.status, "discarded"),
             ne(drafts.status, "pending"),
           ),
@@ -455,7 +463,14 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       const stale = await tx
         .update(drafts)
         .set({ status: "discarded" })
-        .where(and(eq(drafts.ticketId, ticketId), eq(drafts.status, "pending")))
+        .where(
+          and(
+            eq(drafts.ticketId, ticketId),
+            eq(drafts.status, "pending"),
+            // Only replies: a pending "fixed" notice isn't replaced by a new reply.
+            eq(drafts.kind, "reply"),
+          ),
+        )
         .returning({ id: drafts.id });
       for (const { id } of stale) {
         await recordAudit(tx, {

@@ -32,20 +32,24 @@ import {
 } from "@/components/ui/card.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
+import { GithubIssuePanel } from "./ticket-github.tsx";
 
 const isConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
 
-/** The draft that matters now: the newest one that wasn't thrown away. */
-function liveDraft(drafts: Draft[]): Draft | undefined {
-  return drafts.filter((d) => d.status !== "discarded").at(-1);
+/**
+ * The draft of a kind that matters now: the newest one that wasn't thrown away. A reply and a
+ * "fixed" notice are separate: one doesn't hide or replace the other.
+ */
+function liveDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | undefined {
+  return drafts.filter((d) => d.kind === kind && d.status !== "discarded").at(-1);
 }
 
 /** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
 function waitingOn(ticket: TicketDetail | undefined) {
   return (drafts: Draft[]): boolean => {
+    // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
+    if (drafts.some((d) => d.status === "approved")) return true;
     const live = liveDraft(drafts);
-    // An approved reply still goes out after the ticket is closed: keep watching until it's sent.
-    if (live?.status === "approved") return true;
     if (live || ticket?.status !== "open") return false;
     return !ticket.automated && !ticket.aiPausedReason;
   };
@@ -143,6 +147,10 @@ export function TicketPage() {
         ))}
       </section>
 
+      <section aria-label="GitHub issue" className="flex flex-col gap-3">
+        <GithubIssuePanel key={t.id} ticket={t} />
+      </section>
+
       <section aria-label="Draft" className="flex flex-col gap-3">
         {drafts.isPending ? null : drafts.isError ? (
           <Alert variant="destructive">
@@ -155,6 +163,12 @@ export function TicketPage() {
           <DraftPanel ticket={t} draft={liveDraft(drafts.data)} />
         )}
       </section>
+
+      {drafts.data && liveDraft(drafts.data, "fixed") ? (
+        <section aria-label="Fix notice" className="flex flex-col gap-3">
+          <FixNotice ticketId={t.id} drafts={drafts.data} />
+        </section>
+      ) : null}
     </article>
   );
 }
@@ -222,6 +236,11 @@ function DraftPanel({ ticket, draft }: { ticket: TicketDetail; draft: Draft | un
   return <DraftCard key={draft.id} ticketId={ticket.id} draft={draft} />;
 }
 
+function FixNotice({ ticketId, drafts }: { ticketId: string; drafts: Draft[] }) {
+  const draft = liveDraft(drafts, "fixed");
+  return draft ? <DraftCard key={draft.id} ticketId={ticketId} draft={draft} /> : null;
+}
+
 function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
   const edit = useEditDraft(ticketId);
   const approve = useApproveDraft(ticketId);
@@ -231,18 +250,21 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
   const pending = draft.status === "pending";
   const cited = draft.sources.filter((s) => s.cited);
   const busy = edit.isPending || approve.isPending;
+  const fixed = draft.kind === "fixed";
 
   const save = () => edit.mutate({ id: draft.id, body }, { onSuccess: () => setEditing(false) });
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle as="h2">{pending ? "AI draft" : "Reply"}</CardTitle>
+        <CardTitle as="h2">{fixed ? "Fix notice" : pending ? "AI draft" : "Reply"}</CardTitle>
         <CardDescription>
           {draft.sentAt
             ? `Sent ${formatDateTime(draft.sentAt)}`
             : pending
-              ? "Nothing is sent until you approve it."
+              ? fixed
+                ? "The GitHub issue was closed as done. Nothing is sent until you approve it."
+                : "Nothing is sent until you approve it."
               : "Approved. It goes out in a moment."}
         </CardDescription>
         <CardAction>
@@ -278,7 +300,7 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
 
         {editing ? (
           <Textarea
-            label="Reply"
+            label={fixed ? "Fix notice" : "Reply"}
             value={body}
             onChange={setBody}
             disabled={edit.isPending}

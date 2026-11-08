@@ -13,6 +13,7 @@ import {
   customers,
   draftCitations,
   drafts,
+  integrations,
   knowledgeChunks,
   knowledgeEmbeddingDimensions,
   knowledgeSources,
@@ -20,6 +21,7 @@ import {
   memberships,
   messages,
   tenants,
+  ticketGithubIssues,
   tickets,
 } from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
@@ -136,6 +138,21 @@ async function seedB(tx: TenantTx): Promise<void> {
     tokenHash: b.tokenHash,
     scopes: ["tickets:read"],
   });
+  await tx.insert(integrations).values({
+    tenantId,
+    provider: "github",
+    repo: "b-corp/app",
+    tokenCiphertext: "v1.sealed-token",
+    webhookSecretCiphertext: "v1.sealed-secret",
+  });
+  await tx.insert(ticketGithubIssues).values({
+    tenantId,
+    ticketId: b.ticket,
+    repo: "b-corp/app",
+    issueNumber: 7,
+    issueUrl: "https://github.com/b-corp/app/issues/7",
+    state: "open",
+  });
   await tx.insert(auditEvents).values({
     id: b.auditEvent,
     tenantId,
@@ -189,6 +206,8 @@ const tables = {
   knowledgeSources,
   knowledgeChunks,
   draftCitations,
+  integrations,
+  ticketGithubIssues,
 } as const;
 
 describe("leak: acting as tenant A", () => {

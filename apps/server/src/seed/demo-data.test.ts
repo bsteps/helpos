@@ -31,6 +31,18 @@ describe("buildDemoData", () => {
     }
   });
 
+  it("links a demo ticket to a GitHub issue, and gives an agent github:write", () => {
+    const lumen = buildDemoData().tenants.find((t) => t.key === "lumen");
+    expect(lumen?.githubIssues).toEqual([
+      expect.objectContaining({
+        repo: "lumen-analytics/dashboard",
+        issueNumber: 412,
+        state: "open",
+      }),
+    ]);
+    expect(lumen?.tokens.some((t) => t.scopes.includes("github:write"))).toBe(true);
+  });
+
   it("makes tokens the API accepts", () => {
     for (const t of buildDemoData().tenants) {
       for (const k of t.tokens) expect(bearerToken(`Bearer ${k.token}`)).toBe(k.token);
@@ -60,6 +72,7 @@ describe("buildDemoData", () => {
         t.messages,
         t.drafts,
         t.citations,
+        t.githubIssues,
       ]
         .flat()
         .map((r) => r.id),

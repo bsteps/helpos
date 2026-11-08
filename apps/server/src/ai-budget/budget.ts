@@ -1,4 +1,4 @@
-import { eq, schema, sql, type TenantTx } from "@helpos/db";
+import { and, eq, schema, sql, type TenantTx } from "@helpos/db";
 
 const { aiUsage, tenants } = schema;
 
@@ -96,4 +96,59 @@ export async function recordUsage(
         updatedAt: new Date(),
       },
     });
+}
+
+/**
+ * Reserves `tokens` of today's budget before a model call, in one statement: the row lock is
+ * held only for that statement, never across the call. False when the reservation doesn't fit
+ * under `budget`, so concurrent calls can't all slip past the cap at once. The reservation
+ * counts as input tokens and as one call until settleUsage() replaces it.
+ */
+export async function reserveUsage(
+  tx: TenantTx,
+  tenantId: string,
+  day: string,
+  tokens: number,
+  budget: number,
+): Promise<boolean> {
+  await tx
+    .insert(aiUsage)
+    .values({ tenantId, day })
+    .onConflictDoNothing({ target: [aiUsage.tenantId, aiUsage.day] });
+  const reserved = await tx
+    .update(aiUsage)
+    .set({
+      inputTokens: sql`${aiUsage.inputTokens} + ${tokens}`,
+      calls: sql`${aiUsage.calls} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(aiUsage.day, day),
+        sql`${aiUsage.inputTokens} + ${aiUsage.outputTokens} + ${tokens} <= ${budget}`,
+      ),
+    )
+    .returning({ id: aiUsage.id });
+  return reserved.length > 0;
+}
+
+/**
+ * Replaces a reservation with what the call really used. With `used` null (the call failed and
+ * cost nothing), the reservation and its call are released.
+ */
+export async function settleUsage(
+  tx: TenantTx,
+  day: string,
+  reserved: number,
+  used: { inputTokens: number; outputTokens: number } | null,
+): Promise<void> {
+  await tx
+    .update(aiUsage)
+    .set({
+      inputTokens: sql`greatest(0, ${aiUsage.inputTokens} - ${reserved} + ${used?.inputTokens ?? 0})`,
+      outputTokens: sql`${aiUsage.outputTokens} + ${used?.outputTokens ?? 0}`,
+      calls: used ? sql`${aiUsage.calls}` : sql`greatest(0, ${aiUsage.calls} - 1)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(aiUsage.day, day));
 }

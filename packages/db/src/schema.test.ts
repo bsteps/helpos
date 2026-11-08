@@ -44,11 +44,13 @@ describe("migrations", () => {
       "customers",
       "draft_citations",
       "drafts",
+      "integrations",
       "knowledge_chunks",
       "knowledge_sources",
       "mailboxes",
       "memberships",
       "messages",
+      "ticket_github_issues",
       "tickets",
     ]);
     for (const row of rows) {

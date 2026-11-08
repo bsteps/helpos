@@ -1,19 +1,23 @@
 // The server Playwright tests run against (`pnpm test:e2e`). Not for production: it starts a
-// throwaway Postgres and Mailpit in Docker, uses a mock AI model, and serves the built dashboard.
-// Everything else is the real app: the same API, worker, auth, sanitiser and headers.
+// throwaway Postgres and Mailpit in Docker, uses a mock AI model and a fake GitHub (behind the real
+// Octokit client), and serves the built dashboard. Everything else is the real app: the same API,
+// worker, auth, sanitiser and headers.
+import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mockEmbeddingModel, routedMockModel } from "@helpos/ai/testing";
+import { mockEmbeddingModel, mockModel, routedMockModel } from "@helpos/ai/testing";
 import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { startTestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
-import pino from "pino";
 import { GenericContainer } from "testcontainers";
 import { z } from "zod";
 import { createApp } from "../app.ts";
+import { octokitGithub } from "../github/github-api.ts";
+import { createLogger } from "../logger.ts";
 import { createSmtpTransport } from "../outbound-email/transport.ts";
+import { createSecretBox } from "../secrets/secret-box.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { passwordSetupLink } from "../workspaces/password-link.ts";
@@ -36,7 +40,49 @@ export const e2eInternalNote =
   "this threshold, or they will split their claims to stay under it.";
 export const e2ePasteTrigger = "paste your internal refund note";
 
-const logger = pino({ level: "warn" });
+/** What the AI suggests for every GitHub issue in these tests. */
+export const e2eIssue = {
+  title: "CSV export shows an error page",
+  summary: "Exporting a report as CSV fails with an error page.",
+  stepsToReproduce: ["Open Reports", "Click Export CSV"],
+  expected: "The CSV file downloads.",
+  actual: "An error page says 'Something went wrong'.",
+};
+/** The only token the fake GitHub accepts, for the only repo it has. */
+const githubToken = "github_pat_11E2ETOKEN00abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
+const githubRepo = "acme/app";
+
+/**
+ * GitHub, faked at the network: Octokit makes its real requests and this answers them. It
+ * knows one repo and one token, and opens issues numbered from 1.
+ */
+let issueCount = 0;
+const fakeGithub: typeof fetch = async (input, init) => {
+  const request = new Request(input, init);
+  const path = new URL(request.url).pathname;
+  const reply = (status: number, body: object) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  if (request.headers.get("authorization") !== `token ${githubToken}`) {
+    return reply(401, { message: "Bad credentials" });
+  }
+  if (request.method === "GET" && path === `/repos/${githubRepo}`)
+    return reply(200, { private: true });
+  if (request.method === "GET" && path === "/user") return reply(200, { login: "helpdesk-bot" });
+  // Open until the test closes it, which it does by sending the webhook.
+  if (request.method === "GET" && path.startsWith(`/repos/${githubRepo}/issues/`)) {
+    return reply(200, { state: "open", state_reason: null, updated_at: new Date().toISOString() });
+  }
+  if (request.method === "POST" && path === `/repos/${githubRepo}/issues`) {
+    issueCount++;
+    return reply(201, {
+      number: issueCount,
+      html_url: `https://github.com/${githubRepo}/issues/${issueCount}`,
+    });
+  }
+  return reply(404, { message: "Not Found" });
+};
+
+const logger = createLogger({ level: "warn" });
 const baseUrl = `http://localhost:${env.E2E_PORT}`;
 const inboundSecret = "e2e-inbound-secret-0123456789abcdef0123456789";
 const webDir = fileURLToPath(new URL("../../../web/dist", import.meta.url));
@@ -60,6 +106,9 @@ const runner = createJobRunner({
   pollingIntervalSeconds: 0.5,
 });
 await runner.start();
+// A throwaway key: everything it encrypts dies with this process.
+const secretBox = createSecretBox(randomBytes(32));
+const github = octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithub });
 await startWorker({
   runner,
   files: createMemoryFileStore(),
@@ -77,6 +126,8 @@ await startWorker({
   // Owner notices would land in Mailpit next to the replies the tests look for.
   noticeDelaySeconds: 3600,
   dailyTokenBudget: 1_000_000,
+  secretBox,
+  github,
 });
 
 const owner = "owner@acme.test";
@@ -96,6 +147,9 @@ const app = createApp({
   passwords: auth,
   publicUrl: baseUrl,
   webDir,
+  model: mockModel({ text: JSON.stringify(e2eIssue) }),
+  secretBox,
+  github,
 });
 mkdirSync(dirname(env.E2E_STATE_FILE), { recursive: true });
 writeFileSync(
@@ -110,6 +164,9 @@ writeFileSync(
     draft: e2eDraft,
     internalNote: e2eInternalNote,
     pasteTrigger: e2ePasteTrigger,
+    githubRepo,
+    githubToken,
+    issueTitle: e2eIssue.title,
   }),
 );
 // Listening last: Playwright starts the tests as soon as /health answers.

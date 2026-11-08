@@ -1,5 +1,6 @@
 import type { LanguageModel, ToolSet } from "ai";
 import { z } from "zod";
+import { draftGithubIssue } from "../draft-issue.ts";
 import { draftReply } from "../draft-reply.ts";
 import { quotesInternalPassage } from "../internal-quote.ts";
 import type { EvalInput } from "./case.ts";
@@ -43,4 +44,13 @@ export async function draftReplyTask(model: LanguageModel, input: EvalInput): Pr
     cited: titles,
     quotesInternal: quotesInternalPassage(text, internal),
   };
+}
+
+/**
+ * The same draftGithubIssue() the API uses. No tools: issue drafting never offers any. Issue
+ * drafts are never given the knowledge base, so there is no internal note they could quote.
+ */
+export async function draftIssueTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
+  const { title, body } = await draftGithubIssue(model, input);
+  return { text: `${title}\n\n${body}`, toolCalls: [], cited: [], quotesInternal: false };
 }

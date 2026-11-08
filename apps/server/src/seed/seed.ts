@@ -71,6 +71,9 @@ export async function seedDemoData(deps: {
         .onConflictDoNothing()
         .returning({ id: schema.knowledgeSources.id });
       await tx.insert(schema.draftCitations).values(t.citations).onConflictDoNothing();
+      if (t.githubIssues.length > 0) {
+        await tx.insert(schema.ticketGithubIssues).values(t.githubIssues).onConflictDoNothing();
+      }
       for (const { id } of added) {
         await enqueue(
           tx,

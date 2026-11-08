@@ -88,6 +88,19 @@ AI_EMBEDDING_MODEL=mxbai-embed-large
 
 If HelpOS runs in Docker and Ollama on the host, use `http://host.docker.internal:11434/v1` instead of `localhost`. `bge-m3` also works.
 
+## GitHub (ticket → issue → "it's fixed")
+
+A workspace owner connects one repo under **Settings → GitHub**, with a fine-grained personal access token (`github_pat_…`) that has **Issues: read and write** on that repo. Classic `ghp_` tokens are refused: they reach every repo their owner can. The server stores the token encrypted, so it needs a key:
+
+| Variable                | Meaning                                                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HELPOS_ENCRYPTION_KEY` | Encrypts the GitHub token and webhook secrets at rest (AES-256-GCM). 32 bytes as hex or base64: `openssl rand -base64 32`. Unset: no repo can be connected. |
+| `HELPOS_GITHUB_API_URL` | The GitHub API. Default `https://api.github.com`; set it for GitHub Enterprise Server.                                                                      |
+
+Keep the key safe and don't change it casually: tokens stored under the old key can't be read, and each workspace has to connect its repo again.
+
+After connecting, the dashboard shows a webhook **Payload URL** and **secret** once. Connecting the same repo again (say, with a new token) keeps the secret, so the webhook keeps working; **New webhook secret** in Settings replaces it (e.g. after a leak), without the token. If the stored secret can't be read any more (the encryption key changed), connecting again gives a new one. In the repo's Settings → Webhooks, add a webhook with those values, content type `application/json` (the form type works too), and only the **Issues** event. The webhook URL needs no login, so if your proxy can rate-limit a path, give `/v1/integrations/github/webhook` a limit (GitHub sends a few deliveries a minute at most). With more than one server process, a rotated or disconnected secret can still be accepted by the others for up to 15 seconds. The token must be able to read its own account and the repo, and to open issues (**Issues: read and write**). When an issue made from a ticket is closed as completed, the ticket gets a "fixed" draft to approve; like every reply, it goes to the shadow recipient while shadow mode is on.
+
 ## Demo instance
 
 For a ready Docker Compose deployment (HTTPS, backups, shadow mode locked on), see [the demo instance guide](guides/demo-instance.md).

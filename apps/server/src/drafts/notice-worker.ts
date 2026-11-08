@@ -6,6 +6,7 @@ import {
   enqueue,
   eq,
   gt,
+  lte,
   schema,
   sql,
   type TenantTx,
@@ -106,6 +107,8 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const [row] = await tx
       .select({
         ticketId: drafts.ticketId,
+        kind: drafts.kind,
+        createdAt: drafts.createdAt,
         mailbox: mailboxes.address,
         textBody: messages.textBody,
         htmlBody: messages.htmlBody,
@@ -174,7 +177,22 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
         .from(drafts)
         .where(and(eq(drafts.ticketId, row.ticketId), gt(drafts.approvedAt, recent.at)))
         .limit(1);
-      if (!actedOn) return;
+      // A kind of draft the ticket didn't have at that notice is other news: "it's fixed"
+      // waiting is not the reply the owners were already told about (nor the other way round).
+      // A reworded draft of a kind it had is the same news.
+      const [sameKindBefore] = await tx
+        .select({ id: drafts.id })
+        .from(drafts)
+        .where(
+          and(
+            eq(drafts.ticketId, row.ticketId),
+            eq(drafts.kind, row.kind),
+            lte(drafts.createdAt, recent.at),
+          ),
+        )
+        .limit(1);
+      const otherNews = row.createdAt > recent.at && !sameKindBefore;
+      if (!actedOn && !otherNews) return;
     }
 
     const owners = await tx

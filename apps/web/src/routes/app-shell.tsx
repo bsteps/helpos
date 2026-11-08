@@ -20,17 +20,27 @@ export function AppShell() {
             </Link>
             <span className="truncate text-muted-foreground text-sm">{me.workspace.name}</span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={signOut.isPending}
-            onClick={() =>
-              signOut.mutate(undefined, { onSuccess: () => void navigate({ to: "/login" }) })
-            }
-          >
-            <LogOut aria-hidden className="size-3.5" />
-            Sign out
-          </Button>
+          <nav aria-label="Account" className="flex items-center gap-1">
+            {me.scopes.includes("workspace:admin") ? (
+              <Link
+                to="/settings"
+                className="rounded-full px-3 py-1.5 text-muted-foreground text-sm hover:text-foreground"
+              >
+                Settings
+              </Link>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={signOut.isPending}
+              onClick={() =>
+                signOut.mutate(undefined, { onSuccess: () => void navigate({ to: "/login" }) })
+              }
+            >
+              <LogOut aria-hidden className="size-3.5" />
+              Sign out
+            </Button>
+          </nav>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-6">

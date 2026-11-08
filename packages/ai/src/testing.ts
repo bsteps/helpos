@@ -1,4 +1,4 @@
-import { RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { MockEmbeddingModelV4, MockLanguageModelV4 } from "ai/test";
 import { embeddingDimensions } from "./embed.ts";
 
@@ -8,6 +8,8 @@ export type MockResponse = {
   toolCalls?: MockToolCall[] | undefined;
   /** Tokens the mock reports per call, e.g. to test spend caps. Zero by default. */
   usage?: { inputTokens: number; outputTokens: number } | undefined;
+  /** Awaited inside the call before it answers, e.g. to check what's locked meanwhile. */
+  pause?: (() => Promise<void>) | undefined;
 };
 
 /**
@@ -18,26 +20,37 @@ export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
   const toolCalls = response.toolCalls ?? [];
   const input = response.usage?.inputTokens ?? 0;
   const output = response.usage?.outputTokens ?? 0;
+  const generated = {
+    content: [
+      ...(response.text === undefined ? [] : [{ type: "text" as const, text: response.text }]),
+      ...toolCalls.map((call, i) => ({
+        type: "tool-call" as const,
+        toolCallId: `mock-call-${i}`,
+        toolName: call.toolName,
+        input: JSON.stringify(call.input),
+      })),
+    ],
+    finishReason: {
+      unified: toolCalls.length > 0 ? ("tool-calls" as const) : ("stop" as const),
+      raw: undefined,
+    },
+    usage: {
+      inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: output, text: output, reasoning: 0 },
+    },
+    warnings: [],
+  };
+  const pause = response.pause;
   return new MockLanguageModelV4({
     provider: "mock",
     modelId: "mock-model",
-    doGenerate: {
-      content: [
-        ...(response.text === undefined ? [] : [{ type: "text" as const, text: response.text }]),
-        ...toolCalls.map((call, i) => ({
-          type: "tool-call" as const,
-          toolCallId: `mock-call-${i}`,
-          toolName: call.toolName,
-          input: JSON.stringify(call.input),
-        })),
-      ],
-      finishReason: { unified: toolCalls.length > 0 ? "tool-calls" : "stop", raw: undefined },
-      usage: {
-        inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: output, text: output, reasoning: 0 },
-      },
-      warnings: [],
-    },
+    // A plain answer unless asked to pause, so recorded calls look the same as before.
+    doGenerate: pause
+      ? async () => {
+          await pause();
+          return generated;
+        }
+      : generated,
   });
 }
 
@@ -72,6 +85,23 @@ export function failingModel(message = "503 service unavailable"): MockLanguageM
     modelId: "failing-model",
     doGenerate: async () => {
       throw new Error(message);
+    },
+  });
+}
+
+/** A provider that answers with an error status (an overload, say): such a call isn't billed. */
+export function refusingModel(statusCode = 529): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    provider: "mock",
+    modelId: "refusing-model",
+    doGenerate: async () => {
+      throw new APICallError({
+        message: "overloaded",
+        url: "https://api.test",
+        requestBodyValues: {},
+        statusCode,
+        isRetryable: false,
+      });
     },
   });
 }

@@ -12,6 +12,7 @@ import { AppShell } from "./routes/app-shell.tsx";
 import { InboxPage } from "./routes/inbox.tsx";
 import { LoginPage } from "./routes/login.tsx";
 import { SetPasswordPage } from "./routes/set-password.tsx";
+import { SettingsPage } from "./routes/settings.tsx";
 import { TicketPage } from "./routes/ticket.tsx";
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -61,10 +62,16 @@ export const ticketRoute = createRoute({
   component: TicketPage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => signedInRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setPasswordRoute,
-  signedInRoute.addChildren([inboxRoute, ticketRoute]),
+  signedInRoute.addChildren([inboxRoute, ticketRoute, settingsRoute]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {

@@ -11,14 +11,16 @@ import { brand } from "@helpos/brand";
 import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
-import pino from "pino";
 import { createApp, errorSummary } from "./app.ts";
 import { envSchema } from "./env.ts";
+import { octokitGithub } from "./github/github-api.ts";
+import { createLogger } from "./logger.ts";
 import { createSmtpTransport } from "./outbound-email/transport.ts";
+import { createSecretBox } from "./secrets/secret-box.ts";
 import { startWorker } from "./worker.ts";
 
 const env = envSchema.parse(process.env);
-const logger = pino({ level: env.HELPOS_LOG_LEVEL, base: { app: brand.slug } });
+const logger = createLogger({ level: env.HELPOS_LOG_LEVEL, base: { app: brand.slug } });
 
 const db = createDatabase(env.HELPOS_DATABASE_URL);
 const files = createLocalFileStore(env.HELPOS_FILES_DIR);
@@ -53,11 +55,17 @@ if (!auth?.sessions) {
 }
 await runner.start();
 const dailyTokenBudget = env.HELPOS_AI_DAILY_TOKEN_BUDGET;
+const model = aiModel();
+const secretBox = env.HELPOS_ENCRYPTION_KEY
+  ? createSecretBox(env.HELPOS_ENCRYPTION_KEY)
+  : undefined;
+if (!secretBox) logger.warn("HELPOS_ENCRYPTION_KEY is not set: no GitHub repo can be connected");
+const github = octokitGithub({ baseUrl: env.HELPOS_GITHUB_API_URL });
 await startWorker({
   runner,
   files,
   logger,
-  model: aiModel(),
+  model,
   embeddingModel: embeddingModel(),
   transport,
   // Only the one function the worker needs, not the whole auth store.
@@ -65,6 +73,8 @@ await startWorker({
   publicUrl: env.HELPOS_PUBLIC_URL,
   noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
   dailyTokenBudget,
+  secretBox,
+  github,
 });
 
 const app = createApp({
@@ -82,6 +92,9 @@ const app = createApp({
     : undefined,
   publicUrl: env.HELPOS_PUBLIC_URL,
   webDir: env.HELPOS_WEB_DIR,
+  model,
+  secretBox,
+  github,
 });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(
