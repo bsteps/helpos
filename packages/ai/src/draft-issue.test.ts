@@ -93,6 +93,24 @@ describe("sanitizeIssueText", () => {
   });
 });
 
+describe("sanitizeIssueText on long hostile input", () => {
+  it("cleans 60,000 characters built to make its patterns backtrack, quickly", () => {
+    // Runs of address or scheme characters with no `@` or `://` to end them: a pattern that
+    // retried from every position would take seconds on each.
+    for (const hostile of ["%".repeat(60_000), "a.".repeat(30_000), "-".repeat(60_000)]) {
+      const started = performance.now();
+      expect(sanitizeIssueText(hostile)).toBe(hostile);
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+    // Still finds an address or a link at the end of such a run.
+    expect(sanitizeIssueText(`${"%".repeat(1_000)} a@b.test`)).toContain("[email removed]");
+    expect(sanitizeIssueText(`see https://evil.test/${"a.".repeat(100)}`)).toBe(
+      // The last "." is the sentence's, as for any link.
+      "see [link removed].",
+    );
+  });
+});
+
 describe("sanitizeIssue", () => {
   it("cleans an agent's issue like an AI draft", () => {
     expect(

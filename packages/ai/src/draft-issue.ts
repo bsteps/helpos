@@ -48,13 +48,18 @@ export const maxIssueTitleChars = 200;
 
 // Any `scheme://`, bare `www.` and scheme-less `//host`: GitHub links all of them. Parentheses
 // are part of the link (`/wiki/a_(b)`), as GitHub reads them; an unmatched `)` at the end is
-// the sentence's, and stays (see trailingPart).
+// the sentence's, and stays (see trailingPart). A scheme starts only where a run of scheme
+// characters starts: matching from inside a run too would rescan it from every position, so
+// a long `a.a.a.a…` would take quadratic time.
 const urlPattern =
-  /(?:\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>[\]{}"'`]+/gi;
+  /(?:(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>[\]{}"'`]+/gi;
 // A markdown link or image target that is still there: a relative path links too.
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
-const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+// Starts only where a run of address characters starts, for the same reason: a long run
+// with no `@` in it (`%%%%…`) is then scanned once, not once from every position.
+const emailPattern =
+  /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 // Words GitHub could turn into something live:
 // - `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues (a `#`
 //   with no digit after it, like a `###` heading, links nothing and is left alone);
