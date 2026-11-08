@@ -68,6 +68,10 @@ const fakeGithub: typeof fetch = async (input, init) => {
   if (request.method === "GET" && path === `/repos/${githubRepo}`)
     return reply(200, { private: true });
   if (request.method === "GET" && path === "/user") return reply(200, { login: "helpdesk-bot" });
+  // Open until the test closes it, which it does by sending the webhook.
+  if (request.method === "GET" && path.startsWith(`/repos/${githubRepo}/issues/`)) {
+    return reply(200, { state: "open", state_reason: null, updated_at: new Date().toISOString() });
+  }
   if (request.method === "POST" && path === `/repos/${githubRepo}/issues`) {
     issueCount++;
     return reply(201, {
@@ -102,6 +106,9 @@ const runner = createJobRunner({
   pollingIntervalSeconds: 0.5,
 });
 await runner.start();
+// A throwaway key: everything it encrypts dies with this process.
+const secretBox = createSecretBox(randomBytes(32));
+const github = octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithub });
 await startWorker({
   runner,
   files: createMemoryFileStore(),
@@ -119,6 +126,8 @@ await startWorker({
   // Owner notices would land in Mailpit next to the replies the tests look for.
   noticeDelaySeconds: 3600,
   dailyTokenBudget: 1_000_000,
+  secretBox,
+  github,
 });
 
 const owner = "owner@acme.test";
@@ -139,9 +148,8 @@ const app = createApp({
   publicUrl: baseUrl,
   webDir,
   model: mockModel({ text: JSON.stringify(e2eIssue) }),
-  // A throwaway key: everything it encrypts dies with this process.
-  secretBox: createSecretBox(randomBytes(32)),
-  github: octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithub }),
+  secretBox,
+  github,
 });
 mkdirSync(dirname(env.E2E_STATE_FILE), { recursive: true });
 writeFileSync(

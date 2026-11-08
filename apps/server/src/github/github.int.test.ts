@@ -16,6 +16,7 @@ import {
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { lockUsage, utcDay } from "../ai-budget/budget.ts";
 import { createApp } from "../app.ts";
@@ -28,6 +29,7 @@ import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { fixedNoticeBody } from "./fixed-notice.ts";
 import { octokitGithub } from "./github-api.ts";
+import { registerGithubWebhook } from "./webhook.ts";
 import { signWebhook } from "./webhook-signature.ts";
 
 // Ticket → GitHub issue → customer told when it's fixed, against real Postgres, RLS, pg-boss and
@@ -90,6 +92,8 @@ let endlessList = false;
 let userHidden = false;
 /** Runs when the issue's state is read, after the link is written. */
 let duringStateCheck: (() => Promise<void>) | undefined;
+/** How many of the next reads of an issue's state fail with a 503. */
+let stateFailures = 0;
 
 const fakeGithubFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -114,6 +118,10 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
     const found = openedIssues.find((i) => i.number === Number(one[1]));
     if (!found) return reply(404, { message: "Not Found" });
     await duringStateCheck?.();
+    if (stateFailures > 0) {
+      stateFailures--;
+      return reply(503, { message: "unavailable" });
+    }
     return reply(200, { state: found.state ?? "open", state_reason: found.state_reason ?? null });
   }
   if (request.method === "GET" && path === "/user") {
@@ -160,6 +168,8 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
   }
   return reply(404, { message: "Not Found" });
 };
+
+const fakeGithub = octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithubFetch });
 
 // --- Emails out ---------------------------------------------------------------------------------
 
@@ -216,7 +226,8 @@ function makeApp(
     dailyTokenBudget: overrides.budget ?? 1_000_000,
     model: "model" in overrides ? overrides.model : issueModel,
     secretBox: "secretBox" in overrides ? undefined : box,
-    github: octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithubFetch }),
+    github: fakeGithub,
+    issueRecheckSeconds: 0,
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -328,9 +339,20 @@ function deliver(
   });
 }
 
-const closed = (number: number, stateReason: string | null = "completed", repo = "acme/App") => ({
+const closed = (
+  number: number,
+  stateReason: string | null = "completed",
+  repo = "acme/App",
+  updatedAt = new Date().toISOString(),
+) => ({
   action: "closed",
-  issue: { number, state: "closed", state_reason: stateReason, title: "ignored" },
+  issue: {
+    number,
+    state: "closed",
+    state_reason: stateReason,
+    title: "ignored",
+    updated_at: updatedAt,
+  },
   repository: { full_name: repo },
   sender: { login: "octocat" },
 });
@@ -359,6 +381,9 @@ beforeAll(async () => {
     publicUrl: "https://help.acme.test",
     noticeDelaySeconds: 3600,
     dailyTokenBudget: 1_000_000,
+    secretBox: box,
+    github: fakeGithub,
+    issueRecheckSeconds: 0,
   });
   const a = await initWorkspace(
     { db, auth },
@@ -383,6 +408,7 @@ beforeEach(() => {
   userHidden = false;
   duringCreate = undefined;
   duringStateCheck = undefined;
+  stateFailures = 0;
 });
 
 afterAll(async () => {
@@ -605,6 +631,31 @@ describe("connecting a repo", () => {
     });
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({ error: "token_rejected" });
+  });
+
+  it("gives the webhook a new secret without the token, for a human admin only", async () => {
+    const old = await connect();
+    const rotate = (as: string) => call("POST", "/v1/integrations/github/webhook-secret", as);
+    expect((await rotate("adminAgent")).status).toBe(403);
+    const res = await rotate("owner");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const { webhookSecret } = (await res.json()) as { webhookSecret: string };
+    expect(webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+    // The old secret stops working at once; the new one works; the token is untouched.
+    const ping = { zen: "hi", hook_id: 1 };
+    expect((await deliver(old, ping, { event: "ping" })).status).toBe(401);
+    expect((await deliver(webhookSecret, ping, { event: "ping" })).status).toBe(200);
+    const [row] = await db.withTenant(acme, (tx) => tx.select().from(schema.integrations));
+    expect(box.open(row?.tokenCiphertext ?? "", { tenantId: acme, purpose: "github-token" })).toBe(
+      pat,
+    );
+    expect(await auditActions(acme, row?.id ?? "")).toContain("github.webhook_secret_rotated");
+    expect(everythingLogged()).not.toContain(webhookSecret);
+    // Nothing connected: nothing to rotate.
+    expect(
+      (await call("POST", "/v1/integrations/github/webhook-secret", "otherOwner")).status,
+    ).toBe(404);
   });
 });
 
@@ -900,6 +951,32 @@ describe("creating the issue", () => {
         tx.insert(schema.ticketGithubIssues).values(link(third.ticketId, number)),
       ),
     ).rejects.toThrow();
+  });
+
+  it("reads the state again later when it can't be read right after linking", async () => {
+    const email = await receiveEmail();
+    // Closed the moment it exists, and GitHub fails the check after linking and the first
+    // recheck: the worker keeps trying, and the close is applied when GitHub answers.
+    duringCreate = async () => {
+      const opened = openedIssues[0];
+      if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
+    };
+    stateFailures = 2;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ state: "open" });
+    const fixed = await waitFor("the recheck's fixed draft", async () => {
+      const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+      return drafts.length > 0 ? drafts : undefined;
+    });
+    expect(fixed).toHaveLength(1);
+    expect(stateFailures).toBe(0);
+    expect(
+      await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json(),
+    ).toMatchObject({ githubIssue: { state: "closed" } });
   });
 
   it("still links the issue when this request's claim was taken as stale meanwhile", async () => {
@@ -1313,6 +1390,67 @@ describe("the webhook", () => {
     );
     expect(await form.json()).toEqual({ status: "processed", tickets: 1 });
     expect((await send("application/x-www-form-urlencoded", "payload=not-json")).status).toBe(400);
+  });
+
+  it("ignores a late close, delivered again after the issue was reopened", async () => {
+    const email = await receiveEmail();
+    const { number } = await createIssue(email.ticketId);
+    const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
+    const closedEarly = closed(number, "completed", "acme/App", at(1));
+    expect(await (await deliver(secret, closedEarly)).json()).toMatchObject({ tickets: 1 });
+    const reopened = { ...closed(number, null, "acme/App", at(2)), action: "reopened" };
+    expect(await (await deliver(secret, reopened)).json()).toMatchObject({ tickets: 1 });
+    // GitHub retries the first close: it is older than the reopen, so the issue stays open and
+    // no customer is told it's fixed.
+    expect(await (await deliver(secret, closedEarly)).json()).toEqual({
+      status: "ignored",
+      tickets: 0,
+    });
+    const live = (await draftsOf(email.ticketId)).filter(
+      (d) => d.kind === "fixed" && d.status !== "discarded",
+    );
+    expect(live).toEqual([]);
+    // A real, later close still counts.
+    expect(
+      await (await deliver(secret, closed(number, "completed", "acme/App", at(3)))).json(),
+    ).toMatchObject({ tickets: 1 });
+  });
+
+  it("checks only a few deliveries at once, turning the rest away before the database", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let lookups = 0;
+    const slowDb: Pick<Database, "withTenant"> = {
+      withTenant: async (tenantId, fn) => {
+        lookups++;
+        await held;
+        return db.withTenant(tenantId, fn);
+      },
+    };
+    const small = new OpenAPIHono();
+    registerGithubWebhook(small, { db: slowDb, logger, secretBox: box, maxVerifying: 1 });
+    const send = () => {
+      const body = JSON.stringify({ zen: "hi" });
+      return small.request(`/v1/integrations/github/webhook?workspace=${acme}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-github-event": "ping",
+          "x-hub-signature-256": signWebhook("forged", body),
+        },
+        body,
+      });
+    };
+    const first = send();
+    await waitFor("the first lookup", async () => (lookups > 0 ? true : undefined));
+    const second = await send();
+    expect(second.status).toBe(503);
+    expect(await second.json()).toEqual({ error: "busy" });
+    expect(lookups).toBe(1);
+    release();
+    expect((await first).status).toBe(401);
   });
 
   it("closed as not planned or duplicate → no 'fixed' draft", async () => {

@@ -60,6 +60,7 @@ const secretBox = env.HELPOS_ENCRYPTION_KEY
   ? createSecretBox(env.HELPOS_ENCRYPTION_KEY)
   : undefined;
 if (!secretBox) logger.warn("HELPOS_ENCRYPTION_KEY is not set: no GitHub repo can be connected");
+const github = octokitGithub({ baseUrl: env.HELPOS_GITHUB_API_URL });
 await startWorker({
   runner,
   files,
@@ -72,6 +73,8 @@ await startWorker({
   publicUrl: env.HELPOS_PUBLIC_URL,
   noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
   dailyTokenBudget,
+  secretBox,
+  github,
 });
 
 const app = createApp({
@@ -91,7 +94,7 @@ const app = createApp({
   webDir: env.HELPOS_WEB_DIR,
   model,
   secretBox,
-  github: octokitGithub({ baseUrl: env.HELPOS_GITHUB_API_URL }),
+  github,
 });
 const server = serve({ fetch: app.fetch, port: env.HELPOS_PORT }, (info) => {
   logger.info(

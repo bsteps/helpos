@@ -1,4 +1,4 @@
-import { and, eq, inArray, schema, sql, type TenantTx } from "@helpos/db";
+import { and, eq, inArray, isNull, lte, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { addFixedDraft } from "./fixed-notice.ts";
 
@@ -17,15 +17,32 @@ export interface IssueChange {
   actor: AuditActor;
   requestId: string | null;
   noticeDelaySeconds?: number | undefined;
+  /**
+   * GitHub's time for this change (the issue's `updated_at`). A link last changed by a newer
+   * event is left alone: GitHub can deliver a close late (a retry, a redelivery) after the
+   * issue was reopened, and that must not tell the customer it's fixed.
+   */
+  changedAt: Date | null;
 }
 
-function linksTo(repo: string, number: number, state: "open" | "closed") {
+function linksTo(change: IssueChange, state: "open" | "closed") {
   return and(
-    eq(ticketGithubIssues.repo, repo),
-    eq(ticketGithubIssues.issueNumber, number),
+    eq(ticketGithubIssues.repo, change.repo),
+    eq(ticketGithubIssues.issueNumber, change.number),
     eq(ticketGithubIssues.state, state),
+    // Equal times still apply: GitHub's are to the second, and a close and reopen can share one.
+    change.changedAt
+      ? or(
+          isNull(ticketGithubIssues.stateChangedAt),
+          lte(ticketGithubIssues.stateChangedAt, change.changedAt),
+        )
+      : undefined,
   );
 }
+
+/** A change with no time of its own keeps the time of the last one. */
+const changedAt = (change: IssueChange) =>
+  change.changedAt ? { stateChangedAt: change.changedAt } : {};
 
 /**
  * Marks the issue's open links closed. Closed as completed (or with no reason, as old
@@ -39,8 +56,8 @@ export async function markIssueClosed(
 ): Promise<number> {
   const closed = await tx
     .update(ticketGithubIssues)
-    .set({ state: "closed", closedAt: sql`now()` })
-    .where(linksTo(change.repo, change.number, "open"))
+    .set({ state: "closed", closedAt: sql`now()`, ...changedAt(change) })
+    .where(linksTo(change, "open"))
     .returning({ ticketId: ticketGithubIssues.ticketId });
   const fixed = (change.stateReason ?? "completed") === "completed";
   for (const { ticketId } of closed) {
@@ -73,8 +90,8 @@ export async function markIssueClosed(
 export async function markIssueReopened(tx: TenantTx, change: IssueChange): Promise<number> {
   const reopened = await tx
     .update(ticketGithubIssues)
-    .set({ state: "open", closedAt: null })
-    .where(linksTo(change.repo, change.number, "closed"))
+    .set({ state: "open", closedAt: null, ...changedAt(change) })
+    .where(linksTo(change, "closed"))
     .returning({ ticketId: ticketGithubIssues.ticketId });
   if (reopened.length === 0) return 0;
   const tickets = reopened.map((r) => r.ticketId);

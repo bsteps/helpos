@@ -37,9 +37,16 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByText(`Connected to ${githubRepo}`)).toBeVisible();
   const webhookUrl = (await page.getByTestId("webhook-url").textContent()) ?? "";
-  const secret = (await page.getByTestId("webhook-secret").textContent()) ?? "";
+  const firstSecret = (await page.getByTestId("webhook-secret").textContent()) ?? "";
   expect(webhookUrl).toContain("/v1/integrations/github/webhook?workspace=");
+  expect(firstSecret).toMatch(/^[0-9a-f]{64}$/);
+
+  // Say the secret leaked: the owner gets a new one without entering the token again.
+  await page.getByRole("button", { name: "New webhook secret" }).click();
+  await expect(page.getByText("New webhook secret. Paste it into GitHub now")).toBeVisible();
+  const secret = (await page.getByTestId("webhook-secret").textContent()) ?? "";
   expect(secret).toMatch(/^[0-9a-f]{64}$/);
+  expect(secret).not.toBe(firstSecret);
   expect(await page.content()).not.toContain(githubToken);
   const read = await page.request.get("/v1/integrations/github");
   expect(await read.text()).not.toContain(githubToken);
@@ -63,18 +70,21 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
   const number = Number((await issueLink.textContent())?.match(/#(\d+)/)?.[1]);
   expect(number).toBeGreaterThan(0);
 
-  // GitHub closes the issue as completed. A forged delivery is refused first.
+  // GitHub closes the issue as completed. A forged delivery, or one signed with the old
+  // secret, is refused first.
   const body = JSON.stringify({
     action: "closed",
     issue: { number, state: "closed", state_reason: "completed" },
     repository: { full_name: githubRepo },
   });
   const headers = { "content-type": "application/json", "x-github-event": "issues" };
-  const forged = await request.post(webhookUrl, {
-    headers: { ...headers, "x-hub-signature-256": sign("not the secret", body) },
-    data: body,
-  });
-  expect(forged.status()).toBe(401);
+  for (const wrong of ["not the secret", firstSecret]) {
+    const forged = await request.post(webhookUrl, {
+      headers: { ...headers, "x-hub-signature-256": sign(wrong, body) },
+      data: body,
+    });
+    expect(forged.status()).toBe(401);
+  }
   const delivered = await request.post(webhookUrl, {
     headers: { ...headers, "x-hub-signature-256": sign(secret, body) },
     data: body,

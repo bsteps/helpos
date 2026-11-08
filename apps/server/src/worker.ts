@@ -8,10 +8,13 @@ import { handleDraftReply } from "./drafts/draft-worker.ts";
 import { draftNoticeJob, draftReplyJob, sendReplyJob } from "./drafts/jobs.ts";
 import { handleDraftNotice } from "./drafts/notice-worker.ts";
 import { handleSendReply } from "./drafts/send-worker.ts";
+import type { GithubApiFactory } from "./github/github-api.ts";
+import { handleRecheckIssue, recheckIssueJob } from "./github/recheck.ts";
 import { type Fetcher, handleIngestSource } from "./knowledge/ingest-worker.ts";
 import { ingestSourceJob } from "./knowledge/jobs.ts";
 import { createVectorSearch } from "./knowledge/search.ts";
 import type { EmailTransport } from "./outbound-email/transport.ts";
+import type { SecretBox } from "./secrets/secret-box.ts";
 
 export interface WorkerDeps {
   runner: JobRunner;
@@ -36,6 +39,11 @@ export interface WorkerDeps {
   publicUrl: string;
   /** How long a new draft waits before its owner notice is sent. */
   noticeDelaySeconds?: number;
+  /** Opens the stored GitHub token. Without it, GitHub issue rechecks wait in the queue. */
+  secretBox?: SecretBox | undefined;
+  github?: GithubApiFactory | undefined;
+  /** For tests: how long between GitHub issue rechecks while GitHub can't be reached. */
+  issueRecheckSeconds?: number;
 }
 
 /**
@@ -48,6 +56,7 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
   await runner.ensureQueue(sendReplyJob);
   await runner.ensureQueue(ingestSourceJob);
   await runner.ensureQueue(draftNoticeJob);
+  await runner.ensureQueue(recheckIssueJob);
 
   const search = deps.embeddingModel ? createVectorSearch(deps.embeddingModel) : undefined;
   if (deps.model) {
@@ -95,6 +104,24 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
     logger.warn(
       "HELPOS_SMTP_URL or HELPOS_DATABASE_AUTH_URL is not set: draft notices will wait in the queue",
     );
+  }
+
+  if (deps.secretBox && deps.github) {
+    await runner.workInSteps(
+      recheckIssueJob,
+      logged(
+        "github-recheck",
+        handleRecheckIssue({
+          secretBox: deps.secretBox,
+          github: deps.github,
+          logger,
+          noticeDelaySeconds: deps.noticeDelaySeconds,
+          recheckSeconds: deps.issueRecheckSeconds,
+        }),
+      ),
+    );
+  } else {
+    logger.warn("HELPOS_ENCRYPTION_KEY is not set: GitHub issue rechecks will wait in the queue");
   }
 
   /** A failed job is logged, then rethrown so pg-boss retries it. Never dropped silently. */

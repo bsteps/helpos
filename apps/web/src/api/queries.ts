@@ -128,6 +128,13 @@ export function useDisconnectGithub() {
   });
 }
 
+/** A new webhook secret, e.g. after a leak. The token stays; the old secret stops working. */
+export function useRotateGithubWebhookSecret() {
+  return useMutation({
+    mutationFn: () => unwrap(api.POST("/v1/integrations/github/webhook-secret")),
+  });
+}
+
 /** Asks the AI for a title and body. Nothing is created until the issue is confirmed. */
 export function useDraftGithubIssue(ticketId: string) {
   return useMutation({

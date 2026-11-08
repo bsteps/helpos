@@ -723,6 +723,17 @@
           }
         ]
       },
+      "GithubWebhookSecret": {
+        "type": "object",
+        "properties": {
+          "webhookSecret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhookSecret"
+        ]
+      },
       "GithubIssueDraft": {
         "type": "object",
         "properties": {
@@ -783,6 +794,10 @@
                   "string",
                   "null"
                 ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
               }
             },
             "required": [
@@ -2620,6 +2635,69 @@
         }
       }
     },
+    "/v1/integrations/github/webhook-secret": {
+      "post": {
+        "summary": "Give the GitHub webhook a new secret",
+        "description": "Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubWebhookSecret"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No repo is connected (`not_connected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tickets/{id}/github-issue/draft": {
       "post": {
         "summary": "Ask the AI to draft a GitHub issue from a ticket",
@@ -2958,6 +3036,16 @@
           },
           "415": {
             "description": "Neither JSON nor GitHub's form encoding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Too many deliveries being checked at once (`busy`); try again",
             "content": {
               "application/json": {
                 "schema": {

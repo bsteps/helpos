@@ -134,7 +134,6 @@ export function sanitizeIssueText(raw: string): string {
 
 const oneLine = (s: string) => s.replaceAll(/\s+/g, " ").trim();
 
-/** The issue as markdown, from the model's fields, every field cleaned. */
 /**
  * Cleans an issue an agent wrote, the same way as an AI draft: an agent reads customer text too,
  * and can be steered by it. A person's own text is sent as written. Cleaning a draft that was
@@ -148,6 +147,7 @@ export function sanitizeIssue(issue: { title: string; body: string }): {
   return { title: title || "Problem reported by a customer", body: sanitizeIssueText(issue.body) };
 }
 
+/** The issue as markdown, from the model's fields, every field cleaned. */
 export function formatIssue(fields: IssueFields): { title: string; body: string } {
   const clean = (s: string) => sanitizeIssueText(s.trim());
   const steps = fields.stepsToReproduce.map((s) => oneLine(s)).filter(Boolean);

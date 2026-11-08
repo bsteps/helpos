@@ -62,6 +62,8 @@ export interface AppDeps {
   secretBox?: SecretBox | undefined;
   /** Talks to GitHub. Defaults to Octokit against api.github.com; tests pass a fake. */
   github?: GithubApiFactory;
+  /** For tests: how long before a failed GitHub issue state check is tried again. */
+  issueRecheckSeconds?: number;
 }
 
 export function createApp({
@@ -81,6 +83,7 @@ export function createApp({
   model,
   secretBox,
   github = octokitGithub({ baseUrl: "https://api.github.com" }),
+  issueRecheckSeconds,
 }: AppDeps): OpenAPIHono {
   const trustedOrigin = new URL(publicUrl).origin;
   const resolve =
@@ -141,6 +144,7 @@ export function createApp({
     model,
     dailyTokenBudget,
     noticeDelaySeconds,
+    issueRecheckSeconds,
     ...(now ? { now } : {}),
   });
 
@@ -177,11 +181,6 @@ function stackFrames(err: Error): string | undefined {
   return err.stack.slice(header.length).split("\n").slice(0, 5).join("\n");
 }
 
-/**
- * What is safe to log about an unexpected error. Drizzle query errors carry the SQL
- * parameters (email bodies, addresses) in their message, so those are never logged; only the
- * error type, the Postgres SQLSTATE and constraint name, and the stack frames.
- */
 /** The framework's own refusals, as the API's error codes. Never its message. */
 const clientErrorCodes: Partial<Record<number, string>> = {
   400: "bad_request",
@@ -192,6 +191,11 @@ const clientErrorCodes: Partial<Record<number, string>> = {
   415: "unsupported_media_type",
 };
 
+/**
+ * What is safe to log about an unexpected error. Drizzle query errors carry the SQL
+ * parameters (email bodies, addresses) in their message, so those are never logged; only the
+ * error type, the Postgres SQLSTATE and constraint name, and the stack frames.
+ */
 export function errorSummary(err: unknown): Record<string, unknown> {
   const cause = err instanceof Error ? err.cause : undefined;
   const isObject = (v: unknown): v is Record<string, unknown> =>

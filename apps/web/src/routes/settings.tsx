@@ -2,7 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError, type GithubConnected } from "@/api/client.ts";
-import { githubQuery, useConnectGithub, useDisconnectGithub } from "@/api/queries.ts";
+import {
+  githubQuery,
+  useConnectGithub,
+  useDisconnectGithub,
+  useRotateGithubWebhookSecret,
+} from "@/api/queries.ts";
 import {
   Alert,
   AlertContent,
@@ -58,10 +63,11 @@ function GithubSettings() {
   const github = useQuery({ ...githubQuery, enabled: me.scopes.includes("github:write") });
   const connect = useConnectGithub();
   const disconnect = useDisconnectGithub();
+  const rotate = useRotateGithubWebhookSecret();
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
   // The secret is shown once, straight from the connect response, and never stored here.
-  const [connected, setConnected] = useState<GithubConnected | null>(null);
+  const [connected, setConnected] = useState<ShownSecret | null>(null);
 
   // Checked here, so the form names the field that's wrong. The API refuses it too.
   const classicToken = token.trim() !== "" && !token.trim().startsWith("github_pat_");
@@ -108,6 +114,18 @@ function GithubSettings() {
         ) : null}
 
         {connected ? <WebhookSetup connected={connected} /> : null}
+        {disconnect.isError || rotate.isError ? (
+          <Alert variant="destructive">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>
+                {disconnect.isError
+                  ? "Couldn't disconnect. Nothing changed; try again."
+                  : "Couldn't make a new webhook secret. The old one still works; try again."}
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : null}
 
         {isAdmin ? (
           <form onSubmit={submit} className="flex flex-col gap-4">
@@ -163,11 +181,33 @@ function GithubSettings() {
       </CardContent>
 
       {isAdmin && status?.connected ? (
-        <CardFooter className="justify-end">
+        <CardFooter className="justify-end gap-2">
           <Button
             variant="ghost"
-            disabled={disconnect.isPending}
-            onClick={() => disconnect.mutate(undefined, { onSuccess: () => setConnected(null) })}
+            disabled={rotate.isPending || disconnect.isPending}
+            onClick={() => {
+              disconnect.reset();
+              rotate.mutate(undefined, {
+                onSuccess: ({ webhookSecret }) =>
+                  setConnected({
+                    connected: true,
+                    repo: status.repo,
+                    webhookUrl: status.webhookUrl,
+                    webhookSecret,
+                    rotated: true,
+                  }),
+              });
+            }}
+          >
+            New webhook secret
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={rotate.isPending || disconnect.isPending}
+            onClick={() => {
+              rotate.reset();
+              disconnect.mutate(undefined, { onSuccess: () => setConnected(null) });
+            }}
           >
             Disconnect
           </Button>
@@ -177,7 +217,10 @@ function GithubSettings() {
   );
 }
 
-function WebhookSetup({ connected }: { connected: GithubConnected }) {
+/** What the webhook needs, shown once: after connecting, or after asking for a new secret. */
+type ShownSecret = GithubConnected & { rotated?: boolean };
+
+function WebhookSetup({ connected }: { connected: ShownSecret }) {
   if (connected.webhookSecret === null) {
     return (
       <Alert variant="success">
@@ -186,7 +229,7 @@ function WebhookSetup({ connected }: { connected: GithubConnected }) {
           <AlertTitle>Connected to {connected.repo}</AlertTitle>
           <AlertDescription>
             The webhook secret didn't change, so the webhook already set up in GitHub keeps working.
-            To get a new secret, disconnect and connect again.
+            For a new one, use New webhook secret below.
           </AlertDescription>
         </AlertContent>
       </Alert>
@@ -196,12 +239,23 @@ function WebhookSetup({ connected }: { connected: GithubConnected }) {
     <Alert variant="success">
       <AlertIcon />
       <AlertContent>
-        <AlertTitle>Connected to {connected.repo}. One more step in GitHub</AlertTitle>
+        <AlertTitle>
+          {connected.rotated
+            ? "New webhook secret. Paste it into GitHub now"
+            : `Connected to ${connected.repo}. One more step in GitHub`}
+        </AlertTitle>
         <AlertDescription>
-          <p>
-            In the repo's Settings → Webhooks, add a webhook with these values, and pick only the{" "}
-            <strong>Issues</strong> event. The secret is shown only now.
-          </p>
+          {connected.rotated ? (
+            <p>
+              In the repo's Settings → Webhooks, edit the webhook and replace its secret: until then
+              GitHub's deliveries are refused. The secret is shown only now.
+            </p>
+          ) : (
+            <p>
+              In the repo's Settings → Webhooks, add a webhook with these values, and pick only the{" "}
+              <strong>Issues</strong> event. The secret is shown only now.
+            </p>
+          )}
           <dl className="mt-2 grid gap-1 text-sm">
             <dt className="font-medium">Payload URL</dt>
             <dd>

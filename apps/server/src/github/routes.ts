@@ -7,7 +7,18 @@ import {
   maxIssueTitleChars,
   sanitizeIssue,
 } from "@helpos/ai";
-import { and, asc, type Database, eq, isNull, lt, schema, sql, type TenantTx } from "@helpos/db";
+import {
+  and,
+  asc,
+  type Database,
+  enqueue,
+  eq,
+  isNull,
+  lt,
+  schema,
+  sql,
+  type TenantTx,
+} from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { dailyBudget, reserveUsage, settleUsage, utcDay } from "../ai-budget/budget.ts";
@@ -19,6 +30,7 @@ import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { type CreatedIssue, type GithubApiFactory, parseRepo, repoString } from "./github-api.ts";
 import { markIssueClosed } from "./issue-state.ts";
+import { recheckAfter, recheckIssueJob } from "./recheck.ts";
 import { registerGithubWebhook, webhookPath } from "./webhook.ts";
 
 const { integrations, messages, ticketGithubIssues, tickets } = schema;
@@ -37,6 +49,8 @@ export interface GithubRoutesDeps {
   dailyTokenBudget: number;
   now?: () => Date;
   noticeDelaySeconds?: number | undefined;
+  /** For tests: how long before a failed state check is tried again in the background. */
+  issueRecheckSeconds?: number | undefined;
 }
 
 /** A `creating` claim older than this belongs to a request that died; the next try takes over. */
@@ -173,6 +187,28 @@ const disconnectRoute = createRoute({
   responses: { 204: { description: "Disconnected, or nothing was connected" }, ...authErrors },
 });
 
+const rotatePath = `${integrationPath}/webhook-secret`;
+const rotateRoute = createRoute({
+  method: "post",
+  path: rotatePath,
+  summary: "Give the GitHub webhook a new secret",
+  description:
+    "Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the " +
+    "only time it is shown. Paste it into the repo's webhook settings right away; until then " +
+    "GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human " +
+    "session.",
+  security,
+  responses: {
+    200: json(
+      z.object({ webhookSecret: z.string() }).openapi("GithubWebhookSecret"),
+      "The new secret",
+    ),
+    ...authErrors,
+    404: json(errorSchema, "No repo is connected (`not_connected`)"),
+    503: notConfigured,
+  },
+});
+
 const draftIssueRoute = createRoute({
   method: "post",
   path: "/v1/tickets/{id}/github-issue/draft",
@@ -275,6 +311,7 @@ export function registerGithubRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): 
   const auth = requirePrincipal(deps.authenticate);
   // The exact path only: the webhook below authenticates with its signature instead.
   app.use(integrationPath, auth);
+  app.use(rotatePath, auth);
   // Only this feature's ticket paths: the ticket and draft routes authenticate their own.
   app.use("/v1/tickets/:id/github-issue", auth);
   app.use("/v1/tickets/:id/github-issue/draft", auth);
@@ -399,6 +436,38 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
       },
       200,
     );
+  });
+
+  app.openapi(rotateRoute, async (c) => {
+    const principal = c.get("principal");
+    if (principal.actor.type !== "user" || !principal.scopes.has("workspace:admin")) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const box = deps.secretBox;
+    if (!box) return c.json({ error: "encryption_not_configured" }, 503);
+    const { tenantId } = principal;
+    const secret = randomBytes(32).toString("hex");
+    const sealed = box.seal(secret, { tenantId, purpose: "github-webhook-secret" });
+    const rotated = await deps.db.withTenant(tenantId, async (tx) => {
+      const [row] = await tx
+        .update(integrations)
+        .set({ webhookSecretCiphertext: sealed, updatedAt: new Date() })
+        .where(eq(integrations.provider, "github"))
+        .returning({ id: integrations.id });
+      if (!row) return false;
+      await recordAudit(tx, {
+        tenantId,
+        actor: principal.actor,
+        action: "github.webhook_secret_rotated",
+        target: { type: "integration", id: row.id },
+        requestId: c.get("requestId"),
+      });
+      return true;
+    });
+    if (!rotated) return c.json({ error: "not_connected" }, 404);
+    // Never cached: the response is the secret's only copy.
+    c.header("Cache-Control", "no-store");
+    return c.json({ webhookSecret: secret }, 200);
   });
 
   app.openapi(disconnectRoute, async (c) => {
@@ -674,7 +743,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
 
     // 3. Record the issue, with its audit event. It exists on GitHub now, so a failure here
     // must not lose it: tried twice, and if it still fails, the caller gets its address.
-    let link: { repo: string } | "taken" | undefined;
+    let link: { id: string; repo: string } | "taken" | undefined;
     for (let attempt = 1; attempt <= 2 && link === undefined; attempt++) {
       try {
         link = await deps.db.withTenant(tenantId, (tx) =>
@@ -713,6 +782,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           repo: link.repo,
           number: made.number,
           stateReason: now.value.stateReason,
+          changedAt: now.value.updatedAt,
           actor: githubWebhookActor,
           requestId: c.get("requestId"),
           noticeDelaySeconds: deps.noticeDelaySeconds,
@@ -725,8 +795,28 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           .where(eq(ticketGithubIssues.ticketId, ticketId));
         return row?.state === "closed" ? "closed" : "open";
       });
+    } else if (now && !now.ok && now.reason === "github_unavailable") {
+      // A close before the link had no link to match, and its webhook won't come again: the
+      // worker reads the state later instead. A later close still arrives by webhook.
+      deps.logger.warn({ ticketId }, "github issue: state not checked yet");
+      try {
+        await deps.db.withTenant(tenantId, (tx) =>
+          enqueue(
+            tx,
+            recheckIssueJob,
+            { tenantId, linkId: link.id },
+            { startAfter: recheckAfter(deps.issueRecheckSeconds) },
+          ),
+        );
+      } catch (error) {
+        // The issue is created and linked: that is the answer, even if the recheck isn't queued.
+        deps.logger.warn(
+          { err: errorSummary(error), ticketId },
+          "github issue: recheck not queued",
+        );
+      }
     } else if (now && !now.ok) {
-      // Best effort: the issue is linked; a later close still arrives by webhook.
+      // A refusal, not an outage: asking again won't help. A later close still arrives by webhook.
       deps.logger.warn({ ticketId, reason: now.reason }, "github issue: state not checked");
     }
     return c.json({ repo: link.repo, number: made.number, url: made.url, state }, 201);
@@ -750,7 +840,7 @@ async function recordIssue(
     actor: AuditActor;
     requestId: string;
   },
-): Promise<{ repo: string } | "taken"> {
+): Promise<{ id: string; repo: string } | "taken"> {
   const values = {
     state: "open" as const,
     // The issue's own repo: an earlier claim's issue may be in a repo connected before.
@@ -774,7 +864,7 @@ async function recordIssue(
     .update(ticketGithubIssues)
     .set(values)
     .where(and(eq(ticketGithubIssues.id, input.claimId), eq(ticketGithubIssues.state, "creating")))
-    .returning({ repo: ticketGithubIssues.repo });
+    .returning({ id: ticketGithubIssues.id, repo: ticketGithubIssues.repo });
   const row =
     claimed ??
     (
@@ -782,11 +872,12 @@ async function recordIssue(
         .insert(ticketGithubIssues)
         .values({ tenantId: input.tenantId, ticketId: input.ticketId, ...values })
         .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
-        .returning({ repo: ticketGithubIssues.repo })
+        .returning({ id: ticketGithubIssues.id, repo: ticketGithubIssues.repo })
     )[0];
   if (!row) {
     const [existing] = await tx
       .select({
+        id: ticketGithubIssues.id,
         repo: ticketGithubIssues.repo,
         issueNumber: ticketGithubIssues.issueNumber,
       })
@@ -794,7 +885,7 @@ async function recordIssue(
       .where(eq(ticketGithubIssues.ticketId, input.ticketId));
     const sameIssue = existing?.repo === input.repo && existing.issueNumber === input.issue.number;
     // Already linked and audited by the attempt that committed: nothing more to write.
-    return sameIssue ? { repo: existing.repo } : "taken";
+    return sameIssue ? { id: existing.id, repo: existing.repo } : "taken";
   }
   await recordAudit(tx, {
     tenantId: input.tenantId,

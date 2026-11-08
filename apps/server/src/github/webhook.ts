@@ -16,7 +16,17 @@ export interface GithubWebhookDeps {
   logger: Pick<Logger, "info" | "warn">;
   secretBox: SecretBox | undefined;
   noticeDelaySeconds?: number | undefined;
+  /** For tests: how many deliveries may be verified at once. */
+  maxVerifying?: number;
 }
+
+/**
+ * Unsigned requests can't be told from GitHub's until a secret is read from the database, so a
+ * flood of forged ones would each take a pooled connection. Only this many are checked at once;
+ * the rest are turned away before any database work. GitHub sends a few a minute at most, and
+ * a refused delivery can be redelivered from the webhook's settings.
+ */
+const defaultMaxVerifying = 4;
 
 export const webhookPath = "/v1/integrations/github/webhook";
 /** A webhook delivery is a few KB; GitHub caps them at 25 MB. Nothing we read is near this. */
@@ -24,6 +34,9 @@ export const maxWebhookBytes = 1024 * 1024;
 
 /** What GitHub sends; anything else is refused without touching the database. */
 const signatureShape = /^sha256=[0-9a-fA-F]{64}$/;
+
+/** GitHub's form content type wraps the same JSON in a `payload` field. */
+const formPayload = z.object({ payload: z.string() });
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const json = <T extends z.ZodType>(s: T, description: string) => ({
@@ -40,6 +53,8 @@ const webhookPayload = z
         number: z.int().positive(),
         /** `completed`, `not_planned` or `duplicate`; missing on old deliveries. */
         state_reason: z.string().nullable().optional(),
+        /** When this change happened, by GitHub's clock: orders late deliveries. */
+        updated_at: z.iso.datetime({ offset: true }).optional(),
       })
       .optional(),
     repository: z.object({ full_name: z.string() }).optional(),
@@ -68,7 +83,7 @@ const webhookRoute = createRoute({
       required: false,
       content: {
         "application/json": { schema: webhookPayload },
-        "application/x-www-form-urlencoded": { schema: z.object({ payload: z.string() }) },
+        "application/x-www-form-urlencoded": { schema: formPayload },
       },
     },
   },
@@ -80,6 +95,7 @@ const webhookRoute = createRoute({
     401: json(errorSchema, "Unknown workspace, no repo connected, or a missing or wrong signature"),
     400: json(errorSchema, "Not a GitHub event payload"),
     413: json(errorSchema, `Larger than ${maxWebhookBytes} bytes`),
+    503: json(errorSchema, "Too many deliveries being checked at once (`busy`); try again"),
     415: json(errorSchema, "Neither JSON nor GitHub's form encoding"),
   },
 });
@@ -109,6 +125,8 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
       onError: (c) => c.json({ error: "too_large" }, 413),
     }),
   );
+  const maxVerifying = deps.maxVerifying ?? defaultMaxVerifying;
+  let verifying = 0;
   // Before validation, so a caller without the secret learns nothing, not even a 400. A
   // request that isn't even shaped like a signed delivery is refused before any database work.
   app.use(webhookPath, async (c, next) => {
@@ -117,7 +135,20 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     if (!signatureShape.test(signature) || !workspace.success) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    const verified = await verifyWebhook(c, deps);
+    // The body first, outside the limit: a client sending it slowly holds no slot. Hono keeps
+    // it, so verification reads these same bytes.
+    await c.req.arrayBuffer();
+    if (verifying >= maxVerifying) {
+      c.header("Retry-After", "5");
+      return c.json({ error: "busy" }, 503);
+    }
+    verifying++;
+    let verified: { tenantId: string } | null;
+    try {
+      verified = await verifyWebhook(c, deps);
+    } finally {
+      verifying--;
+    }
     if (!verified) return c.json({ error: "unauthorized" }, 401);
     c.set("githubWebhook", verified);
     return next();
@@ -151,6 +182,7 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
       actor: githubWebhookActor,
       requestId,
       noticeDelaySeconds: deps.noticeDelaySeconds,
+      changedAt: issue.updated_at ? new Date(issue.updated_at) : null,
     };
     const answer = (changed: number) =>
       c.json(
@@ -185,7 +217,7 @@ function readPayload(
   let raw: unknown;
   if (type === "application/json") raw = body();
   else if (type === "application/x-www-form-urlencoded") {
-    const form = z.object({ payload: z.string() }).safeParse(body());
+    const form = formPayload.safeParse(body());
     if (!form.success) return "invalid";
     try {
       raw = JSON.parse(form.data.payload);

@@ -37,7 +37,12 @@ export interface GithubApi {
   issueState(repo: RepoName, number: number): Promise<GithubResult<IssueState>>;
 }
 
-export type IssueState = { state: "open" | "closed"; stateReason: string | null };
+export type IssueState = {
+  state: "open" | "closed";
+  stateReason: string | null;
+  /** GitHub's `updated_at`: orders this reading against webhook deliveries. */
+  updatedAt: Date | null;
+};
 
 /** The hidden line that ties an issue to the claim that opened it. */
 export function markerComment(marker: string): string {
@@ -212,6 +217,7 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
             value: {
               state: res.data.state === "closed" ? "closed" : "open",
               stateReason: res.data.state_reason ?? null,
+              updatedAt: res.data.updated_at ? new Date(res.data.updated_at) : null,
             },
           };
         } catch (error) {

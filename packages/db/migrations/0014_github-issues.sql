@@ -24,6 +24,7 @@ CREATE TABLE "ticket_github_issues" (
 	"issue_url" text,
 	"state" text DEFAULT 'creating' NOT NULL,
 	"closed_at" timestamp with time zone,
+	"state_changed_at" timestamp with time zone,
 	CONSTRAINT "ticket_github_issues_tenant_ticket" UNIQUE("tenant_id","ticket_id"),
 	CONSTRAINT "ticket_github_issues_state" CHECK ("ticket_github_issues"."state" in ('creating', 'open', 'closed')),
 	CONSTRAINT "ticket_github_issues_created" CHECK ("ticket_github_issues"."state" = 'creating' or ("ticket_github_issues"."issue_number" is not null and "ticket_github_issues"."issue_url" is not null)),

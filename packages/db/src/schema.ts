@@ -727,6 +727,11 @@ export const ticketGithubIssues = pgTable(
     issueUrl: text("issue_url"),
     state: text("state", { enum: githubIssueStates }).notNull().default("creating"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    /**
+     * GitHub's own time (the issue's `updated_at`) of the last close or reopen applied. An
+     * event older than it is stale (a late retry, a redelivery) and changes nothing.
+     */
+    stateChangedAt: timestamp("state_changed_at", { withTimezone: true }),
   },
   (t) => [
     // One issue per ticket.

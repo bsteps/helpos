@@ -27,6 +27,7 @@ export interface AuditEvent {
     | "api_token.revoked"
     | "github.connected"
     | "github.disconnected"
+    | "github.webhook_secret_rotated"
     | "github_issue.drafted"
     | "github_issue.created"
     | "github_issue.closed"

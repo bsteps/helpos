@@ -1737,6 +1737,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/github/webhook-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give the GitHub webhook a new secret
+         * @description Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The new secret */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubWebhookSecret"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No repo is connected (`not_connected`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tickets/{id}/github-issue/draft": {
         parameters: {
             query?: never;
@@ -2026,6 +2101,15 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                /** @description Too many deliveries being checked at once (`busy`); try again */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -2208,6 +2292,9 @@ export interface components {
         GithubConnected: components["schemas"]["GithubIntegration"] & {
             webhookSecret: string | null;
         };
+        GithubWebhookSecret: {
+            webhookSecret: string;
+        };
         GithubIssueDraft: {
             title: string;
             body: string;
@@ -2224,6 +2311,8 @@ export interface components {
             issue?: {
                 number: number;
                 state_reason?: string | null;
+                /** Format: date-time */
+                updated_at?: string;
             };
             repository?: {
                 full_name: string;
