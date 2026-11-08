@@ -1,3 +1,4 @@
+import { brand } from "@helpos/brand";
 import { Octokit } from "@octokit/core";
 
 /**
@@ -44,7 +45,11 @@ export type IssueState = {
   updatedAt: Date | null;
 };
 
-/** The hidden line that ties an issue to the claim that opened it. */
+/**
+ * The hidden line that ties an issue to the claim that opened it. A fixed string on purpose,
+ * not the brand: it is stored in issues on GitHub, and a renamed product must still recognise
+ * the issues it opened before.
+ */
 export function markerComment(marker: string): string {
   return `<!-- helpdesk-claim:${marker} -->`;
 }
@@ -77,7 +82,7 @@ export interface OctokitOptions {
   timeoutMs?: number;
 }
 
-const userAgent = "helpdesk-github-integration";
+const userAgent = `${brand.slug}-github-integration`;
 
 /** What GitHub's answer says. Only the status and rate-limit headers: never its message. */
 export function githubFailure(error: unknown): GithubFailure {

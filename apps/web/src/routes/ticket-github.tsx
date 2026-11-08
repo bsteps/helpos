@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
 import { ExternalLink, GitBranch } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { ApiError, type TicketDetail } from "@/api/client.ts";
 import { githubQuery, useCreateGithubIssue, useDraftGithubIssue } from "@/api/queries.ts";
 import { Textarea } from "@/components/textarea.tsx";
@@ -67,6 +67,23 @@ export function GithubIssuePanel({ ticket }: { ticket: TicketDetail }) {
   const canWrite = me.scopes.includes("github:write");
   const github = useQuery({ ...githubQuery, enabled: canWrite && !ticket.githubIssue });
   const [composing, setComposing] = useState(false);
+  // Kept here, not in the form: cancelling and opening it again shows the same suggestion and
+  // the edits made to it, without asking the AI (and spending its budget) again.
+  const draft = useDraftGithubIssue(ticket.id);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const open = () => {
+    setComposing(true);
+    // Asked once per visit; again only if the last try failed.
+    if (draft.isIdle || draft.isError) {
+      draft.mutate(undefined, {
+        onSuccess: (suggestion) => {
+          setTitle(suggestion.title);
+          setBody(suggestion.body);
+        },
+      });
+    }
+  };
 
   if (ticket.githubIssue) return <LinkedIssue issue={ticket.githubIssue} />;
   if (!canWrite || !github.data?.connected || !github.data.repo) return null;
@@ -75,13 +92,18 @@ export function GithubIssuePanel({ ticket }: { ticket: TicketDetail }) {
       <IssueComposer
         ticketId={ticket.id}
         repo={github.data.repo}
+        draft={draft}
+        title={title}
+        setTitle={setTitle}
+        body={body}
+        setBody={setBody}
         onDone={() => setComposing(false)}
       />
     );
   }
   return (
     <div className="flex justify-end">
-      <Button variant="outline" size="sm" onClick={() => setComposing(true)}>
+      <Button variant="outline" size="sm" onClick={open}>
         <GitBranch aria-hidden className="size-4" />
         Create GitHub issue
       </Button>
@@ -123,30 +145,24 @@ function LinkedIssue({ issue }: { issue: NonNullable<TicketDetail["githubIssue"]
 function IssueComposer({
   ticketId,
   repo,
+  draft,
+  title,
+  setTitle,
+  body,
+  setBody,
   onDone,
 }: {
   ticketId: string;
   repo: string;
+  /** The AI's suggestion, asked for by the panel when the form first opened. */
+  draft: ReturnType<typeof useDraftGithubIssue>;
+  title: string;
+  setTitle: (title: string) => void;
+  body: string;
+  setBody: (body: string) => void;
   onDone: () => void;
 }) {
-  const draft = useDraftGithubIssue(ticketId);
   const create = useCreateGithubIssue(ticketId);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  // Ask once, when the form opens (the ref survives React's dev double-mount, so the AI is
-  // called once); the human edits whatever comes back.
-  const asked = useRef(false);
-  const { mutate: suggest } = draft;
-  useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
-    suggest(undefined, {
-      onSuccess: (suggestion) => {
-        setTitle(suggestion.title);
-        setBody(suggestion.body);
-      },
-    });
-  }, [suggest]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -162,7 +178,7 @@ function IssueComposer({
           created until you confirm.
         </CardDescription>
       </CardHeader>
-      {/* Idle too: the first render comes before the effect has asked. */}
+      {/* Idle too: the form can render before the panel's request has started. */}
       {draft.isIdle || draft.isPending ? (
         <CardContent className="flex items-center gap-3 text-muted-foreground">
           <Loader size={16} label="Drafting the issue" />

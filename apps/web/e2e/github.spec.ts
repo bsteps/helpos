@@ -55,6 +55,11 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
   await page.goto("/");
   await page.getByRole("link", { name: subject }).click();
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
+  // Counts the AI calls: each one is paid from the workspace's daily budget.
+  let drafts = 0;
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().endsWith("/github-issue/draft")) drafts++;
+  });
   await page.getByRole("button", { name: "Create GitHub issue" }).click();
   const title = page.getByRole("textbox", { name: "Title" });
   await expect(title).toHaveValue(issueTitle);
@@ -62,6 +67,11 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
     /### Steps to reproduce\n1\. Open Reports/,
   );
   await title.fill("CSV export from Reports shows an error page");
+  // Cancelled and opened again: the same suggestion, with the edit, and no second AI call.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Create GitHub issue" }).click();
+  await expect(title).toHaveValue("CSV export from Reports shows an error page");
+  expect(drafts).toBe(1);
   await page.getByRole("button", { name: "Create issue" }).click();
 
   const issueLink = page.getByRole("link", { name: new RegExp(`^${githubRepo}#\\d+`) });
