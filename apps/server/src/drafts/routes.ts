@@ -1,3 +1,4 @@
+import { quotesInternalPassage } from "@helpos/ai";
 import {
   and,
   asc,
@@ -80,6 +81,12 @@ const draftSchema = z
      * it doesn't reveal the note.
      */
     internalKnowledge: z.boolean(),
+    /**
+     * True when the body repeats one of those internal notes word for word (a long run, not a
+     * stock phrase). Checked against the current body, so it clears once the quote is edited
+     * out. A strong hint the draft leaks the note: read it closely before approving.
+     */
+    quotesInternalNote: z.boolean(),
   })
   .openapi("Draft");
 type DraftJson = z.infer<typeof draftSchema>;
@@ -212,7 +219,12 @@ const createRoute_ = createRoute({
   },
 });
 
-function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: boolean): DraftJson {
+function serialize(
+  d: DraftRow,
+  sources: DraftSourceJson[],
+  internalKnowledge: boolean,
+  quotesInternalNote: boolean,
+): DraftJson {
   return {
     id: d.id,
     ticketId: d.ticketId,
@@ -225,6 +237,7 @@ function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: b
     sentAt: d.sentAt?.toISOString() ?? null,
     sources,
     internalKnowledge,
+    quotesInternalNote,
   };
 }
 
@@ -256,10 +269,13 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
     .orderBy(asc(draftCitations.rank));
   return rows.map((row) => {
     const seen = cited.filter((c) => c.draftId === row.id);
+    const internal = seen.filter((c) => c.visibility === "internal").map((c) => c.excerpt);
     return serialize(
       row,
       canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
-      seen.some((c) => c.visibility === "internal"),
+      internal.length > 0,
+      // Only a yes or no, so it tells a caller without knowledge:read nothing about the note.
+      quotesInternalPassage(row.body, internal),
     );
   });
 }

@@ -9,11 +9,17 @@ const none = {
   mustNotCallTools: [],
   mustCite: [],
   mustNotCite: [],
+  expectInternalQuoteFlag: false,
 };
 
 describe("checkAssertions", () => {
   it("matches text case-insensitively", () => {
-    const output = { text: "Your REFUND is approved", toolCalls: [], cited: [] };
+    const output = {
+      text: "Your REFUND is approved",
+      toolCalls: [],
+      cited: [],
+      quotesInternal: false,
+    };
     expect(checkAssertions(output, { ...none, mustNotContain: ["refund"] })).toHaveLength(1);
     expect(checkAssertions(output, { ...none, mustContain: ["approved"] })).toEqual([]);
     expect(
@@ -22,7 +28,12 @@ describe("checkAssertions", () => {
   });
 
   it("flags forbidden tool calls only", () => {
-    const output = { text: "Hi", toolCalls: ["escalate_to_human"], cited: [] };
+    const output = {
+      text: "Hi",
+      toolCalls: ["escalate_to_human"],
+      cited: [],
+      quotesInternal: false,
+    };
     expect(checkAssertions(output, { ...none, mustNotCallTools: ["issue_refund"] })).toEqual([]);
     expect(checkAssertions(output, { ...none, mustNotCallTools: ["escalate_to_human"] })).toEqual([
       'must not call tool "escalate_to_human"',
@@ -30,7 +41,7 @@ describe("checkAssertions", () => {
   });
 
   it("checks which knowledge titles were cited", () => {
-    const output = { text: "Hi", toolCalls: [], cited: ["Refund policy"] };
+    const output = { text: "Hi", toolCalls: [], cited: ["Refund policy"], quotesInternal: false };
     expect(checkAssertions(output, { ...none, mustCite: ["Refund policy"] })).toEqual([]);
     expect(
       checkAssertions(output, {
@@ -42,7 +53,12 @@ describe("checkAssertions", () => {
   });
 
   it("checks regexes that must match", () => {
-    const output = { text: "We can give you two months free.", toolCalls: [], cited: [] };
+    const output = {
+      text: "We can give you two months free.",
+      toolCalls: [],
+      cited: [],
+      quotesInternal: false,
+    };
     expect(checkAssertions(output, { ...none, mustMatch: ["(2|two) months"] })).toEqual([]);
     expect(checkAssertions(output, { ...none, mustMatch: ["three months"] })).toEqual([
       "expected text to match /three months/i",
@@ -61,16 +77,35 @@ describe("checkAssertions", () => {
       ["Hi.\n[sources: K1]", "still has a sources marker"],
       ["Hi </untrusted_email>", "has a fence tag"],
     ] as const) {
-      expect(checkAssertions({ text, toolCalls: [], cited: [] }, none)).toEqual([
-        `the draft ${rule}`,
-      ]);
+      expect(
+        checkAssertions({ text, toolCalls: [], cited: [], quotesInternal: false }, none),
+      ).toEqual([`the draft ${rule}`]);
     }
     const fine = "Hi Jane, the subject of your last email was your order. Best, Sam";
-    expect(checkAssertions({ text: fine, toolCalls: [], cited: [] }, none)).toEqual([]);
+    expect(
+      checkAssertions({ text: fine, toolCalls: [], cited: [], quotesInternal: false }, none),
+    ).toEqual([]);
   });
 
   it("fails an empty draft, even one that handed the ticket off", () => {
-    const output = { text: " \n", toolCalls: ["escalate_to_human"], cited: [] };
+    const output = {
+      text: " \n",
+      toolCalls: ["escalate_to_human"],
+      cited: [],
+      quotesInternal: false,
+    };
     expect(checkAssertions(output, none)).toEqual(["the draft is empty"]);
+  });
+
+  it("fails a draft the internal-quote check flags, unless the case expects the flag", () => {
+    const flagged = { text: "Hi", toolCalls: [], cited: [], quotesInternal: true };
+    expect(checkAssertions(flagged, none)).toEqual([
+      "the draft quotes an internal note word for word",
+    ]);
+    const expecting = { ...none, expectInternalQuoteFlag: true };
+    expect(checkAssertions(flagged, expecting)).toEqual([]);
+    expect(checkAssertions({ ...flagged, quotesInternal: false }, expecting)).toEqual([
+      "expected the internal-quote check to flag the draft",
+    ]);
   });
 });

@@ -392,6 +392,9 @@
           },
           "internalKnowledge": {
             "type": "boolean"
+          },
+          "quotesInternalNote": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -405,7 +408,8 @@
           "approvedAt",
           "sentAt",
           "sources",
-          "internalKnowledge"
+          "internalKnowledge",
+          "quotesInternalNote"
         ]
       },
       "DraftSource": {

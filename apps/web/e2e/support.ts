@@ -10,6 +10,9 @@ export interface E2eState {
   mailbox: string;
   passwordSetupLink: string;
   draft: string;
+  /** An internal note, and the phrase that makes the mock AI paste it into a draft. */
+  internalNote: string;
+  pasteTrigger: string;
 }
 
 export function state(): E2eState {

@@ -1665,6 +1665,7 @@ export interface components {
             sentAt: string | null;
             sources: components["schemas"]["DraftSource"][];
             internalKnowledge: boolean;
+            quotesInternalNote: boolean;
         };
         DraftSource: {
             /** Format: uuid */
