@@ -988,9 +988,16 @@ describe("creating the issue", () => {
     // Its "fixed" notice belongs to the first ticket's customer alone.
     expect(res.status).toBe(500);
     expect(await res.json()).toMatchObject({ error: "issue_not_linked" });
+    // This ticket's claim is released, so it isn't held only to find that same issue again.
+    duringCreate = undefined;
+    const retry = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(retry.status, await retry.clone().text()).toBe(201);
     // The database refuses a second link outright, too.
     const third = await receiveEmail();
-    const number = openedIssues[0]?.number ?? 0;
+    const number = openedIssues[1]?.number ?? 0;
     await expect(
       db.withTenant(acme, (tx) =>
         tx.insert(schema.ticketGithubIssues).values(link(third.ticketId, number)),
@@ -1691,6 +1698,43 @@ describe("the webhook", () => {
     });
     expect(real.status).toBe(200);
     expect(lookups).toBe(once);
+  });
+
+  it("ignores a late close even when its reopen was delivered first", async () => {
+    const email = await receiveEmail();
+    const { number } = await createIssue(email.ticketId);
+    const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
+    // Closed at +1 and reopened at +2, but GitHub delivers the reopen first.
+    const reopened = { ...closed(number, null, "acme/App", at(2)), action: "reopened" };
+    await deliver(secret, reopened);
+    expect(
+      await (await deliver(secret, closed(number, "completed", "acme/App", at(1)))).json(),
+    ).toEqual({ status: "ignored", tickets: 0 });
+    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toEqual([]);
+  });
+
+  it("acknowledges an event with no repository instead of refusing it", async () => {
+    const res = await deliver(secret, { action: "created", repository: null }, { event: "issues" });
+    expect(await res.json()).toEqual({ status: "ignored", tickets: 0 });
+  });
+
+  it("drafts a fresh fix notice when an issue whose notice was sent is reopened and closed again", async () => {
+    const email = await receiveEmail();
+    const { number } = await createIssue(email.ticketId);
+    const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
+    await deliver(secret, closed(number, "completed", "acme/App", at(1)));
+    // The first notice went out.
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.drafts)
+        .set({ status: "sent" })
+        .where(and(eq(schema.drafts.ticketId, email.ticketId), eq(schema.drafts.kind, "fixed"))),
+    );
+    // The fix didn't hold: reopened, then closed for good.
+    await deliver(secret, { ...closed(number, null, "acme/App", at(2)), action: "reopened" });
+    await deliver(secret, closed(number, "completed", "acme/App", at(3)));
+    const fixed = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+    expect(fixed.map((d) => d.status)).toEqual(["sent", "pending"]);
   });
 
   it("closed as not planned or duplicate → no 'fixed' draft", async () => {

@@ -2316,7 +2316,7 @@ export interface components {
             };
             repository?: {
                 full_name: string;
-            };
+            } | null;
         };
     };
     responses: never;

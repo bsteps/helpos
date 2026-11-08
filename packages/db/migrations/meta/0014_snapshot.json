@@ -904,7 +904,7 @@
             }
           ],
           "isUnique": true,
-          "where": "status <> 'discarded'",
+          "where": "status <> 'discarded' and not (kind = 'fixed' and status = 'sent')",
           "concurrently": false,
           "method": "btree",
           "with": {}

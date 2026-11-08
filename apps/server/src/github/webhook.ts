@@ -58,7 +58,8 @@ const webhookPayload = z
         updated_at: z.iso.datetime({ offset: true }).optional(),
       })
       .optional(),
-    repository: z.object({ full_name: z.string() }).optional(),
+    // Null on some events (an organisation's, say): those are acknowledged and ignored.
+    repository: z.object({ full_name: z.string() }).nullish(),
   })
   .openapi("GithubWebhookPayload");
 
@@ -161,24 +162,28 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     ) {
       return cached.secret;
     }
-    const running = lookups.get(tenantId);
+    // Keyed by generation too: once the secret is changed, a request doesn't wait on a
+    // lookup that may have read the old one.
+    const generation = secrets.generation(tenantId);
+    const key = `${tenantId}:${generation}`;
+    const running = lookups.get(key);
     if (running) return running;
     const lookup = (async () => {
       const release = await gate(tenantId, known.has(tenantId));
       if (!release) return "busy" as const;
       try {
         const secret = await loadSecret(deps, tenantId, warnUnreadable);
-        secrets.set(tenantId, secret);
+        secrets.set(tenantId, secret, generation);
         return secret;
       } finally {
         release();
       }
     })();
-    lookups.set(tenantId, lookup);
+    lookups.set(key, lookup);
     try {
       return await lookup;
     } finally {
-      lookups.delete(tenantId);
+      lookups.delete(key);
     }
   };
   // Before validation, so a caller without the secret learns nothing, not even a 400. A

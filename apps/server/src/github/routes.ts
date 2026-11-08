@@ -824,6 +824,28 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         { ticketId, issue: made.number, issueUrl: made.url },
         "github issue created but not linked to its ticket",
       );
+      if (link === "taken") {
+        // This ticket can't have that issue (another ticket has it, or another claim took
+        // this ticket). Its own claim, if still there, is released, so the ticket isn't held
+        // for minutes only to find the same issue again: a new try opens a new one.
+        try {
+          await deps.db.withTenant(tenantId, (tx) =>
+            tx
+              .delete(ticketGithubIssues)
+              .where(
+                and(
+                  eq(ticketGithubIssues.id, claim.claimId),
+                  eq(ticketGithubIssues.state, "creating"),
+                ),
+              ),
+          );
+        } catch (error) {
+          deps.logger.warn(
+            { err: errorSummary(error), ticketId },
+            "github issue: claim not released",
+          );
+        }
+      }
       return c.json({ error: "issue_not_linked", url: made.url }, 500);
     }
     deps.logger.info({ ticketId, issue: made.number }, "github issue created");

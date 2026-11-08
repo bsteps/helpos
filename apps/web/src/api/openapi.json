@@ -805,7 +805,10 @@
             ]
           },
           "repository": {
-            "type": "object",
+            "type": [
+              "object",
+              "null"
+            ],
             "properties": {
               "full_name": {
                 "type": "string"

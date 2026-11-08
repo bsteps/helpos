@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, ne, schema, type TenantTx } from "@helpos/db";
+import { and, desc, eq, inArray, isNull, schema, type TenantTx } from "@helpos/db";
 import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { queueDraftNotice } from "../drafts/notice-worker.ts";
 
@@ -23,7 +23,7 @@ export const githubWebhookActor = { type: "system", id: "github-webhook" } as co
  * Adds a pending "fixed" draft to the ticket, as a reply to the customer's latest message, and
  * queues the owners' "a draft is waiting" notice. Nothing is sent: it waits for approval, and
  * the send worker then applies shadow mode like for any reply. Does nothing when the ticket
- * has no message from a person, or already has a live "fixed" draft for that message.
+ * has no message from a person, or already has a "fixed" draft waiting or being sent.
  */
 export async function addFixedDraft(
   tx: TenantTx,
@@ -63,7 +63,9 @@ export async function addFixedDraft(
       and(
         eq(drafts.messageId, latest.id),
         eq(drafts.kind, "fixed"),
-        ne(drafts.status, "discarded"),
+        // One sent already (a fix that didn't hold, reopened, now closed again) is no reason
+        // not to tell the customer about this one.
+        inArray(drafts.status, ["pending", "approved"]),
       ),
     );
   if (existing) return null;

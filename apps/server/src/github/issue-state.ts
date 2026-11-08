@@ -124,6 +124,24 @@ export async function markIssueReopened(tx: TenantTx, change: IssueChange): Prom
     .set({ state: "open", closedAt: null, ...changedAt(change) })
     .where(linksTo(change, "closed"))
     .returning({ ticketId: ticketGithubIssues.ticketId });
+  // A reopen with no closed link to change (its close not delivered yet) still records its
+  // time on the open links, so that close, arriving late, is seen as older and ignored.
+  if (change.changedAt) {
+    await tx
+      .update(ticketGithubIssues)
+      .set({ stateChangedAt: change.changedAt })
+      .where(
+        and(
+          eq(ticketGithubIssues.repo, change.repo),
+          eq(ticketGithubIssues.issueNumber, change.number),
+          eq(ticketGithubIssues.state, "open"),
+          or(
+            isNull(ticketGithubIssues.stateChangedAt),
+            lt(ticketGithubIssues.stateChangedAt, change.changedAt),
+          ),
+        ),
+      );
+  }
   if (reopened.length === 0) return 0;
   const tickets = reopened.map((r) => r.ticketId);
   const withdrawn = await tx

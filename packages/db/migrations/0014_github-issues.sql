@@ -39,7 +39,7 @@ ALTER TABLE "integrations" ADD CONSTRAINT "integrations_tenant_id_tenants_id_fk"
 ALTER TABLE "ticket_github_issues" ADD CONSTRAINT "ticket_github_issues_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ticket_github_issues" ADD CONSTRAINT "ticket_github_issues_ticket_fk" FOREIGN KEY ("tenant_id","ticket_id") REFERENCES "public"."tickets"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "ticket_github_issues_tenant_issue" ON "ticket_github_issues" USING btree ("tenant_id","repo","issue_number");--> statement-breakpoint
-CREATE UNIQUE INDEX "drafts_tenant_message_kind_live" ON "drafts" USING btree ("tenant_id","message_id","kind") WHERE status <> 'discarded';--> statement-breakpoint
+CREATE UNIQUE INDEX "drafts_tenant_message_kind_live" ON "drafts" USING btree ("tenant_id","message_id","kind") WHERE status <> 'discarded' and not (kind = 'fixed' and status = 'sent');--> statement-breakpoint
 ALTER TABLE "api_tokens" ADD CONSTRAINT "api_tokens_scopes" CHECK (cardinality("api_tokens"."scopes") > 0 and "api_tokens"."scopes" <@ array['tickets:read', 'tickets:write', 'drafts:write', 'drafts:approve', 'knowledge:read', 'knowledge:write', 'github:write']::text[]);--> statement-breakpoint
 ALTER TABLE "drafts" ADD CONSTRAINT "drafts_kind" CHECK ("drafts"."kind" in ('reply', 'fixed'));--> statement-breakpoint
 CREATE POLICY "tenant_isolation" ON "integrations" AS PERMISSIVE FOR ALL TO public USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);--> statement-breakpoint

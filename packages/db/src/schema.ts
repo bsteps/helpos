@@ -395,9 +395,11 @@ export const drafts = pgTable(
   },
   (t) => [
     unique("drafts_tenant_id_id").on(t.tenantId, t.id),
+    // One live draft of each kind per message. A "fixed" notice already sent doesn't count: if
+    // the issue is reopened and closed again, the fix that holds this time gets a notice too.
     uniqueIndex("drafts_tenant_message_kind_live")
       .on(t.tenantId, t.messageId, t.kind)
-      .where(sql`status <> 'discarded'`),
+      .where(sql`status <> 'discarded' and not (kind = 'fixed' and status = 'sent')`),
     check("drafts_status", sql`${t.status} in ('pending', 'approved', 'sent', 'discarded')`),
     check("drafts_kind", sql`${t.kind} in ('reply', 'fixed')`),
     foreignKey({
