@@ -14,7 +14,7 @@
     "test": "turbo run test",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "verify": "biome ci . && turbo run typecheck test build && pnpm eval",
+    "verify": "biome ci . && turbo run typecheck test build && pnpm eval && pnpm demo:check",
     "eval": "pnpm --filter @helpos/ai eval",
     "helpos:init": "pnpm --filter @helpos/server run init",
     "helpos:ai-budget": "pnpm --filter @helpos/server run ai-budget",
@@ -22,6 +22,7 @@
     "db:seed": "pnpm --filter @helpos/server run seed",
     "dev:send-email": "node --env-file-if-exists=.env scripts/send-email.mjs",
     "rename-brand": "node scripts/rename-brand.mjs",
+    "demo:check": "node scripts/check-demo-compose.mjs",
     "test:e2e": "pnpm --filter @helpos/web build && pnpm --filter @helpos/web test:e2e"
   },
   "devDependencies": {

@@ -1,0 +1,5 @@
+# Caddy gets and renews the HTTPS certificate for this domain on its own.
+{$HELPOS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:3000
+}

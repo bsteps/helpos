@@ -87,3 +87,7 @@ AI_EMBEDDING_MODEL=mxbai-embed-large
 ```
 
 If HelpOS runs in Docker and Ollama on the host, use `http://host.docker.internal:11434/v1` instead of `localhost`. `bge-m3` also works.
+
+## Demo instance
+
+For a ready Docker Compose deployment (HTTPS, backups, shadow mode locked on), see [the demo instance guide](guides/demo-instance.md).

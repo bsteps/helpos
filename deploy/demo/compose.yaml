@@ -1,0 +1,123 @@
+# Demo instance for design partners. Runs on any VPS with Docker:
+#   cp .env.example .env   # then replace every value
+#   docker compose up -d --build
+# Guide: docs/guides/demo-instance.md
+name: helpos-demo
+
+# Each service gets only the settings it needs. Nothing uses env_file, so the server never sees
+# the superuser or owner passwords.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    # No ports: only the other services on this network can reach the database.
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?}
+      HELPOS_OWNER_DB_PASSWORD: ${HELPOS_OWNER_DB_PASSWORD:?}
+      HELPOS_APP_DB_PASSWORD: ${HELPOS_APP_DB_PASSWORD:?}
+      HELPOS_AUTH_DB_PASSWORD: ${HELPOS_AUTH_DB_PASSWORD:?}
+      HELPOS_JOBS_DB_PASSWORD: ${HELPOS_JOBS_DB_PASSWORD:?}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      # -h forces TCP, so "healthy" isn't reported while first-run init is still going.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d helpos"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Applies migrations, then exits. The server starts only after it succeeds.
+  migrate:
+    image: helpos-demo:latest
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    working_dir: /app/packages/db
+    command: ["node", "src/migrate-cli.ts"]
+    environment:
+      HELPOS_DATABASE_OWNER_URL: postgres://helpos_owner:${HELPOS_OWNER_DB_PASSWORD:?}@postgres:5432/helpos
+      HELPOS_DATABASE_JOBS_URL: postgres://helpos_jobs:${HELPOS_JOBS_DB_PASSWORD:?}@postgres:5432/helpos
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  server:
+    image: helpos-demo:latest
+    restart: unless-stopped
+    environment:
+      HELPOS_DATABASE_URL: postgres://helpos_app:${HELPOS_APP_DB_PASSWORD:?}@postgres:5432/helpos
+      HELPOS_DATABASE_AUTH_URL: postgres://helpos_auth:${HELPOS_AUTH_DB_PASSWORD:?}@postgres:5432/helpos
+      HELPOS_DATABASE_JOBS_URL: postgres://helpos_jobs:${HELPOS_JOBS_DB_PASSWORD:?}@postgres:5432/helpos
+      HELPOS_PUBLIC_URL: https://${HELPOS_DOMAIN:?}
+      HELPOS_AUTH_SECRET: ${HELPOS_AUTH_SECRET:?}
+      HELPOS_INBOUND_SECRET: ${HELPOS_INBOUND_SECRET:?}
+      HELPOS_SMTP_URL: ${HELPOS_SMTP_URL:?}
+      HELPOS_LOG_LEVEL: ${HELPOS_LOG_LEVEL:-info}
+      HELPOS_AI_DAILY_TOKEN_BUDGET: ${HELPOS_AI_DAILY_TOKEN_BUDGET:-200000}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_EMBEDDING_PROVIDER: ${AI_EMBEDDING_PROVIDER:-}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-}
+      AI_EMBEDDING_API_KEY: ${AI_EMBEDDING_API_KEY:-}
+      AI_EMBEDDING_BASE_URL: ${AI_EMBEDDING_BASE_URL:-}
+      # The demo runs in shadow mode only: every reply goes to the design partner, never to a
+      # customer. It's set here and not in .env because it's a fixed value, not read from .env, so
+      # editing .env can't unlock it. scripts/check-demo-compose.mjs fails CI if this changes.
+      HELPOS_ALLOW_SHADOW_MODE_OFF: "false"
+    volumes:
+      - files:/data/files
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # HTTPS with automatic Let's Encrypt certificates. The only service with public ports.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      HELPOS_DOMAIN: ${HELPOS_DOMAIN:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - server
+
+  # A daily dump into ./backups, keeping the newest 14. Copy them off the VPS too (see guide).
+  backup:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?}
+      BACKUP_KEEP: "14"
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    entrypoint: ["sh", "/backup.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  files:
+  caddy-data:
+  caddy-config:
