@@ -57,6 +57,12 @@ const serverEnv = JSON.stringify(server?.environment ?? {});
 check(!serverEnv.includes("helpos_owner"), "the server must not get the owner role");
 check(!/POSTGRES_|PGPASSWORD/.test(serverEnv), "the server must not get the superuser password");
 for (const [name, service] of Object.entries(services)) {
+  check(
+    /@sha256:[0-9a-f]{64}$/.test(service.image ?? "") || service.image === "helpos-demo:latest",
+    `${name}: pin the image by digest`,
+  );
+  check(service.logging?.options?.["max-size"], `${name}: cap the log size`);
+  check(service.mem_limit, `${name}: set a memory limit`);
   check(name === "caddy" || !service.ports?.length, `only caddy may publish ports, not ${name}`);
 }
 

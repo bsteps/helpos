@@ -64,17 +64,20 @@ Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft 
 
 ## Backups
 
-The `backup` service writes `deploy/demo/backups/helpos-<time>.sql.gz` when it starts and then every 24 hours, and keeps the newest 14. Check them with `ls deploy/demo/backups` and `docker compose logs backup`.
+The `backup` service writes `deploy/demo/backups/helpos-<time>.dump` (a compressed `pg_dump`) when it starts and then every 24 hours, and keeps the newest 14. The files are readable by root only. Check them with `ls deploy/demo/backups` and `docker compose logs backup`.
 
 They are on the same disk as the database, so **copy them off the VPS** too (for example a nightly `rsync` or `rclone` from cron).
 
-Restore into an empty instance:
+Restore into an empty instance. A dump holds the data but not the database passwords, so restore with the **same `.env`** it was made with:
 
 ```bash
-docker compose down -v && docker compose up -d postgres
-gunzip -c backups/helpos-<time>.sql.gz | docker compose exec -T postgres psql -U postgres -d postgres
+cd deploy/demo
+docker compose down -v && docker compose up -d --wait postgres
+sudo cat backups/helpos-<time>.dump | docker compose exec -T postgres   pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error
 docker compose up -d
 ```
+
+CI runs exactly these steps on every PR (`scripts/smoke-demo.sh`) and checks that the data came back.
 
 ## Wipe it
 

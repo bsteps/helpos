@@ -48,14 +48,34 @@ if [ "$status" != "201" ]; then
   exit 1
 fi
 
-# The backup service writes its first dump on start.
+# The backup service dumps on start. Restart it now, so the dump holds the email above.
+dc exec -T backup sh -c "rm -f /backups/helpos-*"
+dc restart backup
+dump=""
 for _ in $(seq 1 30); do
-  if dc exec -T backup sh -c 'ls /backups/helpos-*.sql.gz' >/dev/null 2>&1; then
-    echo "demo smoke test passed: workspace created, email stored, backup written"
-    exit 0
-  fi
+  dump="$(dc exec -T backup sh -c 'ls -1t /backups/helpos-*.dump 2>/dev/null | head -n 1' || true)"
+  [ -n "$dump" ] && break
   sleep 2
 done
-echo "no backup was written" >&2
-dc logs backup >&2
-exit 1
+if [ -z "$dump" ]; then
+  echo "no backup was written" >&2
+  dc logs backup >&2
+  exit 1
+fi
+dump="$(basename "$dump")"
+
+# Restore it exactly as docs/guides/demo-instance.md says: wipe, fresh Postgres, load the dump.
+# The dump is read through the backup container: on the host it belongs to root.
+dc exec -T backup sh -c "cat /backups/$dump" >"$env_file.dump"
+dc down -v
+dc up -d --wait postgres
+dc exec -T postgres pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error <"$env_file.dump"
+rm -f "$env_file.dump"
+dc up -d --wait server backup
+
+tickets="$(dc exec -T postgres psql -tA -U postgres -d helpos -c 'select count(*) from tickets')"
+if [ "$tickets" != "1" ]; then
+  echo "after restoring, expected 1 ticket, found '$tickets'" >&2
+  exit 1
+fi
+echo "demo smoke test passed: workspace created, email stored, backup written and restored"
