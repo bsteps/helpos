@@ -47,6 +47,8 @@ function createProblem(error: unknown): string {
       return "GitHub refused the workspace's token: it has expired, or can't open issues in this repo. An owner needs to give it Issues read and write access, or connect a new token.";
     case "repo_not_found":
       return "GitHub says the repo doesn't exist, or the token can't see it.";
+    case "issue_rejected":
+      return "GitHub refused this issue, perhaps because it's too long. Nothing was created; shorten it and try again.";
     case "github_unavailable":
       return "Couldn't reach GitHub. Nothing was created; try again.";
     case "already_linked":

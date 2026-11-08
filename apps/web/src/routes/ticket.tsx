@@ -148,7 +148,7 @@ export function TicketPage() {
       </section>
 
       <section aria-label="GitHub issue" className="flex flex-col gap-3">
-        <GithubIssuePanel ticket={t} />
+        <GithubIssuePanel key={t.id} ticket={t} />
       </section>
 
       <section aria-label="Draft" className="flex flex-col gap-3">

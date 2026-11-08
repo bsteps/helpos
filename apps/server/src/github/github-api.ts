@@ -62,7 +62,11 @@ export type RepoName = { owner: string; name: string };
  * Why GitHub said no, in words the API can pass on. Never GitHub's own message: that can echo
  * request details, and the token must never end up in a response or a log.
  */
-export type GithubFailure = "token_rejected" | "repo_not_found" | "github_unavailable";
+export type GithubFailure =
+  | "token_rejected"
+  | "repo_not_found"
+  | "issue_rejected"
+  | "github_unavailable";
 /**
  * `uncertain`: GitHub never gave an answer (a timeout, a dropped connection) or failed on its
  * side (5xx), so a write may have happened. A clear refusal (4xx) is never uncertain.
@@ -101,6 +105,8 @@ export function githubFailure(error: unknown): GithubFailure {
   if (status === 401 || status === 403) return "token_rejected";
   // GitHub answers 404 for a private repo the token can't see, so this also means "no access".
   if (status === 404 || status === 410) return "repo_not_found";
+  // GitHub refused this issue itself (too long, say): sending it again won't help, changing it will.
+  if (status === 422) return "issue_rejected";
   return "github_unavailable";
 }
 

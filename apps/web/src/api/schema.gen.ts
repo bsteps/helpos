@@ -1995,7 +1995,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after five minutes first looks for that issue again */
+                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after five minutes first looks for that issue again */
                 502: {
                     headers: {
                         [name: string]: unknown;

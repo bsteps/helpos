@@ -880,7 +880,8 @@ describe("creating the issue", () => {
     });
     expect(res.status).toBe(502);
     const text = await res.text();
-    expect(JSON.parse(text)).toEqual({ error: "github_unavailable" });
+    // GitHub's 422: the issue itself was refused, so "try again later" would never help.
+    expect(JSON.parse(text)).toEqual({ error: "issue_rejected" });
     expect(text).not.toContain(pat);
     rejectCreate = false;
     await createIssue(email.ticketId);

@@ -11,6 +11,8 @@ describe("githubFailure", () => {
     expect(githubFailure(answer(401))).toBe("token_rejected");
     expect(githubFailure(answer(403))).toBe("token_rejected");
     expect(githubFailure(answer(404))).toBe("repo_not_found");
+    // The issue itself was refused (too long, say): not an outage to wait out.
+    expect(githubFailure(answer(422))).toBe("issue_rejected");
   });
 
   it("treats a rate limit as 'try later', even when GitHub sends it as 403", () => {
