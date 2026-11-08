@@ -36,9 +36,19 @@ export interface OctokitOptions {
 
 const userAgent = "helpdesk-github-integration";
 
-function failure(error: unknown): GithubFailure {
-  const status =
-    typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
+/** What GitHub's answer says. Only the status and rate-limit headers: never its message. */
+export function githubFailure(error: unknown): GithubFailure {
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null;
+  const status = isObject(error) ? error.status : undefined;
+  const headers =
+    isObject(error) && isObject(error.response) && isObject(error.response.headers)
+      ? error.response.headers
+      : {};
+  // GitHub answers a rate limit with 403 too: that's "try later", not a bad token.
+  const rateLimited =
+    status === 429 || headers["x-ratelimit-remaining"] === "0" || "retry-after" in headers;
+  if (rateLimited) return "github_unavailable";
   // 401: bad or expired token. 403: the token lacks Issues permission on this repo.
   if (status === 401 || status === 403) return "token_rejected";
   // GitHub answers 404 for a private repo the token can't see, so this also means "no access".
@@ -68,7 +78,7 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
           });
           return { ok: true, value: { private: res.data.private } };
         } catch (error) {
-          return { ok: false, reason: failure(error) };
+          return { ok: false, reason: githubFailure(error) };
         }
       },
       async createIssue(repo, issue) {
@@ -82,7 +92,7 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
           });
           return { ok: true, value: { number: res.data.number, url: res.data.html_url } };
         } catch (error) {
-          return { ok: false, reason: failure(error) };
+          return { ok: false, reason: githubFailure(error) };
         }
       },
     };
