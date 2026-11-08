@@ -92,10 +92,10 @@ If HelpOS runs in Docker and Ollama on the host, use `http://host.docker.interna
 
 A workspace owner connects one repo under **Settings → GitHub**, with a fine-grained personal access token that has **Issues: read and write** on that repo. The server stores the token encrypted, so it needs a key:
 
-| Variable                | Meaning                                                                                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                | Meaning                                                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `HELPOS_ENCRYPTION_KEY` | Encrypts the GitHub token and webhook secrets at rest (AES-256-GCM). 32 bytes as hex or base64: `openssl rand -base64 32`. Unset: no repo can be connected. |
-| `HELPOS_GITHUB_API_URL` | The GitHub API. Default `https://api.github.com`; set it for GitHub Enterprise Server.                                                        |
+| `HELPOS_GITHUB_API_URL` | The GitHub API. Default `https://api.github.com`; set it for GitHub Enterprise Server.                                                                      |
 
 Keep the key safe and don't change it casually: tokens stored under the old key can't be read, and each workspace has to connect its repo again.
 
