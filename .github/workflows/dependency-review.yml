@@ -25,4 +25,8 @@ jobs:
           # Exact-version exceptions, each checked by hand. Re-check when the version changes.
           # json-schema 0.4.0 (via @ai-sdk/provider): its package.json says "(AFL-2.1 OR BSD-3-Clause)",
           # so we take it under BSD-3-Clause. GitHub's scanner misreads the OR as AND.
-          allow-dependencies-licenses: pkg:npm/json-schema@0.4.0
+          # @fontsource-variable/geist 5.3.0 (dashboard font): OFL-1.1, the standard licence for
+          # fonts. The font ships as its own files, unmodified, beside our code, which the OFL allows.
+          allow-dependencies-licenses: >-
+            pkg:npm/json-schema@0.4.0,
+            pkg:npm/%40fontsource-variable/geist@5.3.0

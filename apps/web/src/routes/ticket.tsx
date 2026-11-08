@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CircleCheck } from "lucide-react";
 import { useState } from "react";
 import { ApiError, type Draft, type Message, type TicketDetail } from "@/api/client.ts";
 import {
@@ -43,9 +43,10 @@ function liveDraft(drafts: Draft[]): Draft | undefined {
 /** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
 function waitingOn(ticket: TicketDetail | undefined) {
   return (drafts: Draft[]): boolean => {
-    if (ticket?.status !== "open") return false;
     const live = liveDraft(drafts);
-    if (live) return live.status === "approved";
+    // An approved reply still goes out after the ticket is closed: keep watching until it's sent.
+    if (live?.status === "approved") return true;
+    if (live || ticket?.status !== "open") return false;
     return !ticket.automated && !ticket.aiPausedReason;
   };
 }
@@ -94,26 +95,37 @@ export function TicketPage() {
             <h1 id="ticket-subject" className="break-words font-semibold text-2xl tracking-tight">
               {t.subject || "(no subject)"}
             </h1>
-            <p className="text-muted-foreground text-sm">
-              {t.customer.name ? `${t.customer.name} · ` : ""}
-              {t.customer.email}
-            </p>
+            {/* Status sits with the ticket's details, away from the button, so the two don't
+                read as an Open/Close pair of buttons. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-sm">
+              <span>
+                {t.customer.name ? `${t.customer.name} · ` : ""}
+                {t.customer.email}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className={
+                    t.status === "open"
+                      ? "size-2 rounded-full bg-emerald-500"
+                      : "size-2 rounded-full bg-muted-foreground/50"
+                  }
+                />
+                {t.status === "open" ? "Open" : "Closed"}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <AnimatedBadge status={t.status === "open" ? "info" : "neutral"} size="sm">
-              {t.status === "open" ? "Open" : "Closed"}
-            </AnimatedBadge>
-            {t.status === "open" ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={close.isPending}
-                onClick={() => close.mutate()}
-              >
-                Close
-              </Button>
-            ) : null}
-          </div>
+          {t.status === "open" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={close.isPending}
+              onClick={() => close.mutate()}
+            >
+              <CircleCheck aria-hidden className="size-4" />
+              Close ticket
+            </Button>
+          ) : null}
         </div>
         {close.isError ? (
           <Alert variant="destructive">
@@ -205,8 +217,9 @@ function DraftPanel({ ticket, draft }: { ticket: TicketDetail; draft: Draft | un
       </Card>
     );
   }
-  // Keyed by draft and body, so an edit someone else saved resets this one's editor.
-  return <DraftCard key={`${draft.id}:${draft.updatedAt}`} ticketId={ticket.id} draft={draft} />;
+  // Keyed by draft only: a refetched body must not remount the card, or an approval refused
+  // because the text changed would lose its "this draft changed" message (and any typed text).
+  return <DraftCard key={draft.id} ticketId={ticket.id} draft={draft} />;
 }
 
 function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
@@ -328,7 +341,15 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
             </>
           ) : (
             <>
-              <Button variant="outline" disabled={busy} onClick={() => setEditing(true)}>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  // Start from the text shown now, which may have changed since the card mounted.
+                  setBody(draft.body);
+                  setEditing(true);
+                }}
+              >
                 Edit
               </Button>
               <Button

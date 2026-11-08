@@ -51,9 +51,9 @@ test("closing a ticket takes it out of the inbox", async ({ page, request }) => 
 
   await signIn(page);
   await page.getByRole("link", { name: subject }).click();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close ticket" }).click();
   await expect(page.getByText("Closed", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Close ticket" })).toBeHidden();
 
   await page.getByRole("link", { name: "Inbox" }).first().click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
@@ -67,7 +67,8 @@ test("a signed-out visitor is sent to sign in, then back to the ticket", async (
   const subject = uniqueSubject("Deep link");
   const ticketId = await deliver(request, plainEmail(subject, "Opened from a notice email."));
 
-  await page.goto(`/tickets/${ticketId}`);
+  // With a query string, as a link in a notice email might have: it must survive the detour.
+  await page.goto(`/tickets/${ticketId}?from=notice`);
   await expect(page).toHaveURL(/\/login\?redirect=/);
   await page.getByLabel("Email").fill(state().owner);
   await page.getByLabel("Password").fill("not the password");
@@ -76,8 +77,66 @@ test("a signed-out visitor is sent to sign in, then back to the ticket", async (
 
   await page.getByLabel("Password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}$`));
+  await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}\\?from=notice$`));
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
+});
+
+test("approving a draft someone changed meanwhile is refused, and says so", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject("Changed meanwhile");
+  const ticketId = await deliver(request, plainEmail(subject, "Can I change my address?"));
+
+  await signIn(page);
+  await page.goto(`/tickets/${ticketId}`);
+  const draft = page.getByTestId("draft-body");
+  await expect(draft).toHaveText(state().draft);
+
+  // A teammate edits the draft elsewhere while this page still shows the old text.
+  const list = await page.request.get(`/v1/tickets/${ticketId}/drafts`);
+  const { drafts } = (await list.json()) as { drafts: { id: string }[] };
+  const theirs = "Yes: reply with the new address and we'll update the order.";
+  const edit = await page.request.patch(`/v1/drafts/${drafts[0]?.id}`, { data: { body: theirs } });
+  expect(edit.ok(), await edit.text()).toBe(true);
+
+  await page.getByRole("button", { name: "Approve & send" }).click();
+  await expect(page.getByText("This draft changed since you opened it")).toBeVisible();
+  // Their text is shown now, and nothing was sent.
+  await expect(draft).toHaveText(theirs);
+  await expect(page.getByText("Waiting for approval")).toBeVisible();
+});
+
+test("an HTML email's frame shrinks back when the window gets wider", async ({
+  page,
+  request,
+}, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "resizes the window, which a phone can't");
+  const subject = uniqueSubject("Long HTML");
+  const paragraph = `<p>${"This sentence wraps a lot on a narrow screen. ".repeat(20)}</p>`;
+  await deliver(
+    request,
+    [
+      "From: Jane Customer <jane@customer.test>",
+      `To: ${state().mailbox}`,
+      `Subject: ${subject}`,
+      `Message-ID: <${crypto.randomUUID()}@customer.test>`,
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      paragraph.repeat(3),
+    ].join("\n"),
+  );
+
+  await signIn(page);
+  await page.getByRole("link", { name: subject }).click();
+  const frame = page.locator('iframe[title="Email from jane@customer.test"]');
+  const height = async () => (await frame.boundingBox())?.height ?? 0;
+
+  await page.setViewportSize({ width: 360, height: 800 });
+  await expect.poll(height).toBeGreaterThan(900);
+  const narrow = await height();
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await expect.poll(height).toBeLessThan(narrow * 0.7);
 });
 
 test("signing out ends the session", async ({ page }) => {

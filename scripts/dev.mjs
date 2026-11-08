@@ -1,5 +1,5 @@
 // `pnpm dev`: start local services, apply migrations, then run the server and the dashboard in
-// watch mode. The dashboard (http://localhost:5173) forwards API calls to the server (:3000).
+// watch mode. The dashboard (http://localhost:5180) forwards API calls to the server (:3000).
 // Plain Node (no shell syntax) so it behaves the same on Windows, macOS and Linux.
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync } from "node:fs";
@@ -24,7 +24,7 @@ run("docker compose up -d --wait");
 run("pnpm --filter @helpos/db migrate");
 
 process.stdout.write("Mailpit (caught emails): http://localhost:8025\n");
-process.stdout.write("Dashboard: http://localhost:5173\n");
+process.stdout.write("Dashboard: http://localhost:5180\n");
 const children = [
   spawn("pnpm --filter @helpos/server dev", { stdio: "inherit", shell: true }),
   spawn("pnpm --filter @helpos/web dev", { stdio: "inherit", shell: true }),

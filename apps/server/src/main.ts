@@ -39,8 +39,8 @@ const auth = env.HELPOS_DATABASE_AUTH_URL
               secret: env.HELPOS_AUTH_SECRET,
               baseUrl: env.HELPOS_PUBLIC_URL,
               cookiePrefix: brand.slug,
-              log: (level, message) =>
-                level === "error" ? logger.error(message) : logger.debug(message),
+              // Warnings too (e.g. a misconfigured base URL), so a broken sign-in isn't silent.
+              log: (level, message) => logger[level](message),
             },
           }
         : {}),

@@ -28,7 +28,7 @@ export interface AuthStore {
    * A one-time token that lets the user set their password, for the link `pnpm helpos:init`
    * prints. Any earlier setup token of theirs stops working.
    */
-  createPasswordSetup(userId: string): Promise<{ token: string; expiresAt: Date }>;
+  issueSetupToken(userId: string): Promise<{ token: string; expiresAt: Date }>;
   /**
    * Uses a setup token: sets the password and signs out every existing session of that user.
    * The token works once. Unknown, used and expired tokens all fail the same way.
@@ -107,7 +107,7 @@ export function createAuthStore(
       const rows = await db.select({ id: accounts.id }).from(accounts).where(credentialOf(userId));
       return rows.length > 0;
     },
-    async createPasswordSetup(rawUserId) {
+    async issueSetupToken(rawUserId) {
       const userId = userIdSchema.parse(rawUserId);
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + passwordSetupTtlMs);

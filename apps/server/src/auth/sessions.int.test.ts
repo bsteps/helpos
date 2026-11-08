@@ -71,7 +71,7 @@ async function signIn(email: string, pw = password): Promise<string> {
 
 async function withPassword(email: string): Promise<string> {
   const user = await auth.ensureUser(email);
-  const { token } = await auth.createPasswordSetup(user.id);
+  const { token } = await auth.issueSetupToken(user.id);
   expect(await auth.setPassword(token, password)).toEqual({ ok: true });
   return user.id;
 }
@@ -254,7 +254,7 @@ describe("a session cookie", () => {
 describe("POST /v1/auth/password", () => {
   it("sets the password with a one-time link, then the link is spent", async () => {
     const user = await auth.ensureUser("new@acme.test");
-    const { token } = await auth.createPasswordSetup(user.id);
+    const { token } = await auth.issueSetupToken(user.id);
     const set = await call("/v1/auth/password", {
       method: "POST",
       body: { token, password: "my new long password" },
@@ -271,7 +271,7 @@ describe("POST /v1/auth/password", () => {
 
   it("refuses a password shorter than 12 characters before touching the token", async () => {
     const user = await auth.ensureUser("short@acme.test");
-    const { token } = await auth.createPasswordSetup(user.id);
+    const { token } = await auth.issueSetupToken(user.id);
     const res = await call("/v1/auth/password", {
       method: "POST",
       body: { token, password: "too short" },

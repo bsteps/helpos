@@ -46,7 +46,7 @@ try {
     if (await auth.hasPassword(result.ownerId)) {
       process.stdout.write(`${input.data.owner} already has a password.\n`);
     } else {
-      const { token, expiresAt } = await auth.createPasswordSetup(result.ownerId);
+      const { token, expiresAt } = await auth.issueSetupToken(result.ownerId);
       process.stdout.write(
         `\nSet the owner's password with this one-time link (works until ${expiresAt.toISOString()}):\n` +
           `  ${passwordSetupLink(env.HELPOS_PUBLIC_URL, token)}\n` +

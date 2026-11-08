@@ -10,6 +10,8 @@ const frameCsp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'";
 /** Matches the dashboard's body text, so an email reads like the rest of the page. */
 const bodyStyle = [
   "margin:0",
+  // Keeps the first and last paragraph's margins inside the body, so measuring it counts them.
+  "display:flow-root",
   "font:14px/1.6 'Geist Variable',ui-sans-serif,system-ui,sans-serif",
   "color:#0b0b0b",
   "overflow-wrap:anywhere",
@@ -42,7 +44,9 @@ export function EmailFrame({ html, title, className }: EmailFrameProps) {
   const [height, setHeight] = useState(80);
 
   const measure = useCallback(() => {
-    const body = ref.current?.contentDocument?.documentElement;
+    // The body, not the root: the root is never shorter than the frame itself, so measuring it
+    // would let the frame grow on a narrow window but never shrink back.
+    const body = ref.current?.contentDocument?.body;
     if (body) setHeight(Math.ceil(body.scrollHeight));
   }, []);
 

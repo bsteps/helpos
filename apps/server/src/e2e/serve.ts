@@ -74,7 +74,7 @@ const workspace = await initWorkspace(
   { workspace: "Acme Support", mailbox: "support@acme.test", owner },
 );
 if (!workspace.ok) throw new Error("e2e: workspace setup failed");
-const setup = await auth.createPasswordSetup(workspace.ownerId);
+const setup = await auth.issueSetupToken(workspace.ownerId);
 
 const app = createApp({
   db,

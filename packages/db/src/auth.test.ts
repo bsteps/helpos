@@ -35,7 +35,7 @@ function cookieFrom(setCookie: string[]): Headers {
 
 async function userWithPassword(email: string) {
   const user = await auth.ensureUser(email);
-  const { token } = await auth.createPasswordSetup(user.id);
+  const { token } = await auth.issueSetupToken(user.id);
   expect(await auth.setPassword(token, password)).toEqual({ ok: true });
   return user;
 }
@@ -44,7 +44,7 @@ describe("password setup link", () => {
   it("sets the password once; the same token never works again", async () => {
     const user = await auth.ensureUser("once@a.test");
     expect(await auth.hasPassword(user.id)).toBe(false);
-    const { token, expiresAt } = await auth.createPasswordSetup(user.id);
+    const { token, expiresAt } = await auth.issueSetupToken(user.id);
     expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
     expect(await auth.setPassword(token, password)).toEqual({ ok: true });
     expect(await auth.hasPassword(user.id)).toBe(true);
@@ -53,7 +53,7 @@ describe("password setup link", () => {
 
   it("refuses an unknown token and a too-short password, leaving the token usable", async () => {
     const user = await auth.ensureUser("short@a.test");
-    const { token } = await auth.createPasswordSetup(user.id);
+    const { token } = await auth.issueSetupToken(user.id);
     expect(await auth.setPassword("not-a-real-token", password)).toEqual({ ok: false });
     expect(await auth.setPassword(token, "short")).toEqual({ ok: false });
     expect(await auth.setPassword(token, password)).toEqual({ ok: true });
@@ -61,15 +61,15 @@ describe("password setup link", () => {
 
   it("a new link replaces the old one", async () => {
     const user = await auth.ensureUser("relink@a.test");
-    const first = await auth.createPasswordSetup(user.id);
-    const second = await auth.createPasswordSetup(user.id);
+    const first = await auth.issueSetupToken(user.id);
+    const second = await auth.issueSetupToken(user.id);
     expect(await auth.setPassword(first.token, password)).toEqual({ ok: false });
     expect(await auth.setPassword(second.token, password)).toEqual({ ok: true });
   });
 
   it("refuses an expired token", async () => {
     const user = await auth.ensureUser("expired@a.test");
-    const { token } = await auth.createPasswordSetup(user.id);
+    const { token } = await auth.issueSetupToken(user.id);
     const owner = postgres(testDb.ownerUrl, { max: 1, onnotice: () => {} });
     try {
       await owner`update auth.verifications set expires_at = now() - interval '1 second'`;
@@ -81,7 +81,7 @@ describe("password setup link", () => {
 
   it("stores only a hash of the token", async () => {
     const user = await auth.ensureUser("hashed@a.test");
-    const { token } = await auth.createPasswordSetup(user.id);
+    const { token } = await auth.issueSetupToken(user.id);
     const owner = postgres(testDb.ownerUrl, { max: 1, onnotice: () => {} });
     try {
       const rows = await owner`select identifier from auth.verifications where value = ${user.id}`;
@@ -147,7 +147,7 @@ describe("sessions", () => {
     const user = await userWithPassword("reset@a.test");
     const result = await sessions.signIn("reset@a.test", password, new Headers());
     if (!result.ok) throw new Error("sign-in failed");
-    const { token } = await auth.createPasswordSetup(user.id);
+    const { token } = await auth.issueSetupToken(user.id);
     expect(await auth.setPassword(token, "a brand new password")).toEqual({ ok: true });
     expect(await sessions.resolveSession(cookieFrom(result.setCookie))).toBeNull();
   });
