@@ -81,7 +81,11 @@ const openedIssues: {
   body: string;
   created_at: string;
   user: { login: string };
+  state?: "open" | "closed";
+  state_reason?: string | null;
 }[] = [];
+/** The issue list never ends: page after page of other people's issues opened just now. */
+let endlessList = false;
 
 const fakeGithubFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -99,6 +103,14 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
   if (githubDown) return reply(503, { message: "unavailable" });
   if (authorization !== `token ${pat}`) return reply(401, { message: "Bad credentials" });
   if (request.method === "GET" && path === "/repos/acme/app") return reply(200, { private: true });
+  // A second repo the token can see, to switch to.
+  if (request.method === "GET" && path === "/repos/acme/next") return reply(200, { private: true });
+  const one = /^\/repos\/acme\/app\/issues\/(\d+)$/.exec(path);
+  if (request.method === "GET" && one) {
+    const found = openedIssues.find((i) => i.number === Number(one[1]));
+    if (!found) return reply(404, { message: "Not Found" });
+    return reply(200, { state: found.state ?? "open", state_reason: found.state_reason ?? null });
+  }
   if (request.method === "GET" && path === "/user") return reply(200, { login: botLogin });
   const html = (number: number) => `https://github.com/acme/app/issues/${number}`;
   if (request.method === "POST" && path === "/repos/acme/app/issues") {
@@ -119,6 +131,20 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
   }
   if (request.method === "GET" && path === "/repos/acme/app/issues") {
     if (listLags) return reply(200, []);
+    if (endlessList) {
+      const now = new Date().toISOString();
+      return reply(
+        200,
+        Array.from({ length: 50 }, (_, i) => ({
+          number: 50_000 + i,
+          title: "someone else's",
+          body: "",
+          user: { login: "someone" },
+          created_at: now,
+          html_url: html(50_000 + i),
+        })),
+      );
+    }
     return reply(
       200,
       openedIssues.map((i) => ({ ...i, html_url: html(i.number), pull_request: undefined })),
@@ -253,12 +279,15 @@ const everythingLogged = () =>
 
 /** Connects acme/app as the owner and returns the webhook secret. */
 async function connect(): Promise<string> {
+  // A new secret on purpose: reconnecting the same repo otherwise keeps the old one.
   const res = await call("PUT", "/v1/integrations/github", "owner", {
     repo: "Acme/App",
     token: pat,
+    rotateWebhookSecret: true,
   });
   expect(res.status).toBe(200);
-  const body = (await res.json()) as { webhookSecret: string };
+  const body = (await res.json()) as { webhookSecret: string | null };
+  if (!body.webhookSecret) throw new Error("connect: no new webhook secret");
   return body.webhookSecret;
 }
 
@@ -342,6 +371,7 @@ beforeEach(() => {
   loseCreateAnswer = false;
   listLags = false;
   rejectCreate = false;
+  endlessList = false;
   duringCreate = undefined;
 });
 
@@ -474,6 +504,37 @@ describe("connecting a repo", () => {
     });
     expect(everythingLogged()).not.toContain(pat);
   });
+  it("keeps the webhook secret when the same repo is connected again, unless asked", async () => {
+    const stored = async () => {
+      const [row] = await db.withTenant(acme, (tx) => tx.select().from(schema.integrations));
+      if (!row) throw new Error("not connected");
+      return box.open(row.webhookSecretCiphertext, {
+        tenantId: acme,
+        purpose: "github-webhook-secret",
+      });
+    };
+    const put = (body: object) => call("PUT", "/v1/integrations/github", "owner", body);
+    const first = await stored();
+    // A new token for the same repo: the webhook already set up in GitHub keeps working.
+    const again = await put({ repo: "acme/app", token: pat });
+    expect(await again.json()).toMatchObject({ connected: true, webhookSecret: null });
+    expect(await stored()).toBe(first);
+    // Asked for: a new one, shown once.
+    const rotated = (await (
+      await put({ repo: "acme/app", token: pat, rotateWebhookSecret: true })
+    ).json()) as {
+      webhookSecret: string;
+    };
+    expect(rotated.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+    expect(await stored()).toBe(rotated.webhookSecret);
+    // Another repo needs a webhook of its own, so it gets a new secret too.
+    const moved = (await (await put({ repo: "acme/next", token: pat })).json()) as {
+      webhookSecret: string;
+    };
+    expect(moved.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+    expect(moved.webhookSecret).not.toBe(rotated.webhookSecret);
+    expect((await put({ repo: "acme/app", token: pat })).status).toBe(200);
+  });
 });
 
 describe("drafting an issue with the AI", () => {
@@ -599,8 +660,9 @@ describe("creating the issue", () => {
     const issue = await createIssue(email.ticketId);
     expect(issue.url).toBe(`https://github.com/acme/app/issues/${issue.number}`);
 
+    // One create, then one read of its state (it could have been closed already).
     const posted = githubCalls.slice(before);
-    expect(posted).toHaveLength(1);
+    expect(posted.map((c) => c.method)).toEqual(["POST", "GET"]);
     expect(posted[0]).toMatchObject({
       method: "POST",
       path: "/repos/acme/app/issues",
@@ -683,11 +745,12 @@ describe("creating the issue", () => {
     expect(res.status, await res.clone().text()).toBe(201);
     const linked = (await res.json()) as { number: number };
     const calls = githubCalls.slice(before).map((c) => `${c.method} ${c.path}`);
-    // One create, then a lookup: never a second create.
+    // One create, then a lookup, then its state: never a second create.
     expect(calls).toEqual([
       "POST /repos/acme/app/issues",
       "GET /user",
       "GET /repos/acme/app/issues",
+      `GET /repos/acme/app/issues/${openedIssues[0]?.number}`,
     ]);
     expect(linked.number).toBe(openedIssues[0]?.number);
     expect(
@@ -853,6 +916,108 @@ describe("creating the issue", () => {
     expect(((await res.json()) as { number: number }).number).toBe(openedIssues[0]?.number);
   });
 
+  it("cleans an agent's text like an AI draft, and sends a person's as written", async () => {
+    const written = { title: "Ping @ceo", body: "See torvalds/linux#1 and https://evil.test." };
+    const agentTicket = (await receiveEmail()).ticketId;
+    const before = githubCalls.length;
+    expect(
+      (await call("POST", `/v1/tickets/${agentTicket}/github-issue`, "githubAgent", written))
+        .status,
+    ).toBe(201);
+    const fromAgent = githubCalls.slice(before).find((c) => c.method === "POST")?.body as {
+      title: string;
+      body: string;
+    };
+    expect(fromAgent.title).toBe("Ping `@ceo`");
+    expect(fromAgent.body).toMatch(/^See `torvalds\/linux#1` and \[link removed\]\./);
+
+    const personTicket = (await receiveEmail()).ticketId;
+    const mid = githubCalls.length;
+    expect(
+      (await call("POST", `/v1/tickets/${personTicket}/github-issue`, "owner", written)).status,
+    ).toBe(201);
+    const fromPerson = githubCalls.slice(mid).find((c) => c.method === "POST")?.body as {
+      title: string;
+      body: string;
+    };
+    expect(fromPerson.title).toBe(written.title);
+    expect(fromPerson.body.startsWith(written.body)).toBe(true);
+  });
+
+  it("applies a close that happened before the link was written", async () => {
+    const email = await receiveEmail();
+    // A maintainer closes it as done the moment it exists: that webhook had nothing to match.
+    duringCreate = async () => {
+      const opened = openedIssues[0];
+      if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
+    };
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ state: "closed" });
+    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+  });
+
+  it("calls an endless issue list 'don't know', never 'not there'", async () => {
+    const email = await receiveEmail();
+    loseCreateAnswer = true;
+    endlessList = true;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "github_outcome_unknown" });
+  });
+
+  it("links an earlier claim's issue under its own repo after the workspace switched repos", async () => {
+    const email = await receiveEmail();
+    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    loseCreateAnswer = true;
+    listLags = true;
+    expect((await call("POST", path, "githubAgent", { title: "t", body: "b" })).status).toBe(502);
+    loseCreateAnswer = false;
+    listLags = false;
+    try {
+      // The workspace moves to another repo while that claim waits.
+      const moved = await call("PUT", "/v1/integrations/github", "owner", {
+        repo: "acme/next",
+        token: pat,
+      });
+      expect(moved.status).toBe(200);
+      await db.withTenant(acme, (tx) =>
+        tx
+          .update(schema.ticketGithubIssues)
+          .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
+          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+      );
+      const res = await call("POST", path, "githubAgent", { title: "t", body: "b" });
+      expect(res.status, await res.clone().text()).toBe(201);
+      expect(await res.json()).toMatchObject({ repo: "acme/app", number: openedIssues[0]?.number });
+      const ticket = await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json();
+      expect(ticket).toMatchObject({ githubIssue: { repo: "acme/app" } });
+    } finally {
+      await call("PUT", "/v1/integrations/github", "owner", { repo: "acme/app", token: pat });
+    }
+  });
+
+  it("asks for credentials on both issue routes", async () => {
+    const email = await receiveEmail();
+    expect(
+      (
+        await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, null, {
+          title: "t",
+          body: "b",
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (await call("POST", `/v1/tickets/${email.ticketId}/github-issue/draft`, null)).status,
+    ).toBe(401);
+  });
+
   it("is refused without github:write, in another workspace, or with nothing connected", async () => {
     const email = await receiveEmail();
     const path = `/v1/tickets/${email.ticketId}/github-issue`;
@@ -943,13 +1108,24 @@ describe("the webhook", () => {
     expect(await replay.json()).toEqual({ status: "ignored", tickets: 0 });
     expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
 
-    // Reopened and closed again: the customer isn't told twice while the first notice is live.
+    // Reopened: the fix didn't hold, so the notice still waiting is withdrawn, never sent.
     await deliver(secret, { ...closed(number), action: "reopened" });
+    const afterReopen = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+    expect(afterReopen.map((d) => d.status)).toEqual(["discarded"]);
+    expect(await auditActions(acme, afterReopen[0]?.id ?? "")).toEqual([
+      "draft.created",
+      "draft.discarded",
+    ]);
+    // Closed again: one fresh notice, for the fix that holds this time.
     expect(await (await deliver(secret, closed(number))).json()).toEqual({
       status: "processed",
       tickets: 1,
     });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+    const live = (await draftsOf(email.ticketId)).filter(
+      (d) => d.kind === "fixed" && d.status !== "discarded",
+    );
+    expect(live).toHaveLength(1);
+    expect(live[0]?.status).toBe("pending");
   });
 
   it("closed as not planned or duplicate → no 'fixed' draft", async () => {

@@ -23,6 +23,14 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
   // An owner connects the repo. The token is checked with GitHub and never shown again.
   await signIn(page);
   await page.getByRole("link", { name: "Settings" }).click();
+  // Connecting the same repo again keeps its webhook secret, so start from scratch to get one
+  // to sign with (the other screen size's run may have connected already).
+  await expect(page.getByText(/^(Connected|Not connected)$/)).toBeVisible();
+  const disconnect = page.getByRole("button", { name: "Disconnect" });
+  if (await disconnect.isVisible()) {
+    await disconnect.click();
+    await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
+  }
   await page.getByLabel("Repository").fill(githubRepo);
   await page.getByLabel("Personal access token").fill(githubToken);
   // Exact: once connected, a "Disconnect" button is on the page too.

@@ -5,6 +5,7 @@ import {
   failedDraftCost,
   formatIssue,
   issueDraftTokenEstimate,
+  sanitizeIssue,
   sanitizeIssueText,
 } from "./draft-issue.ts";
 import { mockModel } from "./testing.ts";
@@ -70,7 +71,8 @@ describe("sanitizeIssueText", () => {
 
   it("turns the model's own backticks into quotes, so no mention slips out of a code span", () => {
     expect(sanitizeIssueText("x `@ceo and `#42")).toBe("x '`@ceo` and '`#42`");
-    expect(sanitizeIssueText("Run `@decorator` now")).toBe("Run '`@decorator`' now");
+    // A whole word that is already one code span stays one: nothing can pair with it.
+    expect(sanitizeIssueText("Run `@decorator` now")).toBe("Run `@decorator` now");
   });
 
   it("wraps the whole word, so neighbours like @a@b or a backslash can't break out", () => {
@@ -79,8 +81,38 @@ describe("sanitizeIssueText", () => {
     expect(sanitizeIssueText(String.raw`\@ceo and \#42`)).toBe(
       `\`${String.raw`\@ceo`}\` and \`${String.raw`\#42`}\``,
     );
-    // Markdown headings and stray hashes go quiet too; plain words are left alone.
-    expect(sanitizeIssueText("### Heading with 3 # signs")).toBe("`###` Heading with 3 `#` signs");
+    // A `#` with no digit after it links nothing: headings and stray hashes are left alone.
+    expect(sanitizeIssueText("### Heading with 3 # signs")).toBe("### Heading with 3 # signs");
+  });
+});
+
+describe("sanitizeIssue", () => {
+  it("cleans an agent's issue like an AI draft", () => {
+    expect(
+      sanitizeIssue({
+        title: "Fix for @ceo see #1",
+        body: "cc @acme/security, grab https://evil.test/fix and close torvalds/linux#1",
+      }),
+    ).toEqual({
+      title: "Fix for `@ceo` see `#1`",
+      body: "cc `@acme/security`, grab [link removed] and close `torvalds/linux#1`",
+    });
+  });
+
+  it("changes nothing in an issue that was already cleaned, headings included", () => {
+    const drafted = formatIssue({
+      title: "Export fails for @boss",
+      summary: "See https://evil.test and #1, cc @team.",
+      stepsToReproduce: ["Open Reports", "Click Export"],
+      expected: "A file.",
+      actual: "An error <b>page</b>.",
+    });
+    expect(sanitizeIssue(drafted)).toEqual(drafted);
+    expect(drafted.body).toContain("### Steps to reproduce");
+  });
+
+  it("still splits a span that isn't a whole word, so it can't pair with another", () => {
+    expect(sanitizeIssueText("a`b @ceo c`d")).toBe("a'b `@ceo` c'd");
   });
 });
 

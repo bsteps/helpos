@@ -99,7 +99,7 @@ A workspace owner connects one repo under **Settings → GitHub**, with a fine-g
 
 Keep the key safe and don't change it casually: tokens stored under the old key can't be read, and each workspace has to connect its repo again.
 
-After connecting, the dashboard shows a webhook **Payload URL** and **secret** once. In the repo's Settings → Webhooks, add a webhook with those values, content type `application/json`, and only the **Issues** event. When an issue made from a ticket is closed as completed, the ticket gets a "fixed" draft to approve; like every reply, it goes to the shadow recipient while shadow mode is on.
+After connecting, the dashboard shows a webhook **Payload URL** and **secret** once. Connecting the same repo again (say, with a new token) keeps the secret, so the webhook keeps working; disconnect and connect again for a new one. In the repo's Settings → Webhooks, add a webhook with those values, content type `application/json`, and only the **Issues** event. When an issue made from a ticket is closed as completed, the ticket gets a "fixed" draft to approve; like every reply, it goes to the shadow recipient while shadow mode is on.
 
 ## Demo instance
 

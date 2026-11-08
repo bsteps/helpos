@@ -1,15 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { and, type Database, eq, schema, sql } from "@helpos/db";
+import { type Database, eq, schema } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
-import { recordAudit } from "../audit/audit.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
-import { addFixedDraft, githubWebhookActor } from "./fixed-notice.ts";
+import { githubWebhookActor } from "./fixed-notice.ts";
+import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
 import { signatureMatches } from "./webhook-signature.ts";
 
-const { integrations, ticketGithubIssues } = schema;
+const { integrations } = schema;
 
 export interface GithubWebhookDeps {
   db: Pick<Database, "withTenant">;
@@ -126,76 +126,31 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     const issue = payload.issue;
     const requestId = c.get("requestId");
 
+    const change = {
+      tenantId,
+      repo,
+      number: issue.number,
+      actor: githubWebhookActor,
+      requestId,
+      noticeDelaySeconds: deps.noticeDelaySeconds,
+    };
+    const answer = (changed: number) =>
+      c.json(
+        { status: changed > 0 ? ("processed" as const) : ("ignored" as const), tickets: changed },
+        200,
+      );
     if (payload.action === "closed") {
-      const changed = await deps.db.withTenant(tenantId, async (tx) => {
-        // Conditional on `open`: a repeated or replayed delivery finds nothing to change.
-        const closed = await tx
-          .update(ticketGithubIssues)
-          .set({ state: "closed", closedAt: sql`now()` })
-          .where(issueMatches(repo, issue.number, "open"))
-          .returning({ ticketId: ticketGithubIssues.ticketId });
-        // "Not planned" or "duplicate" isn't a fix: the customer is told nothing.
-        const fixed = (issue.state_reason ?? "completed") === "completed";
-        for (const { ticketId } of closed) {
-          await recordAudit(tx, {
-            tenantId,
-            actor: githubWebhookActor,
-            action: "github_issue.closed",
-            target: { type: "ticket", id: ticketId },
-            requestId,
-          });
-          if (fixed) {
-            await addFixedDraft(tx, {
-              tenantId,
-              ticketId,
-              actor: githubWebhookActor,
-              requestId,
-              noticeDelaySeconds: deps.noticeDelaySeconds,
-            });
-          }
-        }
-        return closed.length;
-      });
+      const changed = await deps.db.withTenant(tenantId, (tx) =>
+        markIssueClosed(tx, { ...change, stateReason: issue.state_reason }),
+      );
       deps.logger.info({ issue: issue.number, tickets: changed }, "github issue closed");
-      return c.json(
-        { status: changed > 0 ? ("processed" as const) : ("ignored" as const), tickets: changed },
-        200,
-      );
+      return answer(changed);
     }
-
     if (payload.action === "reopened") {
-      const changed = await deps.db.withTenant(tenantId, async (tx) => {
-        const reopened = await tx
-          .update(ticketGithubIssues)
-          .set({ state: "open", closedAt: null })
-          .where(issueMatches(repo, issue.number, "closed"))
-          .returning({ ticketId: ticketGithubIssues.ticketId });
-        for (const { ticketId } of reopened) {
-          await recordAudit(tx, {
-            tenantId,
-            actor: githubWebhookActor,
-            action: "github_issue.reopened",
-            target: { type: "ticket", id: ticketId },
-            requestId,
-          });
-        }
-        return reopened.length;
-      });
-      return c.json(
-        { status: changed > 0 ? ("processed" as const) : ("ignored" as const), tickets: changed },
-        200,
-      );
+      return answer(await deps.db.withTenant(tenantId, (tx) => markIssueReopened(tx, change)));
     }
     return c.json(ignored, 200);
   });
-}
-
-function issueMatches(repo: string, number: number, state: "open" | "closed") {
-  return and(
-    eq(ticketGithubIssues.repo, repo),
-    eq(ticketGithubIssues.issueNumber, number),
-    eq(ticketGithubIssues.state, state),
-  );
 }
 
 /**

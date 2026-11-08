@@ -54,12 +54,16 @@ const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
 const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 // Words GitHub could turn into something live:
-// - `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues;
+// - `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues (a `#`
+//   with no digit after it, like a `###` heading, links nothing and is left alone);
 // - a character reference (`&commat;`, `&#64;`) decodes into an `@` or a `#`;
 // - `<` before a letter, `/`, `!` or `?` starts an HTML tag, a comment or an `<autolink>`.
 // Inside a code span none of these is interpreted, so such a word is wrapped in one. A plain
 // "Q&A" or "x < 0" is none of these and is left exactly as written.
-const notifying = /[@#]|\bGH-\d|&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);|<[a-z/!?]/i;
+const notifying = /@|#\d|\bGH-\d|&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);|<[a-z/!?]/i;
+// A whole word that is one code span, as quietWord() makes them. Kept as it is, so cleaning
+// cleaned text changes nothing: an agent may send back a draft it was given.
+const ownSpan = /^[([{"']*`[^`\s]+`[.,;:!?)\]}"']*$/;
 // A word's own punctuation stays outside its code span: "(see #12)." → "(see `#12`)."
 const wordParts = /^([([{"']*)(.*?)([.,;:!?)\]}"']*)$/;
 
@@ -72,7 +76,7 @@ const trailingPart = (link: string) => link.match(trailingPunctuation)?.[0] ?? "
  * start or end) on each side and nothing next to it, such as `@a@b`, can change how it parses.
  */
 function quietWord(word: string): string {
-  if (!notifying.test(word)) return word;
+  if (ownSpan.test(word) || !notifying.test(word)) return word;
   const [, lead = "", core = "", trail = ""] = wordParts.exec(word) ?? [];
   return `${lead}\`${core}\`${trail}`;
 }
@@ -85,8 +89,11 @@ function quietWord(word: string): string {
  * so a link's `#fragment` isn't mistaken for an issue reference.
  */
 export function sanitizeIssueText(raw: string): string {
-  // The model's own backticks become quotes: the only code spans are the ones added here.
-  const text = raw.replaceAll("`", "'").replaceAll(emailPattern, "[email removed]");
+  // Any other backtick becomes a quote: the only code spans are whole words, shaped like the
+  // ones added here, so none can pair with another and let a mention out.
+  const text = raw
+    .replaceAll(/\S+/g, (word) => (ownSpan.test(word) ? word : word.replaceAll("`", "'")))
+    .replaceAll(emailPattern, "[email removed]");
   let out = "";
   let from = 0;
   for (const match of text.matchAll(urlPattern)) {
@@ -101,6 +108,19 @@ export function sanitizeIssueText(raw: string): string {
 const oneLine = (s: string) => s.replaceAll(/\s+/g, " ").trim();
 
 /** The issue as markdown, from the model's fields, every field cleaned. */
+/**
+ * Cleans an issue an agent wrote, the same way as an AI draft: an agent reads customer text too,
+ * and can be steered by it. A person's own text is sent as written. Cleaning a draft that was
+ * already cleaned changes nothing.
+ */
+export function sanitizeIssue(issue: { title: string; body: string }): {
+  title: string;
+  body: string;
+} {
+  const title = oneLine(sanitizeIssueText(issue.title)).slice(0, maxIssueTitleChars);
+  return { title: title || "Problem reported by a customer", body: sanitizeIssueText(issue.body) };
+}
+
 export function formatIssue(fields: IssueFields): { title: string; body: string } {
   const clean = (s: string) => sanitizeIssueText(s.trim());
   const steps = fields.stepsToReproduce.map((s) => oneLine(s)).filter(Boolean);

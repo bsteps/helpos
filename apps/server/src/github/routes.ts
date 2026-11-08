@@ -5,6 +5,7 @@ import {
   issueDraftTokenEstimate,
   type LanguageModel,
   maxIssueTitleChars,
+  sanitizeIssue,
 } from "@helpos/ai";
 import { and, asc, type Database, eq, isNull, lt, schema, sql, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
@@ -15,7 +16,9 @@ import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
+import { githubWebhookActor } from "./fixed-notice.ts";
 import { type CreatedIssue, type GithubApiFactory, parseRepo, repoString } from "./github-api.ts";
+import { markIssueClosed } from "./issue-state.ts";
 import { registerGithubWebhook, webhookPath } from "./webhook.ts";
 
 const { integrations, messages, ticketGithubIssues, tickets } = schema;
@@ -57,10 +60,11 @@ const integrationSchema = z
 const connectedSchema = integrationSchema
   .extend({
     /**
-     * The webhook's secret. Shown only in this response: store it in GitHub's webhook settings
-     * right away. Connecting again makes a new one.
+     * The webhook's new secret, shown only in this response: store it in GitHub's webhook
+     * settings right away. Null when the secret didn't change (the same repo connected again,
+     * e.g. with a new token): the webhook already set up keeps working.
      */
-    webhookSecret: z.string(),
+    webhookSecret: z.string().nullable(),
   })
   .openapi("GithubConnected");
 const issueLinkSchema = z
@@ -118,7 +122,9 @@ const connectRoute = createRoute({
     "Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues " +
     "read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, " +
     "then stored encrypted; it is never returned. The response holds a new webhook secret, the " +
-    "only time it is shown. Needs `workspace:admin` in a human session.",
+    "only time it is shown; connecting the same repo again (a new token) keeps the secret unless " +
+    "`rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs " +
+    "`workspace:admin` in a human session.",
   security,
   request: {
     body: {
@@ -136,6 +142,8 @@ const connectRoute = createRoute({
               // Fine-grained tokens only: a classic `ghp_` token reaches every repo its owner
               // can, and the helpdesk must reach only the one it is connected to.
               .regex(/^github_pat_[A-Za-z0-9_]{20,250}$/, "must be a fine-grained token"),
+            /** Make a new webhook secret even when the repo is the same, e.g. after a leak. */
+            rotateWebhookSecret: z.boolean().optional(),
           }),
         },
       },
@@ -256,7 +264,9 @@ export function registerGithubRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): 
   const auth = requirePrincipal(deps.authenticate);
   // The exact path only: the webhook below authenticates with its signature instead.
   app.use(integrationPath, auth);
-  app.use("/v1/tickets/*", auth);
+  // Only this feature's ticket paths: the ticket and draft routes authenticate their own.
+  app.use("/v1/tickets/:id/github-issue", auth);
+  app.use("/v1/tickets/:id/github-issue/draft", auth);
 
   registerConnectionRoutes(app, deps);
   registerIssueRoutes(app, deps);
@@ -304,24 +314,49 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
     }
 
     const { tenantId } = principal;
-    const webhookSecret = randomBytes(32).toString("hex");
-    const sealed = {
-      tokenCiphertext: box.seal(input.token, { tenantId, purpose: "github-token" }),
-      webhookSecretCiphertext: box.seal(webhookSecret, {
-        tenantId,
-        purpose: "github-webhook-secret",
-      }),
-    };
-    await deps.db.withTenant(tenantId, async (tx) => {
-      const [row] = await tx
-        .insert(integrations)
-        .values({ tenantId, provider: "github", repo: repoString(repo), ...sealed })
-        .onConflictDoUpdate({
-          target: [integrations.tenantId, integrations.provider],
-          set: { repo: repoString(repo), ...sealed, updatedAt: new Date() },
-        })
-        .returning({ id: integrations.id });
-      if (!row) throw new Error("github connect: upsert returned no row");
+    const tokenCiphertext = box.seal(input.token, { tenantId, purpose: "github-token" });
+    const webhookSecret = await deps.db.withTenant(tenantId, async (tx) => {
+      // Locked, so two connects at once can't each keep a different secret.
+      const [current] = await tx
+        .select({ repo: integrations.repo })
+        .from(integrations)
+        .where(eq(integrations.provider, "github"))
+        .for("update");
+      // Same repo (a new token, say): the webhook set up in GitHub keeps working. Another repo
+      // needs a webhook of its own, so it gets a new secret to paste there, as does asking.
+      const keep = current?.repo === repoString(repo) && !input.rotateWebhookSecret;
+      const secret = keep ? null : randomBytes(32).toString("hex");
+      const values = {
+        repo: repoString(repo),
+        tokenCiphertext,
+        ...(secret
+          ? {
+              webhookSecretCiphertext: box.seal(secret, {
+                tenantId,
+                purpose: "github-webhook-secret",
+              }),
+            }
+          : {}),
+      };
+      const [row] = current
+        ? await tx
+            .update(integrations)
+            .set({ ...values, updatedAt: new Date() })
+            .where(eq(integrations.provider, "github"))
+            .returning({ id: integrations.id })
+        : await tx
+            .insert(integrations)
+            .values({
+              tenantId,
+              provider: "github",
+              ...values,
+              webhookSecretCiphertext: box.seal(secret ?? "", {
+                tenantId,
+                purpose: "github-webhook-secret",
+              }),
+            })
+            .returning({ id: integrations.id });
+      if (!row) throw new Error("github connect: write returned no row");
       await recordAudit(tx, {
         tenantId,
         actor: principal.actor,
@@ -329,8 +364,9 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
         target: { type: "integration", id: row.id },
         requestId: c.get("requestId"),
       });
+      return secret;
     });
-    // Never cached: the response is the only copy of the webhook secret.
+    // Never cached: when there is a new secret, the response is its only copy.
     c.header("Cache-Control", "no-store");
     return c.json(
       {
@@ -417,6 +453,14 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       if (!(await reserveUsage(tx, tenantId, day, reserved, budget))) {
         return "daily_budget_reached" as const;
       }
+      // Logged with the reservation, in its transaction: from here on the call is paid for.
+      await recordAudit(tx, {
+        tenantId,
+        actor: principal.actor,
+        action: "github_issue.drafted",
+        target: { type: "ticket", id },
+        requestId: c.get("requestId"),
+      });
       return { input, reserved };
     });
     if (prepared === "not_found") return c.json({ error: prepared }, 404);
@@ -439,18 +483,16 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       return c.json({ error: "ai_unavailable" }, 502);
     }
 
-    // 3. Swap the reservation for the real cost, with the audit event. If this fails, the
-    // reservation (an upper bound) stays counted: the budget may overcount, never undercount.
-    await deps.db.withTenant(tenantId, async (tx) => {
-      await settleUsage(tx, day, prepared.reserved, draft.usage);
-      await recordAudit(tx, {
-        tenantId,
-        actor: principal.actor,
-        action: "github_issue.drafted",
-        target: { type: "ticket", id },
-        requestId: c.get("requestId"),
-      });
-    });
+    // 3. Swap the reservation for the real cost. If that fails, the draft is still returned:
+    // it is paid for, and the reservation (an upper bound) stays counted, so the budget may
+    // overcount, never undercount.
+    try {
+      await deps.db.withTenant(tenantId, (tx) =>
+        settleUsage(tx, day, prepared.reserved, draft.usage),
+      );
+    } catch (error) {
+      deps.logger.warn({ err: errorSummary(error) }, "github issue draft: usage not settled");
+    }
     return c.json({ title: draft.title, body: draft.body }, 200);
   });
 
@@ -460,7 +502,10 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const { id: ticketId } = c.req.valid("param");
-    const issue = c.req.valid("json");
+    const written = c.req.valid("json");
+    // An agent may have been steered by the customer text it read, so its text is cleaned like
+    // an AI draft. A person's text is sent as written: they may add a link or @mention on purpose.
+    const issue = principal.actor.type === "agent" ? sanitizeIssue(written) : written;
     const { tenantId } = principal;
 
     // 1. Claim the ticket's issue slot, so a double click can't open two issues.
@@ -633,10 +678,30 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       return c.json({ error: "issue_not_linked", url: made.url }, 500);
     }
     deps.logger.info({ ticketId, issue: made.number }, "github issue created");
-    return c.json(
-      { repo: link.repo, number: made.number, url: made.url, state: "open" as const },
-      201,
-    );
+
+    // 4. The issue may already be closed: a fast maintainer, or an issue found again minutes
+    // later. That close's webhook had no link to match, so apply it now, by the same rules.
+    let state: "open" | "closed" = "open";
+    const linkedRepo = parseRepo(link.repo);
+    const now = linkedRepo ? await github.issueState(linkedRepo, made.number) : null;
+    if (now?.ok && now.value.state === "closed") {
+      const closed = await deps.db.withTenant(tenantId, (tx) =>
+        markIssueClosed(tx, {
+          tenantId,
+          repo: link.repo,
+          number: made.number,
+          stateReason: now.value.stateReason,
+          actor: githubWebhookActor,
+          requestId: c.get("requestId"),
+          noticeDelaySeconds: deps.noticeDelaySeconds,
+        }),
+      );
+      if (closed > 0) state = "closed";
+    } else if (now && !now.ok) {
+      // Best effort: the issue is linked; a later close still arrives by webhook.
+      deps.logger.warn({ ticketId, reason: now.reason }, "github issue: state not checked");
+    }
+    return c.json({ repo: link.repo, number: made.number, url: made.url, state }, 201);
   });
 }
 
@@ -660,6 +725,8 @@ async function recordIssue(
 ): Promise<{ repo: string } | "taken"> {
   const values = {
     state: "open" as const,
+    // The issue's own repo: an earlier claim's issue may be in a repo connected before.
+    repo: input.repo,
     issueNumber: input.issue.number,
     issueUrl: input.issue.url,
   };
@@ -673,7 +740,7 @@ async function recordIssue(
     (
       await tx
         .insert(ticketGithubIssues)
-        .values({ tenantId: input.tenantId, ticketId: input.ticketId, repo: input.repo, ...values })
+        .values({ tenantId: input.tenantId, ticketId: input.ticketId, ...values })
         .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
         .returning({ repo: ticketGithubIssues.repo })
     )[0];

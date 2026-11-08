@@ -29,7 +29,15 @@ export interface GithubApi {
     repo: RepoName,
     lookup: { marker: string; since: Date },
   ): Promise<GithubResult<CreatedIssue | null>>;
+  /**
+   * The issue's state now. An issue can be closed before its link is written (a fast
+   * maintainer, or an issue found again minutes later), and the webhook for that close has
+   * nothing to match yet: the caller checks this once the link exists.
+   */
+  issueState(repo: RepoName, number: number): Promise<GithubResult<IssueState>>;
 }
+
+export type IssueState = { state: "open" | "closed"; stateReason: string | null };
 
 /** The hidden line that ties an issue to the claim that opened it. */
 export function markerComment(marker: string): string {
@@ -98,8 +106,12 @@ function failed(error: unknown): { ok: false; reason: GithubFailure; uncertain: 
   return { ok: false, reason: githubFailure(error), uncertain };
 }
 
-/** Pages of the newest issues to look through: an issue opened seconds ago is on the first. */
-const lookupPages = 3;
+/**
+ * Pages of the newest issues to look through before giving up. The search normally ends on the
+ * first page, at the first issue older than the window; this only bounds a pathological repo.
+ * Running out of pages is "don't know", never "not there": that could open a duplicate.
+ */
+const lookupPages = 20;
 
 export function octokitGithub(options: OctokitOptions): GithubApiFactory {
   const timeoutMs = options.timeoutMs ?? 10_000;
@@ -148,6 +160,7 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
           // as its very last line, and of several, the oldest: the one we opened came first.
           const me = await octokit.request("GET /user", { request: { signal: signal() } });
           let match: CreatedIssue | undefined;
+          let searchedAll = false;
           for (let page = 1; page <= lookupPages; page++) {
             // Newest first, so the search can stop at the first issue older than `since`.
             const res = await octokit.request("GET /repos/{owner}/{repo}/issues", {
@@ -170,9 +183,34 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
               if (ours) match = { number: i.number, url: i.html_url };
             }
             const last = res.data.at(-1);
-            if (res.data.length < 50 || !last || new Date(last.created_at) < lookup.since) break;
+            if (res.data.length < 50 || !last || new Date(last.created_at) < lookup.since) {
+              searchedAll = true;
+              break;
+            }
+          }
+          if (!match && !searchedAll) {
+            return { ok: false, reason: "github_unavailable", uncertain: true };
           }
           return { ok: true, value: match ?? null };
+        } catch (error) {
+          return failed(error);
+        }
+      },
+      async issueState(repo, number) {
+        try {
+          const res = await octokit.request("GET /repos/{owner}/{repo}/issues/{issue_number}", {
+            owner: repo.owner,
+            repo: repo.name,
+            issue_number: number,
+            request: { signal: signal() },
+          });
+          return {
+            ok: true,
+            value: {
+              state: res.data.state === "closed" ? "closed" : "open",
+              stateReason: res.data.state_reason ?? null,
+            },
+          };
         } catch (error) {
           return failed(error);
         }

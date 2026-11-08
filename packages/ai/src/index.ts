@@ -15,6 +15,7 @@ export {
   issueDraftTokenEstimate,
   issueInstructions,
   maxIssueTitleChars,
+  sanitizeIssue,
   sanitizeIssueText,
 } from "./draft-issue.ts";
 export {

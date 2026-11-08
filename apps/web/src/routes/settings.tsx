@@ -178,6 +178,20 @@ function GithubSettings() {
 }
 
 function WebhookSetup({ connected }: { connected: GithubConnected }) {
+  if (connected.webhookSecret === null) {
+    return (
+      <Alert variant="success">
+        <AlertIcon />
+        <AlertContent>
+          <AlertTitle>Connected to {connected.repo}</AlertTitle>
+          <AlertDescription>
+            The webhook secret didn't change, so the webhook already set up in GitHub keeps working.
+            To get a new secret, disconnect and connect again.
+          </AlertDescription>
+        </AlertContent>
+      </Alert>
+    );
+  }
   return (
     <Alert variant="success">
       <AlertIcon />

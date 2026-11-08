@@ -1616,7 +1616,7 @@ export interface paths {
         };
         /**
          * Connect a GitHub repo
-         * @description Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown. Needs `workspace:admin` in a human session.
+         * @description Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown; connecting the same repo again (a new token) keeps the secret unless `rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs `workspace:admin` in a human session.
          */
         put: {
             parameters: {
@@ -1630,6 +1630,7 @@ export interface paths {
                     "application/json": {
                         repo: string;
                         token: string;
+                        rotateWebhookSecret?: boolean;
                     };
                 };
             };
@@ -2184,7 +2185,7 @@ export interface components {
             webhookUrl: string | null;
         };
         GithubConnected: components["schemas"]["GithubIntegration"] & {
-            webhookSecret: string;
+            webhookSecret: string | null;
         };
         GithubIssueDraft: {
             title: string;
