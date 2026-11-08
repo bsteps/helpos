@@ -13,6 +13,14 @@ const git = (/** @type {string[]} */ ...args) => {
 };
 const lines = (/** @type {string} */ s) => (s ? s.split("\n") : []);
 
+// pnpm sets npm_execpath to itself: a JS entry (run it with Node) or a standalone binary.
+// Calling it directly skips Windows' pnpm.cmd shim, which only starts through a shell.
+const pnpmPath = process.env.npm_execpath ?? "";
+if (!pnpmPath) throw new Error("Run this through pnpm: pnpm check:changed");
+/** @returns {[string, string[]]} */
+const pnpm = (/** @type {string[]} */ args) =>
+  /\.[cm]?js$/.test(pnpmPath) ? [process.execPath, [pnpmPath, ...args]] : [pnpmPath, args];
+
 const target = process.argv[2] ?? "origin/main";
 const base = git("merge-base", "HEAD", target);
 
@@ -40,6 +48,7 @@ if (present.length > 0) {
       "check",
       "--no-errors-on-unmatched",
       "--files-ignore-unknown=true",
+      "--",
       ...present,
     ],
   ]);
@@ -54,8 +63,9 @@ if (evals) steps.push(["pnpm", ["eval"]]);
 
 for (const [cmd, args] of steps) {
   process.stdout.write(`\n> ${cmd} ${args.join(" ")}\n`);
-  // shell is needed on Windows to find pnpm.cmd; arguments are paths from git, not user text.
-  const r = spawnSync(cmd, args, { stdio: "inherit", shell: process.platform === "win32" });
+  // Never through a shell: changed paths come from the branch and may hold shell metacharacters.
+  const [bin, binArgs] = cmd === "pnpm" ? pnpm(args) : [process.execPath, args];
+  const r = spawnSync(bin, binArgs, { stdio: "inherit", shell: false });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 process.stdout.write("\ncheck:changed passed. Run `pnpm verify` once before opening a PR.\n");
