@@ -177,15 +177,21 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
         .from(drafts)
         .where(and(eq(drafts.ticketId, row.ticketId), gt(drafts.approvedAt, recent.at)))
         .limit(1);
-      // Another kind of draft since that notice is other news, too: "it's fixed" waiting is
-      // not the reply the owners were already told about (nor the other way round).
-      const [announced] = await tx
-        .select({ kind: drafts.kind })
+      // A kind of draft the ticket didn't have at that notice is other news: "it's fixed"
+      // waiting is not the reply the owners were already told about (nor the other way round).
+      // A reworded draft of a kind it had is the same news.
+      const [sameKindBefore] = await tx
+        .select({ id: drafts.id })
         .from(drafts)
-        .where(and(eq(drafts.ticketId, row.ticketId), lte(drafts.createdAt, recent.at)))
-        .orderBy(desc(drafts.createdAt))
+        .where(
+          and(
+            eq(drafts.ticketId, row.ticketId),
+            eq(drafts.kind, row.kind),
+            lte(drafts.createdAt, recent.at),
+          ),
+        )
         .limit(1);
-      const otherNews = row.createdAt > recent.at && announced?.kind !== row.kind;
+      const otherNews = row.createdAt > recent.at && !sameKindBefore;
       if (!actedOn && !otherNews) return;
     }
 

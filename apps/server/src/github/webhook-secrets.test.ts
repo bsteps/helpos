@@ -28,6 +28,16 @@ describe("the webhook secret cache", () => {
     expect(secrets.get("a")?.secret).toBe("new");
   });
 
+  it("never lets a lookup from before a rotation store, even once that rotation is dropped", () => {
+    const secrets = createWebhookSecrets({ maxAgeMs: 1_000, max: 1, now: () => 0 });
+    const before = secrets.generation("a");
+    secrets.forget("a");
+    // Another workspace's forget pushes "a" out of the bounded list.
+    secrets.forget("b");
+    secrets.set("a", "old", before);
+    expect(secrets.get("a")).toBeUndefined();
+  });
+
   it("drops the oldest past its size, so a flood of made-up workspaces can't grow it", () => {
     const secrets = createWebhookSecrets({ maxAgeMs: 1_000, max: 2, now: () => 0 });
     for (const [id, secret] of [

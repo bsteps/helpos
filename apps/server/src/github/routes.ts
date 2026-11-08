@@ -139,7 +139,7 @@ const getRoute = createRoute({
   summary: "Read the workspace's GitHub connection",
   description:
     "Which repo is connected, and the webhook address to give GitHub. Never includes the " +
-    "token or the webhook secret. Needs `github:write`.",
+    "token or the webhook secret. Needs `github:write`, or `workspace:admin`.",
   security,
   responses: { 200: json(integrationSchema, "The connection"), ...authErrors },
 });

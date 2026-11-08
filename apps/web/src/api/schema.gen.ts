@@ -1574,7 +1574,7 @@ export interface paths {
         };
         /**
          * Read the workspace's GitHub connection
-         * @description Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`.
+         * @description Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`, or `workspace:admin`.
          */
         get: {
             parameters: {

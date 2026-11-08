@@ -204,6 +204,24 @@ describe("draft notice worker", () => {
     expect(await notify(fixed.id)).toHaveBeenCalledOnce();
     // Told about that one now: nothing more within the window.
     expect(await notify(fixed.id)).not.toHaveBeenCalled();
+    // The reply is reworded: a kind already announced, so the same news, not a new notice.
+    const [reworded] = await db.withTenant(acme, async (tx) => {
+      await tx
+        .update(schema.drafts)
+        .set({ status: "discarded" })
+        .where(eq(schema.drafts.id, reply.id));
+      return tx
+        .insert(schema.drafts)
+        .values({
+          tenantId: acme,
+          ticketId: reply.ticketId,
+          messageId: reply.messageId,
+          body: "On it, reworded.",
+        })
+        .returning();
+    });
+    if (!reworded) throw new Error("no reworded draft");
+    expect(await notify(reworded.id)).not.toHaveBeenCalled();
   });
 
   // The real worker, from here on. Its own age check uses 2 s; drafts are still queued with

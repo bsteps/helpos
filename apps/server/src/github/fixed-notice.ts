@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, schema, type TenantTx } from "@helpos/db";
+import { and, desc, eq, inArray, isNull, schema, type TenantTx } from "@helpos/db";
 import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { queueDraftNotice } from "../drafts/notice-worker.ts";
 
@@ -63,14 +63,11 @@ export async function addFixedDraft(
       and(
         eq(drafts.ticketId, ticketId),
         eq(drafts.kind, "fixed"),
-        // A notice waiting for approval counts whichever message it answers (the customer may
-        // have written again since), so the owners never see two. One already sent (a fix that
-        // didn't hold, reopened, now closed again) is no reason not to tell the customer about
-        // this one.
-        or(
-          eq(drafts.status, "pending"),
-          and(eq(drafts.messageId, latest.id), eq(drafts.status, "approved")),
-        ),
+        // One waiting for approval or being sent counts whichever message it answers (the
+        // customer may have written again since), so they are never told twice at once. One
+        // already sent (a fix that didn't hold, reopened, now closed again) is no reason not
+        // to tell the customer about this one.
+        inArray(drafts.status, ["pending", "approved"]),
       ),
     );
   if (existing) return null;

@@ -45,9 +45,14 @@ export function createWebhookSecrets(
   const entries = new Map<string, { secret: string | null; at: number }>();
   // Only workspaces forgotten at least once, so a flood of made-up ones can't grow it: a
   // workspace is forgotten only by an admin action. Kept to the same size, oldest out first.
+  // Generations come from one counter that only goes up, and a workspace no longer listed is
+  // at the newest generation dropped, so dropping one can never make an older lookup current.
   const generations = new Map<string, number>();
+  let counter = 0;
+  let dropped = 0;
+  const generationOf = (tenantId: string) => generations.get(tenantId) ?? dropped;
   return {
-    generation: (tenantId) => generations.get(tenantId) ?? 0,
+    generation: generationOf,
     get(tenantId) {
       const entry = entries.get(tenantId);
       if (!entry) return undefined;
@@ -59,7 +64,7 @@ export function createWebhookSecrets(
       return { secret: entry.secret, ageMs };
     },
     set(tenantId, secret, generation) {
-      if ((generations.get(tenantId) ?? 0) !== generation) return;
+      if (generationOf(tenantId) !== generation) return;
       entries.delete(tenantId);
       entries.set(tenantId, { secret, at: now() });
       if (entries.size > options.max) {
@@ -69,12 +74,15 @@ export function createWebhookSecrets(
     },
     forget(tenantId) {
       entries.delete(tenantId);
-      const next = (generations.get(tenantId) ?? 0) + 1;
+      counter++;
       generations.delete(tenantId);
-      generations.set(tenantId, next);
+      generations.set(tenantId, counter);
       if (generations.size > options.max) {
-        const oldest = generations.keys().next();
-        if (!oldest.done) generations.delete(oldest.value);
+        const oldest = generations.entries().next();
+        if (!oldest.done) {
+          generations.delete(oldest.value[0]);
+          dropped = Math.max(dropped, oldest.value[1]);
+        }
       }
     },
   };

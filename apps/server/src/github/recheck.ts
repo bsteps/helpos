@@ -65,25 +65,40 @@ export function handleRecheckIssue(
         );
       // Gone (unlinked, or never more than a claim): nothing to do.
       if (!link || link.number === null) return null;
+      const since = link.since ?? link.createdAt;
       const [integration] = await tx
         .select({ tokenCiphertext: integrations.tokenCiphertext })
         .from(integrations)
         .where(eq(integrations.provider, "github"));
-      // Disconnected: there is no token to ask with.
-      if (!integration) return null;
+      // No token to ask with right now (disconnected, or mid-reconnect): wait for one.
+      if (!integration) return { waitFor: "a connected repo", since };
       try {
         const token = deps.secretBox.open(integration.tokenCiphertext, {
           tenantId,
           purpose: "github-token",
         });
-        return { ...link, number: link.number, token };
+        return { ...link, number: link.number, token, since };
       } catch (error) {
         if (!(error instanceof SecretBoxError)) throw error;
-        deps.logger.warn({ tenantId }, "github recheck: stored token can't be read");
-        return null;
+        return { waitFor: "a readable token", since };
       }
     });
     if (!target) return;
+    /** Asks again later, not at once (pg-boss would retry a thrown job straight away). */
+    const later = async (why: string, since: Date) => {
+      if (Date.now() - since.getTime() > recheckForMs) {
+        deps.logger.warn({ linkId, why }, "github recheck: giving up");
+        return;
+      }
+      await transaction((tx) =>
+        enqueue(tx, recheckIssueJob, payload, { startAfter: recheckAfter(deps.recheckSeconds) }),
+      );
+    };
+    if ("waitFor" in target) {
+      deps.logger.warn({ linkId, waitingFor: target.waitFor }, "github recheck: waiting");
+      await later(`waiting for ${target.waitFor}`, target.since);
+      return;
+    }
     const repo = parseRepo(target.repo);
     if (!repo) return;
     const now = await deps.github(target.token).issueState(repo, target.number);
@@ -94,14 +109,7 @@ export function handleRecheckIssue(
         deps.logger.warn({ linkId, reason: now.reason }, "github recheck: GitHub refused");
         return;
       }
-      if (Date.now() - (target.since ?? target.createdAt).getTime() > recheckForMs) {
-        deps.logger.warn({ linkId, reason: now.reason }, "github recheck: giving up");
-        return;
-      }
-      // Later, not at once: pg-boss would retry a thrown job straight away, into the outage.
-      await transaction((tx) =>
-        enqueue(tx, recheckIssueJob, payload, { startAfter: recheckAfter(deps.recheckSeconds) }),
-      );
+      await later(now.reason, target.since);
       return;
     }
     // GitHub's state now, which every later event is newer than. Each mark only changes a link

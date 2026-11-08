@@ -1080,6 +1080,38 @@ describe("creating the issue", () => {
     expect(posts() - before).toBe(1);
   });
 
+  it("keeps a recheck waiting while the repo is being reconnected, instead of dropping it", async () => {
+    const email = await receiveEmail();
+    duringCreate = async () => {
+      const opened = openedIssues[0];
+      if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
+    };
+    // GitHub fails the check after linking, and the connection is gone a moment: the recheck
+    // finds no token to ask with.
+    const [saved] = await db.withTenant(acme, (tx) => tx.select().from(schema.integrations));
+    if (!saved) throw new Error("not connected");
+    duringStateCheck = async () => {
+      duringStateCheck = undefined;
+      stateFailures = 1;
+      await db.withTenant(acme, (tx) => tx.delete(schema.integrations));
+    };
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    await waitFor("the recheck to wait", async () =>
+      JSON.stringify(logger.warn.mock.calls).includes("github recheck: waiting") ? true : undefined,
+    );
+    // Connected again: the waiting recheck applies the close.
+    await db.withTenant(acme, (tx) => tx.insert(schema.integrations).values(saved));
+    const fixed = await waitFor("the recheck's fixed draft", async () => {
+      const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+      return drafts.length > 0 ? drafts : undefined;
+    });
+    expect(fixed).toHaveLength(1);
+  });
+
   it("answers 201 when the issue is linked, even if applying its close then fails", async () => {
     const email = await receiveEmail();
     duringCreate = async () => {
