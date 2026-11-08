@@ -771,6 +771,45 @@ describe("creating the issue", () => {
     expect(posts() - before).toBe(1);
   });
 
+  it("keeps a stale claim's marker searchable when GitHub is down while it's looked for", async () => {
+    const email = await receiveEmail();
+    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const posts = () => githubCalls.filter((c) => c.method === "POST").length;
+    const claimOf = async () =>
+      (
+        await db.withTenant(acme, (tx) =>
+          tx
+            .select()
+            .from(schema.ticketGithubIssues)
+            .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+        )
+      )[0];
+    const before = posts();
+    loseCreateAnswer = true;
+    listLags = true;
+    expect((await call("POST", path, "githubAgent", { title: "t", body: "b" })).status).toBe(502);
+    const first = await claimOf();
+    loseCreateAnswer = false;
+    listLags = false;
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.ticketGithubIssues)
+        .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
+        .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+    );
+    // GitHub is down while the stale claim's issue is looked for: that claim comes back.
+    githubDown = true;
+    const down = await call("POST", path, "githubAgent", { title: "t", body: "b" });
+    expect(down.status).toBe(502);
+    expect((await claimOf())?.id).toBe(first?.id);
+    // GitHub is back: the earlier issue is found by its marker, not opened again.
+    githubDown = false;
+    const back = await call("POST", path, "githubAgent", { title: "t", body: "b" });
+    expect(back.status, await back.clone().text()).toBe(201);
+    expect(((await back.json()) as { number: number }).number).toBe(openedIssues[0]?.number);
+    expect(posts() - before).toBe(1);
+  });
+
   it("adopts only its own issue when someone copied the marker into theirs", async () => {
     const email = await receiveEmail();
     loseCreateAnswer = true;

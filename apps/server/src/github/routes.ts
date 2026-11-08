@@ -496,7 +496,12 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
             ),
           ),
         )
-        .returning({ id: ticketGithubIssues.id, createdAt: ticketGithubIssues.createdAt });
+        .returning({
+          id: ticketGithubIssues.id,
+          repo: ticketGithubIssues.repo,
+          createdAt: ticketGithubIssues.createdAt,
+          updatedAt: ticketGithubIssues.updatedAt,
+        });
       const [claimed] = await tx
         .insert(ticketGithubIssues)
         .values({ tenantId, ticketId, repo: integration.repo, state: "creating" })
@@ -524,15 +529,54 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     // A minute of slack for clocks that disagree with GitHub's.
     const slack = 60_000;
     let created: Awaited<ReturnType<typeof github.createIssue>> | undefined;
+    // The repo the linked issue is in: the connected one, unless an earlier try's is adopted.
+    let issueRepo = claim.repo;
     if (claim.stale) {
-      const earlier = await github.findIssue(repo, {
+      // In the repo that claim was for: the workspace may have switched repos since.
+      const staleRepo = parseRepo(claim.stale.repo) ?? repo;
+      const earlier = await github.findIssue(staleRepo, {
         marker: claim.stale.id,
         since: new Date(claim.stale.createdAt.getTime() - slack),
       });
-      if (!earlier.ok) return c.json({ error: "github_unavailable" }, 502);
-      if (earlier.value) created = { ok: true, value: earlier.value };
+      if (!earlier.ok) {
+        // The old claim was replaced by this request's, so its marker would never be looked for
+        // again and its issue, if GitHub opened one, would be duplicated by the next try. Put
+        // the old claim back, still stale, so the next try searches for its marker first.
+        const old = claim.stale;
+        await deps.db.withTenant(tenantId, async (tx) => {
+          await tx
+            .delete(ticketGithubIssues)
+            .where(
+              and(
+                eq(ticketGithubIssues.id, claim.claimId),
+                eq(ticketGithubIssues.state, "creating"),
+              ),
+            );
+          await tx
+            .insert(ticketGithubIssues)
+            .values({
+              id: old.id,
+              tenantId,
+              ticketId,
+              repo: old.repo,
+              state: "creating",
+              createdAt: old.createdAt,
+              // Its own timestamp, so it is exactly as stale as it was.
+              updatedAt: old.updatedAt,
+            })
+            .onConflictDoNothing({
+              target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId],
+            });
+        });
+        return c.json({ error: "github_unavailable" }, 502);
+      }
+      if (earlier.value) {
+        created = { ok: true, value: earlier.value };
+        issueRepo = claim.stale.repo;
+      }
     }
     if (!created) {
+      // The wall clock, not deps.now: this is compared with GitHub's own timestamps.
       const since = new Date(Date.now() - slack);
       created = await github.createIssue(repo, { ...issue, marker: claim.claimId });
       if (!created.ok && created.uncertain) {
@@ -571,7 +615,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
             tenantId,
             ticketId,
             claimId: claim.claimId,
-            repo: claim.repo,
+            repo: issueRepo,
             issue: made,
             actor: principal.actor,
             requestId: c.get("requestId"),

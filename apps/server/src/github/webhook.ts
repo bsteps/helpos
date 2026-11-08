@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { and, type Database, eq, schema, sql } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
@@ -216,20 +217,41 @@ async function verifyWebhook(
       .from(integrations)
       .where(eq(integrations.provider, "github")),
   );
-  if (!row) return null;
-  let secret: string;
+  // Every path does the same work from here: open a sealed secret, read the body, compute the
+  // HMAC. A workspace with no repo uses a throwaway secret that can never match, so its 401
+  // takes as long as a wrong signature's and the timing doesn't tell which workspaces exist.
+  let secret: string | null = null;
   try {
-    secret = box.open(row.webhookSecretCiphertext, { tenantId, purpose: "github-webhook-secret" });
+    secret = box.open(row?.webhookSecretCiphertext ?? decoySecret(box), {
+      tenantId: row ? tenantId : decoyTenant,
+      purpose: "github-webhook-secret",
+    });
   } catch (error) {
     if (!(error instanceof SecretBoxError)) throw error;
     deps.logger.warn(
       { tenantId },
       "github webhook: stored secret can't be read; reconnect the repo",
     );
-    return null;
   }
   // Read once here and cached by Hono, so validation afterwards parses these same bytes.
   const body = new Uint8Array(await c.req.arrayBuffer());
-  if (!signatureMatches(secret, body, c.req.header("x-hub-signature-256"))) return null;
-  return { tenantId };
+  const matches = signatureMatches(secret ?? "", body, c.req.header("x-hub-signature-256"));
+  return row && secret !== null && matches ? { tenantId } : null;
+}
+
+/** A tenant ID no workspace has: the decoy secret is sealed for it alone. */
+const decoyTenant = "00000000-0000-4000-8000-000000000000";
+const decoys = new WeakMap<SecretBox, string>();
+
+/** A sealed random secret, made once per key, opened when a workspace has no repo. */
+function decoySecret(box: SecretBox): string {
+  let sealed = decoys.get(box);
+  if (!sealed) {
+    sealed = box.seal(randomBytes(32).toString("hex"), {
+      tenantId: decoyTenant,
+      purpose: "github-webhook-secret",
+    });
+    decoys.set(box, sealed);
+  }
+  return sealed;
 }
