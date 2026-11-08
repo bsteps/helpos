@@ -4,14 +4,14 @@ One small instance that design partners can try: they forward their support mail
 
 Everything lives in [`deploy/demo/`](../../deploy/demo/):
 
-| File                         | What it does                                                                            |
-| ---------------------------- | --------------------------------------------------------------------------------------- |
-| `compose.yaml`               | Postgres 17 + pgvector, migrations, the server (API, worker, dashboard), Caddy, backups |
-| `Caddyfile`                  | HTTPS for your domain, with certificates from Let's Encrypt, renewed automatically      |
-| `postgres-init.sh`           | Creates the database roles on first start, with the passwords from `.env`               |
-| `backup.sh`                  | A daily dump of the whole database into `deploy/demo/backups/`, keeping the newest 14   |
-| `cloudflare-email-worker.mjs` | Forwards inbound mail to the webhook (the one inbound provider)                       |
-| `.env.example`               | Every setting. Copy it to `.env`, which is never committed                              |
+| File                          | What it does                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `compose.yaml`                | Postgres 17 + pgvector, migrations, the server (API, worker, dashboard), Caddy, backups |
+| `Caddyfile`                   | HTTPS for your domain, with certificates from Let's Encrypt, renewed automatically      |
+| `postgres-init.sh`            | Creates the database roles on first start, with the passwords from `.env`               |
+| `backup.sh`                   | A daily dump of the whole database into `deploy/demo/backups/`, keeping the newest 14   |
+| `cloudflare-email-worker.mjs` | Forwards inbound mail to the webhook (the one inbound provider)                         |
+| `.env.example`                | Every setting. Copy it to `.env`, which is never committed                              |
 
 ## Shadow mode is always on
 
