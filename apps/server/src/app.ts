@@ -1,3 +1,4 @@
+import type { LanguageModel } from "@helpos/ai";
 import { brand } from "@helpos/brand";
 import type { AuthStore, Database, SessionAuth } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
@@ -10,8 +11,11 @@ import { type Authenticate, authenticateRequest, refuseAll } from "./auth/princi
 import { registerAuthRoutes } from "./auth/routes.ts";
 import { humanSessions } from "./auth/session.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
+import { type GithubApiFactory, octokitGithub } from "./github/github-api.ts";
+import { registerGithubRoutes } from "./github/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
+import type { SecretBox } from "./secrets/secret-box.ts";
 import { registerTicketRoutes } from "./tickets/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
@@ -51,6 +55,12 @@ export interface AppDeps {
   noticeDelaySeconds?: number;
   /** HELPOS_ALLOW_SHADOW_MODE_OFF. Off by default: shadow mode can't be turned off. */
   allowShadowModeOff?: boolean;
+  /** Drafts GitHub issues from tickets. Without it, issues are written by hand. */
+  model?: LanguageModel | undefined;
+  /** From HELPOS_ENCRYPTION_KEY. Without it, no GitHub repo can be connected. */
+  secretBox?: SecretBox | undefined;
+  /** Talks to GitHub. Defaults to Octokit against api.github.com; tests pass a fake. */
+  github?: GithubApiFactory;
 }
 
 export function createApp({
@@ -67,6 +77,9 @@ export function createApp({
   now,
   noticeDelaySeconds,
   allowShadowModeOff = false,
+  model,
+  secretBox,
+  github = octokitGithub({ baseUrl: "https://api.github.com" }),
 }: AppDeps): OpenAPIHono {
   const trustedOrigin = new URL(publicUrl).origin;
   const resolve =
@@ -117,6 +130,18 @@ export function createApp({
   });
   registerKnowledgeRoutes(app, { db, authenticate: resolve });
   registerShadowModeRoutes(app, { db, authenticate: resolve, allowShadowModeOff });
+  registerGithubRoutes(app, {
+    db,
+    authenticate: resolve,
+    logger,
+    publicUrl,
+    secretBox,
+    github,
+    model,
+    dailyTokenBudget,
+    noticeDelaySeconds,
+    ...(now ? { now } : {}),
+  });
 
   if (webDir) registerDashboard(app, webDir);
 

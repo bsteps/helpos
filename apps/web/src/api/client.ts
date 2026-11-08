@@ -13,6 +13,9 @@ export type TicketDetail = components["schemas"]["TicketDetail"];
 export type Message = components["schemas"]["Message"];
 export type Draft = components["schemas"]["Draft"];
 export type Me = components["schemas"]["Me"];
+export type GithubIntegration = components["schemas"]["GithubIntegration"];
+export type GithubConnected = components["schemas"]["GithubConnected"];
+export type GithubIssueDraft = components["schemas"]["GithubIssueDraft"];
 
 /** A failed API call: the HTTP status and the API's error code, e.g. `not_pending`. */
 export class ApiError extends Error {

@@ -24,9 +24,15 @@ export interface AuditEvent {
     | "workspace.shadow_recipient_changed"
     | "workspace.ai_budget_changed"
     | "api_token.created"
-    | "api_token.revoked";
+    | "api_token.revoked"
+    | "github.connected"
+    | "github.disconnected"
+    | "github_issue.drafted"
+    | "github_issue.created"
+    | "github_issue.closed"
+    | "github_issue.reopened";
   target: {
-    type: "draft" | "ticket" | "knowledge_source" | "workspace" | "api_token";
+    type: "draft" | "ticket" | "knowledge_source" | "workspace" | "api_token" | "integration";
     id: string;
   };
   /** The HTTP request ID, or null when a background job acts. */

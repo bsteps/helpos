@@ -7,6 +7,15 @@ export {
   parseAiConfig,
 } from "./config.ts";
 export {
+  draftGithubIssue,
+  formatIssue,
+  type IssueDraft,
+  type IssueFields,
+  issueInstructions,
+  maxIssueTitleChars,
+  sanitizeIssueText,
+} from "./draft-issue.ts";
+export {
   type DraftInput,
   type DraftResult,
   type DraftUsage,

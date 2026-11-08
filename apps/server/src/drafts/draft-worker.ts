@@ -179,7 +179,13 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     const [existing] = await tx
       .select({ id: drafts.id })
       .from(drafts)
-      .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
+      .where(
+        and(
+          eq(drafts.messageId, payload.messageId),
+          eq(drafts.kind, "reply"),
+          ne(drafts.status, "discarded"),
+        ),
+      );
     if (existing) return; // a retry after the draft was saved, or already answered
 
     // The hard cap. Over budget, the ticket is marked and the job ends without a draft. The
@@ -246,7 +252,13 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     const [drafted] = await tx
       .select({ id: drafts.id })
       .from(drafts)
-      .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
+      .where(
+        and(
+          eq(drafts.messageId, payload.messageId),
+          eq(drafts.kind, "reply"),
+          ne(drafts.status, "discarded"),
+        ),
+      );
     if (drafted) {
       if (totalTokens(spent) > 0) await recordUsage(tx, payload.tenantId, day, spent);
       return;
@@ -294,7 +306,13 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     const [answered] = await tx
       .select({ id: drafts.id })
       .from(drafts)
-      .where(and(eq(drafts.messageId, payload.messageId), ne(drafts.status, "discarded")));
+      .where(
+        and(
+          eq(drafts.messageId, payload.messageId),
+          eq(drafts.kind, "reply"),
+          ne(drafts.status, "discarded"),
+        ),
+      );
     if (answered) return;
     const [newer] = await tx
       .select({ id: messages.id })
@@ -323,6 +341,8 @@ function draftInTransaction(deps: DraftWorkerDeps) {
         and(
           eq(drafts.ticketId, row.ticketId),
           eq(drafts.status, "pending"),
+          // A pending "fixed" notice is still news when the customer writes again.
+          eq(drafts.kind, "reply"),
           ne(drafts.messageId, payload.messageId),
         ),
       )

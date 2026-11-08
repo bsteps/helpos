@@ -773,7 +773,7 @@ export interface paths {
         put?: never;
         /**
          * Write a draft, or ask the AI for a new one
-         * @description Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending drafts on the ticket are discarded. Nothing is sent until the draft is approved. Needs `drafts:write`.
+         * @description Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write`.
          */
         post: {
             parameters: {
@@ -1565,6 +1565,441 @@ export interface paths {
         };
         trace?: never;
     };
+    "/v1/integrations/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the workspace's GitHub connection
+         * @description Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The connection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubIntegration"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /**
+         * Connect a GitHub repo
+         * @description Stores one repo and a fine-grained personal access token with Issues read and write access to it, replacing any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown. Needs `workspace:admin` in a human session.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        repo: string;
+                        token: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Connected */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubConnected"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub refused the token (`token_rejected`), or the token can't see the repo (`repo_not_found`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub could not be reached (`github_unavailable`) */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Disconnect the GitHub repo
+         * @description Deletes the stored token and webhook secret. Tickets keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Disconnected, or nothing was connected */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tickets/{id}/github-issue/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the AI to draft a GitHub issue from a ticket
+         * @description Suggests a title and body (steps to reproduce, expected, actual) from the ticket's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `tickets:read` and `github:write`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The suggested issue */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubIssueDraft"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found in this workspace */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No message from the customer to work from (`nothing_to_report`), or today's AI budget is spent (`daily_budget_reached`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The AI provider failed (`ai_unavailable`) */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description AI is not configured on this server (`ai_not_configured`) */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tickets/{id}/github-issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a GitHub issue from a ticket
+         * @description Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `github:write`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        body: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The issue, now linked to the ticket */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubIssueLink"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found in this workspace */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`). Nothing was linked */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/github/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive a GitHub webhook
+         * @description Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. When an issue linked to tickets is closed as completed, each ticket gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.
+         */
+        post: {
+            parameters: {
+                query: {
+                    workspace: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GithubWebhookPayload"];
+                };
+            };
+            responses: {
+                /** @description Handled. `tickets` is how many linked tickets changed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "processed" | "ignored";
+                            tickets: number;
+                        };
+                    };
+                };
+                /** @description Unknown workspace, no repo connected, or a missing or wrong signature */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Larger than 1048576 bytes */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1591,13 +2026,13 @@ export interface components {
                 id: string;
                 name: string;
             };
-            scopes: ("tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "workspace:admin")[];
+            scopes: ("tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "workspace:admin")[];
         };
         CreatedApiToken: components["schemas"]["ApiToken"] & {
             token: string;
         };
         /** @enum {string} */
-        TokenScope: "tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write";
+        TokenScope: "tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write";
         ApiToken: {
             /** Format: uuid */
             id: string;
@@ -1628,6 +2063,13 @@ export interface components {
         };
         TicketDetail: components["schemas"]["Ticket"] & {
             messages: components["schemas"]["Message"][];
+            githubIssue: {
+                repo: string;
+                number: number;
+                url: string;
+                /** @enum {string} */
+                state: "open" | "closed";
+            } | null;
         };
         Message: {
             /** Format: uuid */
@@ -1652,6 +2094,8 @@ export interface components {
             ticketId: string;
             /** Format: uuid */
             messageId: string;
+            /** @enum {string} */
+            kind: "reply" | "fixed";
             /** @enum {string} */
             status: "pending" | "approved" | "sent" | "discarded";
             body: string;
@@ -1721,6 +2165,35 @@ export interface components {
             enabled: boolean;
             /** Format: email */
             recipient: string | null;
+        };
+        GithubIntegration: {
+            connected: boolean;
+            repo: string | null;
+            webhookUrl: string | null;
+        };
+        GithubConnected: components["schemas"]["GithubIntegration"] & {
+            webhookSecret: string;
+        };
+        GithubIssueDraft: {
+            title: string;
+            body: string;
+        };
+        GithubIssueLink: {
+            repo: string;
+            number: number;
+            url: string;
+            /** @enum {string} */
+            state: "open" | "closed";
+        };
+        GithubWebhookPayload: {
+            action?: string;
+            issue?: {
+                number: number;
+                state_reason?: string | null;
+            };
+            repository?: {
+                full_name: string;
+            };
         };
     };
     responses: never;

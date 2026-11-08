@@ -6,6 +6,7 @@ export const keys = {
   openTickets: ["tickets", "open"] as const,
   ticket: (id: string) => ["ticket", id] as const,
   drafts: (id: string) => ["ticket", id, "drafts"] as const,
+  github: ["integrations", "github"] as const,
 };
 
 /** Who is signed in, or null when nobody is (the API answered 401). */
@@ -100,5 +101,51 @@ export function useCloseTicket(ticketId: string) {
         queryClient.invalidateQueries({ queryKey: keys.openTickets }),
       ]);
     },
+  });
+}
+
+/** The workspace's GitHub connection: which repo, never the token. */
+export const githubQuery = queryOptions({
+  queryKey: keys.github,
+  queryFn: () => unwrap(api.GET("/v1/integrations/github")),
+  staleTime: 60_000,
+});
+
+export function useConnectGithub() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { repo: string; token: string }) =>
+      unwrap(api.PUT("/v1/integrations/github", { body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.github }),
+  });
+}
+
+export function useDisconnectGithub() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrap(api.DELETE("/v1/integrations/github")),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.github }),
+  });
+}
+
+/** Asks the AI for a title and body. Nothing is created until the issue is confirmed. */
+export function useDraftGithubIssue(ticketId: string) {
+  return useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST("/v1/tickets/{id}/github-issue/draft", { params: { path: { id: ticketId } } }),
+      ),
+  });
+}
+
+export function useCreateGithubIssue(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { title: string; body: string }) =>
+      unwrap(
+        api.POST("/v1/tickets/{id}/github-issue", { params: { path: { id: ticketId } }, body }),
+      ),
+    // Refetched either way: a 409 means the ticket already has an issue to show.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
   });
 }

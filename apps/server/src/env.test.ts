@@ -30,6 +30,26 @@ describe("envSchema", () => {
     expect(() => allow("yes")).toThrow();
   });
 
+  it("reads the encryption key, and names a bad one without showing it", () => {
+    const base = {
+      HELPOS_DATABASE_URL: "postgres://a:b@localhost:5432/helpos",
+      HELPOS_DATABASE_JOBS_URL: "postgres://j:k@localhost:5432/helpos",
+    };
+    expect(envSchema.parse(base).HELPOS_ENCRYPTION_KEY).toBeUndefined();
+    expect(envSchema.parse({ ...base, HELPOS_ENCRYPTION_KEY: "" }).HELPOS_ENCRYPTION_KEY).toBe(
+      undefined,
+    );
+    const hex = "ab".repeat(32);
+    expect(envSchema.parse({ ...base, HELPOS_ENCRYPTION_KEY: hex }).HELPOS_ENCRYPTION_KEY).toEqual(
+      Buffer.from(hex, "hex"),
+    );
+    const bad = "my-secret-but-too-short-key";
+    const result = envSchema.safeParse({ ...base, HELPOS_ENCRYPTION_KEY: bad });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error)).toContain("HELPOS_ENCRYPTION_KEY");
+    expect(JSON.stringify(result.error)).not.toContain(bad);
+  });
+
   it("rejects a missing jobs database URL", () => {
     expect(() =>
       envSchema.parse({ HELPOS_DATABASE_URL: "postgres://a:b@localhost:5432/helpos" }),

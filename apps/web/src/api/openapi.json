@@ -15,6 +15,12 @@
         "type": "http",
         "scheme": "bearer",
         "description": "The value of HELPOS_INBOUND_SECRET."
+      },
+      "githubSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Hub-Signature-256",
+        "description": "`sha256=` and the hex HMAC-SHA256 of the raw body under the webhook secret."
       }
     },
     "schemas": {
@@ -104,6 +110,7 @@
                 "drafts:approve",
                 "knowledge:read",
                 "knowledge:write",
+                "github:write",
                 "workspace:admin"
               ]
             }
@@ -141,7 +148,8 @@
           "drafts:write",
           "drafts:approve",
           "knowledge:read",
-          "knowledge:write"
+          "knowledge:write",
+          "github:write"
         ]
       },
       "ApiToken": {
@@ -261,10 +269,41 @@
                 "items": {
                   "$ref": "#/components/schemas/Message"
                 }
+              },
+              "githubIssue": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "repo": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "integer"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "closed"
+                    ]
+                  }
+                },
+                "required": [
+                  "repo",
+                  "number",
+                  "url",
+                  "state"
+                ]
               }
             },
             "required": [
-              "messages"
+              "messages",
+              "githubIssue"
             ]
           }
         ]
@@ -350,6 +389,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reply",
+              "fixed"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -401,6 +447,7 @@
           "id",
           "ticketId",
           "messageId",
+          "kind",
           "status",
           "body",
           "createdAt",
@@ -629,6 +676,128 @@
           "enabled",
           "recipient"
         ]
+      },
+      "GithubIntegration": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "repo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhookUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "connected",
+          "repo",
+          "webhookUrl"
+        ]
+      },
+      "GithubConnected": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GithubIntegration"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "webhookSecret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "webhookSecret"
+            ]
+          }
+        ]
+      },
+      "GithubIssueDraft": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "GithubIssueLink": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          }
+        },
+        "required": [
+          "repo",
+          "number",
+          "url",
+          "state"
+        ]
+      },
+      "GithubWebhookPayload": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "issue": {
+            "type": "object",
+            "properties": {
+              "number": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "state_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "number"
+            ]
+          },
+          "repository": {
+            "type": "object",
+            "properties": {
+              "full_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "full_name"
+            ]
+          }
+        }
       }
     },
     "parameters": {}
@@ -944,7 +1113,7 @@
                       "$ref": "#/components/schemas/TokenScope"
                     },
                     "minItems": 1,
-                    "maxItems": 6
+                    "maxItems": 7
                   }
                 },
                 "required": [
@@ -1382,7 +1551,7 @@
       },
       "post": {
         "summary": "Write a draft, or ask the AI for a new one",
-        "description": "Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending drafts on the ticket are discarded. Nothing is sent until the draft is approved. Needs `drafts:write`.",
+        "description": "Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write`.",
         "security": [
           {
             "apiAuth": []
@@ -2261,6 +2430,473 @@
           },
           "409": {
             "description": "Turning shadow mode off is not allowed on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/integrations/github": {
+      "get": {
+        "summary": "Read the workspace's GitHub connection",
+        "description": "Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubIntegration"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Connect a GitHub repo",
+        "description": "Stores one repo and a fine-grained personal access token with Issues read and write access to it, replacing any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown. Needs `workspace:admin` in a human session.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "repo": {
+                    "type": "string",
+                    "maxLength": 140
+                  },
+                  "token": {
+                    "type": "string",
+                    "pattern": "^(github_pat_|ghp_)[A-Za-z0-9_]{20,250}$"
+                  }
+                },
+                "required": [
+                  "repo",
+                  "token"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubConnected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "GitHub refused the token (`token_rejected`), or the token can't see the repo (`repo_not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHub could not be reached (`github_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Disconnect the GitHub repo",
+        "description": "Deletes the stored token and webhook secret. Tickets keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected, or nothing was connected"
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tickets/{id}/github-issue/draft": {
+      "post": {
+        "summary": "Ask the AI to draft a GitHub issue from a ticket",
+        "description": "Suggests a title and body (steps to reproduce, expected, actual) from the ticket's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `tickets:read` and `github:write`.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The suggested issue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubIssueDraft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No message from the customer to work from (`nothing_to_report`), or today's AI budget is spent (`daily_budget_reached`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The AI provider failed (`ai_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AI is not configured on this server (`ai_not_configured`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tickets/{id}/github-issue": {
+      "post": {
+        "summary": "Create a GitHub issue from a ticket",
+        "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `github:write`.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "body": {
+                    "type": "string",
+                    "maxLength": 60000
+                  }
+                },
+                "required": [
+                  "title",
+                  "body"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The issue, now linked to the ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubIssueLink"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`). Nothing was linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/integrations/github/webhook": {
+      "post": {
+        "summary": "Receive a GitHub webhook",
+        "description": "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. When an issue linked to tickets is closed as completed, each ticket gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.",
+        "security": [
+          {
+            "githubSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "workspace",
+            "in": "query"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubWebhookPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Handled. `tickets` is how many linked tickets changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "processed",
+                        "ignored"
+                      ]
+                    },
+                    "tickets": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "tickets"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown workspace, no repo connected, or a missing or wrong signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Larger than 1048576 bytes",
             "content": {
               "application/json": {
                 "schema": {

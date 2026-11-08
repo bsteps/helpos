@@ -4,7 +4,7 @@ import type { LanguageModel } from "ai";
 import { mockModel } from "../testing.ts";
 import { checkAssertions } from "./assert.ts";
 import { type EvalCase, evalCaseSchema } from "./case.ts";
-import { draftReplyTask } from "./task.ts";
+import { draftIssueTask, draftReplyTask } from "./task.ts";
 
 export type EvalResult = { file: string; name: string; failures: string[] };
 
@@ -32,7 +32,8 @@ export async function runEvals(dir: string, liveModel?: LanguageModel): Promise<
   for (const { file, evalCase } of cases) {
     const model = liveModel ?? mockModel(evalCase.mock);
     try {
-      const output = await draftReplyTask(model, evalCase.input);
+      const task = evalCase.task === "github-issue" ? draftIssueTask : draftReplyTask;
+      const output = await task(model, evalCase.input);
       results.push({
         file,
         name: evalCase.name,
