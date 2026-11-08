@@ -43,6 +43,13 @@ describe("sanitizeIssueText", () => {
     );
   });
 
+  it("escapes character references, so &commat; or &#35; can't become a mention or reference", () => {
+    expect(sanitizeIssueText("cc &commat;ceo, see &num;12 and &#64;cto")).toBe(
+      "cc &amp;commat;ceo, see &amp;num;12 and `&amp;#64;cto`",
+    );
+    expect(sanitizeIssueText("Fish & chips")).toBe("Fish &amp; chips");
+  });
+
   it("escapes HTML, so no <a>, <img> or <autolink> renders", () => {
     expect(sanitizeIssueText('<img src=x onerror=y> <a href="/x">hi</a>')).toBe(
       '&lt;img src=x onerror=y> &lt;a href="/x">hi&lt;/a>',

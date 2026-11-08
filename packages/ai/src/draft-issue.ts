@@ -72,8 +72,11 @@ function quietWord(word: string): string {
  */
 export function sanitizeIssueText(raw: string): string {
   // The model's own backticks become quotes: the only code spans are the ones added here.
+  // `&` is escaped first, so no character reference (`&commat;`, `&#35;`, `&colon;`) can turn
+  // back into an `@`, a `#` or a link after this check has passed it.
   const text = raw
     .replaceAll("`", "'")
+    .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(emailPattern, "[email removed]");
   let out = "";
