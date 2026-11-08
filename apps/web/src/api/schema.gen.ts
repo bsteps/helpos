@@ -1616,7 +1616,7 @@ export interface paths {
         };
         /**
          * Connect a GitHub repo
-         * @description Stores one repo and a fine-grained personal access token with Issues read and write access to it, replacing any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown. Needs `workspace:admin` in a human session.
+         * @description Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown. Needs `workspace:admin` in a human session.
          */
         put: {
             parameters: {
@@ -1842,7 +1842,7 @@ export interface paths {
         put?: never;
         /**
          * Create a GitHub issue from a ticket
-         * @description Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `github:write`.
+         * @description Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `github:write`.
          */
         post: {
             parameters: {
@@ -1898,7 +1898,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
+                /** @description No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in two minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -1907,7 +1907,19 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`). Nothing was linked */
+                /** @description The issue was opened on GitHub, at `url`, but couldn't be linked to the ticket (`issue_not_linked`). Don't create it again: close that one or link it by hand */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                            url: string;
+                        };
+                    };
+                };
+                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after two minutes first looks for that issue again */
                 502: {
                     headers: {
                         [name: string]: unknown;
@@ -1944,7 +1956,7 @@ export interface paths {
         put?: never;
         /**
          * Receive a GitHub webhook
-         * @description Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. When an issue linked to tickets is closed as completed, each ticket gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.
+         * @description Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Tickets are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to tickets is closed as completed, each ticket gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.
          */
         post: {
             parameters: {

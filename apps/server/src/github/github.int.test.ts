@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { mockModel } from "@helpos/ai/testing";
+import type { LanguageModel } from "@helpos/ai";
+import { failingModel, mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
   and,
@@ -11,10 +12,12 @@ import {
   eq,
   type JobRunner,
   schema,
+  sql,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { lockUsage, utcDay } from "../ai-budget/budget.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
@@ -61,7 +64,16 @@ let other: string;
 type GithubCall = { method: string; path: string; authorization: string | null; body: unknown };
 const githubCalls: GithubCall[] = [];
 let githubDown = false;
+/** GitHub opens the issue, then the answer is lost (a 504 from its edge). */
+let loseCreateAnswer = false;
+/** The issue list lags behind: issues just opened aren't listed yet. */
+let listLags = false;
+/** GitHub refuses the create outright (a 422): nothing was opened. */
+let rejectCreate = false;
+/** Runs while GitHub "creates" the issue, e.g. to take this request's claim away meanwhile. */
+let duringCreate: (() => Promise<void>) | undefined;
 let nextIssue = 100;
+const openedIssues: { number: number; title: string; body: string; created_at: string }[] = [];
 
 const fakeGithubFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -79,9 +91,28 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
   if (githubDown) return reply(503, { message: "unavailable" });
   if (authorization !== `token ${pat}`) return reply(401, { message: "Bad credentials" });
   if (request.method === "GET" && path === "/repos/acme/app") return reply(200, { private: true });
+  const html = (number: number) => `https://github.com/acme/app/issues/${number}`;
   if (request.method === "POST" && path === "/repos/acme/app/issues") {
+    if (rejectCreate) return reply(422, { message: "Validation Failed" });
     const number = nextIssue++;
-    return reply(201, { number, html_url: `https://github.com/acme/app/issues/${number}` });
+    const { title, body } = JSON.parse(text) as { title: string; body: string };
+    // GitHub stores bodies with CRLF line ends, which the lookup must see past.
+    openedIssues.unshift({
+      number,
+      title,
+      body: body.replaceAll("\n", "\r\n"),
+      created_at: new Date().toISOString(),
+    });
+    await duringCreate?.();
+    if (loseCreateAnswer) return reply(504, { message: "Gateway Timeout" });
+    return reply(201, { number, html_url: html(number) });
+  }
+  if (request.method === "GET" && path === "/repos/acme/app/issues") {
+    if (listLags) return reply(200, []);
+    return reply(
+      200,
+      openedIssues.map((i) => ({ ...i, html_url: html(i.number), pull_request: undefined })),
+    );
   }
   return reply(404, { message: "Not Found" });
 };
@@ -128,7 +159,9 @@ function agent(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
 }
 
-function makeApp(overrides: { secretBox?: undefined; model?: undefined; budget?: number } = {}) {
+function makeApp(
+  overrides: { secretBox?: undefined; model?: LanguageModel | undefined; budget?: number } = {},
+) {
   return createApp({
     db,
     files,
@@ -137,7 +170,7 @@ function makeApp(overrides: { secretBox?: undefined; model?: undefined; budget?:
     noticeDelaySeconds: 3600,
     publicUrl: "https://help.acme.test/desk",
     dailyTokenBudget: overrides.budget ?? 1_000_000,
-    model: "model" in overrides ? undefined : issueModel,
+    model: "model" in overrides ? overrides.model : issueModel,
     secretBox: "secretBox" in overrides ? undefined : box,
     github: octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithubFetch }),
     authenticate: async (req) => {
@@ -296,6 +329,10 @@ beforeAll(async () => {
 
 beforeEach(() => {
   githubDown = false;
+  loseCreateAnswer = false;
+  listLags = false;
+  rejectCreate = false;
+  duringCreate = undefined;
 });
 
 afterAll(async () => {
@@ -350,6 +387,15 @@ describe("connecting a repo", () => {
       token: pat,
     });
     expect(repo.status).toBe(400);
+    // A classic token reaches every repo its owner can: only fine-grained tokens are taken.
+    const classic = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";
+    const refused = await call("PUT", "/v1/integrations/github", "owner", {
+      repo: "acme/app",
+      token: classic,
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).not.toContain(classic);
+    expect(githubCalls.some((c) => c.authorization === `token ${classic}`)).toBe(false);
   });
 
   it("refuses to store a token when the server has no encryption key", async () => {
@@ -442,6 +488,82 @@ describe("drafting an issue with the AI", () => {
     expect(await auditActions(acme, email.ticketId)).toContain("github_issue.drafted");
   });
 
+  it("reserves the budget up front, so concurrent drafts can't both pass the cap", async () => {
+    // Another workspace, so its usage starts at zero.
+    const email = await receiveEmail("help@other.test");
+    const path = `/v1/tickets/${email.ticketId}/github-issue/draft`;
+    const usage = () =>
+      db.withTenant(other, async (tx) => (await tx.select().from(schema.aiUsage))[0]);
+    let second = 0;
+    app = makeApp({
+      model: mockModel({
+        text: JSON.stringify(issueJson),
+        usage: { inputTokens: 300, outputTokens: 100 },
+        // While this draft is in flight, leave no room above its reservation, then ask again.
+        pause: async () => {
+          const reserved = (await usage())?.inputTokens ?? 0;
+          expect(reserved).toBeGreaterThan(300);
+          await db.withTenant(other, (tx) =>
+            tx
+              .update(schema.tenants)
+              .set({ aiDailyTokenBudget: reserved })
+              .where(eq(schema.tenants.id, other)),
+          );
+          second = (await call("POST", path, "otherOwner")).status;
+        },
+      }),
+    });
+    try {
+      expect((await call("POST", path, "otherOwner")).status).toBe(200);
+      expect(second).toBe(409);
+      // The reservation became the real cost: one call, 300 in, 100 out.
+      expect(await usage()).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 });
+
+      // A failed call costs nothing and gives its reservation back.
+      await db.withTenant(other, (tx) =>
+        tx
+          .update(schema.tenants)
+          .set({ aiDailyTokenBudget: null })
+          .where(eq(schema.tenants.id, other)),
+      );
+      app = makeApp({ model: failingModel() });
+      expect((await call("POST", path, "otherOwner")).status).toBe(502);
+      expect(await usage()).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 });
+    } finally {
+      app = makeApp();
+    }
+  });
+
+  it("holds no lock while the AI writes, so reply drafting never waits on it", async () => {
+    const email = await receiveEmail();
+    let lockedMeanwhile = false;
+    app = makeApp({
+      model: mockModel({
+        text: JSON.stringify(issueJson),
+        // While the model "thinks", take the usage lock reply drafting takes, with a short
+        // timeout: it must be free.
+        pause: async () => {
+          await db.withTenant(acme, async (tx) => {
+            await tx.execute(sql`set local lock_timeout = '2s'`);
+            await lockUsage(tx, acme, utcDay(new Date()));
+          });
+          lockedMeanwhile = true;
+        },
+      }),
+    });
+    try {
+      const res = await call(
+        "POST",
+        `/v1/tickets/${email.ticketId}/github-issue/draft`,
+        "githubAgent",
+      );
+      expect(res.status).toBe(200);
+      expect(lockedMeanwhile).toBe(true);
+    } finally {
+      app = makeApp();
+    }
+  });
+
   it("needs github:write, a model, budget left, and a ticket in this workspace", async () => {
     const email = await receiveEmail();
     const path = `/v1/tickets/${email.ticketId}/github-issue/draft`;
@@ -472,7 +594,14 @@ describe("creating the issue", () => {
       authorization: `token ${pat}`,
     });
     // Exactly these two fields: no labels, assignees or milestone can ride along.
-    expect(posted[0]?.body).toEqual({ title: "Export fails", body: "Steps: open Reports." });
+    expect(Object.keys(posted[0]?.body as object).sort()).toEqual(["body", "title"]);
+    // The body as written, then only the hidden line that lets a lost answer be recovered.
+    expect(posted[0]?.body).toEqual({
+      title: "Export fails",
+      body: expect.stringMatching(
+        /^Steps: open Reports\.\n\n<!-- helpdesk-claim:[0-9a-f-]{36} -->$/,
+      ),
+    });
 
     const ticket = await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly");
     expect(await ticket.json()).toMatchObject({
@@ -500,9 +629,9 @@ describe("creating the issue", () => {
     expect(res.status).toBe(400);
   });
 
-  it("links nothing when GitHub fails, so it can be tried again", async () => {
+  it("links nothing when GitHub refuses, so it can be tried again at once", async () => {
     const email = await receiveEmail();
-    githubDown = true;
+    rejectCreate = true;
     const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
       title: "t",
       body: "b",
@@ -511,9 +640,142 @@ describe("creating the issue", () => {
     const text = await res.text();
     expect(JSON.parse(text)).toEqual({ error: "github_unavailable" });
     expect(text).not.toContain(pat);
-    githubDown = false;
+    rejectCreate = false;
     await createIssue(email.ticketId);
     expect(everythingLogged()).not.toContain(pat);
+  });
+
+  it("holds the ticket when GitHub is down, since a 5xx may come after the issue was opened", async () => {
+    const email = await receiveEmail();
+    githubDown = true;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(502);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ error: "github_outcome_unknown" });
+    expect(text).not.toContain(pat);
+    expect(everythingLogged()).not.toContain(pat);
+  });
+
+  it("finds the issue when GitHub opened it but its answer was lost, instead of opening another", async () => {
+    const email = await receiveEmail();
+    loseCreateAnswer = true;
+    const before = githubCalls.length;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "Lost answer",
+      body: "Line one\nLine two",
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const linked = (await res.json()) as { number: number };
+    const calls = githubCalls.slice(before).map((c) => `${c.method} ${c.path}`);
+    // One create, then a lookup: never a second create.
+    expect(calls).toEqual(["POST /repos/acme/app/issues", "GET /repos/acme/app/issues"]);
+    expect(linked.number).toBe(openedIssues[0]?.number);
+    expect(
+      await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json(),
+    ).toMatchObject({
+      githubIssue: { number: linked.number, state: "open" },
+    });
+  });
+
+  it("still links the issue when this request's claim was taken as stale meanwhile", async () => {
+    const email = await receiveEmail();
+    duringCreate = () =>
+      db.withTenant(acme, async (tx) => {
+        await tx
+          .delete(schema.ticketGithubIssues)
+          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId));
+      });
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    expect(await auditActions(acme, email.ticketId)).toContain("github_issue.created");
+  });
+
+  it("gives the issue's address when it was opened but can't be linked", async () => {
+    const email = await receiveEmail();
+    // Another request claimed the ticket while GitHub was opening this one's issue.
+    duringCreate = () =>
+      db.withTenant(acme, async (tx) => {
+        await tx
+          .delete(schema.ticketGithubIssues)
+          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId));
+        await tx.insert(schema.ticketGithubIssues).values({
+          tenantId: acme,
+          ticketId: email.ticketId,
+          repo: "acme/app",
+          state: "creating",
+        });
+      });
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(500);
+    const opened = openedIssues[0]?.number;
+    expect(await res.json()).toEqual({
+      error: "issue_not_linked",
+      url: `https://github.com/acme/app/issues/${opened}`,
+    });
+    // The log names the orphan, so it can be found and closed.
+    expect(JSON.stringify(logger.error.mock.calls)).toContain(`"issue":${opened}`);
+  });
+
+  it("never opens a second issue when GitHub's answer is lost and the issue isn't listed yet", async () => {
+    const email = await receiveEmail();
+    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const posts = () => githubCalls.filter((c) => c.method === "POST").length;
+    const before = posts();
+    loseCreateAnswer = true;
+    listLags = true;
+    const lost = await call("POST", path, "githubAgent", { title: "t", body: "b" });
+    expect(lost.status).toBe(502);
+    expect(await lost.json()).toEqual({ error: "github_outcome_unknown" });
+    // The claim stays: a retry now is refused instead of opening a second issue.
+    loseCreateAnswer = false;
+    listLags = false;
+    const retry = await call("POST", path, "githubAgent", { title: "t", body: "b" });
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toEqual({ error: "creation_pending" });
+    // Once the claim is stale, the next try finds the earlier issue by its marker.
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.ticketGithubIssues)
+        .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
+        .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+    );
+    const later = await call("POST", path, "githubAgent", { title: "t", body: "b" });
+    expect(later.status, await later.clone().text()).toBe(201);
+    expect(((await later.json()) as { number: number }).number).toBe(openedIssues[0]?.number);
+    expect(posts() - before).toBe(1);
+  });
+
+  it("counts a link an earlier attempt already committed as success, not a clash", async () => {
+    const email = await receiveEmail();
+    // As if the first try to record the link committed but its answer never came back.
+    duringCreate = () =>
+      db.withTenant(acme, async (tx) => {
+        const opened = openedIssues[0];
+        if (!opened) throw new Error("no issue opened");
+        await tx
+          .update(schema.ticketGithubIssues)
+          .set({
+            state: "open",
+            issueNumber: opened.number,
+            issueUrl: `https://github.com/acme/app/issues/${opened.number}`,
+          })
+          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId));
+      });
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { number: number }).number).toBe(openedIssues[0]?.number);
   });
 
   it("is refused without github:write, in another workspace, or with nothing connected", async () => {
@@ -627,7 +889,25 @@ describe("the webhook", () => {
     }
   });
 
-  it("ignores an issue in another repo, even with this workspace's secret", async () => {
+  it("still closes a ticket linked while another repo was connected", async () => {
+    const email = await receiveEmail();
+    // A link from before the workspace switched repos.
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.ticketGithubIssues).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        repo: "acme/old",
+        issueNumber: 9,
+        issueUrl: "https://github.com/acme/old/issues/9",
+        state: "open",
+      }),
+    );
+    const res = await deliver(secret, closed(9, "completed", "Acme/Old"));
+    expect(await res.json()).toEqual({ status: "processed", tickets: 1 });
+    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+  });
+
+  it("ignores an issue in a repo no ticket is linked to, even with this workspace's secret", async () => {
     const email = await receiveEmail();
     const { number } = await createIssue(email.ticketId);
     const res = await deliver(secret, closed(number, "completed", "someone/else"));

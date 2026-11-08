@@ -46,8 +46,13 @@ const urlPattern =
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
 const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-// `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues on GitHub.
-const notifying = /[@#]|\bGH-\d/i;
+// Words GitHub could turn into something live:
+// - `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues;
+// - a character reference (`&commat;`, `&#64;`) decodes into an `@` or a `#`;
+// - `<` before a letter, `/`, `!` or `?` starts an HTML tag, a comment or an `<autolink>`.
+// Inside a code span none of these is interpreted, so such a word is wrapped in one. A plain
+// "Q&A" or "x < 0" is none of these and is left exactly as written.
+const notifying = /[@#]|\bGH-\d|&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);|<[a-z/!?]/i;
 // A word's own punctuation stays outside its code span: "(see #12)." → "(see `#12`)."
 const wordParts = /^([([{"']*)(.*?)([.,;:!?)\]}"']*)$/;
 
@@ -66,19 +71,15 @@ function quietWord(word: string): string {
 }
 
 /**
- * Cleans one piece of model text for GitHub: links and email addresses are removed, HTML is
- * escaped (no `<a>`, `<img>` or `<autolink>`), and @mentions and issue references can't notify
- * anyone. Links go first, so a link's `#fragment` isn't mistaken for an issue reference.
+ * Cleans one piece of model text for GitHub: links and email addresses are removed, and
+ * @mentions, issue references, character references and HTML go into code spans, where
+ * GitHub neither notifies, links, decodes nor renders them. Nothing is escaped into entities,
+ * so a title (which GitHub shows as plain text) never shows a stray `&amp;`. Links go first,
+ * so a link's `#fragment` isn't mistaken for an issue reference.
  */
 export function sanitizeIssueText(raw: string): string {
   // The model's own backticks become quotes: the only code spans are the ones added here.
-  // `&` is escaped first, so no character reference (`&commat;`, `&#35;`, `&colon;`) can turn
-  // back into an `@`, a `#` or a link after this check has passed it.
-  const text = raw
-    .replaceAll("`", "'")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(emailPattern, "[email removed]");
+  const text = raw.replaceAll("`", "'").replaceAll(emailPattern, "[email removed]");
   let out = "";
   let from = 0;
   for (const match of text.matchAll(urlPattern)) {
@@ -117,6 +118,20 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
   return { title, body };
 }
 
+/** Room for the model's answer: a title and a few short sections. */
+const maxIssueOutputTokens = 2_000;
+
+/**
+ * An upper bound on the tokens one draft costs, to reserve from the daily budget before the
+ * call. Tokens run about four characters each; counting three per token errs high, so the
+ * reservation, settled to the real figure afterwards, is never too small.
+ */
+export function issueDraftTokenEstimate(input: DraftInput): number {
+  return (
+    Math.ceil((issueInstructions.length + fenceEmail(input).length) / 3) + maxIssueOutputTokens
+  );
+}
+
 /** Drafts the issue. The ticket goes in the prompt, quoted; the rules go in the system slot. */
 export async function draftGithubIssue(
   model: LanguageModel,
@@ -127,6 +142,8 @@ export async function draftGithubIssue(
     instructions: issueInstructions,
     prompt: fenceEmail(input),
     output: Output.object({ schema: issueSchema }),
+    // The budget reservation counts on this bound.
+    maxOutputTokens: maxIssueOutputTokens,
   });
   return {
     ...formatIssue(result.output),

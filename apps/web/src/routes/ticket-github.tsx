@@ -48,6 +48,12 @@ function createProblem(error: unknown): string {
       return "Couldn't reach GitHub. Nothing was created; try again.";
     case "already_linked":
       return "This ticket already has an issue.";
+    case "github_outcome_unknown":
+      return "GitHub didn't answer, so it isn't known whether the issue was opened. Check the repo; if it isn't there, try again in two minutes.";
+    case "creation_pending":
+      return "An issue for this ticket is being opened, or GitHub's answer to the last try was lost. Try again in two minutes: nothing is opened twice.";
+    case "issue_not_linked":
+      return "The issue was opened on GitHub, but couldn't be linked to this ticket. Find it in the repo before creating another.";
     case "reconnect_required":
       return "The stored token can't be read any more. An owner needs to connect the repo again.";
     default:

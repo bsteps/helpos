@@ -145,7 +145,9 @@ export function useCreateGithubIssue(ticketId: string) {
       unwrap(
         api.POST("/v1/tickets/{id}/github-issue", { params: { path: { id: ticketId } }, body }),
       ),
-    // Refetched either way: a 409 means the ticket already has an issue to show.
+    // Refetched either way: a 409 means the ticket already has an issue to show. The returned
+    // promise is awaited before a caller's own onSuccess runs, so the composer closes only
+    // once the ticket shows its issue, never flashing the "Create GitHub issue" button back.
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
   });
 }

@@ -43,16 +43,21 @@ describe("sanitizeIssueText", () => {
     );
   });
 
-  it("escapes character references, so &commat; or &#35; can't become a mention or reference", () => {
-    expect(sanitizeIssueText("cc &commat;ceo, see &num;12 and &#64;cto")).toBe(
-      "cc &amp;commat;ceo, see &amp;num;12 and `&amp;#64;cto`",
+  it("puts character references in code, so &commat; or &#64; can't decode into a mention", () => {
+    expect(sanitizeIssueText("cc &commat;ceo, see &num;12 and &#x40;cto.")).toBe(
+      "cc `&commat;ceo`, see `&num;12` and `&#x40;cto`.",
     );
-    expect(sanitizeIssueText("Fish & chips")).toBe("Fish &amp; chips");
   });
 
-  it("escapes HTML, so no <a>, <img> or <autolink> renders", () => {
-    expect(sanitizeIssueText('<img src=x onerror=y> <a href="/x">hi</a>')).toBe(
-      '&lt;img src=x onerror=y> &lt;a href="/x">hi&lt;/a>',
+  it("puts HTML in code, so no <a>, <img>, comment or <autolink> renders", () => {
+    expect(sanitizeIssueText('<img src=x onerror=y> <a href="/x">hi</a> <!-- x --> <x:y>')).toBe(
+      '`<img` src=x onerror=y> `<a` `href="/x">hi</a>` `<!--` x --> `<x:y>`',
+    );
+  });
+
+  it("leaves plain & and < alone, so titles never show &amp; or &lt;", () => {
+    expect(sanitizeIssueText("Export fails on the Q&A page when value < 0 & R&D")).toBe(
+      "Export fails on the Q&A page when value < 0 & R&D",
     );
   });
 

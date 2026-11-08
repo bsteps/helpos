@@ -90,7 +90,7 @@ If HelpOS runs in Docker and Ollama on the host, use `http://host.docker.interna
 
 ## GitHub (ticket → issue → "it's fixed")
 
-A workspace owner connects one repo under **Settings → GitHub**, with a fine-grained personal access token that has **Issues: read and write** on that repo. The server stores the token encrypted, so it needs a key:
+A workspace owner connects one repo under **Settings → GitHub**, with a fine-grained personal access token (`github_pat_…`) that has **Issues: read and write** on that repo. Classic `ghp_` tokens are refused: they reach every repo their owner can. The server stores the token encrypted, so it needs a key:
 
 | Variable                | Meaning                                                                                                                                                     |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |

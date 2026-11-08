@@ -1,15 +1,20 @@
 import { randomBytes } from "node:crypto";
-import { draftGithubIssue, type LanguageModel, maxIssueTitleChars } from "@helpos/ai";
-import { and, asc, type Database, eq, isNull, lt, schema, sql } from "@helpos/db";
+import {
+  draftGithubIssue,
+  issueDraftTokenEstimate,
+  type LanguageModel,
+  maxIssueTitleChars,
+} from "@helpos/ai";
+import { and, asc, type Database, eq, isNull, lt, schema, sql, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
-import { dailyBudget, lockUsage, recordUsage, totalTokens, utcDay } from "../ai-budget/budget.ts";
+import { dailyBudget, reserveUsage, settleUsage, utcDay } from "../ai-budget/budget.ts";
 import { errorSummary } from "../app.ts";
-import { recordAudit } from "../audit/audit.ts";
+import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
-import { type GithubApiFactory, parseRepo, repoString } from "./github-api.ts";
+import { type CreatedIssue, type GithubApiFactory, parseRepo, repoString } from "./github-api.ts";
 import { registerGithubWebhook, webhookPath } from "./webhook.ts";
 
 const { integrations, messages, ticketGithubIssues, tickets } = schema;
@@ -17,7 +22,7 @@ const { integrations, messages, ticketGithubIssues, tickets } = schema;
 export interface GithubRoutesDeps {
   db: Pick<Database, "withTenant">;
   authenticate: Authenticate;
-  logger: Pick<Logger, "info" | "warn">;
+  logger: Pick<Logger, "info" | "warn" | "error">;
   /** HELPOS_PUBLIC_URL: the webhook address shown to the admin is built from it. */
   publicUrl: string;
   /** From HELPOS_ENCRYPTION_KEY. Without it, nothing can be connected and nothing is decrypted. */
@@ -109,8 +114,8 @@ const connectRoute = createRoute({
   path: integrationPath,
   summary: "Connect a GitHub repo",
   description:
-    "Stores one repo and a fine-grained personal access token with Issues read and write " +
-    "access to it, replacing any earlier connection. The token is checked with GitHub first, " +
+    "Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues " +
+    "read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, " +
     "then stored encrypted; it is never returned. The response holds a new webhook secret, the " +
     "only time it is shown. Needs `workspace:admin` in a human session.",
   security,
@@ -127,7 +132,9 @@ const connectRoute = createRoute({
             token: z
               .string()
               .trim()
-              .regex(/^(github_pat_|ghp_)[A-Za-z0-9_]{20,250}$/, "must be a GitHub token"),
+              // Fine-grained tokens only: a classic `ghp_` token reaches every repo its owner
+              // can, and the helpdesk must reach only the one it is connected to.
+              .regex(/^github_pat_[A-Za-z0-9_]{20,250}$/, "must be a fine-grained token"),
           }),
         },
       },
@@ -188,9 +195,11 @@ const createIssueRoute = createRoute({
   summary: "Create a GitHub issue from a ticket",
   description:
     "Opens an issue with exactly this title and body in the connected repo, and links it to " +
-    "the ticket. Only title and body are sent: no labels, assignees or milestones. When the " +
-    "issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per " +
-    "ticket. Needs `github:write`.",
+    "the ticket. Only title and body are sent: no labels, assignees or milestones. The body " +
+    "ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that " +
+    "if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue " +
+    "instead of opening a duplicate. When the issue is closed as completed, the ticket gets a " +
+    "`fixed` draft to approve. One issue per ticket. Needs `github:write`.",
   security,
   request: {
     params: idParams,
@@ -213,13 +222,22 @@ const createIssueRoute = createRoute({
     409: json(
       errorSchema,
       "No repo is connected (`not_connected`), the ticket already has an issue " +
-        "(`already_linked`), or the stored token can't be read with the server's key and the " +
-        "repo must be connected again (`reconnect_required`)",
+        "(`already_linked`), one is being opened or GitHub's answer to the last try was lost " +
+        "(`creation_pending`: try again in two minutes; nothing is opened twice), or the stored " +
+        "token can't be read with the server's key and the repo must be connected again " +
+        "(`reconnect_required`)",
     ),
     502: json(
       errorSchema,
       "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), " +
-        "or could not be reached (`github_unavailable`). Nothing was linked",
+        "or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't " +
+        "answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays " +
+        "claimed, and a try after two minutes first looks for that issue again",
+    ),
+    500: json(
+      z.object({ error: z.string(), url: z.string() }),
+      "The issue was opened on GitHub, at `url`, but couldn't be linked to the ticket " +
+        "(`issue_not_linked`). Don't create it again: close that one or link it by hand",
     ),
     503: notConfigured,
   },
@@ -360,7 +378,10 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const { tenantId } = principal;
     const day = utcDay((deps.now ?? (() => new Date()))());
 
-    const result = await deps.db.withTenant(tenantId, async (tx) => {
+    // 1. Read the ticket and reserve the call's cost from today's budget, in one statement:
+    // concurrent calls can't all pass the cap, and no lock is held while the model writes, so
+    // this never holds up the workspace's reply drafting.
+    const prepared = await deps.db.withTenant(tenantId, async (tx) => {
       const [ticket] = await tx
         .select({ subject: tickets.subject })
         .from(tickets)
@@ -380,30 +401,40 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       const lastInbound = rows.findLastIndex((m) => m.direction === "inbound");
       const latest = rows[lastInbound];
       if (!latest) return "nothing_to_report" as const;
-
-      // Locked across the model call, like reply drafting, so two calls can't both slip
-      // under the cap.
-      const used = await lockUsage(tx, tenantId, day);
-      if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.dailyTokenBudget))) {
+      const input = {
+        from: latest.from,
+        subject: ticket.subject,
+        body: messageText(latest),
+        history: rows.slice(0, lastInbound).map((m) => ({
+          direction: m.direction,
+          from: m.from,
+          body: messageText(m),
+        })),
+      };
+      const reserved = issueDraftTokenEstimate(input);
+      const budget = await dailyBudget(tx, tenantId, deps.dailyTokenBudget);
+      if (!(await reserveUsage(tx, tenantId, day, reserved, budget))) {
         return "daily_budget_reached" as const;
       }
-      let draft: Awaited<ReturnType<typeof draftGithubIssue>>;
-      try {
-        draft = await draftGithubIssue(model, {
-          from: latest.from,
-          subject: ticket.subject,
-          body: messageText(latest),
-          history: rows.slice(0, lastInbound).map((m) => ({
-            direction: m.direction,
-            from: m.from,
-            body: messageText(m),
-          })),
-        });
-      } catch (error) {
-        deps.logger.warn({ err: errorSummary(error) }, "github issue draft: AI call failed");
-        return "ai_unavailable" as const;
-      }
-      await recordUsage(tx, tenantId, day, draft.usage);
+      return { input, reserved };
+    });
+    if (prepared === "not_found") return c.json({ error: prepared }, 404);
+    if (typeof prepared === "string") return c.json({ error: prepared }, 409);
+
+    // 2. The model call, with no transaction open.
+    let draft: Awaited<ReturnType<typeof draftGithubIssue>>;
+    try {
+      draft = await draftGithubIssue(model, prepared.input);
+    } catch (error) {
+      deps.logger.warn({ err: errorSummary(error) }, "github issue draft: AI call failed");
+      await deps.db.withTenant(tenantId, (tx) => settleUsage(tx, day, prepared.reserved, null));
+      return c.json({ error: "ai_unavailable" }, 502);
+    }
+
+    // 3. Swap the reservation for the real cost, with the audit event. If this fails, the
+    // reservation (an upper bound) stays counted: the budget may overcount, never undercount.
+    await deps.db.withTenant(tenantId, async (tx) => {
+      await settleUsage(tx, day, prepared.reserved, draft.usage);
       await recordAudit(tx, {
         tenantId,
         actor: principal.actor,
@@ -411,15 +442,8 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         target: { type: "ticket", id },
         requestId: c.get("requestId"),
       });
-      return { title: draft.title, body: draft.body };
     });
-
-    if (result === "not_found") return c.json({ error: result }, 404);
-    if (result === "nothing_to_report" || result === "daily_budget_reached") {
-      return c.json({ error: result }, 409);
-    }
-    if (result === "ai_unavailable") return c.json({ error: result }, 502);
-    return c.json(result, 200);
+    return c.json({ title: draft.title, body: draft.body }, 200);
   });
 
   app.openapi(createIssueRoute, async (c) => {
@@ -450,8 +474,9 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         if (!(error instanceof SecretBoxError)) throw error;
         return "reconnect_required" as const;
       }
-      // A claim left by a request that died never blocks the ticket for good.
-      await tx
+      // A claim whose request died or never heard back from GitHub doesn't block the ticket
+      // for good. Its ID comes along: that request's issue may exist, and is looked for first.
+      const stale = await tx
         .delete(ticketGithubIssues)
         .where(
           and(
@@ -462,14 +487,24 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
               sql`now() - make_interval(secs => ${staleClaimSeconds})`,
             ),
           ),
-        );
+        )
+        .returning({ id: ticketGithubIssues.id, createdAt: ticketGithubIssues.createdAt });
       const [claimed] = await tx
         .insert(ticketGithubIssues)
         .values({ tenantId, ticketId, repo: integration.repo, state: "creating" })
         .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
         .returning({ id: ticketGithubIssues.id });
-      if (!claimed) return "already_linked" as const;
-      return { claimId: claimed.id, repo: integration.repo, token };
+      if (!claimed) {
+        const [existing] = await tx
+          .select({ state: ticketGithubIssues.state })
+          .from(ticketGithubIssues)
+          .where(eq(ticketGithubIssues.ticketId, ticketId));
+        // Another request is opening it right now, or GitHub never told us how it went.
+        return existing?.state === "creating"
+          ? ("creation_pending" as const)
+          : ("already_linked" as const);
+      }
+      return { claimId: claimed.id, repo: integration.repo, token, stale: stale[0] };
     });
     if (claim === "not_found") return c.json({ error: claim }, 404);
     if (typeof claim === "string") return c.json({ error: claim }, 409);
@@ -477,7 +512,34 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     // 2. Call GitHub with no transaction open: a slow GitHub holds no connection or lock.
     const repo = parseRepo(claim.repo);
     if (!repo) throw new Error("github issue: stored repo is not owner/name");
-    const created = await deps.github(claim.token).createIssue(repo, issue);
+    const github = deps.github(claim.token);
+    // A minute of slack for clocks that disagree with GitHub's.
+    const slack = 60_000;
+    let created: Awaited<ReturnType<typeof github.createIssue>> | undefined;
+    if (claim.stale) {
+      const earlier = await github.findIssue(repo, {
+        marker: claim.stale.id,
+        since: new Date(claim.stale.createdAt.getTime() - slack),
+      });
+      if (!earlier.ok) return c.json({ error: "github_unavailable" }, 502);
+      if (earlier.value) created = { ok: true, value: earlier.value };
+    }
+    if (!created) {
+      const since = new Date(Date.now() - slack);
+      created = await github.createIssue(repo, { ...issue, marker: claim.claimId });
+      if (!created.ok && created.uncertain) {
+        // GitHub may have opened it before the answer was lost. Opening it again would make a
+        // duplicate that no ticket ever hears about, so look for this claim's marker first.
+        const found = await github.findIssue(repo, { marker: claim.claimId, since });
+        if (found.ok && found.value) created = { ok: true, value: found.value };
+        else {
+          // Still unknown. The claim stays, so a retry can't open a second issue now; once it
+          // is stale, the next try looks for this marker again before opening anything.
+          deps.logger.warn({ ticketId }, "github issue: GitHub's answer was lost");
+          return c.json({ error: "github_outcome_unknown" }, 502);
+        }
+      }
+    }
     if (!created.ok) {
       await deps.db.withTenant(tenantId, (tx) =>
         tx
@@ -489,40 +551,98 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       deps.logger.warn({ ticketId, reason: created.reason }, "github issue: GitHub refused");
       return c.json({ error: created.reason }, 502);
     }
+    const made = created.value;
 
-    // 3. Record the issue on the claim, with its audit event.
-    const link = await deps.db.withTenant(tenantId, async (tx) => {
-      const [row] = await tx
-        .update(ticketGithubIssues)
-        .set({
-          state: "open",
-          issueNumber: created.value.number,
-          issueUrl: created.value.url,
-        })
-        .where(
-          and(eq(ticketGithubIssues.id, claim.claimId), eq(ticketGithubIssues.state, "creating")),
-        )
-        .returning();
-      // Only if this request was so slow that another took its claim over.
-      if (!row) throw new Error("github issue: claim was taken over while GitHub was called");
-      await recordAudit(tx, {
-        tenantId,
-        actor: principal.actor,
-        action: "github_issue.created",
-        target: { type: "ticket", id: ticketId },
-        requestId: c.get("requestId"),
-      });
-      return row;
-    });
-    deps.logger.info({ ticketId, issue: created.value.number }, "github issue created");
+    // 3. Record the issue, with its audit event. It exists on GitHub now, so a failure here
+    // must not lose it: tried twice, and if it still fails, the caller gets its address.
+    let link: { repo: string } | "taken" | undefined;
+    for (let attempt = 1; attempt <= 2 && link === undefined; attempt++) {
+      try {
+        link = await deps.db.withTenant(tenantId, (tx) =>
+          recordIssue(tx, {
+            tenantId,
+            ticketId,
+            claimId: claim.claimId,
+            repo: claim.repo,
+            issue: made,
+            actor: principal.actor,
+            requestId: c.get("requestId"),
+          }),
+        );
+      } catch (error) {
+        deps.logger.warn({ err: errorSummary(error), attempt }, "github issue: linking failed");
+      }
+    }
+    if (link === undefined || link === "taken") {
+      deps.logger.error(
+        { ticketId, issue: made.number, issueUrl: made.url },
+        "github issue created but not linked to its ticket",
+      );
+      return c.json({ error: "issue_not_linked", url: made.url }, 500);
+    }
+    deps.logger.info({ ticketId, issue: made.number }, "github issue created");
     return c.json(
-      {
-        repo: link.repo,
-        number: created.value.number,
-        url: created.value.url,
-        state: "open" as const,
-      },
+      { repo: link.repo, number: made.number, url: made.url, state: "open" as const },
       201,
     );
   });
+}
+
+/**
+ * Links an issue GitHub has opened to its ticket: on this request's own claim, or, when that
+ * claim is gone (a request so slow its claim was taken as stale), as a new link. Idempotent: if
+ * the ticket already links this very issue (an earlier attempt committed but its answer was
+ * lost), that is success, not a clash. "taken" when the ticket has another issue or claim.
+ */
+async function recordIssue(
+  tx: TenantTx,
+  input: {
+    tenantId: string;
+    ticketId: string;
+    claimId: string;
+    repo: string;
+    issue: CreatedIssue;
+    actor: AuditActor;
+    requestId: string;
+  },
+): Promise<{ repo: string } | "taken"> {
+  const values = {
+    state: "open" as const,
+    issueNumber: input.issue.number,
+    issueUrl: input.issue.url,
+  };
+  const [claimed] = await tx
+    .update(ticketGithubIssues)
+    .set(values)
+    .where(and(eq(ticketGithubIssues.id, input.claimId), eq(ticketGithubIssues.state, "creating")))
+    .returning({ repo: ticketGithubIssues.repo });
+  const row =
+    claimed ??
+    (
+      await tx
+        .insert(ticketGithubIssues)
+        .values({ tenantId: input.tenantId, ticketId: input.ticketId, repo: input.repo, ...values })
+        .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
+        .returning({ repo: ticketGithubIssues.repo })
+    )[0];
+  if (!row) {
+    const [existing] = await tx
+      .select({
+        repo: ticketGithubIssues.repo,
+        issueNumber: ticketGithubIssues.issueNumber,
+      })
+      .from(ticketGithubIssues)
+      .where(eq(ticketGithubIssues.ticketId, input.ticketId));
+    const sameIssue = existing?.repo === input.repo && existing.issueNumber === input.issue.number;
+    // Already linked and audited by the attempt that committed: nothing more to write.
+    return sameIssue ? { repo: existing.repo } : "taken";
+  }
+  await recordAudit(tx, {
+    tenantId: input.tenantId,
+    actor: input.actor,
+    action: "github_issue.created",
+    target: { type: "ticket", id: input.ticketId },
+    requestId: input.requestId,
+  });
+  return row;
 }

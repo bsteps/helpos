@@ -21,6 +21,9 @@ export const webhookPath = "/v1/integrations/github/webhook";
 /** A webhook delivery is a few KB; GitHub caps them at 25 MB. Nothing we read is near this. */
 export const maxWebhookBytes = 1024 * 1024;
 
+/** What GitHub sends; anything else is refused without touching the database. */
+const signatureShape = /^sha256=[0-9a-fA-F]{64}$/;
+
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const json = <T extends z.ZodType>(s: T, description: string) => ({
   description,
@@ -49,7 +52,9 @@ const webhookRoute = createRoute({
   description:
     "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the " +
     "workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's " +
-    "webhook secret. When an issue linked to tickets is closed as completed, each ticket gets " +
+    "webhook secret. Tickets are matched by the event's repo and issue number, so issues made " +
+    "while another repo was connected still close, as long as that repo's webhook has the " +
+    "current secret. When an issue linked to tickets is closed as completed, each ticket gets " +
     "a `fixed` draft for a human to approve. A delivery for an issue already closed changes " +
     "nothing, so a replay is harmless. Other events are acknowledged and ignored.",
   security: [{ githubSignature: [] }],
@@ -70,7 +75,7 @@ const webhookRoute = createRoute({
 declare module "hono" {
   interface ContextVariableMap {
     /** Set once a webhook's signature checks out. */
-    githubWebhook: { tenantId: string; repo: string };
+    githubWebhook: { tenantId: string };
   }
 }
 
@@ -92,8 +97,14 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
       onError: (c) => c.json({ error: "too_large" }, 413),
     }),
   );
-  // Before validation, so a caller without the secret learns nothing, not even a 400.
+  // Before validation, so a caller without the secret learns nothing, not even a 400. A
+  // request that isn't even shaped like a signed delivery is refused before any database work.
   app.use(webhookPath, async (c, next) => {
+    const signature = c.req.header("x-hub-signature-256") ?? "";
+    const workspace = z.uuid().safeParse(c.req.query("workspace"));
+    if (!signatureShape.test(signature) || !workspace.success) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
     const verified = await verifyWebhook(c, deps);
     if (!verified) return c.json({ error: "unauthorized" }, 401);
     c.set("githubWebhook", verified);
@@ -101,13 +112,16 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
   });
 
   app.openapi(webhookRoute, async (c) => {
-    const { tenantId, repo } = c.get("githubWebhook");
+    const { tenantId } = c.get("githubWebhook");
     const event = c.req.header("x-github-event");
     const payload = c.req.valid("json");
     const ignored = { status: "ignored" as const, tickets: 0 };
     if (event !== "issues" || !payload.issue || !payload.repository) return c.json(ignored, 200);
-    // A webhook set on another repo with this secret: not ours to act on.
-    if (payload.repository.full_name.toLowerCase() !== repo) return c.json(ignored, 200);
+    // The event's own repo, not only the connected one: a ticket linked while another repo was
+    // connected keeps its link, and still hears when that issue closes. Only a webhook that
+    // signs with this workspace's secret gets here, so every repo it speaks for is one an
+    // admin of this workspace set it up on.
+    const repo = payload.repository.full_name.toLowerCase();
     const issue = payload.issue;
     const requestId = c.get("requestId");
 
@@ -191,17 +205,14 @@ function issueMatches(repo: string, number: number, state: "open" | "closed") {
 async function verifyWebhook(
   c: Context,
   deps: GithubWebhookDeps,
-): Promise<{ tenantId: string; repo: string } | null> {
+): Promise<{ tenantId: string } | null> {
   const workspace = z.uuid().safeParse(c.req.query("workspace"));
   const box = deps.secretBox;
   if (!workspace.success || !box) return null;
   const tenantId = workspace.data;
   const [row] = await deps.db.withTenant(tenantId, (tx) =>
     tx
-      .select({
-        repo: integrations.repo,
-        webhookSecretCiphertext: integrations.webhookSecretCiphertext,
-      })
+      .select({ webhookSecretCiphertext: integrations.webhookSecretCiphertext })
       .from(integrations)
       .where(eq(integrations.provider, "github")),
   );
@@ -220,5 +231,5 @@ async function verifyWebhook(
   // Read once here and cached by Hono, so validation afterwards parses these same bytes.
   const body = new Uint8Array(await c.req.arrayBuffer());
   if (!signatureMatches(secret, body, c.req.header("x-hub-signature-256"))) return null;
-  return { tenantId, repo: row.repo };
+  return { tenantId };
 }

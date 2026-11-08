@@ -1,18 +1,41 @@
 import { Octokit } from "@octokit/core";
 
 /**
- * The GitHub calls the helpdesk makes, and nothing more: read a repo (to check a token when it
- * is connected) and open an issue. Opening an issue sends only a title and a body. There is no
- * way to pass labels, assignees or milestones through here, so neither the AI nor a caller can
- * add them: what the customer wrote is data, never instructions.
+ * The GitHub calls the helpdesk makes, and nothing more:
+ * - read the repo, to check a token when it is connected;
+ * - open an issue, sending only a title and a body;
+ * - list the repo's newest issues, to find one it opened when GitHub's answer was lost.
+ * All of them fit the token's "Issues: read and write" permission. There is no way to pass
+ * labels, assignees or milestones through here, so neither the AI nor a caller can add them:
+ * what the customer wrote is data, never instructions.
  */
 export interface GithubApi {
   checkRepo(repo: RepoName): Promise<GithubResult<{ private: boolean }>>;
+  /**
+   * `marker` goes at the end of the body as an HTML comment, which GitHub doesn't show. It is
+   * the claim's ID, so findIssue() can later recognise exactly this issue and no other.
+   */
   createIssue(
     repo: RepoName,
-    issue: { title: string; body: string },
-  ): Promise<GithubResult<{ number: number; url: string }>>;
+    issue: { title: string; body: string; marker: string },
+  ): Promise<GithubResult<CreatedIssue>>;
+  /**
+   * The issue carrying `marker`, opened since `since`, if there is one. Opening an issue can't
+   * be made idempotent on GitHub, so when the answer to a create is lost (a timeout, a dropped
+   * connection, a 5xx), this finds the issue GitHub may have opened anyway.
+   */
+  findIssue(
+    repo: RepoName,
+    lookup: { marker: string; since: Date },
+  ): Promise<GithubResult<CreatedIssue | null>>;
 }
+
+/** The hidden line that ties an issue to the claim that opened it. */
+export function markerComment(marker: string): string {
+  return `<!-- helpdesk-claim:${marker} -->`;
+}
+
+export type CreatedIssue = { number: number; url: string };
 
 export type RepoName = { owner: string; name: string };
 
@@ -21,7 +44,13 @@ export type RepoName = { owner: string; name: string };
  * request details, and the token must never end up in a response or a log.
  */
 export type GithubFailure = "token_rejected" | "repo_not_found" | "github_unavailable";
-export type GithubResult<T> = { ok: true; value: T } | { ok: false; reason: GithubFailure };
+/**
+ * `uncertain`: GitHub never gave an answer (a timeout, a dropped connection) or failed on its
+ * side (5xx), so a write may have happened. A clear refusal (4xx) is never uncertain.
+ */
+export type GithubResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: GithubFailure; uncertain: boolean };
 
 /** Builds the API for one token. Tests pass a fake `fetch`, so no test ever calls GitHub. */
 export type GithubApiFactory = (token: string) => GithubApi;
@@ -56,6 +85,21 @@ export function githubFailure(error: unknown): GithubFailure {
   return "github_unavailable";
 }
 
+/**
+ * Octokit reports a timeout, an abort or a network failure as status 500, like GitHub's own
+ * 5xx: then the request may have reached GitHub. An error with no status never got that far
+ * (a bug before sending), so it is a plain failure.
+ */
+function failed(error: unknown): { ok: false; reason: GithubFailure; uncertain: boolean } {
+  const status =
+    typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
+  const uncertain = typeof status === "number" && status >= 500;
+  return { ok: false, reason: githubFailure(error), uncertain };
+}
+
+/** Pages of the newest issues to look through: an issue opened seconds ago is on the first. */
+const lookupPages = 3;
+
 export function octokitGithub(options: OctokitOptions): GithubApiFactory {
   const timeoutMs = options.timeoutMs ?? 10_000;
   return (token) => {
@@ -78,7 +122,7 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
           });
           return { ok: true, value: { private: res.data.private } };
         } catch (error) {
-          return { ok: false, reason: githubFailure(error) };
+          return failed(error);
         }
       },
       async createIssue(repo, issue) {
@@ -87,12 +131,38 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
             owner: repo.owner,
             repo: repo.name,
             title: issue.title,
-            body: issue.body,
+            body: `${issue.body}\n\n${markerComment(issue.marker)}`,
             request: { signal: signal() },
           });
           return { ok: true, value: { number: res.data.number, url: res.data.html_url } };
         } catch (error) {
-          return { ok: false, reason: githubFailure(error) };
+          return failed(error);
+        }
+      },
+      async findIssue(repo, lookup) {
+        const comment = markerComment(lookup.marker);
+        try {
+          for (let page = 1; page <= lookupPages; page++) {
+            // Newest first, so the search can stop at the first issue older than `since`.
+            const res = await octokit.request("GET /repos/{owner}/{repo}/issues", {
+              owner: repo.owner,
+              repo: repo.name,
+              state: "all",
+              sort: "created",
+              direction: "desc",
+              since: lookup.since.toISOString(),
+              per_page: 50,
+              page,
+              request: { signal: signal() },
+            });
+            const found = res.data.find((i) => !i.pull_request && i.body?.includes(comment));
+            if (found) return { ok: true, value: { number: found.number, url: found.html_url } };
+            const last = res.data.at(-1);
+            if (res.data.length < 50 || !last || new Date(last.created_at) < lookup.since) break;
+          }
+          return { ok: true, value: null };
+        } catch (error) {
+          return failed(error);
         }
       },
     };

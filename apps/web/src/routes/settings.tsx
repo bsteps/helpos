@@ -45,8 +45,9 @@ function connectProblem(error: unknown): string {
     case "encryption_not_configured":
       return "This server can't store tokens yet: whoever runs it needs to set HELPOS_ENCRYPTION_KEY.";
     default:
+      // The token's shape is checked before sending, so a 400 here is about the repo name.
       return error.status === 400
-        ? "Enter the repo as owner/name, and a GitHub personal access token."
+        ? "Enter the repo as owner/name, e.g. acme/app."
         : "That didn't work. Try again.";
   }
 }
@@ -62,8 +63,11 @@ function GithubSettings() {
   // The secret is shown once, straight from the connect response, and never stored here.
   const [connected, setConnected] = useState<GithubConnected | null>(null);
 
+  // Checked here, so the form names the field that's wrong. The API refuses it too.
+  const classicToken = token.trim() !== "" && !token.trim().startsWith("github_pat_");
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (classicToken) return;
     connect.mutate(
       { repo: repo.trim(), token: token.trim() },
       {
@@ -127,6 +131,11 @@ function GithubSettings() {
               placeholder="github_pat_…"
               value={token}
               onChange={setToken}
+              error={
+                classicToken
+                  ? "Use a fine-grained token (it starts with github_pat_). A classic token reaches every repo you can, so it isn't accepted."
+                  : false
+              }
               autoComplete="off"
               required
               disabled={connect.isPending}

@@ -11,6 +11,7 @@ export {
   formatIssue,
   type IssueDraft,
   type IssueFields,
+  issueDraftTokenEstimate,
   issueInstructions,
   maxIssueTitleChars,
   sanitizeIssueText,
