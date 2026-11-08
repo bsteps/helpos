@@ -36,7 +36,11 @@ export async function runEvals(dir: string, liveModel?: LanguageModel): Promise<
       results.push({
         file,
         name: evalCase.name,
-        failures: checkAssertions(output, evalCase.assert),
+        // A live model isn't scripted to obey the injection, so it must not be flagged at all.
+        failures: checkAssertions(
+          output,
+          liveModel ? { ...evalCase.assert, expectInternalQuoteFlag: false } : evalCase.assert,
+        ),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

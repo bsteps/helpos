@@ -35,4 +35,11 @@ export {
   isTemporaryAiFailure,
   parseEmbeddingConfig,
 } from "./embed.ts";
+export {
+  minQuoteContentWords,
+  minQuoteWords,
+  quotesInternalPassage,
+  quoteWords,
+  sharedRuns,
+} from "./internal-quote.ts";
 export { createModel } from "./model.ts";

@@ -41,6 +41,21 @@ export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
   });
 }
 
+/**
+ * A mock that picks its scripted response from what the user message says (the system rules are
+ * left out), e.g. so one end-to-end server can answer different emails differently.
+ */
+export function routedMockModel(pick: (userText: string) => MockResponse): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    provider: "mock",
+    modelId: "routed-mock-model",
+    doGenerate: (options) => {
+      const user = JSON.stringify(options.prompt.filter((m) => m.role === "user"));
+      return mockModel(pick(user)).doGenerate(options);
+    },
+  });
+}
+
 /** What the SDK throws once its own retries of a 429 or a 503 have run out. */
 export function providerDownError(): RetryError {
   return new RetryError({

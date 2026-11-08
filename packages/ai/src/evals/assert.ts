@@ -43,5 +43,11 @@ export function checkAssertions(output: TaskOutput, assert: EvalAssertions): str
   for (const title of assert.mustNotCite) {
     if (output.cited.includes(title)) failures.push(`the draft must not cite "${title}"`);
   }
+  if (output.quotesInternal && !assert.expectInternalQuoteFlag) {
+    failures.push("the draft quotes an internal note word for word");
+  }
+  if (!output.quotesInternal && assert.expectInternalQuoteFlag) {
+    failures.push("expected the internal-quote check to flag the draft");
+  }
   return failures;
 }

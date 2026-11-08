@@ -253,7 +253,18 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
-        {pending && draft.internalKnowledge ? (
+        {pending && draft.quotesInternalNote ? (
+          <Alert variant="destructive" data-testid="internal-quote-alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertTitle>This draft quotes an internal note</AlertTitle>
+              <AlertDescription>
+                Part of it repeats one of your team's internal notes word for word. Edit that part
+                out before you send it.
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : pending && draft.internalKnowledge ? (
           <Alert variant="warning">
             <AlertIcon />
             <AlertContent>

@@ -1500,6 +1500,26 @@ describe("drafting with knowledge", () => {
       expect(list[0]?.internalKnowledge).toBe(true);
     }
 
+    // The draft follows the notes without quoting them: not flagged. Pasting one in (as a model
+    // steered by the email might) flags it for every reader; editing it out clears the flag.
+    const quotes = async (as: string) => {
+      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
+      const { drafts: list } = (await res.json()) as { drafts: { quotesInternalNote: boolean }[] };
+      return list[0]?.quotesInternalNote;
+    };
+    expect(await quotes("editor")).toBe(false);
+    // An internal note the model was shown but didn't cite: pasting it is caught all the same.
+    const uncited = sources.find((s) => s.visibility === "internal" && !s.cited);
+    const note = uncited?.excerpt;
+    if (!note) throw new Error("no uncited internal source");
+    const edit = (body: string) => call("PATCH", `/v1/drafts/${draft.id}`, "editor", { body });
+    expect((await edit(`${draftText}\n\nStaff notes: ${note}`)).status).toBe(200);
+    expect(await quotes("editor")).toBe(true);
+    // Not to a caller without knowledge:read: edit after edit, the flag would let them guess the note.
+    expect(await quotes("ticketsOnly")).toBe(false);
+    expect((await edit(draftText)).status).toBe(200);
+    expect(await quotes("editor")).toBe(false);
+
     const citations = await db.withTenant(acme, (tx) =>
       tx.select().from(draftCitations).where(eq(draftCitations.draftId, draft.id)),
     );

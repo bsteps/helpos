@@ -1,3 +1,4 @@
+import { quotesInternalPassage } from "@helpos/ai";
 import {
   and,
   asc,
@@ -80,6 +81,13 @@ const draftSchema = z
      * it doesn't reveal the note.
      */
     internalKnowledge: z.boolean(),
+    /**
+     * True when the body repeats one of those internal notes word for word (a long run, not a
+     * stock phrase). Checked against the current body, so it clears once the quote is edited
+     * out. A strong hint the draft leaks the note: read it closely before approving. Always
+     * false for a caller without `knowledge:read`, who still gets `internalKnowledge`.
+     */
+    quotesInternalNote: z.boolean(),
   })
   .openapi("Draft");
 type DraftJson = z.infer<typeof draftSchema>;
@@ -212,7 +220,12 @@ const createRoute_ = createRoute({
   },
 });
 
-function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: boolean): DraftJson {
+function serialize(
+  d: DraftRow,
+  sources: DraftSourceJson[],
+  internalKnowledge: boolean,
+  quotesInternalNote: boolean,
+): DraftJson {
   return {
     id: d.id,
     ticketId: d.ticketId,
@@ -225,6 +238,7 @@ function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: b
     sentAt: d.sentAt?.toISOString() ?? null,
     sources,
     internalKnowledge,
+    quotesInternalNote,
   };
 }
 
@@ -236,7 +250,8 @@ function serialize(d: DraftRow, sources: DraftSourceJson[], internalKnowledge: b
 async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
   if (rows.length === 0) return [];
   const canRead = principal.scopes.has("knowledge:read");
-  const cited = await tx
+  // Every passage the model was shown, cited or not (the `cited` column tells them apart).
+  const shown = await tx
     .select({
       draftId: draftCitations.draftId,
       sourceId: draftCitations.sourceId,
@@ -255,11 +270,16 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
     )
     .orderBy(asc(draftCitations.rank));
   return rows.map((row) => {
-    const seen = cited.filter((c) => c.draftId === row.id);
+    const seen = shown.filter((c) => c.draftId === row.id);
+    // Uncited notes count too: a model that pastes a note may well leave it off its sources line.
+    const internal = seen.filter((c) => c.visibility === "internal").map((c) => c.excerpt);
     return serialize(
       row,
       canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
-      seen.some((c) => c.visibility === "internal"),
+      internal.length > 0,
+      // Only with knowledge:read: otherwise someone who can edit drafts could guess text, save
+      // it, and watch the flag to piece the note together.
+      canRead && quotesInternalPassage(row.body, internal),
     );
   });
 }

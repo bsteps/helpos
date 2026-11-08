@@ -1,6 +1,7 @@
 import type { LanguageModel, ToolSet } from "ai";
 import { z } from "zod";
 import { draftReply } from "../draft-reply.ts";
+import { quotesInternalPassage } from "../internal-quote.ts";
 import type { EvalInput } from "./case.ts";
 
 // The answer every eval tool gives. Nothing runs: the call is only recorded. Then the model
@@ -27,11 +28,19 @@ export type TaskOutput = {
   toolCalls: string[];
   /** Titles of the knowledge passages the draft cited. */
   cited: string[];
+  /** What the draft-reply job records: the draft repeats an internal passage word for word. */
+  quotesInternal: boolean;
 };
 
 /** The task evals run: the same draftReply() and prompt the draft-reply job uses. */
 export async function draftReplyTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
   const { text, toolCalls, cited } = await draftReply(model, input, { tools: evalTools });
   const titles = cited.map((i) => input.knowledge?.[i]?.title ?? `K${i + 1}`);
-  return { text, toolCalls: [...new Set(toolCalls)], cited: titles };
+  const internal = (input.knowledge ?? []).filter((k) => k.internal).map((k) => k.content);
+  return {
+    text,
+    toolCalls: [...new Set(toolCalls)],
+    cited: titles,
+    quotesInternal: quotesInternalPassage(text, internal),
+  };
 }
