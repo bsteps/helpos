@@ -48,11 +48,12 @@ export const maxIssueTitleChars = 200;
 
 // Any `scheme://`, bare `www.` and scheme-less `//host`: GitHub links all of them. Parentheses
 // are part of the link (`/wiki/a_(b)`), as GitHub reads them; an unmatched `)` at the end is
-// the sentence's, and stays (see trailingPart). A scheme starts only where a run of scheme
-// characters starts: matching from inside a run too would rescan it from every position, so
-// a long `a.a.a.a…` would take quadratic time.
+// the sentence's, and stays (see trailingPart). The scheme is the run of letters before
+// `://`, whatever comes before that run (`-https://`, `1https://`): GitHub finds it the same
+// way, stepping back over letters only. Each run of letters is read once, so a long `a.a.a…`
+// can't make the search quadratic.
 const urlPattern =
-  /(?:(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>[\]{}"'`]+/gi;
+  /(?:(?<![a-z])[a-z]+:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>[\]{}"'`]+/gi;
 // A markdown link or image target that is still there: a relative path links too.
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;

@@ -102,6 +102,10 @@ describe("sanitizeIssueText on long hostile input", () => {
       expect(sanitizeIssueText(hostile)).toBe(hostile);
       expect(performance.now() - started).toBeLessThan(500);
     }
+    // Whatever comes right before the scheme, GitHub links it, so it goes.
+    for (const before of ["-", ".", "+", "1", "_", "x+"]) {
+      expect(sanitizeIssueText(`${before}https://evil.test/a`)).toBe(`${before}[link removed]`);
+    }
     // Still finds an address or a link at the end of such a run.
     expect(sanitizeIssueText(`${"%".repeat(1_000)} a@b.test`)).toContain("[email removed]");
     expect(sanitizeIssueText(`see https://evil.test/${"a.".repeat(100)}`)).toBe(
