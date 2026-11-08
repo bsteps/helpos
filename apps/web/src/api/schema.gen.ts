@@ -2101,7 +2101,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description Too many deliveries being checked at once (`busy`); try again */
+                /** @description Too many deliveries waiting to be checked (`busy`); try again */
                 503: {
                     headers: {
                         [name: string]: unknown;

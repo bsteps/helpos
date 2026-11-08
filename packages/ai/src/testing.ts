@@ -1,4 +1,4 @@
-import { RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { MockEmbeddingModelV4, MockLanguageModelV4 } from "ai/test";
 import { embeddingDimensions } from "./embed.ts";
 
@@ -85,6 +85,23 @@ export function failingModel(message = "503 service unavailable"): MockLanguageM
     modelId: "failing-model",
     doGenerate: async () => {
       throw new Error(message);
+    },
+  });
+}
+
+/** A provider that answers with an error status (an overload, say): such a call isn't billed. */
+export function refusingModel(statusCode = 529): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    provider: "mock",
+    modelId: "refusing-model",
+    doGenerate: async () => {
+      throw new APICallError({
+        message: "overloaded",
+        url: "https://api.test",
+        requestBodyValues: {},
+        statusCode,
+        isRetryable: false,
+      });
     },
   });
 }

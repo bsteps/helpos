@@ -7,6 +7,7 @@ import type { Logger } from "pino";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
+import { createGate, defaultGateLimits, type GateLimits } from "./verify-gate.ts";
 import { signatureMatches } from "./webhook-signature.ts";
 
 const { integrations } = schema;
@@ -16,17 +17,9 @@ export interface GithubWebhookDeps {
   logger: Pick<Logger, "info" | "warn">;
   secretBox: SecretBox | undefined;
   noticeDelaySeconds?: number | undefined;
-  /** For tests: how many deliveries may be verified at once. */
-  maxVerifying?: number;
+  /** For tests: how many deliveries are checked at once, and how many may wait. */
+  verifyLimits?: GateLimits;
 }
-
-/**
- * Unsigned requests can't be told from GitHub's until a secret is read from the database, so a
- * flood of forged ones would each take a pooled connection. Only this many are checked at once;
- * the rest are turned away before any database work. GitHub sends a few a minute at most, and
- * a refused delivery can be redelivered from the webhook's settings.
- */
-const defaultMaxVerifying = 4;
 
 export const webhookPath = "/v1/integrations/github/webhook";
 /** A webhook delivery is a few KB; GitHub caps them at 25 MB. Nothing we read is near this. */
@@ -95,7 +88,7 @@ const webhookRoute = createRoute({
     401: json(errorSchema, "Unknown workspace, no repo connected, or a missing or wrong signature"),
     400: json(errorSchema, "Not a GitHub event payload"),
     413: json(errorSchema, `Larger than ${maxWebhookBytes} bytes`),
-    503: json(errorSchema, "Too many deliveries being checked at once (`busy`); try again"),
+    503: json(errorSchema, "Too many deliveries waiting to be checked (`busy`); try again"),
     415: json(errorSchema, "Neither JSON nor GitHub's form encoding"),
   },
 });
@@ -125,8 +118,9 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
       onError: (c) => c.json({ error: "too_large" }, 413),
     }),
   );
-  const maxVerifying = deps.maxVerifying ?? defaultMaxVerifying;
-  let verifying = 0;
+  // Unsigned requests can't be told from GitHub's until a secret is read from the database,
+  // so a flood of forged ones would each take a pooled connection: they take turns instead.
+  const gate = createGate(deps.verifyLimits ?? defaultGateLimits);
   // Before validation, so a caller without the secret learns nothing, not even a 400. A
   // request that isn't even shaped like a signed delivery is refused before any database work.
   app.use(webhookPath, async (c, next) => {
@@ -138,16 +132,16 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     // The body first, outside the limit: a client sending it slowly holds no slot. Hono keeps
     // it, so verification reads these same bytes.
     await c.req.arrayBuffer();
-    if (verifying >= maxVerifying) {
+    const release = await gate(workspace.data);
+    if (!release) {
       c.header("Retry-After", "5");
       return c.json({ error: "busy" }, 503);
     }
-    verifying++;
     let verified: { tenantId: string } | null;
     try {
       verified = await verifyWebhook(c, deps);
     } finally {
-      verifying--;
+      release();
     }
     if (!verified) return c.json({ error: "unauthorized" }, 401);
     c.set("githubWebhook", verified);

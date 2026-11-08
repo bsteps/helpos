@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { LanguageModel } from "@helpos/ai";
-import { failingModel, mockModel } from "@helpos/ai/testing";
+import { failingModel, mockModel, refusingModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
   and,
@@ -214,10 +214,15 @@ function agent(tenantId: string, scopes: Scope[]): Principal {
 }
 
 function makeApp(
-  overrides: { secretBox?: undefined; model?: LanguageModel | undefined; budget?: number } = {},
+  overrides: {
+    secretBox?: undefined;
+    model?: LanguageModel | undefined;
+    budget?: number;
+    db?: Database;
+  } = {},
 ) {
   return createApp({
-    db,
+    db: overrides.db ?? db,
     files,
     logger,
     inboundSecret: undefined,
@@ -730,6 +735,26 @@ describe("drafting an issue with the AI", () => {
     }
   });
 
+  it("still answers ai_unavailable when the failed call's cost can't be written back", async () => {
+    const email = await receiveEmail();
+    // Fails every transaction after the one that reserves the budget: the settle, here.
+    let calls = 0;
+    const flaky: Database = {
+      ...db,
+      withTenant: (tenantId, fn) =>
+        ++calls > 1 ? Promise.reject(new Error("pool timeout")) : db.withTenant(tenantId, fn),
+    };
+    try {
+      app = makeApp({ model: refusingModel(), db: flaky });
+      const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue/draft`, "owner");
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ error: "ai_unavailable" });
+      expect(JSON.stringify(logger.warn.mock.calls)).toContain("usage not settled");
+    } finally {
+      app = makeApp();
+    }
+  });
+
   it("holds no lock while the AI writes, so reply drafting never waits on it", async () => {
     const email = await receiveEmail();
     let lockedMeanwhile = false;
@@ -977,6 +1002,70 @@ describe("creating the issue", () => {
     expect(
       await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json(),
     ).toMatchObject({ githubIssue: { state: "closed" } });
+  });
+
+  it("doesn't block a ticket on a stale claim in a repo the token can no longer see", async () => {
+    const email = await receiveEmail();
+    // A claim from before the workspace switched repos; this token can't see that one at all.
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.ticketGithubIssues).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        repo: "acme/gone",
+        state: "creating",
+        createdAt: longAgo,
+        updatedAt: longAgo,
+      }),
+    );
+    const posts = () => githubCalls.filter((c) => c.method === "POST").length;
+    const before = posts();
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(await res.json()).toMatchObject({ repo: "acme/app", number: openedIssues[0]?.number });
+    expect(posts() - before).toBe(1);
+  });
+
+  it("answers 201 when the issue is linked, even if applying its close then fails", async () => {
+    const email = await receiveEmail();
+    duringCreate = async () => {
+      const opened = openedIssues[0];
+      if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
+    };
+    // The transaction that applies the close fails; the worker applies it instead.
+    let failNext = false;
+    duringStateCheck = async () => {
+      failNext = true;
+    };
+    const flaky: Database = {
+      ...db,
+      withTenant: (tenantId, fn) => {
+        if (failNext) {
+          failNext = false;
+          return Promise.reject(new Error("pool timeout"));
+        }
+        return db.withTenant(tenantId, fn);
+      },
+    };
+    try {
+      app = makeApp({ db: flaky });
+      const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+        title: "t",
+        body: "b",
+      });
+      expect(res.status, await res.clone().text()).toBe(201);
+      expect(await res.json()).toMatchObject({ state: "open" });
+      const fixed = await waitFor("the recheck's fixed draft", async () => {
+        const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+        return drafts.length > 0 ? drafts : undefined;
+      });
+      expect(fixed).toHaveLength(1);
+    } finally {
+      app = makeApp();
+    }
   });
 
   it("still links the issue when this request's claim was taken as stale meanwhile", async () => {
@@ -1416,7 +1505,7 @@ describe("the webhook", () => {
     ).toMatchObject({ tickets: 1 });
   });
 
-  it("checks only a few deliveries at once, turning the rest away before the database", async () => {
+  it("checks only a few deliveries at once, turning away what doesn't fit before the database", async () => {
     let release: () => void = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -1430,7 +1519,12 @@ describe("the webhook", () => {
       },
     };
     const small = new OpenAPIHono();
-    registerGithubWebhook(small, { db: slowDb, logger, secretBox: box, maxVerifying: 1 });
+    registerGithubWebhook(small, {
+      db: slowDb,
+      logger,
+      secretBox: box,
+      verifyLimits: { concurrent: 1, waiting: 0, perWorkspace: 1, waitMs: 1_000 },
+    });
     const send = () => {
       const body = JSON.stringify({ zen: "hi" });
       return small.request(`/v1/integrations/github/webhook?workspace=${acme}`, {

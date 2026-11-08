@@ -567,9 +567,17 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       // the provider plainly refused, and when that can't be told, the reservation stays.
       const cost = failedDraftCost(error);
       if (cost !== "unknown") {
-        await deps.db.withTenant(tenantId, (tx) =>
-          settleUsage(tx, day, prepared.reserved, cost === "none" ? null : cost),
-        );
+        try {
+          await deps.db.withTenant(tenantId, (tx) =>
+            settleUsage(tx, day, prepared.reserved, cost === "none" ? null : cost),
+          );
+        } catch (settleError) {
+          // The reservation stays counted, so the budget may overcount, never undercount.
+          deps.logger.warn(
+            { err: errorSummary(settleError) },
+            "github issue draft: usage not settled",
+          );
+        }
       }
       return c.json({ error: "ai_unavailable" }, 502);
     }
@@ -674,7 +682,14 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         marker: claim.stale.id,
         since: new Date(claim.stale.createdAt.getTime() - slack),
       });
-      if (!earlier.ok) {
+      // A definite refusal for another repo than the connected one means the token can't see
+      // it any more (the workspace switched repos). Asking again never changes that, so it
+      // must not block the ticket for good: the old claim is dropped and a new issue opened.
+      const unreachable =
+        !earlier.ok &&
+        earlier.reason !== "github_unavailable" &&
+        repoString(staleRepo) !== repoString(repo);
+      if (!earlier.ok && !unreachable) {
         // The old claim was replaced by this request's, so its marker would never be looked for
         // again and its issue, if GitHub opened one, would be duplicated by the next try. Put
         // the old claim back, still stale, so the next try searches for its marker first.
@@ -706,7 +721,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         });
         return c.json({ error: "github_unavailable" }, 502);
       }
-      if (earlier.value) {
+      if (earlier.ok && earlier.value) {
         created = { ok: true, value: earlier.value };
         issueRepo = claim.stale.repo;
       }
@@ -772,49 +787,58 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
 
     // 4. The issue may already be closed: a fast maintainer, or an issue found again minutes
     // later. That close's webhook had no link to match, so apply it now, by the same rules.
-    let state: "open" | "closed" = "open";
-    const linkedRepo = parseRepo(link.repo);
-    const now = linkedRepo ? await github.issueState(linkedRepo, made.number) : null;
-    if (now?.ok && now.value.state === "closed") {
-      state = await deps.db.withTenant(tenantId, async (tx) => {
-        await markIssueClosed(tx, {
-          tenantId,
-          repo: link.repo,
-          number: made.number,
-          stateReason: now.value.stateReason,
-          changedAt: now.value.updatedAt,
-          actor: githubWebhookActor,
-          requestId: c.get("requestId"),
-          noticeDelaySeconds: deps.noticeDelaySeconds,
-        });
-        // The link's own state: closed here, or already by the close's webhook, which can
-        // arrive between linking and this check (then nothing changed here, but it is closed).
-        const [row] = await tx
-          .select({ state: ticketGithubIssues.state })
-          .from(ticketGithubIssues)
-          .where(eq(ticketGithubIssues.ticketId, ticketId));
-        return row?.state === "closed" ? "closed" : "open";
-      });
-    } else if (now && !now.ok && now.reason === "github_unavailable") {
-      // A close before the link had no link to match, and its webhook won't come again: the
-      // worker reads the state later instead. A later close still arrives by webhook.
-      deps.logger.warn({ ticketId }, "github issue: state not checked yet");
+    // The issue exists and is linked from here on, so nothing below may turn this into an
+    // error: a failure leaves the state to a background recheck instead.
+    const linked = link;
+    const recheckLater = async (why: string) => {
+      deps.logger.warn({ ticketId }, `github issue: ${why}; rechecking later`);
       try {
         await deps.db.withTenant(tenantId, (tx) =>
           enqueue(
             tx,
             recheckIssueJob,
-            { tenantId, linkId: link.id },
+            { tenantId, linkId: linked.id },
             { startAfter: recheckAfter(deps.issueRecheckSeconds) },
           ),
         );
       } catch (error) {
-        // The issue is created and linked: that is the answer, even if the recheck isn't queued.
         deps.logger.warn(
           { err: errorSummary(error), ticketId },
           "github issue: recheck not queued",
         );
       }
+    };
+    let state: "open" | "closed" = "open";
+    const linkedRepo = parseRepo(link.repo);
+    const now = linkedRepo ? await github.issueState(linkedRepo, made.number) : null;
+    if (now?.ok && now.value.state === "closed") {
+      try {
+        state = await deps.db.withTenant(tenantId, async (tx) => {
+          await markIssueClosed(tx, {
+            tenantId,
+            repo: linked.repo,
+            number: made.number,
+            stateReason: now.value.stateReason,
+            changedAt: now.value.updatedAt,
+            actor: githubWebhookActor,
+            requestId: c.get("requestId"),
+            noticeDelaySeconds: deps.noticeDelaySeconds,
+          });
+          // The link's own state: closed here, or already by the close's webhook, which can
+          // arrive between linking and this check (then nothing changed here, but it is closed).
+          const [row] = await tx
+            .select({ state: ticketGithubIssues.state })
+            .from(ticketGithubIssues)
+            .where(eq(ticketGithubIssues.ticketId, ticketId));
+          return row?.state === "closed" ? "closed" : "open";
+        });
+      } catch (error) {
+        deps.logger.warn({ err: errorSummary(error), ticketId }, "github issue: close not applied");
+        await recheckLater("close not applied");
+      }
+    } else if (now && !now.ok && now.reason === "github_unavailable") {
+      // A close before the link had no link to match, and its webhook won't come again.
+      await recheckLater("state not checked");
     } else if (now && !now.ok) {
       // A refusal, not an outage: asking again won't help. A later close still arrives by webhook.
       deps.logger.warn({ ticketId, reason: now.reason }, "github issue: state not checked");

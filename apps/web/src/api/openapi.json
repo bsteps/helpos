@@ -3045,7 +3045,7 @@
             }
           },
           "503": {
-            "description": "Too many deliveries being checked at once (`busy`); try again",
+            "description": "Too many deliveries waiting to be checked (`busy`); try again",
             "content": {
               "application/json": {
                 "schema": {
