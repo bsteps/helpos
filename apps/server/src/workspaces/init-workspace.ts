@@ -10,7 +10,7 @@ export const initWorkspaceInput = z.object({
 export type InitWorkspaceInput = z.input<typeof initWorkspaceInput>;
 
 export type InitWorkspaceResult =
-  | { ok: true; tenantId: string; created: boolean }
+  | { ok: true; tenantId: string; ownerId: string; created: boolean }
   /** ADR 0009 §7: a generic answer that never says which workspace has the address. */
   | { ok: false; reason: "mailbox_not_available" };
 
@@ -52,5 +52,5 @@ export async function initWorkspace(
     }
     throw error;
   }
-  return { ok: true, tenantId, created: !existing };
+  return { ok: true, tenantId, ownerId: owner.id, created: !existing };
 }

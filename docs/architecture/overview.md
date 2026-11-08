@@ -36,16 +36,16 @@ flowchart LR
   K --> SMTP
 ```
 
-| Unit                  | Role                                                                                                                                                                  | May import                         |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `apps/server`         | HTTP API: routes, auth middleware, validation (Zod), OpenAPI spec at `/openapi.json`                                                                                  | any `packages/*`                   |
-| worker role           | Background jobs (AI drafts, sending, webhooks). Same code as `apps/server`, started in a different mode. Inside the server process during the MVP (#18 splits it out) | any `packages/*`                   |
-| `apps/web`            | Dashboard: React + Vite SPA, TanStack Router/Query, shadcn/ui. Uses **only** a client generated from `/openapi.json`                                                  | `packages/brand`, generated client |
-| `packages/db`         | Drizzle schema, migrations, `withTenant()`. **The only place that touches the raw DB client** (ADR 0003, enforced by Biome)                                           | —                                  |
-| `packages/ai`         | Builds the AI model from env, prompt helpers, the mock model for tests                                                                                                | —                                  |
-| `packages/brand`      | Product name and branding. Never hardcode the name                                                                                                                    | —                                  |
-| `packages/safe-fetch` | SSRF-safe HTTP GET for imports and webhooks: blocks private, loopback, link-local and metadata addresses after DNS and on every redirect; timeouts and size limits    | —                                  |
-| `evals/`              | AI eval cases, run by `pnpm eval` (ADR 0005)                                                                                                                          | `packages/ai`                      |
+| Unit                  | Role                                                                                                                                                                                                                      | May import                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `apps/server`         | HTTP API: routes, auth middleware, validation (Zod), OpenAPI spec at `/openapi.json`                                                                                                                                      | any `packages/*`                   |
+| worker role           | Background jobs (AI drafts, sending, webhooks). Same code as `apps/server`, started in a different mode. Inside the server process during the MVP (#18 splits it out)                                                     | any `packages/*`                   |
+| `apps/web`            | Dashboard: React + Vite SPA, TanStack Router/Query, components copied in from beUI's shadcn registry. Uses **only** a client generated from `/openapi.json`. Served by the server from the same origin under a strict CSP | `packages/brand`, generated client |
+| `packages/db`         | Drizzle schema, migrations, `withTenant()`. **The only place that touches the raw DB client** (ADR 0003, enforced by Biome)                                                                                               | —                                  |
+| `packages/ai`         | Builds the AI model from env, prompt helpers, the mock model for tests                                                                                                                                                    | —                                  |
+| `packages/brand`      | Product name and branding. Never hardcode the name                                                                                                                                                                        | —                                  |
+| `packages/safe-fetch` | SSRF-safe HTTP GET for imports and webhooks: blocks private, loopback, link-local and metadata addresses after DNS and on every redirect; timeouts and size limits                                                        | —                                  |
+| `evals/`              | AI eval cases, run by `pnpm eval` (ADR 0005)                                                                                                                                                                              | `packages/ai`                      |
 
 Each feature (inbound email, drafts, tokens, GitHub…) is a folder inside `apps/server` that owns its routes, domain logic and tests (AGENTS.md). Pure domain logic stays separate from I/O.
 
@@ -109,10 +109,11 @@ Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **exce
 ## Trust boundaries
 
 1. **Everything that comes in is data, never instructions** (ADR 0004): emails, attachments, GitHub text, imported pages. It is quoted to the AI, never merged into its instructions, and AI output can't trigger an action without the policy and approval path.
-2. **Every request is authenticated.** Humans use a Better Auth session. Agents use a scoped `hos_` token. Webhooks use a shared secret or HMAC signature. Each one resolves to _tenant + actor + scopes_ before any data access. A token is stored only as its SHA-256 and looked up by that hash through a read-only policy that shows the one matching row, the same way inbound mail finds its mailbox. Tokens are created by a human with `workspace:admin`, never by another token, can't hold `workspace:admin` themselves, and are revoked rather than deleted, so the audit log can always name the agent. Until sessions exist (#46), the operator creates the first ones with `pnpm helpos:token`.
-3. **Every data access goes through `withTenant()`**, so the database itself refuses cross-tenant reads (ADR 0003).
-4. **Every action is audit-logged** in the same transaction as the action.
-5. **Nothing reaches a customer without approval.** There is no auto-send in the MVP.
+2. **Every request is authenticated.** Humans use a Better Auth session: an HttpOnly, SameSite=Lax cookie from `POST /v1/auth/sign-in`, resolved to the user's oldest membership. A cookie-authenticated write whose `Origin` isn't the dashboard's is refused (CSRF). There is no sign-up: `pnpm helpos:init` prints a one-time link (token in the URL fragment, stored only hashed) for the owner to set a password. Agents use a scoped `hos_` token. Webhooks use a shared secret or HMAC signature. Each one resolves to _tenant + actor + scopes_ before any data access. A token is stored only as its SHA-256 and looked up by that hash through a read-only policy that shows the one matching row, the same way inbound mail finds its mailbox. Tokens are created by a human with `workspace:admin`, never by another token, can't hold `workspace:admin` themselves, and are revoked rather than deleted, so the audit log can always name the agent. The operator can also create them with `pnpm helpos:token`.
+3. **Customer HTML is never trusted.** The API returns it only sanitised (an allow-list of tags and attributes, no scripts, remote images replaced by their alt text), and the dashboard renders it in a sandboxed iframe without `allow-scripts`, under the dashboard's CSP plus its own.
+4. **Every data access goes through `withTenant()`**, so the database itself refuses cross-tenant reads (ADR 0003).
+5. **Every action is audit-logged** in the same transaction as the action.
+6. **Nothing reaches a customer without approval.** There is no auto-send in the MVP.
 
 ## MVP vs first release
 

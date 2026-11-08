@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { z } from "zod";
@@ -29,7 +29,7 @@ export interface Database {
   resolveApiToken(tokenHash: string): Promise<ApiTokenRecord | null>;
   /**
    * Lists the workspaces a user belongs to, across tenants (ADR 0009 §1, policy
-   * `own_memberships`). Read-only.
+   * `own_memberships`). Read-only. Oldest first, so "the user's first workspace" is stable.
    */
   listMemberships(userId: string): Promise<MembershipSummary[]>;
   /** Checks the database answers a trivial query. Never throws: failures come back as a result. */
@@ -116,7 +116,8 @@ export function createDatabase(url: string): Database {
         return tx
           .select({ tenantId: schema.memberships.tenantId, role: schema.memberships.role })
           .from(schema.memberships)
-          .where(eq(schema.memberships.userId, id));
+          .where(eq(schema.memberships.userId, id))
+          .orderBy(asc(schema.memberships.createdAt), asc(schema.memberships.id));
       });
     },
     async ping() {

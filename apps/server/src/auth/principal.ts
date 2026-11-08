@@ -1,12 +1,14 @@
 import type { MiddlewareHandler } from "hono";
 
 /**
- * Scopes from #49. `drafts:approve` is separate so an agent can draft without sending.
+ * Scopes from #49. `tickets:write` changes a ticket itself (closing it, #46).
+ * `drafts:approve` is separate so an agent can draft without sending.
  * `knowledge:write` is separate from reading, because what's in the knowledge base shapes
  * every draft. `workspace:admin` is for humans only: an agent token can't be granted it.
  */
 export const scopes = [
   "tickets:read",
+  "tickets:write",
   "drafts:write",
   "drafts:approve",
   "knowledge:read",
@@ -26,7 +28,7 @@ export interface Principal {
 /** Turns a request into a principal, or null if it carries no valid credentials. */
 export type Authenticate = (request: Request) => Promise<Principal | null>;
 
-/** Nobody is authenticated. Human sessions use this until #46 lands. */
+/** Nobody is authenticated. Used for human sessions when no HELPOS_AUTH_SECRET is set. */
 export const refuseAll: Authenticate = async () => null;
 
 /**

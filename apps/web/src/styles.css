@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+
+/*
+ * Design tokens from beUI (https://beui.dev, MIT), its "beUI Current" light palette, so the
+ * copied components and our own read from the same colours, fonts and easing.
+ * Components use the semantic utilities (bg-background, text-muted-foreground, border-border…),
+ * never raw colours.
+ */
+:root {
+  --background: oklch(99% 0 0);
+  --foreground: oklch(15% 0 0);
+  --card: oklch(97% 0 0);
+  --muted-foreground: oklch(50% 0 0);
+  --border: oklch(15% 0 0 / 0.08);
+  --border-strong: oklch(15% 0 0 / 0.14);
+  --danger: oklch(62% 0.22 25);
+  --success: oklch(70% 0.18 155);
+  --warning: oklch(78% 0.18 75);
+  --card-foreground: var(--foreground);
+  --primary: #0285f7;
+  --primary-foreground: #ffffff;
+  --muted: var(--card);
+  --accent: oklch(72% 0.18 195);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--border-strong);
+}
+
+@theme inline {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-destructive: var(--destructive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-foreground;
+  }
+}

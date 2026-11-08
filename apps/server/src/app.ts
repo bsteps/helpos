@@ -1,5 +1,5 @@
 import { brand } from "@helpos/brand";
-import type { Database } from "@helpos/db";
+import type { AuthStore, Database, SessionAuth } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { requestId } from "hono/request-id";
@@ -7,23 +7,40 @@ import type { Logger } from "pino";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { registerAiUsageRoute } from "./ai-budget/routes.ts";
 import { type Authenticate, authenticateRequest, refuseAll } from "./auth/principal.ts";
+import { registerAuthRoutes } from "./auth/routes.ts";
+import { humanSessions } from "./auth/session.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import { registerTicketRoutes } from "./tickets/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
+import { registerDashboard } from "./web/dashboard.ts";
 import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 
 export interface AppDeps {
-  db: Pick<Database, "ping" | "withTenant" | "resolveMailbox" | "resolveApiToken">;
+  db: Pick<
+    Database,
+    "ping" | "withTenant" | "resolveMailbox" | "resolveApiToken" | "listMemberships"
+  >;
   files: FileStore;
   logger: Pick<Logger, "error" | "warn" | "info">;
   /** HELPOS_INBOUND_SECRET. When unset, the inbound email endpoint refuses every request. */
   inboundSecret: string | undefined;
   /**
-   * Resolves API callers. Defaults to agent tokens (`hos_…`); human sessions refuse everyone
-   * until #46 plugs in. Tests replace it to act as a signed-in human.
+   * Human sign-in (session cookies). Without it, sign-in answers 503 and only agent tokens
+   * work. Needs HELPOS_AUTH_SECRET and HELPOS_DATABASE_AUTH_URL.
+   */
+  sessions?: SessionAuth | undefined;
+  /** Password setup links. Without it, setting a password answers 503. */
+  passwords?: Pick<AuthStore, "setPassword"> | undefined;
+  /** HELPOS_PUBLIC_URL: where the dashboard runs. Browser writes from other origins are refused. */
+  publicUrl?: string;
+  /** The built dashboard to serve at `/`. Without it, the server serves only the API. */
+  webDir?: string | undefined;
+  /**
+   * Resolves API callers. Defaults to agent tokens (`hos_…`) and, when `sessions` is set,
+   * human session cookies. Tests replace it to act as a signed-in human.
    */
   authenticate?: Authenticate;
   /** Reported by the usage endpoint. The worker enforces it. */
@@ -41,12 +58,23 @@ export function createApp({
   files,
   logger,
   inboundSecret,
-  authenticate = authenticateRequest({ tokens: agentTokens(db), session: refuseAll }),
+  sessions,
+  passwords,
+  publicUrl = "http://localhost:3000",
+  webDir,
+  authenticate,
   dailyTokenBudget = defaultDailyTokenBudget,
   now,
   noticeDelaySeconds,
   allowShadowModeOff = false,
 }: AppDeps): OpenAPIHono {
+  const trustedOrigin = new URL(publicUrl).origin;
+  const resolve =
+    authenticate ??
+    authenticateRequest({
+      tokens: agentTokens(db),
+      session: sessions ? humanSessions({ sessions, db, trustedOrigin }) : refuseAll,
+    });
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
   app.use("*", requestId());
@@ -66,22 +94,31 @@ export function createApp({
     scheme: "bearer",
     description:
       "An agent token: `Authorization: Bearer hos_…`, created through `POST /v1/tokens`. " +
-      "Human sessions (#46) will work here too.",
+      "Every endpoint also accepts the session cookie set by `POST /v1/auth/sign-in`, which " +
+      "is what the dashboard uses.",
   });
 
   registerInboundEmail(app, { db, files, logger, inboundSecret });
-  registerTokenRoutes(app, { db, authenticate });
-  registerTicketRoutes(app, { db, authenticate });
+  registerAuthRoutes(app, { db, authenticate: resolve, sessions, passwords, trustedOrigin });
+  registerTokenRoutes(app, { db, authenticate: resolve });
+  registerTicketRoutes(app, { db, authenticate: resolve });
   registerDraftRoutes(app, {
     db,
-    authenticate,
+    authenticate: resolve,
     dailyTokenBudget,
     ...(now ? { now } : {}),
     ...(noticeDelaySeconds !== undefined ? { noticeDelaySeconds } : {}),
   });
-  registerAiUsageRoute(app, { db, authenticate, dailyTokenBudget, ...(now ? { now } : {}) });
-  registerKnowledgeRoutes(app, { db, authenticate });
-  registerShadowModeRoutes(app, { db, authenticate, allowShadowModeOff });
+  registerAiUsageRoute(app, {
+    db,
+    authenticate: resolve,
+    dailyTokenBudget,
+    ...(now ? { now } : {}),
+  });
+  registerKnowledgeRoutes(app, { db, authenticate: resolve });
+  registerShadowModeRoutes(app, { db, authenticate: resolve, allowShadowModeOff });
+
+  if (webDir) registerDashboard(app, webDir);
 
   // Unexpected errors are logged with details; the caller gets nothing it could use.
   app.onError((err, c) => {

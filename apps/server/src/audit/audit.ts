@@ -12,6 +12,7 @@ export interface AuditEvent {
     | "draft.discarded"
     | "draft.sent"
     | "draft.notice_sent"
+    | "ticket.closed"
     | "ai.paused"
     | "knowledge_source.created"
     | "knowledge_source.deleted"

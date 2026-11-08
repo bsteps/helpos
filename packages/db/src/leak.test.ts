@@ -481,11 +481,15 @@ describe("agent token lookup", () => {
 });
 
 describe("auth tables (ADR 0009 §1)", () => {
-  it("leak: auth tables are not readable by the app role", async () => {
-    await expect(
-      db.withTenant(tenantA, (tx) => tx.execute(sql`select * from auth.users`)),
-    ).rejects.toThrow();
-  });
+  for (const table of ["users", "sessions", "accounts", "verifications"]) {
+    it(`leak: auth.${table} is not readable by the app role`, async () => {
+      await expect(
+        db.withTenant(tenantA, (tx) =>
+          tx.execute(sql`select * from ${sql.identifier("auth")}.${sql.identifier(table)}`),
+        ),
+      ).rejects.toThrow();
+    });
+  }
 
   it("leak: memberships lists only my own rows across tenants", async () => {
     const other = await auth.ensureUser("someone@a.test");

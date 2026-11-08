@@ -13,7 +13,9 @@
     "token": "node --env-file-if-exists=../../.env src/cli/token.ts",
     "seed": "node --env-file-if-exists=../../.env src/cli/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "openapi": "node src/cli/openapi.ts",
+    "e2e-server": "node src/e2e/serve.ts"
   },
   "dependencies": {
     "@helpos/ai": "workspace:*",
@@ -28,11 +30,13 @@
     "nodemailer": "10.3.1",
     "pino": "10.4.0",
     "postal-mime": "4.2.0",
+    "sanitize-html": "2.18.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "12.2.1",
     "@types/nodemailer": "8.0.2",
+    "@types/sanitize-html": "2.16.2",
     "testcontainers": "12.2.1"
   }
 }

@@ -1,4 +1,5 @@
-// `pnpm dev`: start local services, apply migrations, then run the server in watch mode.
+// `pnpm dev`: start local services, apply migrations, then run the server and the dashboard in
+// watch mode. The dashboard (http://localhost:5180) forwards API calls to the server (:3000).
 // Plain Node (no shell syntax) so it behaves the same on Windows, macOS and Linux.
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync } from "node:fs";
@@ -23,6 +24,15 @@ run("docker compose up -d --wait");
 run("pnpm --filter @helpos/db migrate");
 
 process.stdout.write("Mailpit (caught emails): http://localhost:8025\n");
-const server = spawn("pnpm --filter @helpos/server dev", { stdio: "inherit", shell: true });
-// Killed by a signal means `code` is null: report failure, not success.
-server.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+process.stdout.write("Dashboard: http://localhost:5180\n");
+const children = [
+  spawn("pnpm --filter @helpos/server dev", { stdio: "inherit", shell: true }),
+  spawn("pnpm --filter @helpos/web dev", { stdio: "inherit", shell: true }),
+];
+// One stopping stops the other. Killed by a signal means `code` is null: report failure.
+for (const child of children) {
+  child.on("exit", (code, signal) => {
+    for (const other of children) if (other !== child) other.kill();
+    process.exit(code ?? (signal ? 1 : 0));
+  });
+}

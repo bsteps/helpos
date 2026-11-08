@@ -9,6 +9,11 @@ build/
 .wrangler/
 coverage/
 
+# end-to-end test output (Playwright)
+test-results/
+playwright-report/
+.e2e/
+
 # env and secrets: never commit these
 .env
 .env.*

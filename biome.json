@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/coverage", "!**/*.gen.ts"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/coverage",
+      "!**/*.gen.ts",
+      "!apps/web/src/api/openapi.json",
+      "!apps/web/test-results",
+      "!apps/web/playwright-report"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -31,6 +39,9 @@
         "noUnusedVariables": "error"
       }
     }
+  },
+  "css": {
+    "parser": { "tailwindDirectives": true }
   },
   "javascript": {
     "formatter": {
