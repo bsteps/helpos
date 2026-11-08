@@ -255,11 +255,12 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     // the worker reads the issue's state from GitHub for those links instead.
     const recheckTied = async (tx: TenantTx, from: "open" | "closed") => {
       for (const linkId of await tiedLinks(tx, change, from)) {
+        // One waiting recheck per link: a redelivered event doesn't queue another.
         await enqueue(
           tx,
           recheckIssueJob,
           { tenantId, linkId },
-          { startAfter: recheckAfter(deps.issueRecheckSeconds) },
+          { startAfter: recheckAfter(deps.issueRecheckSeconds), singletonKey: `tie:${linkId}` },
         );
       }
     };

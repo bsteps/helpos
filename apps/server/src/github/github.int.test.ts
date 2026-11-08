@@ -27,7 +27,7 @@ import type { EmailTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { fixedNoticeBody } from "./fixed-notice.ts";
+import { addFixedDraft, fixedNoticeBody, githubWebhookActor } from "./fixed-notice.ts";
 import { octokitGithub } from "./github-api.ts";
 import { registerGithubWebhook } from "./webhook.ts";
 import { signWebhook } from "./webhook-signature.ts";
@@ -1740,6 +1740,40 @@ describe("the webhook", () => {
   it("acknowledges an event with no repository instead of refusing it", async () => {
     const res = await deliver(secret, { action: "created", repository: null }, { event: "issues" });
     expect(await res.json()).toEqual({ status: "ignored", tickets: 0 });
+  });
+
+  it("never leaves two 'fixed' drafts waiting on one ticket, even after the customer wrote again", async () => {
+    const email = await receiveEmail();
+    const add = () =>
+      db.withTenant(acme, (tx) =>
+        addFixedDraft(tx, {
+          tenantId: acme,
+          ticketId: email.ticketId,
+          actor: githubWebhookActor,
+          requestId: null,
+          noticeDelaySeconds: 3600,
+        }),
+      );
+    expect(await add()).not.toBeNull();
+    // The customer writes again: a newer message the next notice would answer.
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.messages).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        direction: "inbound",
+        fromAddress: "jane@customer.test",
+        toAddresses: ["support@acme.test"],
+        subject: "Still there?",
+        textBody: "Any news?",
+        references: [],
+        rawFileKey: `${acme}/still-there`,
+      }),
+    );
+    expect(await add()).toBeNull();
+    const waiting = (await draftsOf(email.ticketId)).filter(
+      (d) => d.kind === "fixed" && d.status === "pending",
+    );
+    expect(waiting).toHaveLength(1);
   });
 
   it("drafts a fresh fix notice when an issue whose notice was sent is reopened and closed again", async () => {
