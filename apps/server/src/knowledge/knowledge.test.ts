@@ -1508,8 +1508,10 @@ describe("drafting with knowledge", () => {
       return list[0]?.quotesInternalNote;
     };
     expect(await quotes("editor")).toBe(false);
-    const note = sources.find((s) => s.visibility === "internal")?.excerpt;
-    if (!note) throw new Error("no internal source");
+    // An internal note the model was shown but didn't cite: pasting it is caught all the same.
+    const uncited = sources.find((s) => s.visibility === "internal" && !s.cited);
+    const note = uncited?.excerpt;
+    if (!note) throw new Error("no uncited internal source");
     const edit = (body: string) => call("PATCH", `/v1/drafts/${draft.id}`, "editor", { body });
     expect((await edit(`${draftText}\n\nStaff notes: ${note}`)).status).toBe(200);
     expect(await quotes("editor")).toBe(true);

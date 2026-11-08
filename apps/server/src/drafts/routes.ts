@@ -250,7 +250,8 @@ function serialize(
 async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
   if (rows.length === 0) return [];
   const canRead = principal.scopes.has("knowledge:read");
-  const cited = await tx
+  // Every passage the model was shown, cited or not (the `cited` column tells them apart).
+  const shown = await tx
     .select({
       draftId: draftCitations.draftId,
       sourceId: draftCitations.sourceId,
@@ -269,7 +270,8 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
     )
     .orderBy(asc(draftCitations.rank));
   return rows.map((row) => {
-    const seen = cited.filter((c) => c.draftId === row.id);
+    const seen = shown.filter((c) => c.draftId === row.id);
+    // Uncited notes count too: a model that pastes a note may well leave it off its sources line.
     const internal = seen.filter((c) => c.visibility === "internal").map((c) => c.excerpt);
     return serialize(
       row,
