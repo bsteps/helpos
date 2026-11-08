@@ -106,6 +106,15 @@ describe("sanitizeIssueText on long hostile input", () => {
     for (const before of ["-", ".", "+", "1", "_", "x+"]) {
       expect(sanitizeIssueText(`${before}https://evil.test/a`)).toBe(`${before}[link removed]`);
     }
+    // Addresses written back to back are each removed.
+    expect(sanitizeIssueText("a@b.test.x@c.test and a@b.test-x@c.test")).toBe(
+      "[email removed][email removed] and [email removed][email removed]",
+    );
+    for (const hostile of ["a@".repeat(30_000), `x@${"a.".repeat(30_000)}`]) {
+      const started = performance.now();
+      sanitizeIssueText(hostile);
+      expect(performance.now() - started).toBeLessThan(500);
+    }
     // Still finds an address or a link at the end of such a run.
     expect(sanitizeIssueText(`${"%".repeat(1_000)} a@b.test`)).toContain("[email removed]");
     expect(sanitizeIssueText(`see https://evil.test/${"a.".repeat(100)}`)).toBe(

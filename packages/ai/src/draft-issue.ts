@@ -57,10 +57,33 @@ const urlPattern =
 // A markdown link or image target that is still there: a relative path links too.
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
-// Starts only where a run of address characters starts, for the same reason: a long run
-// with no `@` in it (`%%%%…`) is then scanned once, not once from every position.
-const emailPattern =
-  /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+/** A character that can be in an email address before its `@`. */
+const addressChar = /[A-Za-z0-9._%+-]/;
+/** The part after the `@`, matched only right there (sticky). */
+const domainAt = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/y;
+
+/**
+ * Every email address, as "[email removed]". Found from each `@`, stepping back over the
+ * characters before it (never into the address before), not by one pattern over the whole
+ * text: that would retry from every position of a long run with no `@` (`%%%%…`) and take
+ * quadratic time. This reads each character a bounded number of times.
+ */
+function removeEmails(text: string): string {
+  let out = "";
+  let from = 0;
+  for (let at = text.indexOf("@"); at !== -1; at = text.indexOf("@", at + 1)) {
+    let start = at;
+    while (start > from && addressChar.test(text.charAt(start - 1))) start--;
+    if (start === at) continue;
+    domainAt.lastIndex = at + 1;
+    const domain = domainAt.exec(text);
+    if (!domain) continue;
+    out += `${text.slice(from, start)}[email removed]`;
+    from = at + 1 + domain[0].length;
+    at = from - 1;
+  }
+  return out + text.slice(from);
+}
 // Words GitHub could turn into something live:
 // - `@user`, `#12`, `owner/repo#12` and `GH-12` notify people or link other issues (a `#`
 //   with no digit after it, like a `###` heading, links nothing and is left alone);
@@ -124,9 +147,9 @@ function escapePipes(text: string): string {
 export function sanitizeIssueText(raw: string): string {
   // Any other backtick becomes a quote: the only code spans are whole words, shaped like the
   // ones added here, so none can pair with another and let a mention out.
-  const text = raw
-    .replaceAll(/\S+/g, (word) => (ownSpan.test(word) ? word : word.replaceAll("`", "'")))
-    .replaceAll(emailPattern, "[email removed]");
+  const text = removeEmails(
+    raw.replaceAll(/\S+/g, (word) => (ownSpan.test(word) ? word : word.replaceAll("`", "'"))),
+  );
   let out = "";
   let from = 0;
   for (const match of text.matchAll(urlPattern)) {
