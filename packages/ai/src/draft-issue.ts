@@ -6,7 +6,7 @@ import { type DraftInput, type DraftUsage, fenceEmail } from "./draft-reply.ts";
  * Turns a support ticket into a GitHub issue draft: a title and a body with steps to reproduce,
  * expected and actual behaviour. A human edits and confirms it before anything reaches GitHub.
  *
- * The ticket is the customer's text, so it is data, never instructions (ADR 0004). The model
+ * The ticket is the customer's text, so it is data, never instructions. The model
  * only fills text fields: there are no fields for labels, assignees or anything else, and its
  * text is cleaned afterwards so it can't ping people, link other issues or carry any link. Not
  * even links from the ticket: the customer wrote those, so a phishing link would only need to be

@@ -4,7 +4,7 @@ import { Octokit } from "@octokit/core";
  * The GitHub calls the helpdesk makes, and nothing more: read a repo (to check a token when it
  * is connected) and open an issue. Opening an issue sends only a title and a body. There is no
  * way to pass labels, assignees or milestones through here, so neither the AI nor a caller can
- * add them (ADR 0004).
+ * add them: what the customer wrote is data, never instructions.
  */
 export interface GithubApi {
   checkRepo(repo: RepoName): Promise<GithubResult<{ private: boolean }>>;
