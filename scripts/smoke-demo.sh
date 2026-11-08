@@ -88,20 +88,26 @@ if [ -z "$dump" ]; then
   dc logs backup >&2
   exit 1
 fi
-dump="$(basename "$dump")"
+stamp="$(basename "$dump" .dump)"
+count_files() { dc exec -T server sh -c 'find /data/files -type f | wc -l' | tr -d ' '; }
+files_before="$(count_files)"
+expect "$([ "$files_before" -gt 0 ] && echo yes)" yes "stored files before the backup"
 
-# Restore it exactly as docs/guides/demo-instance.md says: wipe, fresh Postgres, load the dump.
-# The dump is read through the backup container: on the host it belongs to root.
-dc exec -T backup sh -c "cat /backups/$dump" >"$env_file.dump"
+# Restore with the commands in docs/guides/demo-instance.md: wipe, fresh Postgres, load the dump,
+# unpack the files. The backups are read through the backup container (on the host they're root's).
+dc exec -T backup sh -c "cat /backups/$stamp.dump" >"$env_file.dump"
+dc exec -T backup sh -c "cat /backups/$stamp.files.tar.gz" >"$env_file.files"
 dc down -v
 dc up -d --wait postgres
 dc exec -T postgres pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error <"$env_file.dump"
-rm -f "$env_file.dump"
+dc run --rm -T --no-deps --user root server sh -c "tar -xzpf - -C /data/files" <"$env_file.files"
+rm -f "$env_file.dump" "$env_file.files"
 dc up -d --wait server backup
+expect "$(count_files)" "$files_before" "stored files after the restore"
 
 tickets="$(dc exec -T postgres psql -tA -U postgres -d helpos -c 'select count(*) from tickets')"
 if [ "$tickets" != "1" ]; then
   echo "after restoring, expected 1 ticket, found '$tickets'" >&2
   exit 1
 fi
-echo "demo smoke test passed: workspace created, email stored, backup written and restored"
+echo "demo smoke test passed: workspace created, email stored, database and files backed up and restored"

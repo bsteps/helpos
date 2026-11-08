@@ -130,6 +130,7 @@ services:
       BACKUP_KEEP: "14"
     volumes:
       - ./backup.sh:/backup.sh:ro
+      - files:/files:ro
       - ./backups:/backups
     entrypoint: ["sh", "/backup.sh"]
     depends_on:

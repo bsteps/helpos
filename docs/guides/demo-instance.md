@@ -73,7 +73,12 @@ Partners forward **real customer emails**. Their content is stored on the VPS an
 
 ## Backups
 
-The `backup` service writes `deploy/demo/backups/helpos-<time>.dump` (a compressed `pg_dump`) when it starts and then every 24 hours, and keeps the newest 14. The files are readable by root only. Check them with `ls deploy/demo/backups` and `docker compose logs backup`.
+The `backup` service runs when it starts and then every 24 hours, and keeps the newest 14 of each:
+
+- `deploy/demo/backups/helpos-<time>.dump`: the database (a compressed `pg_dump`).
+- `deploy/demo/backups/helpos-<time>.files.tar.gz`: the raw emails and attachments. The database only points to them, so a restore needs both files with the same `<time>`.
+
+The files are readable by root only. Check them with `sudo ls deploy/demo/backups` and `docker compose logs backup`.
 
 They are on the same disk as the database, so **copy them off the VPS** too (for example a nightly `rsync` or `rclone` from cron).
 
@@ -81,12 +86,14 @@ Restore into an empty instance. A dump holds the data but not the database passw
 
 ```bash
 cd deploy/demo
+t=<time>   # e.g. 20261108T065733Z
 docker compose down -v && docker compose up -d --wait postgres
-sudo cat backups/helpos-<time>.dump | docker compose exec -T postgres \n  pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error
+sudo cat backups/helpos-$t.dump | docker compose exec -T postgres pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error
+sudo cat backups/helpos-$t.files.tar.gz | docker compose run --rm -T --no-deps --user root server sh -c "tar -xzpf - -C /data/files"
 docker compose up -d
 ```
 
-CI runs exactly these steps on every PR (`scripts/smoke-demo.sh`) and checks that the data came back.
+CI runs these commands on every PR (`scripts/smoke-demo.sh`) and checks that the ticket and its stored email came back.
 
 ## Wipe it
 
