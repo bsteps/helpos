@@ -10,7 +10,7 @@ Everything lives in [`deploy/demo/`](../../deploy/demo/):
 | `Caddyfile`                  | HTTPS for your domain, with certificates from Let's Encrypt, renewed automatically      |
 | `postgres-init.sh`           | Creates the database roles on first start, with the passwords from `.env`               |
 | `backup.sh`                  | A daily dump of the whole database into `deploy/demo/backups/`, keeping the newest 14   |
-| `cloudflare-email-worker.js` | Forwards inbound mail to the webhook (the one inbound provider)                         |
+| `cloudflare-email-worker.mjs` | Forwards inbound mail to the webhook (the one inbound provider)                       |
 | `.env.example`               | Every setting. Copy it to `.env`, which is never committed                              |
 
 ## Shadow mode is always on
@@ -41,24 +41,24 @@ To update later: `git pull && docker compose up -d --build`. Migrations run on e
 The server receives mail at `POST https://<your-domain>/v1/inbound/email`. The body is the raw email, sent with `Authorization: Bearer <HELPOS_INBOUND_SECRET>`. The demo uses **Cloudflare Email Routing** for this, because it's free and only needs the domain's DNS on Cloudflare:
 
 1. In Cloudflare, enable Email Routing for the domain (it adds the MX records).
-2. Create a Worker from [`cloudflare-email-worker.js`](../../deploy/demo/cloudflare-email-worker.js), and give it two secrets: `HELPOS_INBOUND_URL` (`https://<your-domain>/v1/inbound/email`) and `HELPOS_INBOUND_SECRET` (same value as in `.env`).
+2. Create a Worker from [`cloudflare-email-worker.mjs`](../../deploy/demo/cloudflare-email-worker.mjs), and give it two secrets: `HELPOS_INBOUND_URL` (`https://<your-domain>/v1/inbound/email`) and `HELPOS_INBOUND_SECRET` (same value as in `.env`).
 3. Email Routing → Routing rules → **Catch-all** → action "Send to a Worker" → that Worker.
 
-Any provider that can POST the raw email works the same way. To move away from Cloudflare, only that Worker changes.
+The Worker also adds a `Delivered-To` header with the address the email was really sent to, which is how forwarded mail finds its workspace (see below). Any provider that can POST the raw email and add that header works the same way. To move away from Cloudflare, only that Worker changes.
 
 ## Add a design-partner workspace
 
 ```bash
 cd deploy/demo
 docker compose exec server node src/cli/init.ts \
-  --workspace "Acme" --mailbox support@acme.com --owner jane@acme.com
+  --workspace "Acme" --mailbox acme@<your-domain> --owner jane@acme.com
 ```
 
-- `--mailbox` is the partner's **own** support address. A forwarded email still has it in `To`, and that's how the email finds its workspace.
+- `--mailbox` is an address on **your demo domain**, not the partner's own address. Replies and notices are sent from it, and only your domain can pass SPF/DKIM. Mail sent "from" `support@acme.com` through your SMTP would be rejected or end up in spam.
 - `--owner` is the partner. They become the shadow recipient, so the drafts they approve come back to them, never to their customer.
 - It prints a one-time link (valid 24 hours) where the owner sets their password. Send it only to them.
 
-Then the partner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to any address at your demo domain, e.g. `acme@<your-domain>`. Most providers first send a confirmation email to that address. It arrives as a ticket in their inbox, with the confirmation link in it.
+Then the partner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the Worker's `Delivered-To` header is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a ticket in their inbox, with the confirmation link in it.
 
 Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft appears in the inbox, and the partner can approve it.
 
@@ -73,7 +73,7 @@ Restore into an empty instance. A dump holds the data but not the database passw
 ```bash
 cd deploy/demo
 docker compose down -v && docker compose up -d --wait postgres
-sudo cat backups/helpos-<time>.dump | docker compose exec -T postgres   pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error
+sudo cat backups/helpos-<time>.dump | docker compose exec -T postgres \n  pg_restore -U postgres -d helpos --clean --if-exists --exit-on-error
 docker compose up -d
 ```
 
@@ -99,7 +99,7 @@ These need someone with the accounts. The repo can't do them:
 1. **Rent a VPS** with Docker and Compose v2 (2 GB RAM is enough), and open ports 80 and 443.
 2. **Pick a domain** and point its A (and AAAA) record at the VPS.
 3. **Move the domain's DNS to Cloudflare** (or another inbound provider) and set up Email Routing and the Worker as described above.
-4. **Get an SMTP account** for outbound mail (shadowed replies and notices) and put it in `HELPOS_SMTP_URL`. Set up SPF/DKIM for the sending domain, so the mail doesn't land in spam.
+4. **Get an SMTP account** for outbound mail (shadowed replies and notices) and put it in `HELPOS_SMTP_URL`. It must be allowed to send from your demo domain: set up SPF and DKIM for that domain (the provider gives you the DNS records), so the mail doesn't land in spam.
 5. **Get an AI API key** for `AI_API_KEY`.
 6. **Fill in `.env`** on the VPS with fresh secrets, then `docker compose up -d --build`.
 7. **Set up off-site backup copies** from `deploy/demo/backups/`.
