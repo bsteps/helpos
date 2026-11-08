@@ -736,8 +736,10 @@ export const ticketGithubIssues = pgTable(
       columns: [t.tenantId, t.ticketId],
       foreignColumns: [tickets.tenantId, tickets.id],
     }),
-    // The webhook finds tickets by the closed issue.
-    index("ticket_github_issues_tenant_issue").on(t.tenantId, t.repo, t.issueNumber),
+    // The webhook finds tickets by the closed issue. Unique: an issue is made from one ticket,
+    // so its "fixed" notice can only ever go to that ticket's customer. (A claim has no number
+    // yet, and nulls never clash.)
+    uniqueIndex("ticket_github_issues_tenant_issue").on(t.tenantId, t.repo, t.issueNumber),
     check("ticket_github_issues_state", sql`${t.state} in ('creating', 'open', 'closed')`),
     check(
       "ticket_github_issues_created",

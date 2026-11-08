@@ -61,7 +61,16 @@ const webhookRoute = createRoute({
   security: [{ githubSignature: [] }],
   request: {
     query: z.object({ workspace: z.uuid() }),
-    body: { required: true, content: { "application/json": { schema: webhookPayload } } },
+    // GitHub sends JSON or, if the webhook was set up with its form content type, the same
+    // JSON in a `payload` field. Both work: an admin can't get it wrong. Not `required`, so
+    // only the validator for the type actually sent runs.
+    body: {
+      required: false,
+      content: {
+        "application/json": { schema: webhookPayload },
+        "application/x-www-form-urlencoded": { schema: z.object({ payload: z.string() }) },
+      },
+    },
   },
   responses: {
     200: json(
@@ -69,7 +78,9 @@ const webhookRoute = createRoute({
       "Handled. `tickets` is how many linked tickets changed",
     ),
     401: json(errorSchema, "Unknown workspace, no repo connected, or a missing or wrong signature"),
+    400: json(errorSchema, "Not a GitHub event payload"),
     413: json(errorSchema, `Larger than ${maxWebhookBytes} bytes`),
+    415: json(errorSchema, "Neither JSON nor GitHub's form encoding"),
   },
 });
 
@@ -115,7 +126,14 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
   app.openapi(webhookRoute, async (c) => {
     const { tenantId } = c.get("githubWebhook");
     const event = c.req.header("x-github-event");
-    const payload = c.req.valid("json");
+    const type = c.req.header("content-type");
+    const payload = readPayload(type, () =>
+      type?.toLowerCase().startsWith("application/json")
+        ? c.req.valid("json")
+        : c.req.valid("form"),
+    );
+    if (payload === "unsupported") return c.json({ error: "unsupported_media_type" }, 415);
+    if (payload === "invalid") return c.json({ error: "invalid_payload" }, 400);
     const ignored = { status: "ignored" as const, tickets: 0 };
     if (event !== "issues" || !payload.issue || !payload.repository) return c.json(ignored, 200);
     // The event's own repo, not only the connected one: a ticket linked while another repo was
@@ -151,6 +169,32 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     }
     return c.json(ignored, 200);
   });
+}
+
+type WebhookPayload = z.infer<typeof webhookPayload>;
+
+/**
+ * The event, from either of GitHub's content types. Hono types the validated body as either
+ * shape whatever was sent, so it is parsed again here: a few fields, already checked once.
+ */
+function readPayload(
+  contentType: string | undefined,
+  body: () => unknown,
+): WebhookPayload | "invalid" | "unsupported" {
+  const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
+  let raw: unknown;
+  if (type === "application/json") raw = body();
+  else if (type === "application/x-www-form-urlencoded") {
+    const form = z.object({ payload: z.string() }).safeParse(body());
+    if (!form.success) return "invalid";
+    try {
+      raw = JSON.parse(form.data.payload);
+    } catch {
+      return "invalid";
+    }
+  } else return "unsupported";
+  const event = webhookPayload.safeParse(raw);
+  return event.success ? event.data : "invalid";
 }
 
 /**

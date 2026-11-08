@@ -67,6 +67,7 @@ const fakeGithub: typeof fetch = async (input, init) => {
   }
   if (request.method === "GET" && path === `/repos/${githubRepo}`)
     return reply(200, { private: true });
+  if (request.method === "GET" && path === "/user") return reply(200, { login: "helpdesk-bot" });
   if (request.method === "POST" && path === `/repos/${githubRepo}/issues`) {
     issueCount++;
     return reply(201, {

@@ -42,6 +42,13 @@ describe("sanitizeIssueText", () => {
     );
   });
 
+  it("removes a link with parentheses whole, but keeps the sentence's own closing one", () => {
+    // Cut at the `(`, the rest would read as `[link removed](b)`: a link to the path `b`.
+    expect(sanitizeIssueText("Try https://evil.test/a(b)c now")).toBe("Try [link removed] now");
+    expect(sanitizeIssueText("(see https://evil.test/wiki_(x)).")).toBe("(see [link removed]).");
+    expect(sanitizeIssueText("[x](https://evil.test/a)")).toBe("[x]([link removed])");
+  });
+
   it("removes links without a scheme, other schemes, and relative markdown links", () => {
     expect(sanitizeIssueText("[x](//evil.test/a) and ![p](//evil.test/p.png)")).toBe(
       "[x]([link removed]) and ![p]([link removed])",

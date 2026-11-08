@@ -41,7 +41,7 @@ function createProblem(error: unknown): string {
   if (!(error instanceof ApiError)) return "That didn't work. Try again.";
   switch (error.code) {
     case "token_rejected":
-      return "GitHub didn't accept the workspace's token. An owner needs to connect the repo again.";
+      return "GitHub refused the workspace's token: it has expired, or can't open issues in this repo. An owner needs to give it Issues read and write access, or connect a new token.";
     case "repo_not_found":
       return "GitHub says the repo doesn't exist, or the token can't see it.";
     case "github_unavailable":

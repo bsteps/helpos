@@ -252,6 +252,17 @@ const createIssueRoute = createRoute({
   },
 });
 
+/** Whether the stored webhook secret still opens with the current key. */
+function readable(box: SecretBox, sealed: string, tenantId: string): boolean {
+  try {
+    box.open(sealed, { tenantId, purpose: "github-webhook-secret" });
+    return true;
+  } catch (error) {
+    if (!(error instanceof SecretBoxError)) throw error;
+    return false;
+  }
+}
+
 export function webhookUrl(publicUrl: string, tenantId: string): string {
   // Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`).
   const base = publicUrl.endsWith("/") ? publicUrl : `${publicUrl}/`;
@@ -316,15 +327,26 @@ function registerConnectionRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): voi
     const { tenantId } = principal;
     const tokenCiphertext = box.seal(input.token, { tenantId, purpose: "github-token" });
     const webhookSecret = await deps.db.withTenant(tenantId, async (tx) => {
-      // Locked, so two connects at once can't each keep a different secret.
+      // One connect per workspace at a time. A row lock isn't enough: when there is no row yet,
+      // it locks nothing, and two first connects would both insert.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`github-connect:${tenantId}`}, 0))`,
+      );
       const [current] = await tx
-        .select({ repo: integrations.repo })
+        .select({
+          repo: integrations.repo,
+          webhookSecretCiphertext: integrations.webhookSecretCiphertext,
+        })
         .from(integrations)
-        .where(eq(integrations.provider, "github"))
-        .for("update");
+        .where(eq(integrations.provider, "github"));
       // Same repo (a new token, say): the webhook set up in GitHub keeps working. Another repo
-      // needs a webhook of its own, so it gets a new secret to paste there, as does asking.
-      const keep = current?.repo === repoString(repo) && !input.rotateWebhookSecret;
+      // needs a webhook of its own, so it gets a new secret to paste there, as does asking. So
+      // does a secret that can't be read any more (a new key): keeping it would keep the
+      // webhook broken, when reconnecting is what the webhook's own warning says to do.
+      const keep =
+        current?.repo === repoString(repo) &&
+        !input.rotateWebhookSecret &&
+        readable(box, current.webhookSecretCiphertext, tenantId);
       const secret = keep ? null : randomBytes(32).toString("hex");
       const values = {
         repo: repoString(repo),
@@ -685,8 +707,8 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const linkedRepo = parseRepo(link.repo);
     const now = linkedRepo ? await github.issueState(linkedRepo, made.number) : null;
     if (now?.ok && now.value.state === "closed") {
-      const closed = await deps.db.withTenant(tenantId, (tx) =>
-        markIssueClosed(tx, {
+      state = await deps.db.withTenant(tenantId, async (tx) => {
+        await markIssueClosed(tx, {
           tenantId,
           repo: link.repo,
           number: made.number,
@@ -694,9 +716,15 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           actor: githubWebhookActor,
           requestId: c.get("requestId"),
           noticeDelaySeconds: deps.noticeDelaySeconds,
-        }),
-      );
-      if (closed > 0) state = "closed";
+        });
+        // The link's own state: closed here, or already by the close's webhook, which can
+        // arrive between linking and this check (then nothing changed here, but it is closed).
+        const [row] = await tx
+          .select({ state: ticketGithubIssues.state })
+          .from(ticketGithubIssues)
+          .where(eq(ticketGithubIssues.ticketId, ticketId));
+        return row?.state === "closed" ? "closed" : "open";
+      });
     } else if (now && !now.ok) {
       // Best effort: the issue is linked; a later close still arrives by webhook.
       deps.logger.warn({ ticketId, reason: now.reason }, "github issue: state not checked");
@@ -730,6 +758,18 @@ async function recordIssue(
     issueNumber: input.issue.number,
     issueUrl: input.issue.url,
   };
+  // An issue linked to another ticket stays that ticket's: its "fixed" notice must never reach
+  // this ticket's customer too. (The unique index enforces it; this keeps the answer typed.)
+  const [elsewhere] = await tx
+    .select({ ticketId: ticketGithubIssues.ticketId })
+    .from(ticketGithubIssues)
+    .where(
+      and(
+        eq(ticketGithubIssues.repo, input.repo),
+        eq(ticketGithubIssues.issueNumber, input.issue.number),
+      ),
+    );
+  if (elsewhere && elsewhere.ticketId !== input.ticketId) return "taken";
   const [claimed] = await tx
     .update(ticketGithubIssues)
     .set(values)

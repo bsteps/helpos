@@ -1968,9 +1968,12 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody: {
+            requestBody?: {
                 content: {
                     "application/json": components["schemas"]["GithubWebhookPayload"];
+                    "application/x-www-form-urlencoded": {
+                        payload: string;
+                    };
                 };
             };
             responses: {
@@ -1987,6 +1990,15 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Not a GitHub event payload */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description Unknown workspace, no repo connected, or a missing or wrong signature */
                 401: {
                     headers: {
@@ -1998,6 +2010,15 @@ export interface paths {
                 };
                 /** @description Larger than 1048576 bytes */
                 413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Neither JSON nor GitHub's form encoding */
+                415: {
                     headers: {
                         [name: string]: unknown;
                     };

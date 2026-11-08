@@ -86,6 +86,10 @@ const openedIssues: {
 }[] = [];
 /** The issue list never ends: page after page of other people's issues opened just now. */
 let endlessList = false;
+/** The token can't read its own account (as some app tokens can't). */
+let userHidden = false;
+/** Runs when the issue's state is read, after the link is written. */
+let duringStateCheck: (() => Promise<void>) | undefined;
 
 const fakeGithubFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -109,9 +113,13 @@ const fakeGithubFetch: typeof fetch = async (input, init) => {
   if (request.method === "GET" && one) {
     const found = openedIssues.find((i) => i.number === Number(one[1]));
     if (!found) return reply(404, { message: "Not Found" });
+    await duringStateCheck?.();
     return reply(200, { state: found.state ?? "open", state_reason: found.state_reason ?? null });
   }
-  if (request.method === "GET" && path === "/user") return reply(200, { login: botLogin });
+  if (request.method === "GET" && path === "/user") {
+    if (userHidden) return reply(403, { message: "Resource not accessible by integration" });
+    return reply(200, { login: botLogin });
+  }
   const html = (number: number) => `https://github.com/acme/app/issues/${number}`;
   if (request.method === "POST" && path === "/repos/acme/app/issues") {
     if (rejectCreate) return reply(422, { message: "Validation Failed" });
@@ -372,7 +380,9 @@ beforeEach(() => {
   listLags = false;
   rejectCreate = false;
   endlessList = false;
+  userHidden = false;
   duringCreate = undefined;
+  duringStateCheck = undefined;
 });
 
 afterAll(async () => {
@@ -470,11 +480,11 @@ describe("connecting a repo", () => {
     expect(body.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
 
     // The token was checked with GitHub, sent only in the Authorization header.
-    expect(githubCalls.at(-1)).toMatchObject({
-      method: "GET",
-      path: "/repos/acme/app",
-      authorization: `token ${pat}`,
-    });
+    // Then its own account, which finding a lost issue relies on.
+    expect(githubCalls.slice(-2)).toMatchObject([
+      { method: "GET", path: "/repos/acme/app", authorization: `token ${pat}` },
+      { method: "GET", path: "/user", authorization: `token ${pat}` },
+    ]);
 
     // At rest: only ciphertext, bound to this workspace.
     const [row] = await db.withTenant(acme, (tx) => tx.select().from(schema.integrations));
@@ -534,6 +544,67 @@ describe("connecting a repo", () => {
     expect(moved.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
     expect(moved.webhookSecret).not.toBe(rotated.webhookSecret);
     expect((await put({ repo: "acme/app", token: pat })).status).toBe(200);
+  });
+
+  it("gives a new webhook secret when the stored one can't be read, even for the same repo", async () => {
+    // As if the server's key changed: the stored secret is sealed under another key.
+    const oldKey = createSecretBox(randomBytes(32));
+    const sealed = oldKey.seal("lost", { tenantId: acme, purpose: "github-webhook-secret" });
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.integrations)
+        .set({ webhookSecretCiphertext: sealed })
+        .where(eq(schema.integrations.provider, "github")),
+    );
+    const res = await call("PUT", "/v1/integrations/github", "owner", {
+      repo: "acme/app",
+      token: pat,
+    });
+    const { webhookSecret } = (await res.json()) as { webhookSecret: string | null };
+    // Reconnecting is what the webhook's warning says to do, so it has to mend the webhook.
+    expect(webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+    const [row] = await db.withTenant(acme, (tx) => tx.select().from(schema.integrations));
+    expect(
+      box.open(row?.webhookSecretCiphertext ?? "", {
+        tenantId: acme,
+        purpose: "github-webhook-secret",
+      }),
+    ).toBe(webhookSecret);
+  });
+
+  it("lets two first connects at once both succeed, with one row and one secret", async () => {
+    expect((await call("DELETE", "/v1/integrations/github", "owner")).status).toBe(204);
+    const put = () =>
+      call("PUT", "/v1/integrations/github", "owner", { repo: "acme/app", token: pat });
+    const answers = await Promise.all([put(), put()]);
+    expect(answers.map((r) => r.status)).toEqual([200, 200]);
+    const secrets = await Promise.all(
+      answers.map(
+        async (r) => ((await r.json()) as { webhookSecret: string | null }).webhookSecret,
+      ),
+    );
+    // One made the secret; the other, for the same repo, kept it.
+    const made = secrets.filter((s) => s !== null);
+    expect(made).toHaveLength(1);
+    const rows = await db.withTenant(acme, (tx) => tx.select().from(schema.integrations));
+    expect(rows).toHaveLength(1);
+    expect(
+      box.open(rows[0]?.webhookSecretCiphertext ?? "", {
+        tenantId: acme,
+        purpose: "github-webhook-secret",
+      }),
+    ).toBe(made[0]);
+  });
+
+  it("refuses a token that can't read its own account, which finding a lost issue needs", async () => {
+    userHidden = true;
+    const res = await call("PUT", "/v1/integrations/github", "owner", {
+      repo: "acme/app",
+      token: pat,
+      rotateWebhookSecret: true,
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "token_rejected" });
   });
 });
 
@@ -758,6 +829,77 @@ describe("creating the issue", () => {
     ).toMatchObject({
       githubIssue: { number: linked.number, state: "open" },
     });
+  });
+
+  it("finds a retry's own issue too, when a stale claim had none and the retry's answer is lost", async () => {
+    const email = await receiveEmail();
+    // A claim from a request that died before GitHub opened anything.
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.ticketGithubIssues).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        repo: "acme/app",
+        state: "creating",
+        createdAt: longAgo,
+        updatedAt: longAgo,
+      }),
+    );
+    loseCreateAnswer = true;
+    const before = githubCalls.length;
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const opened = openedIssues[0]?.number;
+    expect(githubCalls.slice(before).map((c) => `${c.method} ${c.path}`)).toEqual([
+      // The stale claim's marker: not there.
+      "GET /user",
+      "GET /repos/acme/app/issues",
+      // Opened, but the answer is lost.
+      "POST /repos/acme/app/issues",
+      // This claim's own marker: found, so nothing is opened twice.
+      "GET /user",
+      "GET /repos/acme/app/issues",
+      `GET /repos/acme/app/issues/${opened}`,
+    ]);
+    expect(((await res.json()) as { number: number }).number).toBe(opened);
+  });
+
+  it("never links an issue that another ticket already links", async () => {
+    const first = await receiveEmail();
+    const email = await receiveEmail();
+    const link = (ticketId: string, number: number) => ({
+      tenantId: acme,
+      ticketId,
+      repo: "acme/app",
+      issueNumber: number,
+      issueUrl: `https://github.com/acme/app/issues/${number}`,
+      state: "open" as const,
+    });
+    // The issue GitHub just opened is, somehow, already another ticket's.
+    duringCreate = () =>
+      db.withTenant(acme, async (tx) => {
+        const opened = openedIssues[0];
+        if (!opened) throw new Error("no issue opened");
+        await tx.insert(schema.ticketGithubIssues).values(link(first.ticketId, opened.number));
+      });
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    // Its "fixed" notice belongs to the first ticket's customer alone.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "issue_not_linked" });
+    // The database refuses a second link outright, too.
+    const third = await receiveEmail();
+    const number = openedIssues[0]?.number ?? 0;
+    await expect(
+      db.withTenant(acme, (tx) =>
+        tx.insert(schema.ticketGithubIssues).values(link(third.ticketId, number)),
+      ),
+    ).rejects.toThrow();
   });
 
   it("still links the issue when this request's claim was taken as stale meanwhile", async () => {
@@ -1126,6 +1268,51 @@ describe("the webhook", () => {
     );
     expect(live).toHaveLength(1);
     expect(live[0]?.status).toBe("pending");
+  });
+
+  it("reports the issue closed when its webhook closed the link before the state was read", async () => {
+    const email = await receiveEmail();
+    // The close's webhook lands between linking the issue and reading its state.
+    duringStateCheck = async () => {
+      duringStateCheck = undefined;
+      const opened = openedIssues[0];
+      if (!opened) throw new Error("no issue opened");
+      Object.assign(opened, { state: "closed", state_reason: "completed" });
+      expect(await (await deliver(secret, closed(opened.number))).json()).toEqual({
+        status: "processed",
+        tickets: 1,
+      });
+    };
+    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
+      title: "t",
+      body: "b",
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ state: "closed" });
+    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+  });
+
+  it("takes GitHub's form content type too, and refuses any other once signed", async () => {
+    const email = await receiveEmail();
+    const { number } = await createIssue(email.ticketId);
+    const send = (type: string, body: string) =>
+      app.request(`/v1/integrations/github/webhook?workspace=${acme}`, {
+        method: "POST",
+        headers: {
+          "content-type": type,
+          "x-github-event": "issues",
+          "x-hub-signature-256": signWebhook(secret, body),
+        },
+        body,
+      });
+    const event = JSON.stringify(closed(number));
+    expect((await send("text/plain", event)).status).toBe(415);
+    const form = await send(
+      "application/x-www-form-urlencoded",
+      `payload=${encodeURIComponent(event)}`,
+    );
+    expect(await form.json()).toEqual({ status: "processed", tickets: 1 });
+    expect((await send("application/x-www-form-urlencoded", "payload=not-json")).status).toBe(400);
   });
 
   it("closed as not planned or duplicate → no 'fixed' draft", async () => {

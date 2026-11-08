@@ -2,7 +2,7 @@ import { Octokit } from "@octokit/core";
 
 /**
  * The GitHub calls the helpdesk makes, and nothing more:
- * - read the repo, to check a token when it is connected;
+ * - read the repo and the token's own account, to check a token when it is connected;
  * - open an issue, sending only a title and a body;
  * - list the repo's newest issues, to find one it opened when GitHub's answer was lost, and
  *   read which account the token belongs to, so it only ever recognises its own issues.
@@ -133,6 +133,9 @@ export function octokitGithub(options: OctokitOptions): GithubApiFactory {
             repo: repo.name,
             request: { signal: signal() },
           });
+          // Finding an issue whose answer was lost needs the token's own account. A token that
+          // can't tell it (some app tokens) is refused now, not at the worst moment later.
+          await octokit.request("GET /user", { request: { signal: signal() } });
           return { ok: true, value: { private: res.data.private } };
         } catch (error) {
           return failed(error);

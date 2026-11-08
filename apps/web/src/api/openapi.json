@@ -2877,11 +2877,24 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/GithubWebhookPayload"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "payload": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "payload"
+                ]
               }
             }
           }
@@ -2913,6 +2926,16 @@
               }
             }
           },
+          "400": {
+            "description": "Not a GitHub event payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unknown workspace, no repo connected, or a missing or wrong signature",
             "content": {
@@ -2925,6 +2948,16 @@
           },
           "413": {
             "description": "Larger than 1048576 bytes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Neither JSON nor GitHub's form encoding",
             "content": {
               "application/json": {
                 "schema": {

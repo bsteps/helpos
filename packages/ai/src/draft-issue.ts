@@ -46,9 +46,11 @@ export type IssueDraft = { title: string; body: string; usage: DraftUsage };
 /** GitHub's own limit on an issue title is 256 characters. */
 export const maxIssueTitleChars = 200;
 
-// Any `scheme://`, bare `www.` and scheme-less `//host`: GitHub links all of them.
+// Any `scheme://`, bare `www.` and scheme-less `//host`: GitHub links all of them. Parentheses
+// are part of the link (`/wiki/a_(b)`), as GitHub reads them; an unmatched `)` at the end is
+// the sentence's, and stays (see trailingPart).
 const urlPattern =
-  /(?:\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>()[\]{}"'`]+/gi;
+  /(?:\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?<![\w:/])\/\/(?=[a-z0-9-]+\.))[^\s<>[\]{}"'`]+/gi;
 // A markdown link or image target that is still there: a relative path links too.
 const markdownTarget = /\]\((?!\[link removed\]\))[^)]*\)/g;
 const trailingPunctuation = /[.,;:!?*_~]+$/;
@@ -67,8 +69,23 @@ const ownSpan = /^[([{"']*`[^`\s]+`[.,;:!?)\]}"']*$/;
 // A word's own punctuation stays outside its code span: "(see #12)." → "(see `#12`)."
 const wordParts = /^([([{"']*)(.*?)([.,;:!?)\]}"']*)$/;
 
-/** The sentence's own punctuation after a link ("see https://x.test."), which stays. */
-const trailingPart = (link: string) => link.match(trailingPunctuation)?.[0] ?? "";
+/**
+ * The sentence's own punctuation after a link ("see https://x.test."), which stays: trailing
+ * marks, and each `)` at the end that no `(` in the link opened ("(see https://x.test).").
+ */
+function trailingPart(link: string): string {
+  let rest = link;
+  let trail = "";
+  for (;;) {
+    const marks = rest.match(trailingPunctuation)?.[0] ?? "";
+    rest = rest.slice(0, rest.length - marks.length);
+    trail = marks + trail;
+    const unmatched = rest.split(")").length > rest.split("(").length;
+    if (!rest.endsWith(")") || !unmatched) return trail;
+    rest = rest.slice(0, -1);
+    trail = `)${trail}`;
+  }
+}
 
 /**
  * Puts a whole word in a code span when it could notify someone or link an issue: GitHub does
