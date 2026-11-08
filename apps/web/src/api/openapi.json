@@ -2795,7 +2795,7 @@
     "/v1/tickets/{id}/github-issue": {
       "post": {
         "summary": "Create a GitHub issue from a ticket",
-        "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `github:write`.",
+        "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `tickets:read` and `github:write`.",
         "security": [
           {
             "apiAuth": []

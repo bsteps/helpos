@@ -6,6 +6,7 @@ import {
   enqueue,
   eq,
   gt,
+  lte,
   schema,
   sql,
   type TenantTx,
@@ -106,6 +107,8 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const [row] = await tx
       .select({
         ticketId: drafts.ticketId,
+        kind: drafts.kind,
+        createdAt: drafts.createdAt,
         mailbox: mailboxes.address,
         textBody: messages.textBody,
         htmlBody: messages.htmlBody,
@@ -174,7 +177,16 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
         .from(drafts)
         .where(and(eq(drafts.ticketId, row.ticketId), gt(drafts.approvedAt, recent.at)))
         .limit(1);
-      if (!actedOn) return;
+      // Another kind of draft since that notice is other news, too: "it's fixed" waiting is
+      // not the reply the owners were already told about (nor the other way round).
+      const [announced] = await tx
+        .select({ kind: drafts.kind })
+        .from(drafts)
+        .where(and(eq(drafts.ticketId, row.ticketId), lte(drafts.createdAt, recent.at)))
+        .orderBy(desc(drafts.createdAt))
+        .limit(1);
+      const otherNews = row.createdAt > recent.at && announced?.kind !== row.kind;
+      if (!actedOn && !otherNews) return;
     }
 
     const owners = await tx

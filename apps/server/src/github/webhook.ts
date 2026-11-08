@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { type Database, eq, schema } from "@helpos/db";
+import { type Database, enqueue, eq, schema, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
-import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
-import { createGate, defaultGateLimits, type GateLimits } from "./verify-gate.ts";
+import { markIssueClosed, markIssueReopened, tiedLinks } from "./issue-state.ts";
+import { recheckAfter, recheckIssueJob } from "./recheck.ts";
+import { createGate, defaultGateLimits, type GateLimits, recentIds } from "./verify-gate.ts";
 import { signatureMatches } from "./webhook-signature.ts";
 
 const { integrations } = schema;
@@ -17,6 +18,8 @@ export interface GithubWebhookDeps {
   logger: Pick<Logger, "info" | "warn">;
   secretBox: SecretBox | undefined;
   noticeDelaySeconds?: number | undefined;
+  /** For tests: how long before a tied event's issue state is read from GitHub. */
+  issueRecheckSeconds?: number | undefined;
   /** For tests: how many deliveries are checked at once, and how many may wait. */
   verifyLimits?: GateLimits;
 }
@@ -121,6 +124,11 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
   // Unsigned requests can't be told from GitHub's until a secret is read from the database,
   // so a flood of forged ones would each take a pooled connection: they take turns instead.
   const gate = createGate(deps.verifyLimits ?? defaultGateLimits);
+  // Workspaces with a delivery verified lately: their deliveries go first (see the gate).
+  const known = recentIds(10_000);
+  // Workspaces already warned about an unreadable secret: once each, not once per request, so
+  // forged requests can't flood the log with it.
+  const warned = recentIds(10_000);
   // Before validation, so a caller without the secret learns nothing, not even a 400. A
   // request that isn't even shaped like a signed delivery is refused before any database work.
   app.use(webhookPath, async (c, next) => {
@@ -129,21 +137,33 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     if (!signatureShape.test(signature) || !workspace.success) {
       return c.json({ error: "unauthorized" }, 401);
     }
+    // One spelling per workspace: the gate's share and the secret's binding both key on it.
+    const tenantId = workspace.data.toLowerCase();
     // The body first, outside the limit: a client sending it slowly holds no slot. Hono keeps
     // it, so verification reads these same bytes.
     await c.req.arrayBuffer();
-    const release = await gate(workspace.data);
+    const release = await gate(tenantId, known.has(tenantId));
     if (!release) {
       c.header("Retry-After", "5");
       return c.json({ error: "busy" }, 503);
     }
     let verified: { tenantId: string } | null;
     try {
-      verified = await verifyWebhook(c, deps);
+      verified = await verifyWebhook(c, deps, tenantId, (id) => {
+        if (warned.has(id)) return;
+        warned.add(id);
+        deps.logger.warn(
+          { tenantId: id },
+          "github webhook: stored secret can't be read; reconnect the repo",
+        );
+      });
     } finally {
       release();
     }
     if (!verified) return c.json({ error: "unauthorized" }, 401);
+    known.add(tenantId);
+    // Readable again (reconnected): if it breaks later, that's worth a warning again.
+    warned.delete(tenantId);
     c.set("githubWebhook", verified);
     return next();
   });
@@ -183,15 +203,32 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
         { status: changed > 0 ? ("processed" as const) : ("ignored" as const), tickets: changed },
         200,
       );
+    // An event in the same second as the link's last change can't be ordered against it, so
+    // the worker reads the issue's state from GitHub for those links instead.
+    const recheckTied = async (tx: TenantTx, from: "open" | "closed") => {
+      for (const linkId of await tiedLinks(tx, change, from)) {
+        await enqueue(
+          tx,
+          recheckIssueJob,
+          { tenantId, linkId },
+          { startAfter: recheckAfter(deps.issueRecheckSeconds) },
+        );
+      }
+    };
     if (payload.action === "closed") {
-      const changed = await deps.db.withTenant(tenantId, (tx) =>
-        markIssueClosed(tx, { ...change, stateReason: issue.state_reason }),
-      );
+      const changed = await deps.db.withTenant(tenantId, async (tx) => {
+        await recheckTied(tx, "open");
+        return markIssueClosed(tx, { ...change, stateReason: issue.state_reason });
+      });
       deps.logger.info({ issue: issue.number, tickets: changed }, "github issue closed");
       return answer(changed);
     }
     if (payload.action === "reopened") {
-      return answer(await deps.db.withTenant(tenantId, (tx) => markIssueReopened(tx, change)));
+      const changed = await deps.db.withTenant(tenantId, async (tx) => {
+        await recheckTied(tx, "closed");
+        return markIssueReopened(tx, change);
+      });
+      return answer(changed);
     }
     return c.json(ignored, 200);
   });
@@ -231,11 +268,11 @@ function readPayload(
 async function verifyWebhook(
   c: Context,
   deps: GithubWebhookDeps,
+  tenantId: string,
+  unreadable: (tenantId: string) => void,
 ): Promise<{ tenantId: string } | null> {
-  const workspace = z.uuid().safeParse(c.req.query("workspace"));
   const box = deps.secretBox;
-  if (!workspace.success || !box) return null;
-  const tenantId = workspace.data;
+  if (!box) return null;
   const [row] = await deps.db.withTenant(tenantId, (tx) =>
     tx
       .select({ webhookSecretCiphertext: integrations.webhookSecretCiphertext })
@@ -253,10 +290,7 @@ async function verifyWebhook(
     });
   } catch (error) {
     if (!(error instanceof SecretBoxError)) throw error;
-    deps.logger.warn(
-      { tenantId },
-      "github webhook: stored secret can't be read; reconnect the repo",
-    );
+    unreadable(tenantId);
   }
   // Read once here and cached by Hono, so validation afterwards parses these same bytes.
   const body = new Uint8Array(await c.req.arrayBuffer());

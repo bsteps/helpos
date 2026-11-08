@@ -199,6 +199,8 @@ const principals: Record<string, () => Principal> = {
     scopes: new Set([...allScopes, "workspace:admin"]),
   }),
   githubAgent: () => agent(acme, ["tickets:read", "github:write"]),
+  // Can use the GitHub routes, but can't read tickets.
+  githubOnly: () => agent(acme, ["github:write"]),
   // An agent can't hold workspace:admin, but even a caller claiming it as an agent is refused.
   adminAgent: () => agent(acme, [...allScopes, "workspace:admin"]),
   readOnly: () => agent(acme, ["tickets:read", "drafts:write", "drafts:approve"]),
@@ -1326,10 +1328,12 @@ describe("creating the issue", () => {
     ).toBe(401);
   });
 
-  it("is refused without github:write, in another workspace, or with nothing connected", async () => {
+  it("is refused without github:write or tickets:read, in another workspace, or with nothing connected", async () => {
     const email = await receiveEmail();
     const path = `/v1/tickets/${email.ticketId}/github-issue`;
     expect((await call("POST", path, "readOnly", { title: "t", body: "b" })).status).toBe(403);
+    // It would pick which customer is told "it's fixed" without being able to read the ticket.
+    expect((await call("POST", path, "githubOnly", { title: "t", body: "b" })).status).toBe(403);
     expect((await call("POST", path, "otherOwner", { title: "t", body: "b" })).status).toBe(404);
     const otherEmail = await receiveEmail("help@other.test");
     const res = await call(
@@ -1394,6 +1398,70 @@ describe("the webhook", () => {
     expect(await ping.json()).toEqual({ status: "ignored", tickets: 0 });
     const push = await deliver(secret, { ref: "refs/heads/main" }, { event: "push" });
     expect(await push.json()).toEqual({ status: "ignored", tickets: 0 });
+  });
+
+  it("treats the workspace ID in any letter case as the same workspace", async () => {
+    const ping = { zen: "hi", hook_id: 1 };
+    const res = await deliver(secret, ping, { event: "ping", workspace: acme.toUpperCase() });
+    expect(res.status).toBe(200);
+  });
+
+  it("warns once about an unreadable secret, however many requests name the workspace", async () => {
+    const oldKey = createSecretBox(randomBytes(32));
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.integrations)
+        .set({
+          webhookSecretCiphertext: oldKey.seal("lost", {
+            tenantId: acme,
+            purpose: "github-webhook-secret",
+          }),
+        })
+        .where(eq(schema.integrations.provider, "github")),
+    );
+    const warnings = () =>
+      logger.warn.mock.calls.filter((call) => JSON.stringify(call).includes("can't be read"))
+        .length;
+    const before = warnings();
+    for (let i = 0; i < 3; i++) {
+      expect((await deliver(secret, { zen: "hi" }, { event: "ping" })).status).toBe(401);
+    }
+    expect(warnings() - before).toBe(1);
+    // Mended by connecting again, as the warning says.
+    secret = await connect();
+    expect((await deliver(secret, { zen: "hi" }, { event: "ping" })).status).toBe(200);
+  });
+
+  it("asks GitHub when a close and a reopen share a second, instead of guessing", async () => {
+    const email = await receiveEmail();
+    const { number } = await createIssue(email.ticketId);
+    // GitHub's times are to the second.
+    const second = new Date(Date.now() + 5_000).toISOString().replace(/\.\d+Z$/, "Z");
+    const closing = closed(number, "completed", "acme/App", second);
+    expect(await (await deliver(secret, closing)).json()).toMatchObject({ tickets: 1 });
+    // Reopened in that same second: which came last can't be told from the times.
+    const issue = openedIssues.find((i) => i.number === number);
+    if (!issue) throw new Error("no issue");
+    Object.assign(issue, { state: "open", state_reason: null });
+    const reopened = { ...closed(number, null, "acme/App", second), action: "reopened" };
+    expect(await (await deliver(secret, reopened)).json()).toEqual({
+      status: "ignored",
+      tickets: 0,
+    });
+    // The worker reads the state from GitHub, open, and applies that: no "it's fixed" waits.
+    const stateOf = async () =>
+      (
+        (await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json()) as {
+          githubIssue: { state: string };
+        }
+      ).githubIssue.state;
+    await waitFor("the reopen read from GitHub", async () =>
+      (await stateOf()) === "open" ? true : undefined,
+    );
+    const live = (await draftsOf(email.ticketId)).filter(
+      (d) => d.kind === "fixed" && d.status !== "discarded",
+    );
+    expect(live).toEqual([]);
   });
 
   it("closed as completed → a pending 'fixed' draft; a replay changes nothing", async () => {

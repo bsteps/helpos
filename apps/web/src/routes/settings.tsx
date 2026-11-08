@@ -66,7 +66,9 @@ function GithubSettings() {
   const rotate = useRotateGithubWebhookSecret();
   const [repo, setRepo] = useState("");
   const [token, setToken] = useState("");
-  // The secret is shown once, straight from the connect response, and never stored here.
+  // The secret is shown once, from the connect or rotate response. It lives only in this
+  // state until the page is left: the mutations' own copies are cleared as soon as it's here,
+  // and it is never cached, stored or sent anywhere.
   const [connected, setConnected] = useState<ShownSecret | null>(null);
 
   // Checked here, so the form names the field that's wrong. The API refuses it too.
@@ -80,6 +82,7 @@ function GithubSettings() {
         onSuccess: (result) => {
           setConnected(result);
           setToken("");
+          connect.reset();
         },
       },
     );
@@ -188,14 +191,16 @@ function GithubSettings() {
             onClick={() => {
               disconnect.reset();
               rotate.mutate(undefined, {
-                onSuccess: ({ webhookSecret }) =>
+                onSuccess: ({ webhookSecret }) => {
                   setConnected({
                     connected: true,
                     repo: status.repo,
                     webhookUrl: status.webhookUrl,
                     webhookSecret,
                     rotated: true,
-                  }),
+                  });
+                  rotate.reset();
+                },
               });
             }}
           >

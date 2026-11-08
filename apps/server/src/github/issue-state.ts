@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte, or, schema, sql, type TenantTx } from "@helpos/db";
+import { and, eq, inArray, isNull, lt, lte, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { addFixedDraft } from "./fixed-notice.ts";
 
@@ -23,21 +23,52 @@ export interface IssueChange {
    * issue was reopened, and that must not tell the customer it's fixed.
    */
   changedAt: Date | null;
+  /**
+   * Read from GitHub just now, so it is the issue's state, not one event of several: it applies
+   * on an equal time too. A webhook event with the same time as the last change can't be
+   * ordered (GitHub's times are to the second), so it changes nothing: see tiedLinks().
+   */
+  current?: boolean;
 }
 
 function linksTo(change: IssueChange, state: "open" | "closed") {
+  const after = change.current ? lte : lt;
   return and(
     eq(ticketGithubIssues.repo, change.repo),
     eq(ticketGithubIssues.issueNumber, change.number),
     eq(ticketGithubIssues.state, state),
-    // Equal times still apply: GitHub's are to the second, and a close and reopen can share one.
     change.changedAt
       ? or(
           isNull(ticketGithubIssues.stateChangedAt),
-          lte(ticketGithubIssues.stateChangedAt, change.changedAt),
+          after(ticketGithubIssues.stateChangedAt, change.changedAt),
         )
       : undefined,
   );
+}
+
+/**
+ * The issue's links in `state` last changed in the very second of this event: a close and a
+ * reopen in one second can't be told apart by time, so which came last is unknown. The caller
+ * has the worker read the issue's state from GitHub for these, instead of guessing.
+ */
+export async function tiedLinks(
+  tx: TenantTx,
+  change: IssueChange,
+  state: "open" | "closed",
+): Promise<string[]> {
+  if (!change.changedAt) return [];
+  const rows = await tx
+    .select({ id: ticketGithubIssues.id })
+    .from(ticketGithubIssues)
+    .where(
+      and(
+        eq(ticketGithubIssues.repo, change.repo),
+        eq(ticketGithubIssues.issueNumber, change.number),
+        eq(ticketGithubIssues.state, state),
+        eq(ticketGithubIssues.stateChangedAt, change.changedAt),
+      ),
+    );
+  return rows.map((r) => r.id);
 }
 
 /** A change with no time of its own keeps the time of the last one. */

@@ -244,7 +244,7 @@ const createIssueRoute = createRoute({
     "ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that " +
     "if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue " +
     "instead of opening a duplicate. When the issue is closed as completed, the ticket gets a " +
-    "`fixed` draft to approve. One issue per ticket. Needs `github:write`.",
+    "`fixed` draft to approve. One issue per ticket. Needs `tickets:read` and `github:write`.",
   security,
   request: {
     params: idParams,
@@ -597,7 +597,11 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
 
   app.openapi(createIssueRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("github:write")) return c.json({ error: "forbidden" }, 403);
+    // tickets:read too: the issue is made from the ticket, and the ticket's customer is who is
+    // told when it's fixed, so a caller that can't read the ticket can't pick it either.
+    if (!principal.scopes.has("github:write") || !principal.scopes.has("tickets:read")) {
+      return c.json({ error: "forbidden" }, 403);
+    }
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const { id: ticketId } = c.req.valid("param");
@@ -820,6 +824,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
             number: made.number,
             stateReason: now.value.stateReason,
             changedAt: now.value.updatedAt,
+            current: true,
             actor: githubWebhookActor,
             requestId: c.get("requestId"),
             noticeDelaySeconds: deps.noticeDelaySeconds,

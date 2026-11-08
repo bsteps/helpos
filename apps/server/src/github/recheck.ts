@@ -1,23 +1,34 @@
-import { and, defineTenantJob, enqueue, eq, schema, type TenantStepsHandler } from "@helpos/db";
+import {
+  and,
+  defineTenantJob,
+  enqueue,
+  eq,
+  inArray,
+  schema,
+  type TenantStepsHandler,
+} from "@helpos/db";
 import type { Logger } from "pino";
 import { z } from "zod";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { type GithubApiFactory, parseRepo } from "./github-api.ts";
-import { markIssueClosed } from "./issue-state.ts";
+import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
 
 const { integrations, ticketGithubIssues } = schema;
 
 /**
- * Reads a linked issue's state again, when that couldn't be done right after linking. An issue
- * can close before its link is written, and that close's webhook had nothing to match: without
- * this, a GitHub hiccup at the wrong moment would mean the customer is never told.
+ * Reads a linked issue's state from GitHub and applies it, when events alone can't say it:
+ * - right after linking, if GitHub couldn't be reached: an issue can close before its link is
+ *   written, and that close's webhook had nothing to match;
+ * - after a close and a reopen in the same second, which GitHub's times can't order.
+ * Without it, a GitHub hiccup at the wrong moment would mean the customer is never told, or is
+ * told it's fixed while the issue is open.
  */
 export const recheckIssueJob = defineTenantJob("github.recheck-issue", { linkId: z.uuid() });
 
 /** How long before a check, and between checks while GitHub can't be reached. */
 export const defaultRecheckSeconds = 120;
-/** Checks stop a day after the link: the issue's own later webhooks still arrive. */
+/** Checks stop a day after the link's last change: the issue's later webhooks still arrive. */
 const recheckForMs = 24 * 60 * 60 * 1000;
 
 export const recheckAfter = (seconds: number | undefined) =>
@@ -42,11 +53,17 @@ export function handleRecheckIssue(
         .select({
           repo: ticketGithubIssues.repo,
           number: ticketGithubIssues.issueNumber,
+          since: ticketGithubIssues.stateChangedAt,
           createdAt: ticketGithubIssues.createdAt,
         })
         .from(ticketGithubIssues)
-        .where(and(eq(ticketGithubIssues.id, linkId), eq(ticketGithubIssues.state, "open")));
-      // Closed meanwhile (its webhook came after all), or gone: nothing to do.
+        .where(
+          and(
+            eq(ticketGithubIssues.id, linkId),
+            inArray(ticketGithubIssues.state, ["open", "closed"]),
+          ),
+        );
+      // Gone (unlinked, or never more than a claim): nothing to do.
       if (!link || link.number === null) return null;
       const [integration] = await tx
         .select({ tokenCiphertext: integrations.tokenCiphertext })
@@ -77,7 +94,7 @@ export function handleRecheckIssue(
         deps.logger.warn({ linkId, reason: now.reason }, "github recheck: GitHub refused");
         return;
       }
-      if (Date.now() - target.createdAt.getTime() > recheckForMs) {
+      if (Date.now() - (target.since ?? target.createdAt).getTime() > recheckForMs) {
         deps.logger.warn({ linkId, reason: now.reason }, "github recheck: giving up");
         return;
       }
@@ -87,20 +104,25 @@ export function handleRecheckIssue(
       );
       return;
     }
-    // Still open: its own webhook says when it closes.
-    if (now.value.state !== "closed") return;
+    // GitHub's state now, which every later event is newer than. Each mark only changes a link
+    // in the other state, so a link that already agrees is left as it is.
+    const change = {
+      tenantId,
+      repo: target.repo,
+      number: target.number,
+      changedAt: now.value.updatedAt,
+      current: true,
+      actor: githubWebhookActor,
+      requestId: null,
+      noticeDelaySeconds: deps.noticeDelaySeconds,
+    };
     const changed = await transaction((tx) =>
-      markIssueClosed(tx, {
-        tenantId,
-        repo: target.repo,
-        number: target.number,
-        stateReason: now.value.stateReason,
-        changedAt: now.value.updatedAt,
-        actor: githubWebhookActor,
-        requestId: null,
-        noticeDelaySeconds: deps.noticeDelaySeconds,
-      }),
+      now.value.state === "closed"
+        ? markIssueClosed(tx, { ...change, stateReason: now.value.stateReason })
+        : markIssueReopened(tx, change),
     );
-    deps.logger.info({ linkId, tickets: changed }, "github recheck: issue was closed");
+    if (changed > 0) {
+      deps.logger.info({ linkId, state: now.value.state }, "github recheck: state applied");
+    }
   };
 }
