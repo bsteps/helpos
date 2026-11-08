@@ -12,6 +12,9 @@ describe("safeRedirect", () => {
     "//evil.test/path",
     // Browsers read a backslash as a slash: this is //evil.test.
     "/\\evil.test",
+    // Browsers drop tabs and newlines: these are //evil.test too.
+    "/\t/evil.test",
+    "/\n/evil.test",
     "javascript:alert(1)",
     "tickets/abc",
     "",

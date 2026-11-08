@@ -126,18 +126,23 @@ export function createAuthStore(
     async setPassword(token, rawPassword) {
       const password = passwordSchema.safeParse(rawPassword);
       if (!password.success || token.length === 0 || token.length > 200) return { ok: false };
+      const validToken = and(
+        eq(verifications.identifier, setupIdentifier(token)),
+        gt(verifications.expiresAt, new Date()),
+      );
+      // Hashing is deliberately slow: check the token first, so a guessed token costs no hash.
+      const [known] = await db
+        .select({ id: verifications.id })
+        .from(verifications)
+        .where(validToken);
+      if (!known) return { ok: false };
       // Better Auth's own hasher, so its sign-in can verify the result.
       const hash = await hashPassword(password.data);
       return db.transaction(async (tx) => {
         // Deleting is what makes the token single-use: two racing requests can't both get it.
         const [used] = await tx
           .delete(verifications)
-          .where(
-            and(
-              eq(verifications.identifier, setupIdentifier(token)),
-              gt(verifications.expiresAt, new Date()),
-            ),
-          )
+          .where(validToken)
           .returning({ userId: verifications.value });
         if (!used) return { ok: false } as const;
         const userId = userIdSchema.parse(used.userId);
