@@ -107,6 +107,41 @@ export function useApproveDraft(ticketId: string) {
   });
 }
 
+/** Queues a draft whose send failed for good to be sent again. Safe to repeat. */
+export function useRetryDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST("/v1/drafts/{id}/retry", { params: { path: { id } } })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+  });
+}
+
+export function useDiscardDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST("/v1/drafts/{id}/discard", { params: { path: { id } } })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+  });
+}
+
+/** Asks the AI for a fresh draft; it shows up in the drafts list when it's written. */
+export function useRegenerateDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await unwrap(
+        api.POST("/v1/tickets/{id}/drafts", {
+          params: { path: { id: ticketId } },
+          body: { regenerate: true },
+        }),
+      );
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+  });
+}
+
 export function useCloseTicket(ticketId: string) {
   const queryClient = useQueryClient();
   return useMutation({

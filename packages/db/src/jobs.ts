@@ -106,15 +106,45 @@ export function tenantTransactions(
   return (fn) => db.withTenant(tenantId, fn);
 }
 
+/**
+ * How often, and how far apart, a failed job is tried again. Set on the queue, so every job
+ * enqueued after it takes it. Without one, pg-boss's defaults apply.
+ */
+export interface RetryPolicy {
+  /** Retries after the first attempt. */
+  limit: number;
+  /** Wait before the first retry. */
+  delaySeconds: number;
+  /** Doubles the wait after each retry, up to `maxDelaySeconds`. */
+  backoff: boolean;
+  maxDelaySeconds?: number;
+}
+
+export interface TenantWorkOptions<P> {
+  /**
+   * Runs once, in its own transaction, after the last attempt failed (the attempt's own
+   * transaction has rolled back). For marking the work as failed for good, so it isn't lost
+   * silently. The job still ends up failed in pg-boss.
+   */
+  onGiveUp?: TenantJobHandler<P>;
+}
+
 export interface JobRunner {
   /** Starts pg-boss. Call installJobs() first (migrate step). */
   start(): Promise<void>;
-  /** Creates the queue if needed. enqueue() refuses a queue that doesn't exist yet. */
-  ensureQueue(job: TenantJob<{ tenantId: string }> | SystemJob<unknown>): Promise<void>;
+  /**
+   * Creates the queue if needed, and sets its retry policy when given. enqueue() refuses a
+   * queue that doesn't exist yet.
+   */
+  ensureQueue(
+    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
+    retry?: RetryPolicy,
+  ): Promise<void>;
   /** Creates the queue if needed and starts working it. */
   work<P extends { tenantId: string }>(
     job: TenantJob<P>,
     handler: TenantJobHandler<P>,
+    options?: TenantWorkOptions<P>,
   ): Promise<void>;
   work<P>(job: SystemJob<P>, handler: SystemJobHandler<P>): Promise<void>;
   /** Like work(), for a handler that opens its own transactions between network calls. */
@@ -147,15 +177,42 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   boss.on("error", options.onError);
   const pollingIntervalSeconds = options.pollingIntervalSeconds ?? 2;
 
+  async function ensureQueue(
+    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
+    retry?: RetryPolicy,
+  ): Promise<void> {
+    await boss.createQueue(job.queue);
+    if (!retry) return;
+    // updateQueue too: createQueue leaves an existing queue's policy as it was.
+    await boss.updateQueue(job.queue, {
+      retryLimit: retry.limit,
+      retryDelay: retry.delaySeconds,
+      retryBackoff: retry.backoff,
+      retryDelayMax: retry.maxDelaySeconds ?? null,
+    });
+  }
+
   async function consume<P>(
     job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
     run: (payload: P) => Promise<void>,
+    onLastFailure?: (payload: P) => Promise<void>,
   ): Promise<void> {
     await boss.createQueue(job.queue);
-    await boss.work<unknown>(job.queue, { batchSize: 1, pollingIntervalSeconds }, async (jobs) => {
-      for (const { data } of jobs) {
+    // With metadata, to tell the last attempt from one that will be retried.
+    const workOptions = { batchSize: 1, pollingIntervalSeconds, includeMetadata: true } as const;
+    await boss.work<unknown, unknown, typeof workOptions>(job.queue, workOptions, async (jobs) => {
+      for (const { data, retryCount, retryLimit } of jobs) {
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
-        await run(job.payload.parse(data) as P);
+        const payload = job.payload.parse(data) as P;
+        try {
+          await run(payload);
+        } catch (error) {
+          if (onLastFailure && retryCount >= retryLimit) {
+            // Reported, not thrown: the job's own error is the one pg-boss should record.
+            await onLastFailure(payload).catch(options.onError);
+          }
+          throw error;
+        }
       }
     });
   }
@@ -163,14 +220,19 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   async function work(
     job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
     handler: TenantJobHandler<{ tenantId: string }> | SystemJobHandler<unknown>,
+    workOptions: TenantWorkOptions<{ tenantId: string }> = {},
   ): Promise<void> {
     if (job.kind === "system") {
       await consume(job, handler as SystemJobHandler<unknown>);
       return;
     }
     const tenantHandler = handler as TenantJobHandler<{ tenantId: string }>;
-    await consume<{ tenantId: string }>(job, (payload) =>
-      options.db.withTenant(payload.tenantId, (tx) => tenantHandler(payload, tx)),
+    const { onGiveUp } = workOptions;
+    await consume<{ tenantId: string }>(
+      job,
+      (payload) => options.db.withTenant(payload.tenantId, (tx) => tenantHandler(payload, tx)),
+      onGiveUp &&
+        ((payload) => options.db.withTenant(payload.tenantId, (tx) => onGiveUp(payload, tx))),
     );
   }
 
@@ -184,7 +246,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   }
 
   return {
-    ensureQueue: (job) => boss.createQueue(job.queue),
+    ensureQueue,
     start: async () => {
       await boss.start();
     },

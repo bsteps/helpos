@@ -1036,8 +1036,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discard a pending draft
-         * @description Marks a `pending` draft `discarded`, so it can never be approved or sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.
+         * Discard a pending or failed draft
+         * @description Marks a `pending` or `send_failed` draft `discarded`, so it can never be approved or sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.
          */
         post: {
             parameters: {
@@ -1086,7 +1086,84 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description The draft is no longer pending */
+                /** @description The draft is not pending or `send_failed` */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/drafts/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry sending a failed draft
+         * @description Queues a `send_failed` draft to be sent again and marks it `approved`, in one transaction. It goes out with the same Message-ID as the failed attempts, the same text, and to whoever shadow mode says at the time it is sent. Safe to repeat: a `sent` draft is returned as it is, and an `approved` one has its send queued again only if none is queued already, so it is never sent twice. Needs `drafts:approve`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The draft, queued to send (or already sending or sent) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Draft"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found in this workspace */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The draft was never approved, or was discarded */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -2360,7 +2437,7 @@ export interface components {
             /** @enum {string} */
             kind: "reply" | "fixed";
             /** @enum {string} */
-            status: "pending" | "approved" | "sent" | "discarded";
+            status: "pending" | "approved" | "sent" | "send_failed" | "discarded";
             body: string;
             /** Format: date-time */
             createdAt: string;

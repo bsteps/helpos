@@ -357,7 +357,7 @@ export const attachments = pgTable(
   ],
 );
 
-export const draftStatuses = ["pending", "approved", "sent", "discarded"] as const;
+export const draftStatuses = ["pending", "approved", "sent", "send_failed", "discarded"] as const;
 export type DraftStatus = (typeof draftStatuses)[number];
 /**
  * `reply` answers the customer's message. `fixed` tells them the GitHub issue made from their
@@ -368,7 +368,9 @@ export type DraftKind = (typeof draftKinds)[number];
 
 /**
  * An AI-written reply to one inbound message: `pending → approved → sent`, or `discarded`.
- * Only the approve endpoint moves it to `approved`, and only the send worker sends it.
+ * Only the approve endpoint moves it to `approved`, and only the send worker sends it. When
+ * every send attempt fails it becomes `send_failed`: retried (back to `approved`, same
+ * Message-ID) or discarded by a person or agent, never left stuck.
  */
 export const drafts = pgTable(
   "drafts",
@@ -400,7 +402,10 @@ export const drafts = pgTable(
     uniqueIndex("drafts_tenant_message_kind_live")
       .on(t.tenantId, t.messageId, t.kind)
       .where(sql`status <> 'discarded' and not (kind = 'fixed' and status = 'sent')`),
-    check("drafts_status", sql`${t.status} in ('pending', 'approved', 'sent', 'discarded')`),
+    check(
+      "drafts_status",
+      sql`${t.status} in ('pending', 'approved', 'sent', 'send_failed', 'discarded')`,
+    ),
     check("drafts_kind", sql`${t.kind} in ('reply', 'fixed')`),
     foreignKey({
       name: "drafts_ticket_fk",

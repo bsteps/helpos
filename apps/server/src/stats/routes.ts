@@ -1,4 +1,4 @@
-import { and, type Database, eq, gte, inArray, lt, schema, type TenantTx } from "@helpos/db";
+import { and, type Database, eq, gte, inArray, lt, schema, sql, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { countDraftOutcomes, type DraftOutcomes } from "./draft-outcomes.ts";
@@ -20,10 +20,14 @@ const draftStatsSchema = z
     /** The range counted: drafts created at or after `from` and before `to`. */
     from: z.iso.datetime(),
     to: z.iso.datetime(),
-    /** Approved (and maybe sent) with the AI's text exactly as written. */
+    /**
+     * Approved with the AI's text exactly as written, whatever happened next: sent, still
+     * sending, or a send that failed (even if then discarded).
+     */
     approvedUnchanged: z.number().int(),
     /** Approved after a human or an agent edited it, once or more. */
     approvedEdited: z.number().int(),
+    /** Discarded without ever being approved. */
     discarded: z.number().int(),
     pending: z.number().int(),
     /** approvedUnchanged ÷ all approved, from 0 to 1. Null when nothing was approved. */
@@ -68,7 +72,12 @@ const draftStatsRoute = createRoute({
 /** The query: the facts the counting needs, nothing else. */
 async function draftOutcomes(tx: TenantTx, from: Date, to: Date): Promise<DraftOutcomes> {
   const rows = await tx
-    .select({ id: drafts.id, status: drafts.status })
+    // approved_at is set once, at approval, and never cleared.
+    .select({
+      id: drafts.id,
+      status: drafts.status,
+      approved: sql<boolean>`${drafts.approvedAt} is not null`,
+    })
     .from(drafts)
     .where(and(gte(drafts.createdAt, from), lt(drafts.createdAt, to)));
   const ids = rows.map((r) => r.id);

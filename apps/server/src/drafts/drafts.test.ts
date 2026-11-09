@@ -181,6 +181,8 @@ beforeAll(async () => {
     publicUrl: "http://helpdesk.test",
     noticeDelaySeconds: 0,
     dailyTokenBudget: 1_000_000,
+    // A send that fails once on a busy machine is retried in a second, not a minute.
+    sendRetry: { limit: 2, delaySeconds: 1, backoff: false },
   });
 
   const a = await initWorkspace(

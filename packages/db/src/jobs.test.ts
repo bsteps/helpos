@@ -223,4 +223,40 @@ describe("job runner", () => {
     expect(second).toMatchObject({ tenant: tenantA, tickets: 0 });
     expect(first?.txid).not.toBe(second?.txid);
   });
+  it("retries as the queue's policy says, then gives up once, in a fresh transaction", async () => {
+    const flaky = defineTenantJob("test-give-up", { ticketId: z.uuid() });
+    await runner.ensureQueue(flaky, { limit: 2, delaySeconds: 1, backoff: false });
+    let attempts = 0;
+    let resolveGaveUp: (tenant: string | undefined) => void = () => {};
+    const gaveUp = new Promise<string | undefined>((resolve) => {
+      resolveGaveUp = resolve;
+    });
+    let giveUps = 0;
+    await runner.work(
+      flaky,
+      async () => {
+        attempts++;
+        throw new Error("always fails");
+      },
+      {
+        onGiveUp: async (_payload, tx) => {
+          giveUps++;
+          const [row] = await tx.execute<{ t: string }>(
+            "select current_setting('app.tenant_id', true) as t",
+          );
+          resolveGaveUp(row?.t);
+        },
+      },
+    );
+    await db.withTenant(tenantA, (tx) =>
+      enqueue(tx, flaky, { tenantId: tenantA, ticketId: uuidv7() }),
+    );
+    expect(await gaveUp).toBe(tenantA);
+    // The first attempt and two retries, and only the last one gives up.
+    expect(attempts).toBe(3);
+    expect(giveUps).toBe(1);
+    const [job] = await jobsSql<{ state: string; retry_limit: number }[]>`
+      select state, retry_limit from pgboss.job where name = ${flaky.queue}`;
+    expect(job?.retry_limit).toBe(2);
+  });
 });

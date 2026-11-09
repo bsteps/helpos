@@ -76,7 +76,7 @@ sequenceDiagram
   Q->>DB: draft → sent + audit event (failure: stays approved, retried)
 ```
 
-Only the worker sends email, so only the worker role needs SMTP settings. An SMTP send can't be part of a database transaction, so approving doesn't send directly. Because pg-boss lives in Postgres, the approval, its audit event and the `send-reply` job commit together: either all three happen or none do. The job retries a failed send, and the draft stays `approved` until the send succeeds.
+Only the worker sends email, so only the worker role needs SMTP settings. An SMTP send can't be part of a database transaction, so approving doesn't send directly. Because pg-boss lives in Postgres, the approval, its audit event and the `send-reply` job commit together: either all three happen or none do. The job retries a failed send (8 retries with backoff, about 3 hours), and the draft stays `approved` until the send succeeds. If every attempt fails, the draft becomes `send_failed` with an audit event, so it is never stuck silently: `POST /v1/drafts/:id/retry` queues it again with the same Message-ID (and shadow mode as it is at send time), or discard drops it.
 
 Before drafting, the worker retrieves the best-matching knowledge passages for the email through a `SearchProvider` (pgvector, inside the same `withTenant()` transaction) and quotes them to the model as data, next to the email. The model lists the passages it used on a last line, which is stripped from the reply; the draft records every passage it saw and which ones it cited, so the approver can check the sources. Knowledge sources are added through `POST /v1/knowledge/sources`, edited through `PATCH /v1/knowledge/sources/{id}` (a title or visibility change applies at once; a content change removes the old passages at once and re-ingests that source only), and turned into embedded passages by an `ingest-source` job, which fetches URLs only through `packages/safe-fetch`. The job fetches and embeds with no transaction open (`runner.workInSteps`, each step still in `withTenant()`), so a slow site holds no connection or row lock; it locks the source only to write, and checks that no newer re-ingest request came in meanwhile. A page that fails on a temporary error (a 5xx, a timeout) is tried again a few seconds later. If the site or the embedding provider is still down, the source stays `pending` with the reason and gets one more try 15 minutes later, then fails. A spent daily budget doesn't fail a source either: it waits, and runs again after midnight UTC. Each source is `public` (may be shown or cited to customers) or `internal` (the default: the team's own notes). Drafts use both, because a human approves them, but internal passages go to the model marked as private and without their address; anything a customer sees unreviewed must search `public` only.
 
@@ -115,24 +115,24 @@ The AI only fills text fields, and the API sends GitHub only a title and a body,
 
 Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
 
-| Table                  | What it is                                                               |
-| ---------------------- | ------------------------------------------------------------------------ |
-| `tenants`              | A workspace (the UI says "workspace")                                    |
-| `users`                | Humans (Better Auth tables in the `auth` schema, no `tenant_id`)         |
-| `memberships`          | Which workspaces a user belongs to (tenant table, RLS)                   |
-| `mailboxes`            | Support addresses. Inbound mail is routed to a tenant by address         |
-| `customers`            | People who write in                                                      |
-| `tickets`              | A conversation with a customer                                           |
-| `messages`             | Inbound and outbound emails on a ticket                                  |
-| `attachments`          | Metadata; the bytes live in the files adapter                            |
-| `drafts`               | Replies and "fixed" notices: `pending → approved → sent`, or `discarded` |
-| `draft_citations`      | Knowledge passages a draft was written with, and which it cited          |
-| `knowledge_sources`    | Pages and docs for the AI, `public` or `internal`; app or git (ADR 0010) |
-| `knowledge_chunks`     | Embedded passages of a source (pgvector, searched per ADR 0009 §4)       |
-| `api_tokens`           | Agent tokens: hashed, scoped, revocable (`hos_…`)                        |
-| `audit_events`         | Append-only log of every human and agent action                          |
-| `integrations`         | The linked GitHub repo, its token and webhook secret (both encrypted)    |
-| `ticket_github_issues` | The GitHub issue made from a ticket, and whether it's open or closed     |
+| Table                  | What it is                                                                                                             |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `tenants`              | A workspace (the UI says "workspace")                                                                                  |
+| `users`                | Humans (Better Auth tables in the `auth` schema, no `tenant_id`)                                                       |
+| `memberships`          | Which workspaces a user belongs to (tenant table, RLS)                                                                 |
+| `mailboxes`            | Support addresses. Inbound mail is routed to a tenant by address                                                       |
+| `customers`            | People who write in                                                                                                    |
+| `tickets`              | A conversation with a customer                                                                                         |
+| `messages`             | Inbound and outbound emails on a ticket                                                                                |
+| `attachments`          | Metadata; the bytes live in the files adapter                                                                          |
+| `drafts`               | Replies and "fixed" notices: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed |
+| `draft_citations`      | Knowledge passages a draft was written with, and which it cited                                                        |
+| `knowledge_sources`    | Pages and docs for the AI, `public` or `internal`; app or git (ADR 0010)                                               |
+| `knowledge_chunks`     | Embedded passages of a source (pgvector, searched per ADR 0009 §4)                                                     |
+| `api_tokens`           | Agent tokens: hashed, scoped, revocable (`hos_…`)                                                                      |
+| `audit_events`         | Append-only log of every human and agent action                                                                        |
+| `integrations`         | The linked GitHub repo, its token and webhook secret (both encrypted)                                                  |
+| `ticket_github_issues` | The GitHub issue made from a ticket, and whether it's open or closed                                                   |
 
 ## Trust boundaries
 

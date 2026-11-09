@@ -404,6 +404,7 @@
               "pending",
               "approved",
               "sent",
+              "send_failed",
               "discarded"
             ]
           },
@@ -1963,8 +1964,8 @@
     },
     "/v1/drafts/{id}/discard": {
       "post": {
-        "summary": "Discard a pending draft",
-        "description": "Marks a `pending` draft `discarded`, so it can never be approved or sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.",
+        "summary": "Discard a pending or failed draft",
+        "description": "Marks a `pending` or `send_failed` draft `discarded`, so it can never be approved or sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.",
         "security": [
           {
             "apiAuth": []
@@ -2023,7 +2024,81 @@
             }
           },
           "409": {
-            "description": "The draft is no longer pending",
+            "description": "The draft is not pending or `send_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/drafts/{id}/retry": {
+      "post": {
+        "summary": "Retry sending a failed draft",
+        "description": "Queues a `send_failed` draft to be sent again and marks it `approved`, in one transaction. It goes out with the same Message-ID as the failed attempts, the same text, and to whoever shadow mode says at the time it is sent. Safe to repeat: a `sent` draft is returned as it is, and an `approved` one has its send queued again only if none is queued already, so it is never sent twice. Needs `drafts:approve`.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The draft, queued to send (or already sending or sent)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The draft was never approved, or was discarded",
             "content": {
               "application/json": {
                 "schema": {

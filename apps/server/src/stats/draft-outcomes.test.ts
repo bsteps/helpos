@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { countDraftOutcomes, type DraftEdit, type DraftFact } from "./draft-outcomes.ts";
 
-const draft = (id: string, status: DraftFact["status"]): DraftFact => ({ id, status });
+const draft = (
+  id: string,
+  status: DraftFact["status"],
+  approved = status !== "pending" && status !== "discarded",
+): DraftFact => ({ id, status, approved });
 const edit = (draftId: string, actorType: DraftEdit["actorType"] = "user"): DraftEdit => ({
   draftId,
   actorType,
@@ -62,6 +66,24 @@ describe("countDraftOutcomes", () => {
     expect(countDraftOutcomes([draft("a", "sent")], [edit("elsewhere")])).toMatchObject({
       approvedUnchanged: 1,
       approvedEdited: 0,
+    });
+  });
+  it("counts a draft whose send failed as approved, even once it is discarded", () => {
+    const result = countDraftOutcomes(
+      [
+        draft("failed", "send_failed"),
+        draft("failed-then-discarded", "discarded", true),
+        draft("edited-then-failed", "send_failed"),
+        draft("never-approved", "discarded"),
+      ],
+      [edit("edited-then-failed")],
+    );
+    expect(result).toEqual({
+      approvedUnchanged: 2,
+      approvedEdited: 1,
+      discarded: 1,
+      pending: 0,
+      unchangedRate: 2 / 3,
     });
   });
 });

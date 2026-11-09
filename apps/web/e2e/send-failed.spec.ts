@@ -1,0 +1,53 @@
+import { expect, type Page, test } from "@playwright/test";
+import { deliver, plainEmail, signIn, state, uniqueSubject, waitForMail } from "./support.ts";
+
+// A reply that couldn't be sent: the e2e server's mail transport fails every attempt for these
+// subjects until the dashboard retries, so the draft ends up "Not sent". From there the owner
+// retries it (it goes out once, still in shadow mode) or discards it and asks for a new draft.
+
+async function approveAndWaitForFailure(page: Page, subject: string): Promise<void> {
+  await signIn(page);
+  await page.getByRole("link", { name: subject }).click();
+  await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
+  await page.getByRole("button", { name: "Approve & send" }).click();
+  await expect(page.getByText("Not sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("send-failed-alert")).toContainText("This reply wasn't sent");
+}
+
+test("a reply that failed to send is retried from the ticket and arrives once", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject(`Refund ${state().smtpDownMarker}`);
+  await deliver(request, plainEmail(subject, "Hi, where is my refund?"));
+  await approveAndWaitForFailure(page, subject);
+
+  await page.getByRole("button", { name: "Retry send" }).click();
+  await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("send-failed-alert")).toBeHidden();
+
+  // Still shadow mode: it goes to the owner, never the customer, and only once.
+  const mail = await waitForMail(request, `Re: ${subject}`);
+  expect(mail.to).toEqual([state().owner]);
+  expect(mail.text).toContain(state().draft);
+  const res = await request.get(`${state().mailpitUrl}/api/v1/messages`);
+  const { messages } = (await res.json()) as { messages: { Subject: string }[] };
+  expect(messages.filter((m) => m.Subject === `Re: ${subject}`)).toHaveLength(1);
+});
+
+test("a reply that failed to send can be discarded, and a new draft asked for", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject(`Invoice ${state().smtpDownMarker}`);
+  await deliver(request, plainEmail(subject, "Hi, can I get an invoice?"));
+  await approveAndWaitForFailure(page, subject);
+
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByText("The reply that couldn't be sent was discarded.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry send" })).toBeHidden();
+
+  await page.getByRole("button", { name: "Write a new draft" }).click();
+  await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
+});

@@ -63,11 +63,11 @@ export async function addFixedDraft(
       and(
         eq(drafts.ticketId, ticketId),
         eq(drafts.kind, "fixed"),
-        // One waiting for approval or being sent counts whichever message it answers (the
+        // One waiting for approval, being sent or waiting on a send retry counts whichever message it answers (the
         // customer may have written again since), so they are never told twice at once. One
         // already sent (a fix that didn't hold, reopened, now closed again) is no reason not
         // to tell the customer about this one.
-        inArray(drafts.status, ["pending", "approved"]),
+        inArray(drafts.status, ["pending", "approved", "send_failed"]),
       ),
     );
   if (existing) return null;
