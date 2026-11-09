@@ -17,6 +17,7 @@ import { registerGithubRoutes } from "./github/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import type { SecretBox } from "./secrets/secret-box.ts";
+import { registerStatsRoutes } from "./stats/routes.ts";
 import { registerTicketRoutes } from "./tickets/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
@@ -136,6 +137,7 @@ export function createApp({
     ...(now ? { now } : {}),
   });
   registerKnowledgeRoutes(app, { db, authenticate: resolve });
+  registerStatsRoutes(app, { db, authenticate: resolve, ...(now ? { now } : {}) });
   registerShadowModeRoutes(app, { db, authenticate: resolve, allowShadowModeOff });
   registerGithubRoutes(app, {
     db,

@@ -466,6 +466,7 @@ export const apiTokenScopes = [
   "knowledge:read",
   "knowledge:write",
   "github:write",
+  "stats:read",
 ] as const;
 export type ApiTokenScope = (typeof apiTokenScopes)[number];
 

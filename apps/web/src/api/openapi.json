@@ -111,6 +111,7 @@
                 "knowledge:read",
                 "knowledge:write",
                 "github:write",
+                "stats:read",
                 "workspace:admin"
               ]
             }
@@ -149,7 +150,8 @@
           "drafts:approve",
           "knowledge:read",
           "knowledge:write",
-          "github:write"
+          "github:write",
+          "stats:read"
         ]
       },
       "ApiToken": {
@@ -658,6 +660,48 @@
           "error"
         ]
       },
+      "DraftStats": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvedUnchanged": {
+            "type": "integer"
+          },
+          "approvedEdited": {
+            "type": "integer"
+          },
+          "discarded": {
+            "type": "integer"
+          },
+          "pending": {
+            "type": "integer"
+          },
+          "unchangedRate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "approvedUnchanged",
+          "approvedEdited",
+          "discarded",
+          "pending",
+          "unchangedRate"
+        ]
+      },
       "ShadowMode": {
         "type": "object",
         "properties": {
@@ -1134,7 +1178,7 @@
                       "$ref": "#/components/schemas/TokenScope"
                     },
                     "minItems": 1,
-                    "maxItems": 7
+                    "maxItems": 8
                   }
                 },
                 "required": [
@@ -2337,6 +2381,83 @@
           },
           "409": {
             "description": "The source is managed in the workspace's git repo (`managed_in_git`): delete the file there",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stats/drafts": {
+      "get": {
+        "summary": "How many drafts were approved unchanged",
+        "description": "Outcomes of the drafts created in a date range: approved unchanged, approved after an edit (by anyone), discarded, still pending, and the share of approved drafts that went out unchanged. The range is at most 400 days. Needs `stats:read`.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Start of the range. Defaults to 14 days before `to`."
+            },
+            "required": false,
+            "description": "Start of the range. Defaults to 14 days before `to`.",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "End of the range, exclusive. Defaults to now."
+            },
+            "required": false,
+            "description": "End of the range, exclusive. Defaults to now.",
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`from` is not before `to`, or the range is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
             "content": {
               "application/json": {
                 "schema": {

@@ -57,6 +57,11 @@ type DraftSpec = {
   text: string;
   /** Knowledge sources offered to the draft, by slug, best match first. */
   sources: { slug: string; cited: boolean }[];
+  /**
+   * Agent tokens, by name, that edited the draft before it was approved: one `draft.edited`
+   * audit event each. `text` is the body after the edits.
+   */
+  editedBy?: string[];
 };
 type TicketSpec = {
   key: string;
@@ -116,6 +121,7 @@ const tenantSpecs: TenantSpec[] = [
       { name: "triage-bot", scopes: ["tickets:read", "drafts:write", "knowledge:read"] },
       { name: "approver-bot", scopes: ["tickets:read", "drafts:approve"] },
       { name: "old-import-script", scopes: ["knowledge:write"], revoked: true },
+      { name: "stats-reader", scopes: ["stats:read"] },
     ],
     sources: [
       {
@@ -264,6 +270,55 @@ const tenantSpecs: TenantSpec[] = [
         },
       },
       {
+        key: "bell-mount",
+        customer: "jonas.weber@example.test",
+        subject: "Does the bell fit drop bars?",
+        hours: 54,
+        status: "closed",
+        messages: [
+          {
+            from: "customer",
+            minutes: 0,
+            text: "Will the brass bell from your shop fit on drop handlebars?",
+          },
+          {
+            from: "team",
+            minutes: 25,
+            text: "Hi Jonas,\n\nYes: the clamp fits bars from 22.2 to 31.8 mm, which covers drop bars.\n\nBest,\nNorthwind Cycles",
+          },
+        ],
+        draft: {
+          status: "sent",
+          text: "Hi Jonas,\n\nYes: the clamp fits bars from 22.2 to 31.8 mm, which covers drop bars.\n\nBest,\nNorthwind Cycles",
+          sources: [],
+        },
+      },
+      {
+        key: "tracking-link",
+        customer: "chloe.martin@example.test",
+        subject: "Tracking link doesn't work",
+        hours: 58,
+        status: "closed",
+        messages: [
+          {
+            from: "customer",
+            minutes: 0,
+            text: "The tracking link in my shipping email shows a blank page.",
+          },
+          {
+            from: "team",
+            minutes: 40,
+            text: "Hi Chloé,\n\nSorry about that. The carrier's page was down this morning; the link works again now. Your order is due on Thursday.\n\nBest,\nNorthwind Cycles",
+          },
+        ],
+        draft: {
+          status: "sent",
+          text: "Hi Chloé,\n\nSorry about that. The carrier's page was down this morning; the link works again now. Your order is due on Thursday.\n\nBest,\nNorthwind Cycles",
+          sources: [{ slug: "shipping/delivery-times", cited: false }],
+          editedBy: ["triage-bot", "triage-bot"],
+        },
+      },
+      {
         key: "out-of-office",
         customer: "sam.rivera@example.test",
         subject: "Automatic reply: Your order has shipped",
@@ -316,6 +371,7 @@ const tenantSpecs: TenantSpec[] = [
       },
       { name: "docs-sync", scopes: ["knowledge:read", "knowledge:write"] },
       { name: "issue-bot", scopes: ["tickets:read", "github:write"] },
+      { name: "stats-reader", scopes: ["stats:read"] },
     ],
     sources: [
       {
@@ -525,21 +581,23 @@ export function buildDemoData() {
       scopes: [...t.scopes].sort(),
       revokedAt: t.revoked ? at(60) : null,
     }));
-    const audit = tokens.flatMap((t) => {
-      const event = (action: "api_token.created" | "api_token.revoked", when: Date) => ({
-        id: id(`audit:${action}:${t.name}`, when),
-        tenantId,
-        createdAt: when,
-        actorType: "system" as const,
-        actorId: "seed",
-        action,
-        targetType: "api_token",
-        targetId: t.id,
-        requestId: null,
-      });
-      const created = event("api_token.created", t.createdAt);
-      return t.revokedAt ? [created, event("api_token.revoked", t.revokedAt)] : [created];
-    });
+    const audit: (typeof schema.auditEvents.$inferInsert & { id: string })[] = tokens.flatMap(
+      (t) => {
+        const event = (action: "api_token.created" | "api_token.revoked", when: Date) => ({
+          id: id(`audit:${action}:${t.name}`, when),
+          tenantId,
+          createdAt: when,
+          actorType: "system" as const,
+          actorId: "seed",
+          action,
+          targetType: "api_token",
+          targetId: t.id,
+          requestId: null,
+        });
+        const created = event("api_token.created", t.createdAt);
+        return t.revokedAt ? [created, event("api_token.revoked", t.revokedAt)] : [created];
+      },
+    );
 
     const tickets: (typeof schema.tickets.$inferInsert & { createdAt: Date })[] = [];
     const messages: (typeof schema.messages.$inferInsert & { id: string; createdAt: Date })[] = [];
@@ -645,6 +703,22 @@ export function buildDemoData() {
         sentMessageId: sentReply?.id ?? null,
         createdAt: draftedAt,
         updatedAt: approvedAt ?? draftedAt,
+      });
+      (d.editedBy ?? []).forEach((name, i) => {
+        const token = tokens.find((t) => t.name === name);
+        if (!token) throw new Error(`demo ticket ${ts.key}: unknown token ${name}`);
+        const when = new Date(draftedAt.getTime() + (i + 1) * 60_000);
+        audit.push({
+          id: id(`audit:draft.edited:${ts.key}:${i}`, when),
+          tenantId,
+          createdAt: when,
+          actorType: "agent" as const,
+          actorId: token.id,
+          action: "draft.edited",
+          targetType: "draft",
+          targetId: draftId,
+          requestId: null,
+        });
       });
       d.sources.forEach((ref, rank) => {
         const source = sourceBySlug.get(ref.slug);

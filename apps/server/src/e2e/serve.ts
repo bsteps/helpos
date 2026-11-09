@@ -18,6 +18,7 @@ import { octokitGithub } from "../github/github-api.ts";
 import { createLogger } from "../logger.ts";
 import { createSmtpTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
+import { seedDemoData } from "../seed/seed.ts";
 import { startWorker } from "../worker.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { passwordSetupLink } from "../workspaces/password-link.ts";
@@ -138,6 +139,17 @@ const workspace = await initWorkspace(
 if (!workspace.ok) throw new Error("e2e: workspace setup failed");
 const setup = await auth.issueSetupToken(workspace.ownerId);
 
+// The demo workspaces too, for tests that need history (drafts sent weeks ago). Their owner
+// gets a password here, since the seed gives nobody one.
+const seeded = await seedDemoData({ db, auth, jobs: runner });
+if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
+const seedOwner = "maya.okafor@northwind-cycles.test";
+const seedPassword = "northwind demo password";
+const seedSetup = await auth.issueSetupToken((await auth.ensureUser(seedOwner)).id);
+if (!(await auth.setPassword(seedSetup.token, seedPassword)).ok) {
+  throw new Error("e2e: seed owner password failed");
+}
+
 const app = createApp({
   db,
   files: createMemoryFileStore(),
@@ -167,6 +179,8 @@ writeFileSync(
     githubRepo,
     githubToken,
     issueTitle: e2eIssue.title,
+    seedOwner,
+    seedPassword,
   }),
 );
 // Listening last: Playwright starts the tests as soon as /health answers.

@@ -7,6 +7,7 @@ export const keys = {
   ticket: (id: string) => ["ticket", id] as const,
   drafts: (id: string) => ["ticket", id, "drafts"] as const,
   github: ["integrations", "github"] as const,
+  draftStats: ["stats", "drafts"] as const,
 };
 
 /** Who is signed in, or null when nobody is (the API answered 401). */
@@ -43,6 +44,22 @@ export const draftsQuery = (id: string, waiting: (drafts: Draft[]) => boolean) =
     queryFn: async () =>
       (await unwrap(api.GET("/v1/tickets/{id}/drafts", { params: { path: { id } } }))).drafts,
     refetchInterval: (query) => (waiting(query.state.data ?? []) ? 2_000 : false),
+  });
+
+/** Draft outcomes for the last `days` days, ending now on this device's clock. */
+export const draftStatsQuery = (days: number) =>
+  queryOptions({
+    queryKey: [...keys.draftStats, days],
+    queryFn: () => {
+      const to = new Date();
+      const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+      return unwrap(
+        api.GET("/v1/stats/drafts", {
+          params: { query: { from: from.toISOString(), to: to.toISOString() } },
+        }),
+      );
+    },
+    staleTime: 60_000,
   });
 
 export function useSignIn() {

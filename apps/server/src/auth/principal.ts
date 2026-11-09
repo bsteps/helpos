@@ -5,7 +5,8 @@ import type { MiddlewareHandler } from "hono";
  * `drafts:approve` is separate so an agent can draft without sending.
  * `knowledge:write` is separate from reading, because what's in the knowledge base shapes
  * every draft. `github:write` drafts and opens GitHub issues from tickets (#37); connecting the
- * repo and its token is `workspace:admin`. `workspace:admin` is for humans only: an agent token
+ * repo and its token is `workspace:admin`. `stats:read` reads workspace numbers such as
+ * how many drafts are approved unchanged (#116). `workspace:admin` is for humans only: an agent token
  * can't be granted it.
  */
 export const scopes = [
@@ -16,6 +17,7 @@ export const scopes = [
   "knowledge:read",
   "knowledge:write",
   "github:write",
+  "stats:read",
   "workspace:admin",
 ] as const;
 export type Scope = (typeof scopes)[number];
