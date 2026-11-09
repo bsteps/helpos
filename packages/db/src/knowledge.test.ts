@@ -82,7 +82,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 /** Makes the planner use the HNSW index, the path where filtering after the search hurts. */

@@ -48,7 +48,7 @@ afterAll(async () => {
   await jobsSql?.end();
   await appSql?.end();
   await db?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 async function jobCount(queue: string): Promise<number> {

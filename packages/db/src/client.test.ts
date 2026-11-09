@@ -15,7 +15,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 const tenantA = "00000000-0000-4000-8000-00000000000a";

@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mockEmbeddingModel, mockModel, routedMockModel } from "@helpos/ai/testing";
 import { createAuthStore, createDatabase, createJobRunner, eq, schema } from "@helpos/db";
-import { startTestDatabase } from "@helpos/db/testing";
+import { containerHost, startTestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
 import { GenericContainer } from "testcontainers";
@@ -156,7 +156,7 @@ await startWorker({
   // Offline and deterministic, so knowledge (internal notes) reaches the drafts.
   embeddingModel: mockEmbeddingModel(),
   transport: flakySmtp(
-    createSmtpTransport(`smtp://${mailpit.getHost()}:${mailpit.getMappedPort(1025)}`),
+    createSmtpTransport(`smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`),
   ),
   // One retry a second later, so a failing send gives up in seconds, not hours.
   sendRetry: { limit: 1, delaySeconds: 1, backoff: false },
@@ -226,7 +226,7 @@ writeFileSync(
   env.E2E_STATE_FILE,
   JSON.stringify({
     baseUrl,
-    mailpitUrl: `http://${mailpit.getHost()}:${mailpit.getMappedPort(8025)}`,
+    mailpitUrl: `http://${containerHost(mailpit)}:${mailpit.getMappedPort(8025)}`,
     inboundSecret,
     owner,
     mailbox: "support@acme.test",
@@ -255,7 +255,7 @@ logger.warn({ baseUrl }, "e2e server ready");
 async function stop(): Promise<void> {
   await runner.stop();
   await Promise.all([db.close(), auth.close()]);
-  await Promise.all([testDb.container.stop(), mailpit.stop()]);
+  await Promise.all([testDb.stop(), mailpit.stop()]);
   process.exit(0);
 }
 process.on("SIGINT", () => void stop());

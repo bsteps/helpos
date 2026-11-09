@@ -25,7 +25,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 /** The `Cookie` header a browser would send back after these `Set-Cookie` lines. */
