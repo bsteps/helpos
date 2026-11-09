@@ -83,7 +83,14 @@ export async function requireRunning(inst) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const inst = instance();
   if (process.argv[2] === "run") {
-    const command = process.argv.slice(process.argv.indexOf("--") + 1).join(" ");
+    // The command runs through a shell (Windows needs one to find pnpm.cmd), so each argument is
+    // quoted again: `--workspace "Northwind Cycles"` must stay one argument.
+    const quote = (arg) =>
+      /^[\w@%+=:,./-]+$/.test(arg) ? arg : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
+    const command = process.argv
+      .slice(process.argv.indexOf("--") + 1)
+      .map(quote)
+      .join(" ");
     if (!command) {
       process.stderr.write("Usage: instance.mjs run -- <command>\n");
       process.exit(2);
