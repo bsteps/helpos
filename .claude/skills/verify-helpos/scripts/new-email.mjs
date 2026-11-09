@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { instance, remember, repoRoot, requireRunning, seed } from "./instance.mjs";
+import { instance, quit, remember, repoRoot, requireRunning, seed } from "./instance.mjs";
 
 export async function sendFreshEmail(inst, fixture = "plain", { subject, body } = {}) {
   const named = join(repoRoot, "fixtures", "email", `${fixture.replace(/\.eml$/, "")}.eml`);
@@ -45,7 +45,7 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const valueOf = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+  const flagValue = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
   const flagValues = new Set(
     ["--subject", "--body"].map((f) => args.indexOf(f) + 1).filter((i) => i > 0),
   );
@@ -57,14 +57,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     json,
     subject: sent,
   } = await sendFreshEmail(inst, fixture, {
-    subject: valueOf("--subject"),
-    body: valueOf("--body"),
+    subject: flagValue("--subject"),
+    body: flagValue("--body"),
   }).catch((error) => {
     process.stderr.write(`${error.message}\n`);
-    process.exit(1);
+    quit(1);
   });
   process.stdout.write(`${status} ${json.status ?? json.error}: "${sent}"\n`);
-  if (!json.ticketId) process.exit(1);
+  if (!json.ticketId) quit(1);
   process.stdout.write(`${json.ticketId}\n`);
   remember({ ticket: json.ticketId });
 }

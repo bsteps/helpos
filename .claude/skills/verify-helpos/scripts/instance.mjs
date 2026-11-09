@@ -62,6 +62,9 @@ export function instance() {
     mailpitUrl: "http://localhost:8025",
     inboundSecret: config.HELPOS_INBOUND_SECRET,
     embeddingsInEnv: Boolean(config.AI_EMBEDDING_PROVIDER),
+    aiConfigured: Boolean(config.AI_PROVIDER && config.AI_MODEL && config.AI_API_KEY),
+    encryptionKeySet: Boolean(config.HELPOS_ENCRYPTION_KEY),
+    shadowOffAllowed: config.HELPOS_ALLOW_SHADOW_MODE_OFF === "true",
     env: overrides.env,
   };
 }
@@ -82,6 +85,39 @@ export function remember(values) {
   }
 }
 
+/**
+ * Stops the script with this exit code. Never process.exit(): exiting while fetch's sockets are
+ * closing crashes libuv on Windows ("Assertion failed: UV_HANDLE_CLOSING", exit code 127).
+ * The thrown Quit is swallowed below and Node then exits normally with the code.
+ */
+class Quit extends Error {}
+process.on("uncaughtException", (error) => {
+  if (error instanceof Quit) return;
+  process.stderr.write(`${error?.stack ?? error}\n`);
+  process.exitCode = 1;
+});
+export function quit(code, message) {
+  if (message) process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
+  process.exitCode = code;
+  throw new Quit();
+}
+
+/**
+ * Why a ticket will never get an AI draft, or undefined while one may still come. Lets the
+ * scripts that wait for a draft stop at once with the reason instead of timing out.
+ */
+export async function whyNoDraft(inst, ticketId, token) {
+  const headers = { authorization: `Bearer ${token}` };
+  const ticket = await (await fetch(`${inst.apiUrl}/v1/tickets/${ticketId}`, { headers })).json();
+  if (ticket.automated)
+    return "the ticket is an automated email (bounce, auto-reply): the AI never drafts for those";
+  const usage = await (await fetch(`${inst.apiUrl}/v1/ai-usage`, { headers })).json();
+  if (ticket.aiPausedReason === "daily_budget" || usage.paused) {
+    return `today's AI budget is spent (${usage.totalTokens} of ${usage.dailyTokenBudget} tokens), so no draft will be written until midnight UTC`;
+  }
+  return undefined;
+}
+
 /** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */
 export async function requireRunning(inst) {
   const up = await fetch(`${inst.apiUrl}/health`, { signal: AbortSignal.timeout(3000) })
@@ -93,7 +129,7 @@ export async function requireRunning(inst) {
       "Start it in its own terminal: pnpm app:start\n" +
       "then wait for:                pnpm app:doctor --wait 120\n",
   );
-  process.exit(1);
+  quit(1);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -117,7 +153,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       cwd: repoRoot,
       env: { ...process.env, ...inst.env },
     });
-    process.exit(result.status ?? 1);
+    process.exitCode = result.status ?? 1;
   }
   const { inboundSecret, env, ...shown } = inst;
   process.stdout.write(

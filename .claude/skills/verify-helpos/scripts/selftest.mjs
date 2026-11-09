@@ -3,12 +3,55 @@
 // helper or checklist step: a step that fails here would have failed for the person testing.
 //   node .claude/skills/verify-helpos/scripts/selftest.mjs [--with-browser]
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { instance, lastCreated, requireRunning } from "./instance.mjs";
+import {
+  evidenceRoot,
+  instance,
+  lastCreated,
+  quit,
+  repoRoot,
+  requireRunning,
+  seedToken,
+} from "./instance.mjs";
 
 const scripts = join(import.meta.dirname);
 const inst = instance();
 await requireRunning(inst);
+
+// A run writes about 15 AI drafts, roughly 20,000 tokens. Without that much left, the draft
+// steps can't pass, and running anyway would also leave the person testing with none.
+const neededTokens = 30_000;
+const usage = await (
+  await fetch(`${inst.apiUrl}/v1/ai-usage`, {
+    headers: { authorization: `Bearer ${await seedToken("northwind:triage-bot")}` },
+  })
+).json();
+if (usage.paused || usage.remainingTokens < neededTokens) {
+  quit(
+    1,
+    `Not enough AI budget left today: ${usage.remainingTokens} of ${usage.dailyTokenBudget} tokens ` +
+      `(a run needs about ${neededTokens}). It resets at midnight UTC.`,
+  );
+}
+
+// The person's {ticket}, {token}… survive a selftest run in the middle of their checklist.
+const lastFile = join(evidenceRoot, "last.json");
+const saved = existsSync(lastFile) ? readFileSync(lastFile, "utf8") : undefined;
+process.on("exit", () => {
+  if (saved === undefined) rmSync(lastFile, { force: true });
+  else writeFileSync(lastFile, saved);
+});
+
+/** A command typed into Git Bash, through pnpm, so the person's quoting is what gets tested. */
+function typed(command) {
+  const r = spawnSync("bash", ["-c", command], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 180_000,
+  });
+  return { code: r.status ?? 1, out: r.stdout, all: `${r.stdout}${r.stderr}` };
+}
 
 /** `out` is what the script printed; `all` adds its notes on stderr, such as `(saved {token} …)`. */
 function run(script, args) {
@@ -72,9 +115,35 @@ const steps = [
   ],
   ["new-email xss", () => run("new-email.mjs", ["xss"]), (r) => r.code === 0],
   [
-    "duplicate plain.eml → 200",
-    () => api("inbound", "POST", "v1/inbound/email", "@fixtures/email/plain.eml"),
+    "plain.eml sent twice: the second is a duplicate → 200",
+    () => {
+      api("inbound", "POST", "v1/inbound/email", "@fixtures/email/plain.eml");
+      return api("inbound", "POST", "v1/inbound/email", "@fixtures/email/plain.eml");
+    },
     (r) => status(r) === 200 && json(r).status === "duplicate",
+  ],
+  [
+    "typed: pnpm new-email --subject with spaces",
+    () => typed(`pnpm -s new-email --subject "Typed in bash, with spaces"`),
+    (r) => r.code === 0 && /201 created: "Typed in bash, with spaces"/.test(r.all),
+  ],
+  [
+    "typed: pnpm api with quoted JSON, braces and a placeholder",
+    () =>
+      typed(
+        `pnpm -s api northwind:triage-bot PATCH v1/drafts/{draft} '{"body":"Typed: quotes, spaces and {braces}"}'`,
+      ),
+    (r) => /^200/m.test(r.all) && /Typed: quotes, spaces and {braces}/.test(r.all),
+  ],
+  [
+    "a cut-off JSON body says why",
+    () => api("northwind:triage-bot", "PATCH", "v1/drafts/{draft}", '{"body":"a '),
+    (r) => r.code === 2 && /Put the body in a file and pass @file/.test(r.all),
+  ],
+  [
+    "GET with a body says so",
+    () => api("northwind:triage-bot", "GET", "v1/me", '{"x":1}'),
+    (r) => r.code === 2 && /can't have a body/.test(r.all),
   ],
   [
     "inbound with no secret → 401",
@@ -400,7 +469,7 @@ for (const [name, act, expect] of steps) {
   } else {
     failed++;
     const why =
-      typeof verdict === "string" ? verdict : result.out.trim().split("\n").slice(0, 4).join(" | ");
+      typeof verdict === "string" ? verdict : result.all.trim().split("\n").slice(0, 4).join(" | ");
     process.stdout.write(`FAIL  ${name}\n      ${why}\n`);
   }
 }

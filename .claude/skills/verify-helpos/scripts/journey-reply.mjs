@@ -5,12 +5,12 @@
 //   node .claude/skills/verify-helpos/scripts/journey-reply.mjs --via api|web [--headed]
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { evidenceRoot, instance, repoRoot, requireRunning, seed, seedToken } from "./instance.mjs";
+import { evidenceRoot, instance, quit, requireRunning, seed, seedToken } from "./instance.mjs";
 
 const via = process.argv[process.argv.indexOf("--via") + 1];
 if (via !== "api" && via !== "web") {
   process.stderr.write("Usage: journey-reply.mjs --via api|web [--headed]\n");
-  process.exit(2);
+  quit(2);
 }
 const inst = instance();
 await requireRunning(inst);
@@ -26,7 +26,7 @@ function record(step, observed) {
 function fail(message) {
   writeFileSync(join(dir, "FAILED.txt"), `${message}\n`);
   process.stderr.write(`✖ ${message}\nevidence: ${dir}\n`);
-  process.exit(1);
+  quit(1);
 }
 async function until(what, seconds, probe) {
   const deadline = Date.now() + seconds * 1000;

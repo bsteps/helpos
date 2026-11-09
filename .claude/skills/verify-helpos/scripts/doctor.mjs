@@ -78,9 +78,53 @@ const checks = [
         detail:
           status === 200
             ? `triage-bot → ${body.workspace.name}`
-            : `${status}: run pnpm db:seed via instance.mjs run`,
+            : `${status}: run pnpm app:run pnpm db:seed`,
       };
     },
+  },
+  {
+    name: "AI model",
+    run: async () => ({
+      ok: inst.aiConfigured,
+      detail: inst.aiConfigured
+        ? "AI_PROVIDER, AI_MODEL, AI_API_KEY set"
+        : "AI_* missing in .env: no drafts will ever be written",
+    }),
+  },
+  {
+    name: "AI budget left today",
+    warn: true,
+    run: async () => {
+      const token = await seedToken("northwind:triage-bot");
+      const { body } = await get(`${inst.apiUrl}/v1/ai-usage`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      return {
+        ok: !body.paused && body.remainingTokens >= 30_000,
+        detail: body.paused
+          ? `spent (${body.totalTokens}/${body.dailyTokenBudget}): no AI drafts until midnight UTC`
+          : `${body.remainingTokens} of ${body.dailyTokenBudget} tokens (about 1,300 per draft)`,
+      };
+    },
+  },
+  {
+    name: "shadow mode locked",
+    run: async () => ({
+      ok: !inst.shadowOffAllowed,
+      detail: inst.shadowOffAllowed
+        ? "HELPOS_ALLOW_SHADOW_MODE_OFF=true: replies could reach customers; set it to false"
+        : "replies can only go to the shadow recipient",
+    }),
+  },
+  {
+    name: "encryption key",
+    warn: true,
+    run: async () => ({
+      ok: inst.encryptionKeySet,
+      detail: inst.encryptionKeySet
+        ? "HELPOS_ENCRYPTION_KEY set"
+        : "no HELPOS_ENCRYPTION_KEY: GitHub can't be connected",
+    }),
   },
   {
     name: "embeddings",
@@ -141,4 +185,4 @@ for (const r of results) {
   const mark = r.ok ? "ok  " : r.warn ? "warn" : "FAIL";
   process.stdout.write(`${mark}  ${r.name.padEnd(26)} ${r.detail}\n`);
 }
-process.exit(results.some((r) => !r.ok && !r.warn) ? 1 : 0);
+process.exitCode = results.some((r) => !r.ok && !r.warn) ? 1 : 0;

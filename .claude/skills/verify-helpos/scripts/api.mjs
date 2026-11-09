@@ -16,7 +16,16 @@
 //   {source}     the last knowledge source created
 // Exit code 0 for a 2xx answer, 1 otherwise.
 import { readFileSync } from "node:fs";
-import { instance, lastCreated, remember, requireRunning, seed, seedToken } from "./instance.mjs";
+import {
+  instance,
+  lastCreated,
+  quit,
+  remember,
+  requireRunning,
+  seed,
+  seedToken,
+  whyNoDraft,
+} from "./instance.mjs";
 
 const hint = {
   ticket: "run new-email.mjs first",
@@ -28,13 +37,15 @@ const hint = {
 const argv = process.argv.slice(2);
 if (argv.length < 3) {
   process.stderr.write("Usage: api.mjs <as> <METHOD> v1/<path> [json | @file]\n");
-  process.exit(2);
+  quit(2);
 }
 const inst = instance();
 await requireRunning(inst);
 
 const last = lastCreated();
-const placeholders = argv.join(" ").match(/\{(\w+)\}/g) ?? [];
+// Only these names are placeholders; any other {word} is the person's own text.
+const placeholder = /\{(ticket|draft|draftBody|token|tokenId|source)\}/g;
+const placeholders = argv.join(" ").match(placeholder) ?? [];
 const values = { ...last };
 if (placeholders.some((p) => p === "{draft}" || p === "{draftBody}")) {
   const draft = await waitForDraft(last.ticket);
@@ -42,10 +53,10 @@ if (placeholders.some((p) => p === "{draft}" || p === "{draftBody}")) {
   values.draftBody = JSON.stringify(draft.body);
 }
 const fill = (text) =>
-  text?.replace(/\{(\w+)\}/g, (whole, key) => {
+  text?.replace(placeholder, (whole, key) => {
     if (values[key] === undefined) {
       process.stderr.write(`${whole} is not known yet: ${hint[key] ?? "nothing creates it"}\n`);
-      process.exit(2);
+      quit(2);
     }
     return values[key];
   });
@@ -53,10 +64,28 @@ const [as, method, rawPath, rawBody] = argv.map(fill);
 const path = `/${rawPath.replace(/^\/+/, "")}`;
 if (!path.startsWith("/v1/")) {
   process.stderr.write("Usage: api.mjs <as> <METHOD> v1/<path> [json | @file]\n");
-  process.exit(2);
+  quit(2);
 }
 const headers = { origin: inst.webUrl };
 let body = rawBody?.startsWith("@") ? readFileSync(rawBody.slice(1)) : rawBody;
+if (body !== undefined && ["GET", "HEAD"].includes(method.toUpperCase())) {
+  process.stderr.write(
+    `A ${method.toUpperCase()} request can't have a body. Drop the last argument.\n`,
+  );
+  quit(2);
+}
+if (typeof body === "string" && as !== "inbound") {
+  try {
+    JSON.parse(body);
+  } catch {
+    process.stderr.write(
+      `The body isn't valid JSON: ${body}\n` +
+        'Through pnpm on Windows, a body with both " quotes and & | < > ^ gets cut at that ' +
+        "character. Put the body in a file and pass @file instead.\n",
+    );
+    quit(2);
+  }
+}
 
 if (as === "inbound") {
   // fixtures/email/*.eml are addressed to support@acme.test, which the seed data doesn't have.
@@ -75,7 +104,7 @@ if (as === "inbound") {
     });
     if (res.status !== 204) {
       process.stderr.write(`owner sign-in failed (${res.status}): run owner-password.mjs\n`);
-      process.exit(1);
+      quit(1);
     }
     headers.cookie = res.headers
       .getSetCookie()
@@ -110,7 +139,7 @@ process.exitCode = res.ok ? 0 : 1;
 async function waitForDraft(ticket) {
   if (!ticket) {
     process.stderr.write(`{draft} needs a ticket first: ${hint.ticket}\n`);
-    process.exit(2);
+    quit(2);
   }
   const reader = await seedToken("northwind:triage-bot");
   for (let i = 0; i < 60; i++) {
@@ -119,11 +148,15 @@ async function waitForDraft(ticket) {
     });
     const drafts = (await res.json()).drafts ?? [];
     const live = drafts.filter((d) => d.status !== "discarded");
-    const draft = live.find((d) => d.status === "pending") ?? live.at(-1) ?? drafts.at(-1);
+    const pending = live.filter((d) => d.status === "pending");
+    const draft =
+      pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1) ?? drafts.at(-1);
     if (draft) return draft;
+    const why = await whyNoDraft(inst, ticket, reader);
+    if (why) quit(1, `No draft on ticket ${ticket}: ${why}.`);
     if (i === 0) process.stderr.write("(waiting for the AI draft…)\n");
     await new Promise((r) => setTimeout(r, 2000));
   }
   process.stderr.write(`no draft on ticket ${ticket} after 2 minutes\n`);
-  process.exit(1);
+  quit(1);
 }

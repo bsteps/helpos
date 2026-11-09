@@ -3,7 +3,7 @@
 // Safe to rerun: once a password is set, it only checks that sign-in works.
 //   node .claude/skills/verify-helpos/scripts/owner-password.mjs
 import { spawnSync } from "node:child_process";
-import { instance, repoRoot, requireRunning, seed } from "./instance.mjs";
+import { instance, quit, repoRoot, requireRunning, seed } from "./instance.mjs";
 
 const inst = instance();
 await requireRunning(inst);
@@ -23,7 +23,7 @@ const init = spawnSync(
 );
 if (init.status !== 0) {
   process.stderr.write(`helpos:init failed:\n${init.stderr}${init.stdout}`);
-  process.exit(1);
+  quit(1);
 }
 const link = /https?:\/\/\S+#token=\S+/.exec(init.stdout)?.[0];
 if (link) {
@@ -31,7 +31,7 @@ if (link) {
   const res = await post("/v1/auth/password", { token, password: ownerPassword });
   if (res.status !== 204) {
     process.stderr.write(`setting the password failed: ${res.status} ${await res.text()}\n`);
-    process.exit(1);
+    quit(1);
   }
 }
 
@@ -41,7 +41,7 @@ if (signIn.status !== 204) {
     `${owner} has a password, but not the demo one (${signIn.status}). ` +
       "Someone set it by hand; reset the worktree database or sign in with theirs.\n",
   );
-  process.exit(1);
+  quit(1);
 }
 process.stdout.write(
   `${link ? "password set" : "password already set"}: ${owner} / ${ownerPassword}\n`,

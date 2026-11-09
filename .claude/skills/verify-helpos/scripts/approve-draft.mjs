@@ -2,7 +2,7 @@
 // token, then approves the exact text it read as another, and waits until the reply is sent.
 //   node .claude/skills/verify-helpos/scripts/approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]
 // `new` first sends a fresh customer email and uses its ticket. Defaults: reader northwind:triage-bot, approver northwind:approver-bot.
-import { instance, requireRunning, seedToken } from "./instance.mjs";
+import { instance, quit, remember, requireRunning, seedToken, whyNoDraft } from "./instance.mjs";
 import { sendFreshEmail } from "./new-email.mjs";
 
 const args = process.argv.slice(2);
@@ -15,7 +15,7 @@ if (!ticketId || ticketId.startsWith("--")) {
   process.stderr.write(
     "Usage: approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]\n",
   );
-  process.exit(2);
+  quit(2);
 }
 const inst = instance();
 await requireRunning(inst);
@@ -27,10 +27,11 @@ if (ticketId === "new") {
   });
   if (status !== 201) {
     process.stderr.write(`sending the customer email failed: ${status} ${JSON.stringify(json)}\n`);
-    process.exit(1);
+    quit(1);
   }
   ticketId = json.ticketId;
   process.stdout.write(`customer email sent: "${subject}", ticket ${ticketId}\n`);
+  remember({ ticket: ticketId });
 }
 const token = async (name) => (name.startsWith("hos_") ? name : seedToken(name));
 const reader = await token(opt("--reader", "northwind:triage-bot"));
@@ -48,7 +49,7 @@ async function drafts() {
   const { status, json } = await call("GET", `/v1/tickets/${ticketId}/drafts`, reader);
   if (status !== 200) {
     process.stderr.write(`reading drafts failed: ${status} ${JSON.stringify(json)}\n`);
-    process.exit(1);
+    quit(1);
   }
   return json.drafts;
 }
@@ -56,11 +57,14 @@ async function drafts() {
 let pending;
 for (let i = 0; i < 60 && !pending; i++) {
   pending = (await drafts()).find((d) => d.status === "pending");
-  if (!pending) await new Promise((r) => setTimeout(r, 2000));
+  if (pending) break;
+  const why = await whyNoDraft(inst, ticketId, reader);
+  if (why) quit(1, `No draft to approve: ${why}.`);
+  await new Promise((r) => setTimeout(r, 2000));
 }
 if (!pending) {
   process.stderr.write("no pending draft on this ticket after 2 minutes\n");
-  process.exit(1);
+  quit(1);
 }
 process.stdout.write(`read draft ${pending.id}:\n---\n${pending.body}\n---\n`);
 
@@ -70,13 +74,13 @@ const approved = await call("POST", `/v1/drafts/${pending.id}/approve`, approver
 process.stdout.write(
   `approve → ${approved.status} ${approved.json.status ?? approved.json.error}\n`,
 );
-if (approved.status !== 200) process.exit(1);
+if (approved.status !== 200) quit(1);
 
 for (let i = 0; i < 30; i++) {
   const now = (await drafts()).find((d) => d.id === pending.id);
   if (now?.status === "sent") {
     process.stdout.write(`sent at ${now.sentAt}. Check Mailpit for the reply.\n`);
-    process.exit(0);
+    quit(0);
   }
   await new Promise((r) => setTimeout(r, 2000));
 }

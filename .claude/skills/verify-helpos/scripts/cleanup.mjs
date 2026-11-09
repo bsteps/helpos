@@ -12,9 +12,7 @@ const ports = [inst.apiUrl, inst.webUrl].map((u) => Number(new URL(u).port));
 let ok = true;
 
 for (const port of ports) {
-  const found = listeners(port);
-  if (found.length === 0) process.stdout.write(`port ${port}: free\n`);
-  for (const l of found) {
+  for (const l of listeners(port)) {
     const chain = helposChain(l.pid);
     if (!l.helpos || !chain.some((pid) => ours.has(pid))) {
       process.stdout.write(
@@ -33,6 +31,8 @@ for (const port of ports) {
   if (still.length > 0) {
     process.stdout.write(`port ${port}: STILL HELD by pid ${still.map((l) => l.pid).join(",")}\n`);
     ok = false;
+  } else {
+    process.stdout.write(`port ${port}: free\n`);
   }
 }
 if (ok) rmSync(launchRecord, { force: true });

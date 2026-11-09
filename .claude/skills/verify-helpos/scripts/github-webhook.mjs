@@ -4,7 +4,7 @@
 //        [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]
 // The secret is the one shown once by Settings → GitHub → Connect (or New webhook secret).
 import { createHmac } from "node:crypto";
-import { instance, requireRunning, seed } from "./instance.mjs";
+import { instance, quit, requireRunning, seed } from "./instance.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -17,7 +17,7 @@ if (!Number.isInteger(number) || number < 1 || !secret) {
   process.stderr.write(
     "Usage: github-webhook.mjs <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]\n",
   );
-  process.exit(2);
+  quit(2);
 }
 const inst = instance();
 await requireRunning(inst);
@@ -31,15 +31,23 @@ const cookie = signIn.headers
   .getSetCookie()
   .map((c) => c.split(";")[0])
   .join("; ");
-const me = await (await fetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } })).json();
-const github = await (
-  await fetch(`${inst.apiUrl}/v1/integrations/github`, { headers: { cookie } })
-).json();
-if (github.connected) await send(github.repo, me.workspace.id);
-else {
-  process.stderr.write("No repo is connected: connect one in Settings → GitHub first.\n");
-  // exitCode, not exit(): exiting while fetch's socket closes crashes libuv on Windows.
+await signIn.body?.cancel();
+// exitCode, not exit(): exiting while fetch's socket closes crashes libuv on Windows.
+if (signIn.status !== 204) {
+  process.stderr.write(
+    `The owner can't sign in (${signIn.status}): run pnpm app:password first.\n`,
+  );
   process.exitCode = 1;
+} else {
+  const me = await (await fetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } })).json();
+  const github = await (
+    await fetch(`${inst.apiUrl}/v1/integrations/github`, { headers: { cookie } })
+  ).json();
+  if (github.connected) await send(github.repo, me.workspace.id);
+  else {
+    process.stderr.write("No repo is connected: connect one in Settings → GitHub first.\n");
+    process.exitCode = 1;
+  }
 }
 
 async function send(repo, workspaceId) {
