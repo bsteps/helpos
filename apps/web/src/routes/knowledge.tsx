@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { ApiError, type KnowledgeSource } from "@/api/client.ts";
 import {
   knowledgeSourcesQuery,
@@ -9,6 +9,7 @@ import {
   useEditKnowledgeSource,
   useReingestKnowledgeSource,
 } from "@/api/queries.ts";
+import { Select } from "@/components/select.tsx";
 import { Textarea } from "@/components/textarea.tsx";
 import {
   Alert,
@@ -101,33 +102,18 @@ export function KnowledgePage() {
   );
 }
 
-function VisibilitySelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: Visibility;
-  onChange: (value: Visibility) => void;
-  disabled?: boolean;
-}) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="px-1 font-medium text-foreground text-sm">
-        Visibility
-      </label>
-      <select
-        id={id}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value === "public" ? "public" : "internal")}
-        className="h-10 rounded-full border border-border bg-card px-4 text-sm"
-      >
-        <option value="internal">Internal: for the AI only</option>
-        <option value="public">Public: may be shown to customers</option>
-      </select>
-    </div>
-  );
+const visibilityOptions = [
+  { value: "internal", label: "Internal: for the AI only" },
+  { value: "public", label: "Public: may be shown to customers" },
+] as const;
+
+function actionProblem(error: unknown, action: "delete" | "reingest"): string {
+  const failed = action === "delete" ? "Couldn't delete it." : "Couldn't read it again.";
+  if (error instanceof ApiError && error.code === "managed_in_git") {
+    return `${failed} It's managed in the workspace's git repo now.`;
+  }
+  if (error instanceof ApiError) return `${failed} Try again.`;
+  return `${failed} The server didn't answer; check your connection and try again.`;
 }
 
 function addProblem(error: unknown, kind: KnowledgeSource["kind"]): string {
@@ -184,7 +170,10 @@ function AddSource({ onDone }: { onDone: () => void }) {
                 size="sm"
                 variant={kind === k ? "primary" : "outline"}
                 aria-pressed={kind === k}
-                onClick={() => setKind(k)}
+                onClick={() => {
+                  add.reset();
+                  setKind(k);
+                }}
               >
                 {k === "url" ? "Web page" : "Markdown"}
               </Button>
@@ -217,7 +206,13 @@ function AddSource({ onDone }: { onDone: () => void }) {
               disabled={add.isPending}
             />
           )}
-          <VisibilitySelect value={visibility} onChange={setVisibility} disabled={add.isPending} />
+          <Select
+            label="Visibility"
+            value={visibility}
+            options={visibilityOptions}
+            onChange={setVisibility}
+            disabled={add.isPending}
+          />
           {add.isError ? (
             <Alert variant="destructive">
               <AlertIcon />
@@ -310,7 +305,9 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
               <AlertIcon />
               <AlertContent>
                 <AlertDescription>
-                  {reingest.isError ? "Couldn't read it again." : "Couldn't delete it."} Try again.
+                  {reingest.isError
+                    ? actionProblem(reingest.error, "reingest")
+                    : actionProblem(remove.error, "delete")}
                 </AlertDescription>
               </AlertContent>
             </Alert>
@@ -329,6 +326,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           <Button
             variant="primary"
             size="sm"
+            className="bg-destructive text-white hover:bg-destructive/90"
             disabled={busy}
             onClick={() => remove.mutate(source.id)}
           >
@@ -394,7 +392,13 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <Input label="Title" value={title} onChange={setTitle} required disabled={edit.isPending} />
-      <VisibilitySelect value={visibility} onChange={setVisibility} disabled={edit.isPending} />
+      <Select
+        label="Visibility"
+        value={visibility}
+        options={visibilityOptions}
+        onChange={setVisibility}
+        disabled={edit.isPending}
+      />
       {source.kind === "markdown" ? (
         <Textarea
           label="Replace content"
@@ -402,6 +406,11 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           value={content}
           onChange={setContent}
           rows={6}
+          error={
+            content !== "" && content.trim() === ""
+              ? "That's only spaces. Add some text, or leave it empty to keep the current text."
+              : undefined
+          }
           disabled={edit.isPending}
         />
       ) : null}

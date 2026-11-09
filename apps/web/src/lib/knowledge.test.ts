@@ -38,6 +38,10 @@ describe("pollDelay", () => {
     expect(pollDelay([source("pending", null, secondsAgo(300))], now)).toBe(30_000);
   });
 
+  it("treats a pending source with an unreadable time as just started", () => {
+    expect(pollDelay([source("pending", null, "not a date")], now)).toBe(2_000);
+  });
+
   it("stops once every source is ready or failed", () => {
     expect(pollDelay([source("ready"), source("failed", "no_text")], now)).toBe(false);
   });

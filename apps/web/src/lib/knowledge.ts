@@ -15,7 +15,7 @@ export function pollDelay(sources: readonly KnowledgeSource[], now: number): num
   );
   if (reading.length === 0) return false;
   const newest = Math.max(...reading.map((s) => Date.parse(s.updatedAt)));
-  return now - newest < slowAfterMs ? fastPollMs : slowPollMs;
+  return Number.isNaN(newest) || now - newest < slowAfterMs ? fastPollMs : slowPollMs;
 }
 
 const aiUnavailable = "The AI service couldn't process it. It tries again by itself.";

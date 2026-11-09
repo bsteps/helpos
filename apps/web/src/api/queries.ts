@@ -272,37 +272,33 @@ export const knowledgeSourcesQuery = queryOptions({
   refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now()),
 });
 
-export function useAddKnowledgeSource() {
+/** Every change to a source shows up in the list, so each one refetches it when done. */
+function useKnowledgeMutation<TVariables, TData>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: NewKnowledgeSource) => unwrap(api.POST("/v1/knowledge/sources", { body })),
+    mutationFn,
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
   });
 }
 
-export function useEditKnowledgeSource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: KnowledgeSourceUpdate }) =>
-      unwrap(api.PATCH("/v1/knowledge/sources/{id}", { params: { path: { id } }, body })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
-  });
-}
+export const useAddKnowledgeSource = () =>
+  useKnowledgeMutation((body: NewKnowledgeSource) =>
+    unwrap(api.POST("/v1/knowledge/sources", { body })),
+  );
 
-export function useReingestKnowledgeSource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      unwrap(api.POST("/v1/knowledge/sources/{id}/reingest", { params: { path: { id } } })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
-  });
-}
+export const useEditKnowledgeSource = () =>
+  useKnowledgeMutation(({ id, body }: { id: string; body: KnowledgeSourceUpdate }) =>
+    unwrap(api.PATCH("/v1/knowledge/sources/{id}", { params: { path: { id } }, body })),
+  );
 
-export function useDeleteKnowledgeSource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
-  });
-}
+export const useReingestKnowledgeSource = () =>
+  useKnowledgeMutation((id: string) =>
+    unwrap(api.POST("/v1/knowledge/sources/{id}/reingest", { params: { path: { id } } })),
+  );
+
+export const useDeleteKnowledgeSource = () =>
+  useKnowledgeMutation((id: string) =>
+    unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } })),
+  );
