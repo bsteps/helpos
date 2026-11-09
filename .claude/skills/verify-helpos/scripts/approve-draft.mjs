@@ -2,7 +2,8 @@
 // token, then approves the exact text it read as another, and waits until the reply is sent.
 //   node .claude/skills/verify-helpos/scripts/approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]
 // `new` first sends a fresh customer email and uses its ticket. Defaults: reader northwind:triage-bot, approver northwind:approver-bot.
-import { instance, requireRunning, seed, seedToken } from "./instance.mjs";
+import { instance, requireRunning, seedToken } from "./instance.mjs";
+import { sendFreshEmail } from "./new-email.mjs";
 
 const args = process.argv.slice(2);
 let ticketId = args[0];
@@ -20,29 +21,12 @@ const inst = instance();
 await requireRunning(inst);
 if (ticketId === "new") {
   const subject = `API approve ${new Date().toISOString().slice(11, 19)}`;
-  const raw = [
-    "From: Jane Customer <jane@customer.test>",
-    `To: ${seed.northwind.mailbox}`,
-    `Subject: ${subject}`,
-    `Message-ID: <hand-${crypto.randomUUID()}@customer.test>`,
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    "Hi, I cannot log in since this morning.",
-    "",
-  ].join("\r\n");
-  const res = await fetch(`${inst.apiUrl}/v1/inbound/email`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" },
-    body: raw,
-  });
-  const created = await res.json();
-  if (res.status !== 201) {
-    process.stderr.write(
-      `sending the customer email failed: ${res.status} ${JSON.stringify(created)}\n`,
-    );
+  const { status, json } = await sendFreshEmail(inst, "plain", subject);
+  if (status !== 201) {
+    process.stderr.write(`sending the customer email failed: ${status} ${JSON.stringify(json)}\n`);
     process.exit(1);
   }
-  ticketId = created.ticketId;
+  ticketId = json.ticketId;
   process.stdout.write(`customer email sent: "${subject}", ticket ${ticketId}\n`);
 }
 const token = async (name) => (name.startsWith("hos_") ? name : seedToken(name));

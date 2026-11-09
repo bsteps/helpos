@@ -64,6 +64,8 @@ const { chromium } = createRequire(process.cwd() + "/apps/web/package.json")("@p
 
 `$V/journey-reply.mjs` is a complete example of both surfaces. Copy its shape for a new journey.
 
+**New customer email.** `node $V/new-email.mjs [fixture] [--subject "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. The last line it prints is the ticket ID.
+
 **Agent approval.** `node $V/approve-draft.mjs <ticketId | new>` reads the pending draft as `triage-bot`, approves that exact text as `approver-bot`, and waits for `sent`. `new` sends a fresh customer email first. Use it instead of piping `api.mjs` into other commands: Git Bash runs `node` through `winpty`, which breaks pipes into `node`.
 
 **Main journey.** `node $V/journey-reply.mjs --via web` or `--via api`. It sends a customer email, waits for the ticket and the real AI draft, approves it (owner in the browser, or `approver-bot` over the API), waits for `sent`, then checks Mailpit: the reply went to the shadow recipient only, with the approved text.

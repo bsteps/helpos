@@ -34,5 +34,5 @@ Preconditions: baseline. Fixtures are in `fixtures/email/`.
 ## Gotchas
 
 - Most fixtures are addressed to `support@acme.test`. `api.mjs inbound` swaps that address for the Northwind mailbox, but `pnpm dev:send-email` does not, so it gets `404` unless an Acme workspace exists.
-- Fixtures have fixed Message-IDs, so a second run of the same fixture is a duplicate (`200`), not a new ticket. To get a fresh ticket, change the `Message-ID` and `Subject` lines, or use `journey-reply.mjs`.
+- Fixtures have fixed Message-IDs, so a second run of the same fixture is a duplicate (`200`), not a new ticket. For a fresh ticket from any fixture, use `node $V/new-email.mjs <fixture>`.
 - The draft comes from the real model in `.env`. If the AI is not configured, draft jobs wait in the queue and the ticket shows `The AI is writing a draft…` indefinitely.
