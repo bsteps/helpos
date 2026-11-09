@@ -55,7 +55,7 @@ async function startServer(): Promise<{ container: StartedPostgreSqlContainer; a
       "max_connections=300",
     ])
     .start();
-  const hostPort = `${container.getHost()}:${container.getPort()}`;
+  const hostPort = hostPortOf(container);
   const { ownerUrl, jobsUrl } = urls(hostPort, "helpos");
   try {
     await runMigrations(ownerUrl);
@@ -68,6 +68,16 @@ async function startServer(): Promise<{ container: StartedPostgreSqlContainer; a
   }
   const admin = `${encodeURIComponent(container.getUsername())}:${encodeURIComponent(container.getPassword())}`;
   return { container, adminUrl: `postgres://${admin}@${hostPort}/postgres` };
+}
+
+/**
+ * The container's address as an IPv4 one. Testcontainers says `localhost`, which Node tries as
+ * `::1` first, and Docker Desktop's IPv6 port forwarding stalls when many connections open at
+ * once: half of 50 hit CONNECT_TIMEOUT, where 150 over 127.0.0.1 take 135 ms.
+ */
+function hostPortOf(container: StartedPostgreSqlContainer): string {
+  const host = container.getHost();
+  return `${host === "localhost" ? "127.0.0.1" : host}:${container.getPort()}`;
 }
 
 /**
@@ -92,7 +102,7 @@ export async function startTestDatabase(): Promise<TestDatabase> {
   if (!adminUrl) {
     const { container } = await startServer();
     return {
-      ...urls(`${container.getHost()}:${container.getPort()}`, "helpos"),
+      ...urls(hostPortOf(container), "helpos"),
       stop: async () => {
         await container.stop();
       },
