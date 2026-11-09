@@ -19,7 +19,10 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
   await deliver(request, plainEmail(subject, "Hi, the shoes are too small."));
   await openPendingDraft(page, subject);
 
-  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Draft" })
+    .getByRole("button", { name: "Discard" })
+    .click();
   await expect(
     page.getByText("The draft was discarded. Nothing has gone to the customer."),
   ).toBeVisible();
@@ -33,7 +36,10 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
   expect(await repliesInMailpit(request, subject)).toBe(0);
 
-  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Draft" })
+    .getByRole("button", { name: "Discard" })
+    .click();
   await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
 });
 
@@ -42,7 +48,10 @@ test("after a discard, a hand-written draft is saved and approved", async ({ pag
   await deliver(request, plainEmail(subject, "Hi, can you gift wrap my order?"));
   await openPendingDraft(page, subject);
 
-  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Draft" })
+    .getByRole("button", { name: "Discard" })
+    .click();
   await page.getByRole("button", { name: "Write my own" }).click();
   const mine = "Happy to! We'll gift wrap it at no charge.";
   await page.getByRole("textbox", { name: "Your reply" }).fill(mine);
@@ -65,7 +74,10 @@ test("a spent AI budget says so, and a hand-written draft still works", async ({
   const subject = uniqueSubject("Late parcel");
   await deliver(request, plainEmail(subject, "Hi, my parcel is late."));
   await openPendingDraft(page, subject);
-  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Draft" })
+    .getByRole("button", { name: "Discard" })
+    .click();
 
   await page.route("**/v1/tickets/*/drafts", (route) =>
     route.request().method() === "POST" && route.request().postDataJSON()?.regenerate
@@ -91,7 +103,10 @@ test("a discard the API refuses says so, and the draft stays", async ({ page, re
   await page.route("**/v1/drafts/*/discard", (route) =>
     route.fulfill({ status: 409, json: { error: "not_pending" } }),
   );
-  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Draft" })
+    .getByRole("button", { name: "Discard" })
+    .click();
   await expect(page.getByText("This reply changed since you opened it.")).toBeVisible();
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
 });

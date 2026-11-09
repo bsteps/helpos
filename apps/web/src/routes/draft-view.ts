@@ -12,11 +12,22 @@ export function liveFixNotice(drafts: Draft[]): Draft | undefined {
 /** A new AI draft was asked for while this reply was the newest (`null`: there was none). */
 export type Ask = { replacing: string | null };
 
+/** What happened to the reply while a person was writing their own. */
+export type Meanwhile = "drafted" | "answered" | "send_failed";
+
+const meanwhileByStatus: Record<Draft["status"], Meanwhile | undefined> = {
+  pending: "drafted",
+  approved: "answered",
+  sent: "answered",
+  send_failed: "send_failed",
+  discarded: undefined,
+};
+
 export type DraftView =
   | { kind: "none" }
   | { kind: "draft"; draft: Draft }
   | { kind: "writing" }
-  | { kind: "compose"; meanwhile: "drafted" | "answered" | undefined }
+  | { kind: "compose"; meanwhile: Meanwhile | undefined }
   | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" };
 
 export function draftView(
@@ -30,8 +41,7 @@ export function draftView(
   const live = newest?.status === "discarded" ? undefined : newest;
   // A reply being written stays on screen whatever changes meanwhile, so typed text isn't lost.
   if (composing) {
-    const meanwhile = live ? (live.status === "pending" ? "drafted" : "answered") : undefined;
-    return { kind: "compose", meanwhile };
+    return { kind: "compose", meanwhile: live && meanwhileByStatus[live.status] };
   }
   if (live) return { kind: "draft", draft: live };
   if (ticket?.status !== "open" || ticket.automated) return { kind: "none" };

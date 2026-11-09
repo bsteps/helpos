@@ -40,6 +40,7 @@ import {
   type DraftView,
   draftView,
   liveFixNotice,
+  type Meanwhile,
   newDraftError,
   newestReply,
   waitingOn,
@@ -259,7 +260,15 @@ function DraftPanel({
       );
     case "compose":
       return (
-        <Composer ticketId={ticketId} meanwhile={view.meanwhile} done={() => setComposing(false)} />
+        <Composer
+          ticketId={ticketId}
+          meanwhile={view.meanwhile}
+          done={() => {
+            setComposing(false);
+            // An old refusal shouldn't greet the person next time; a request in flight keeps its.
+            if (!redraft.isPending) redraft.reset();
+          }}
+        />
       );
     case "choose":
       return (
@@ -320,6 +329,8 @@ const meanwhileNote = {
   drafted: "A draft arrived while you were writing. Saving yours replaces it. Cancel to see it.",
   answered:
     "A reply was approved while you were writing, so yours can't be saved. Cancel to see it.",
+  send_failed:
+    "A reply was approved but couldn't be sent, so yours can't be saved. Cancel, then retry or discard it.",
 } as const;
 
 function Composer({
@@ -328,7 +339,7 @@ function Composer({
   done,
 }: {
   ticketId: string;
-  meanwhile: "drafted" | "answered" | undefined;
+  meanwhile: Meanwhile | undefined;
   done: () => void;
 }) {
   const write = useCreateDraft(ticketId);
@@ -352,7 +363,11 @@ function Composer({
             Cancel
           </Button>
           <Button
-            disabled={write.isPending || body.trim() === "" || meanwhile === "answered"}
+            disabled={
+              write.isPending ||
+              body.trim() === "" ||
+              (meanwhile !== undefined && meanwhile !== "drafted")
+            }
             onClick={() => write.mutate({ body }, { onSuccess: done })}
           >
             {write.isPending ? <Loader size={16} label="Saving" className="text-current" /> : null}

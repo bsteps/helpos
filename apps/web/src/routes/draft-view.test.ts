@@ -102,6 +102,13 @@ describe("draftView", () => {
     expect(draftView(paused, [], { replacing: null }, false)).toEqual({ kind: "writing" });
   });
 
+  it("says when a reply failed to send while the person was writing", () => {
+    expect(draftView(ticket, [draft("d1", "send_failed")], undefined, true)).toEqual({
+      kind: "compose",
+      meanwhile: "send_failed",
+    });
+  });
+
   it("keeps a reply being written on screen when the ticket is closed meanwhile", () => {
     const closed: TicketDetail = { ...ticket, status: "closed" };
     expect(draftView(closed, [draft("d1", "discarded")], undefined, true)).toEqual({
