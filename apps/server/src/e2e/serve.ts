@@ -126,6 +126,13 @@ const auth = createAuthStore(testDb.authUrl, {
     cookiePrefix: "helpos-e2e",
   },
 });
+
+async function setOwnerPassword(email: string, password: string): Promise<void> {
+  const setupToken = await auth.issueSetupToken((await auth.ensureUser(email)).id);
+  if (!(await auth.setPassword(setupToken.token, password)).ok) {
+    throw new Error(`e2e: setPassword refused the password for ${email}`);
+  }
+}
 const runner = createJobRunner({
   jobsUrl: testDb.jobsUrl,
   db,
@@ -174,12 +181,6 @@ const setup = await auth.issueSetupToken(workspace.ownerId);
 // gets a password here, since the seed gives nobody one.
 const seeded = await seedDemoData({ db, auth, jobs: runner });
 if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
-async function setOwnerPassword(email: string, password: string): Promise<void> {
-  const setupToken = await auth.issueSetupToken((await auth.ensureUser(email)).id);
-  if (!(await auth.setPassword(setupToken.token, password)).ok) {
-    throw new Error(`e2e: password for ${email} failed`);
-  }
-}
 const seedOwner = "maya.okafor@northwind-cycles.test";
 const seedPassword = "northwind demo password";
 await setOwnerPassword(seedOwner, seedPassword);

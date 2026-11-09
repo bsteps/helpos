@@ -57,6 +57,7 @@ function ShadowModeSettings() {
   const shadow = useQuery(shadowModeQuery);
   const update = useUpdateShadowMode();
   const [typedRecipient, setTypedRecipient] = useState<string | null>(null);
+  const [confirmingOff, setConfirmingOff] = useState(false);
   const status = shadow.data;
   const recipientInput = typedRecipient ?? status?.recipient ?? "";
 
@@ -113,6 +114,37 @@ function ShadowModeSettings() {
             </AlertContent>
           </Alert>
         ) : null}
+        {status?.enabled && confirmingOff ? (
+          <Alert variant="warning">
+            <AlertIcon />
+            <AlertContent>
+              <AlertTitle>Turn off shadow mode?</AlertTitle>
+              <AlertDescription>
+                Approved replies will go to customers instead of the shadow recipient.
+              </AlertDescription>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={update.isPending}
+                  onClick={() =>
+                    update.mutate({ enabled: false }, { onSettled: () => setConfirmingOff(false) })
+                  }
+                >
+                  Send replies to customers
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={update.isPending}
+                  onClick={() => setConfirmingOff(false)}
+                >
+                  Keep shadow mode on
+                </Button>
+              </div>
+            </AlertContent>
+          </Alert>
+        ) : null}
         {status && isAdmin ? (
           <form onSubmit={submit} className="flex flex-col gap-4">
             <Input
@@ -129,7 +161,9 @@ function ShadowModeSettings() {
                 type="button"
                 variant="ghost"
                 disabled={update.isPending}
-                onClick={() => update.mutate({ enabled: !status.enabled })}
+                onClick={() =>
+                  status.enabled ? setConfirmingOff(true) : update.mutate({ enabled: true })
+                }
               >
                 {status.enabled ? "Turn off shadow mode" : "Turn on shadow mode"}
               </Button>

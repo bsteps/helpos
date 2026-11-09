@@ -45,10 +45,17 @@ test("an owner changes the shadow recipient, and the next approved reply goes th
   }
 });
 
-test("turning shadow mode off while the server locks it shows why", async ({ page }) => {
+test("turning shadow mode off asks first, and while the server locks it shows why", async ({
+  page,
+}) => {
   await signIn(page);
   await openSettings(page);
   await page.getByRole("button", { name: "Turn off shadow mode" }).click();
+  await page.getByRole("button", { name: "Keep shadow mode on" }).click();
+  await expect(page.getByText("Turn off shadow mode?")).toBeHidden();
+
+  await page.getByRole("button", { name: "Turn off shadow mode" }).click();
+  await page.getByRole("button", { name: "Send replies to customers" }).click();
   await expect(page.getByRole("alert")).toContainText("doesn't allow turning shadow mode off");
   await expect(page.getByText("On", { exact: true })).toBeVisible();
   await expect(page.getByTestId("shadow-mode-summary")).toContainText("not to customers");
@@ -57,14 +64,14 @@ test("turning shadow mode off while the server locks it shows why", async ({ pag
 const tokens = async (page: Page, testId: string): Promise<number> =>
   Number(((await page.getByTestId(testId).textContent()) ?? "").replace(/\D/g, ""));
 
-const usedPlusLeft = (page: Page): Promise<number> =>
-  page.evaluate(() => {
+const leftMatchesBudget = (page: Page, budget: number): Promise<boolean> =>
+  page.evaluate((budget) => {
     const read = (testId: string) =>
       Number(
         (document.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "").replace(/\D/g, ""),
       );
-    return read("ai-usage-used") + read("ai-usage-remaining");
-  });
+    return read("ai-usage-remaining") === Math.max(0, budget - read("ai-usage-used"));
+  }, budget);
 
 test("AI usage shows today's tokens and budget, and grows after a draft", async ({
   page,
@@ -76,7 +83,7 @@ test("AI usage shows today's tokens and budget, and grows after a draft", async 
   await expect(page.getByTestId("ai-usage-budget")).toHaveText(/\d/);
   const before = await tokens(page, "ai-usage-used");
   const budget = await tokens(page, "ai-usage-budget");
-  await expect.poll(() => usedPlusLeft(page)).toBe(budget);
+  await expect.poll(() => leftMatchesBudget(page, budget)).toBe(true);
 
   const subject = uniqueSubject("Order status");
   await deliver(request, plainEmail(subject, "Hi, where is my order?"));
@@ -86,7 +93,7 @@ test("AI usage shows today's tokens and budget, and grows after a draft", async 
 
   await openSettings(page);
   await expect.poll(() => tokens(page, "ai-usage-used")).toBeGreaterThan(before);
-  await expect.poll(() => usedPlusLeft(page)).toBe(budget);
+  await expect.poll(() => leftMatchesBudget(page, budget)).toBe(true);
 });
 
 test("when drafting uses up the daily budget, Settings and the next ticket show drafting is paused", async ({
