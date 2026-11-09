@@ -1,9 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { deliver, plainEmail, signIn, state, uniqueSubject, waitForMail } from "./support.ts";
 
-// Shadow mode and the AI budget, seen and changed from Settings: the same public API an agent
-// with a token uses. The e2e server keeps shadow mode locked on, as a fresh install does.
-
 async function openSettings(page: Page): Promise<void> {
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
@@ -43,7 +40,6 @@ test("an owner changes the shadow recipient, and the next approved reply goes th
     const mail = await waitForMail(request, `Re: ${subject}`);
     expect(mail.to).toEqual([reviewer]);
   } finally {
-    // The other tests expect replies to reach the owner.
     await openSettings(page);
     await saveRecipient(page, owner);
   }
@@ -54,7 +50,6 @@ test("turning shadow mode off while the server locks it shows why", async ({ pag
   await openSettings(page);
   await page.getByRole("button", { name: "Turn off shadow mode" }).click();
   await expect(page.getByRole("alert")).toContainText("doesn't allow turning shadow mode off");
-  // Nothing changed.
   await expect(page.getByText("On", { exact: true })).toBeVisible();
   await expect(page.getByTestId("shadow-mode-summary")).toContainText("not to customers");
 });
@@ -62,14 +57,14 @@ test("turning shadow mode off while the server locks it shows why", async ({ pag
 const tokens = async (page: Page, testId: string): Promise<number> =>
   Number(((await page.getByTestId(testId).textContent()) ?? "").replace(/\D/g, ""));
 
-/** Used plus left, read together: a refetch between two reads can't make them disagree. */
-const usedAndLeft = async (page: Page) => {
-  const [used, left] = await Promise.all([
-    tokens(page, "ai-usage-used"),
-    tokens(page, "ai-usage-remaining"),
-  ]);
-  return used + left;
-};
+const usedPlusLeft = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const read = (testId: string) =>
+      Number(
+        (document.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "").replace(/\D/g, ""),
+      );
+    return read("ai-usage-used") + read("ai-usage-remaining");
+  });
 
 test("AI usage shows today's tokens and budget, and grows after a draft", async ({
   page,
@@ -81,7 +76,7 @@ test("AI usage shows today's tokens and budget, and grows after a draft", async 
   await expect(page.getByTestId("ai-usage-budget")).toHaveText(/\d/);
   const before = await tokens(page, "ai-usage-used");
   const budget = await tokens(page, "ai-usage-budget");
-  await expect.poll(() => usedAndLeft(page)).toBe(budget);
+  await expect.poll(() => usedPlusLeft(page)).toBe(budget);
 
   const subject = uniqueSubject("Order status");
   await deliver(request, plainEmail(subject, "Hi, where is my order?"));
@@ -91,5 +86,5 @@ test("AI usage shows today's tokens and budget, and grows after a draft", async 
 
   await openSettings(page);
   await expect.poll(() => tokens(page, "ai-usage-used")).toBeGreaterThan(before);
-  await expect.poll(() => usedAndLeft(page)).toBe(budget);
+  await expect.poll(() => usedPlusLeft(page)).toBe(budget);
 });

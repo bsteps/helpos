@@ -54,17 +54,18 @@ function shadowModeProblem(error: unknown): string {
 function ShadowModeSettings() {
   const { me } = useRouteContext({ from: "/signed-in" });
   const isAdmin = me.scopes.includes("workspace:admin");
-  const canRead = me.scopes.includes("tickets:read");
-  const shadow = useQuery({ ...shadowModeQuery, enabled: canRead });
+  const shadow = useQuery(shadowModeQuery);
   const update = useUpdateShadowMode();
-  // Null until the owner types, so the field shows the saved recipient until then.
-  const [recipient, setRecipient] = useState<string | null>(null);
+  const [typedRecipient, setTypedRecipient] = useState<string | null>(null);
   const status = shadow.data;
-  const shown = recipient ?? status?.recipient ?? "";
+  const recipientInput = typedRecipient ?? status?.recipient ?? "";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    update.mutate({ recipient: shown.trim() }, { onSuccess: () => setRecipient(null) });
+    update.mutate(
+      { recipient: recipientInput.trim() },
+      { onSuccess: () => setTypedRecipient(null) },
+    );
   };
 
   return (
@@ -84,7 +85,7 @@ function ShadowModeSettings() {
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {shadow.isPending && canRead ? <Loader size={16} label="Loading" /> : null}
+        {shadow.isPending ? <Loader size={16} label="Loading" /> : null}
         {shadow.isError ? (
           <p className="text-muted-foreground text-sm">
             Couldn't load shadow mode. Reload to try again.
@@ -117,8 +118,8 @@ function ShadowModeSettings() {
             <Input
               label="Shadow recipient"
               type="email"
-              value={shown}
-              onChange={setRecipient}
+              value={recipientInput}
+              onChange={setTypedRecipient}
               autoComplete="email"
               required
               disabled={update.isPending}
@@ -135,7 +136,9 @@ function ShadowModeSettings() {
               <Button
                 type="submit"
                 disabled={
-                  update.isPending || !shown.trim() || shown.trim() === (status.recipient ?? "")
+                  update.isPending ||
+                  !recipientInput.trim() ||
+                  recipientInput.trim() === (status.recipient ?? "")
                 }
               >
                 Save recipient
@@ -153,9 +156,7 @@ function ShadowModeSettings() {
 const count = new Intl.NumberFormat();
 
 function AiUsageSettings() {
-  const { me } = useRouteContext({ from: "/signed-in" });
-  const canRead = me.scopes.includes("tickets:read");
-  const usage = useQuery({ ...aiUsageQuery, enabled: canRead });
+  const usage = useQuery(aiUsageQuery);
   const data = usage.data;
   return (
     <Card>
@@ -174,7 +175,7 @@ function AiUsageSettings() {
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {usage.isPending && canRead ? <Loader size={16} label="Loading" /> : null}
+        {usage.isPending ? <Loader size={16} label="Loading" /> : null}
         {usage.isError ? (
           <p className="text-muted-foreground text-sm">
             Couldn't load AI usage. Reload to try again.
