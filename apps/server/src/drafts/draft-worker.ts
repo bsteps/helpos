@@ -25,7 +25,6 @@ import {
   usageOn,
   utcDay,
 } from "../ai-budget/budget.ts";
-import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import {
   noKnowledge,
@@ -104,7 +103,7 @@ async function searchOrNothing(
   try {
     return await tx.transaction((sp) => search.search(sp, query));
   } catch (error) {
-    deps.logger.warn({ err: errorSummary(error) }, "knowledge search failed: drafting without it");
+    deps.logger.warn({ err: error }, "knowledge search failed: drafting without it");
     // Its embedding call may have been paid for before the failure.
     return { ...noKnowledge, tokens: error instanceof SearchError ? error.tokens : 0 };
   }
@@ -137,7 +136,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           await transaction((tx) => recordUsage(tx, payload.tenantId, day, spent));
         } catch (recordError) {
           deps.logger.warn(
-            { err: errorSummary(recordError), ...spent },
+            { err: recordError, ...spent },
             "draft-reply: could not record the spend of a failed attempt",
           );
         }

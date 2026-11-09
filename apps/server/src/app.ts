@@ -163,7 +163,7 @@ export function createApp({
     if (err instanceof HTTPException && err.status >= 400 && err.status < 500) {
       return c.json({ error: clientErrorCodes[err.status] ?? "bad_request" }, err.status);
     }
-    logger.error({ err: errorSummary(err), path: c.req.path }, "unhandled error");
+    logger.error({ err, path: c.req.path }, "unhandled error");
     return c.json({ error: "internal_error" }, 500);
   });
 
@@ -176,17 +176,6 @@ export function createApp({
   return app;
 }
 
-/**
- * The frames after the message. The message (which may span lines and contain anything) is
- * cut off by position, not recognised by content. If the stack doesn't start with it, as
- * V8 normally does, nothing is returned rather than risk logging it.
- */
-function stackFrames(err: Error): string | undefined {
-  const header = `${err.name}: ${err.message}\n`;
-  if (!err.stack?.startsWith(header)) return undefined;
-  return err.stack.slice(header.length).split("\n").slice(0, 5).join("\n");
-}
-
 /** The framework's own refusals, as the API's error codes. Never its message. */
 const clientErrorCodes: Partial<Record<number, string>> = {
   400: "bad_request",
@@ -196,22 +185,3 @@ const clientErrorCodes: Partial<Record<number, string>> = {
   413: "too_large",
   415: "unsupported_media_type",
 };
-
-/**
- * What is safe to log about an unexpected error. Drizzle query errors carry the SQL
- * parameters (email bodies, addresses) in their message, so those are never logged; only the
- * error type, the Postgres SQLSTATE and constraint name, and the stack frames.
- */
-export function errorSummary(err: unknown): Record<string, unknown> {
-  const cause = err instanceof Error ? err.cause : undefined;
-  const isObject = (v: unknown): v is Record<string, unknown> =>
-    typeof v === "object" && v !== null;
-  // `throw null` is legal JS: the error handler must never crash on it.
-  const pg = isObject(cause) ? cause : isObject(err) ? err : {};
-  return {
-    name: err instanceof Error ? err.name : typeof err,
-    code: typeof pg.code === "string" ? pg.code : undefined,
-    constraint: typeof pg.constraint_name === "string" ? pg.constraint_name : undefined,
-    stack: err instanceof Error ? stackFrames(err) : undefined,
-  };
-}

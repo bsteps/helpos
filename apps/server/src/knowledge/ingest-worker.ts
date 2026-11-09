@@ -10,7 +10,6 @@ import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
 import { dailyBudget, recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
-import { errorSummary } from "../app.ts";
 import { recordAudit } from "../audit/audit.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
 import { extractHtml, tidyAuthored } from "./extract.ts";
@@ -338,7 +337,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     } catch (error) {
       // Reading the page broke (a bug, or a page no parser expects). A retry would break the
       // same way, and then the source would stay `pending` with no job: it fails instead.
-      deps.logger.warn({ err: errorSummary(error), sourceId }, "reading the page failed");
+      deps.logger.warn({ err: error, sourceId }, "reading the page failed");
       return fail("ingest_error");
     }
     if (chunks.length === 0) return fail("no_text");
@@ -350,7 +349,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     } catch (error) {
       // After the SDK's own retries. Batches embedded before the failure were paid for, so
       // they count.
-      deps.logger.warn({ err: errorSummary(error), sourceId }, "embedding failed");
+      deps.logger.warn({ err: error, sourceId }, "embedding failed");
       const spent = error instanceof EmbedError ? error.tokens : 0;
       if (spent > 0) {
         await transaction((tx) =>

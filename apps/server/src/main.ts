@@ -11,7 +11,7 @@ import { brand } from "@helpos/brand";
 import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
-import { createApp, errorSummary } from "./app.ts";
+import { createApp } from "./app.ts";
 import { envSchema } from "./env.ts";
 import { octokitGithub } from "./github/github-api.ts";
 import { createLogger } from "./logger.ts";
@@ -30,7 +30,7 @@ if (!inboundSecret) logger.warn("HELPOS_INBOUND_SECRET is not set: inbound email
 const runner = createJobRunner({
   jobsUrl: env.HELPOS_DATABASE_JOBS_URL,
   db,
-  onError: (err) => logger.error({ err: errorSummary(err) }, "job runner error"),
+  onError: (err) => logger.error({ err }, "job runner error"),
 });
 const transport = env.HELPOS_SMTP_URL ? createSmtpTransport(env.HELPOS_SMTP_URL) : undefined;
 const auth = env.HELPOS_DATABASE_AUTH_URL
