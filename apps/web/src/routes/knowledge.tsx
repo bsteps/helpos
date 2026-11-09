@@ -125,7 +125,8 @@ function problem(error: unknown, failed: string, invalid: string): string {
       return `${failed} It's managed in the workspace's git repo now.`;
   }
   if (error.status === 404) return `${failed} It was deleted.`;
-  if (error.status === 403) return `${failed} Your account can't change knowledge sources.`;
+  if (error.code === "forbidden") return `${failed} Your account can't change knowledge sources.`;
+  if (error.status === 403) return `${failed} Reload the page, then try again.`;
   if (error.status === 400) return invalid;
   return `${failed} Try again.`;
 }
@@ -149,7 +150,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
   const ready = title.trim() !== "" && (kind === "url" ? url.trim() !== "" : content.trim() !== "");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!ready) return;
+    if (!ready || add.isPending) return;
     const common = { title: title.trim(), visibility };
     add.mutate(
       kind === "url" ? { kind, url: url.trim(), ...common } : { kind, content, ...common },
@@ -431,7 +432,8 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (changed && !onlySpaces) edit.mutate({ id: source.id, body }, { onSuccess: onDone });
+    if (changed && !onlySpaces && !edit.isPending)
+      edit.mutate({ id: source.id, body }, { onSuccess: onDone });
   };
 
   return (
