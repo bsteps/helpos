@@ -9,8 +9,9 @@ name: Claude
 # - Only `issue_comment`, only from OWNER/MEMBER/COLLABORATOR humans (job `if:`), on top of
 #   the action's own write-access and human-actor checks. No other trigger can start it.
 # - On a PR, the action puts .claude/, .mcp.json and CLAUDE.md back from the base branch before
-#   Claude starts, so a branch can't add hooks or MCP servers. The branch's AGENTS.md and nested
-#   CLAUDE.md files still load; only people with write access can push such a branch.
+#   Claude starts, so a branch can't add hooks or MCP servers. Other instruction files
+#   (AGENTS.md, nested CLAUDE.md) would load from the branch, so @claude doesn't run on a PR
+#   that changes any of them.
 # - PRs from forks are skipped, so their code never runs next to the secret.
 # - No shell and no web. Claude reads and edits files in the checkout and commits through the
 #   GitHub API (use_commit_signing). The action pins the target branch: the PR's branch, or a
@@ -46,7 +47,7 @@ jobs:
       actions: read # Claude can read CI results on the PR
       id-token: write # exchanged for the Claude GitHub App token
     steps:
-      - name: Skip pull requests from forks
+      - name: Skip fork PRs, and PRs that change agent instructions
         id: gate
         shell: bash
         env:
@@ -61,6 +62,14 @@ jobs:
             head=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.repo.full_name)
             if [ "$head" != "$REPO" ]; then
               echo "::notice::PR #$NUMBER comes from a fork. @claude doesn't run on fork PRs."
+              run=false
+            fi
+            # Claude would load this branch's instruction files (the action restores only
+            # .claude/, .mcp.json and the root CLAUDE.md). If the PR changes any of them, don't
+            # run: review those changes first, then ask @claude once they're on main.
+            files=$(gh api "repos/$REPO/pulls/$NUMBER/files" --paginate --jq '.[].filename')
+            if grep -qE '(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*|\.(mcp|claude)\.json)$' <<<"$files"; then
+              echo "::notice::PR #$NUMBER changes agent instruction files. @claude doesn't run on it until they're on main."
               run=false
             fi
           fi

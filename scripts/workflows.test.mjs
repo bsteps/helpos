@@ -282,7 +282,7 @@ test("the AI check report counts only this run's comments and fails on a broken 
 
 test("the test-signal check covers every test file type", () => {
   const paths = block(read(`${dir}ai-check-test-signal.yml`), "on");
-  for (const path of ['"**/*.test.*"', '"**/*.spec.*"', '"**/e2e/**"', '"**/fixtures/**"']) {
+  for (const path of ['"**/*.test.*"', '"**/*.spec.*"', '"**/e2e/**"', '"**/tests/**"']) {
     assert.ok(paths.includes(path), path);
   }
 });
@@ -355,6 +355,12 @@ test("@claude runs only for maintainers, skips forks and commits only through th
   });
   assert.match(job, /concurrency:\n\s+group: claude-\$\{\{ github\.event\.issue\.number \}\}/);
   assert.match(claude, /head\.repo\.full_name[\s\S]*run=false/, "fork PRs are skipped");
+  // The branch's own instruction files would load, so PRs that change them are skipped.
+  assert.ok(claude.includes('gh api "repos/$REPO/pulls/$NUMBER/files" --paginate'));
+  assert.ok(
+    claude.includes("grep -qE '(^|/)((CLAUDE|CLAUDE\\.local|AGENTS)\\.md|\\.claude/.*|"),
+    "PRs that change instruction files are skipped",
+  );
   assert.match(claude, /use_commit_signing: "true"/, "no git push from the CLI");
   const workspace = `/${expr("github.workspace")}/**)`;
   for (const tool of toolList(claude, "--allowedTools")) {

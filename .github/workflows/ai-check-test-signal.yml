@@ -17,7 +17,12 @@ on:
       - "**/fixtures/**"
       - "**/__fixtures__/**"
       - "**/__tests__/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "**/testing/**"
+      - "**/test-utils/**"
       - "**/testing.ts"
+      - "**/*.bench.*"
       - "**/vitest.config.*"
       - "**/playwright.config.*"
 
