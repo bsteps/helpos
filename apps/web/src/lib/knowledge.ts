@@ -9,18 +9,22 @@ const slowAfterMs = 2 * 60_000;
 export type ListedSource = KnowledgeSource & { pendingSince?: number };
 
 /**
- * Carries each pending source's first-seen time over from the previous list. Times come from
- * this browser's clock, not the server's, so a skewed server clock can't change the pace.
+ * Carries each pending source's first-seen time over from the previous list, as long as it is
+ * the same stretch of pending: a new `updatedAt` means it was asked again, so the clock
+ * restarts. Times come from this browser's clock, so a skewed server clock can't change pace.
  */
 export function withPendingSince(
   sources: readonly KnowledgeSource[],
   previous: readonly ListedSource[] | undefined,
   now: number,
 ): ListedSource[] {
-  const seen = new Map(previous?.map((s) => [s.id, s.pendingSince]));
-  return sources.map((s) =>
-    s.status === "pending" ? { ...s, pendingSince: seen.get(s.id) ?? now } : s,
-  );
+  const seen = new Map(previous?.map((s) => [s.id, s]));
+  return sources.map((s) => {
+    if (s.status !== "pending") return s;
+    const before = seen.get(s.id);
+    const same = before?.status === "pending" && before.updatedAt === s.updatedAt;
+    return { ...s, pendingSince: same ? (before.pendingSince ?? now) : now };
+  });
 }
 
 /**

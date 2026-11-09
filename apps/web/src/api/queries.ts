@@ -282,7 +282,12 @@ function useKnowledgeMutation<TVariables, TData>(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
-    onSuccess: (_data, variables) => onSuccess?.(queryClient, variables),
+    onSuccess: async (_data, variables) => {
+      if (!onSuccess) return;
+      // A list fetched before this change finished would undo it, so drop that one first.
+      await queryClient.cancelQueries({ queryKey: keys.knowledgeSources });
+      onSuccess(queryClient, variables);
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
   });
 }
