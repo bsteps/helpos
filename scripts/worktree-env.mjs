@@ -30,6 +30,24 @@ export function isolationFor(path, { isWorktree, platform = process.platform }) 
 
 const localHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
+/** Whether a Postgres URL points at this machine (not a remote host, nor a `?host=` override). */
+export function isLocalDatabaseUrl(raw) {
+  try {
+    return isLocalUrl(new URL(raw));
+  } catch {
+    return false;
+  }
+}
+
+function isLocalUrl(url) {
+  // hostaddr wins over the host name in libpq-style clients, so any value is a way around this.
+  if (url.searchParams.has("hostaddr")) return false;
+  const host = url.searchParams.get("host");
+  // postgres:///db?host=/var/run/postgresql is a Unix socket on this machine: local too.
+  if (url.hostname === "" && host?.startsWith("/")) return true;
+  return localHosts.has(url.hostname.toLowerCase()) && host === null;
+}
+
 const dbVars = [
   "HELPOS_DATABASE_URL",
   "HELPOS_DATABASE_OWNER_URL",
@@ -60,7 +78,7 @@ export function isolatedEnv(env, isolation) {
     } catch {
       return { ok: false, reason: `${name} is not a valid URL` };
     }
-    if (!localHosts.has(url.hostname.toLowerCase()) || url.searchParams.has("host")) {
+    if (!isLocalUrl(url)) {
       return { ok: false, reason: `${name} points at a non-local database` };
     }
     url.pathname = `/${isolation.dbName}`;

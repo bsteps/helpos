@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   databaseSetupSql,
   defaults,
+  isLocalDatabaseUrl,
   isolatedEnv,
   isolationFor,
   needsSeed,
@@ -70,6 +71,26 @@ test("a worktree never points at a non-local database", () => {
   assert.equal(isolatedEnv(remote, iso).ok, false);
   const sneaky = { HELPOS_DATABASE_URL: "postgres://u:p@localhost/helpos?host=db.example.com" };
   assert.equal(isolatedEnv(sneaky, iso).ok, false);
+});
+
+test("isLocalDatabaseUrl: this machine only", () => {
+  for (const url of [
+    "postgres://u:p@localhost:5432/helpos",
+    "postgres://u:p@127.0.0.1/helpos",
+    "postgres://u:p@[::1]:5432/helpos",
+    "postgres:///helpos?host=/var/run/postgresql",
+  ])
+    assert.equal(isLocalDatabaseUrl(url), true, url);
+  for (const url of [
+    "postgres://u:p@db.example.com/helpos",
+    "postgres://u:p@localhost/helpos?host=db.example.com",
+    "postgres:///helpos?host=db.example.com",
+    "postgres://u:p@localhost/helpos?hostaddr=10.0.0.5",
+    "postgres:///helpos",
+    "not a url",
+    "",
+  ])
+    assert.equal(isLocalDatabaseUrl(url), false, url);
 });
 
 test("per-database setup matches docker/postgres/init.sql", () => {
