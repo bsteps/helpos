@@ -9,9 +9,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     # Only code this check is about. Docs-only PRs never start it.
     paths:
-      # Tenant data can be reached from any server or package code, not only packages/db.
-      - "apps/server/**"
+      # Tenant data can be reached from any app, package or script, not only packages/db.
+      - "apps/**"
       - "packages/**"
+      - "scripts/**"
       - "!**/*.md"
 
 permissions: {}

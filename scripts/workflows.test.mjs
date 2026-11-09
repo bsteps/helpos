@@ -247,7 +247,11 @@ test("AI review jobs judge against the current base branch, without the PR's sym
     "remove PR symlinks before restoring base files",
   );
   assert.match(review, /read it in parts/, "long diffs are read to the end");
-  assert.match(review, /DIFF_LINES:-0\}" -gt \d+/, "the status warns about long diffs");
+  assert.match(
+    review,
+    /if \[ "\$RUN_STATE" = "true" \] && \[ "\$OUTCOME" = "success" \] && \[ "\$\{DIFF_LINES:-0\}" -gt \d+ \]/,
+    "the status warns about long diffs, only after a real review",
+  );
   assert.match(
     review,
     /else\n\s+echo "::warning::Couldn't find the current tip/,
@@ -354,9 +358,22 @@ test("@claude runs only for maintainers, skips forks and commits only through th
     "id-token": "write",
   });
   assert.match(job, /concurrency:\n\s+group: claude-\$\{\{ github\.event\.issue\.number \}\}/);
-  assert.match(claude, /head\.repo\.full_name[\s\S]*run=false/, "fork PRs are skipped");
+  assert.ok(
+    claude.includes(
+      'head=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.repo.full_name)\n' +
+        '            head_sha=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.sha)\n' +
+        '            if [ "$head" != "$REPO" ]; then\n' +
+        '              echo "::notice::PR #$NUMBER comes from a fork. @claude doesn\'t run on fork PRs."\n' +
+        "              run=false\n",
+    ),
+    "fork PRs are skipped",
+  );
   // The branch's own instruction files would load, so PRs that change them are skipped.
-  assert.ok(claude.includes('gh api "repos/$REPO/pulls/$NUMBER/files" --paginate'));
+  assert.ok(claude.includes('gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha"'), "vs main");
+  assert.match(
+    claude,
+    /\.files \| length' <<<"\$compare"\)" -ge 300 \]; then\n[^\n]*\n\s+run=false/,
+  );
   assert.ok(
     claude.includes("grep -qE '(^|/)((CLAUDE|CLAUDE\\.local|AGENTS)\\.md|\\.claude/.*|"),
     "PRs that change instruction files are skipped",

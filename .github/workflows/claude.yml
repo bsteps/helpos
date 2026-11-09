@@ -54,21 +54,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.issue.number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           IS_PR: ${{ github.event.issue.pull_request != null }}
         run: |
           set -euo pipefail
           run=true
           if [ "$IS_PR" = "true" ]; then
             head=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.repo.full_name)
+            head_sha=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .head.sha)
             if [ "$head" != "$REPO" ]; then
               echo "::notice::PR #$NUMBER comes from a fork. @claude doesn't run on fork PRs."
               run=false
             fi
             # Claude would load this branch's instruction files (the action restores only
-            # .claude/, .mcp.json and the root CLAUDE.md). If the PR changes any of them, don't
-            # run: review those changes first, then ask @claude once they're on main.
-            files=$(gh api "repos/$REPO/pulls/$NUMBER/files" --paginate --jq '.[].filename')
-            if grep -qE '(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*|\.(mcp|claude)\.json)$' <<<"$files"; then
+            # .claude/, .mcp.json and the root CLAUDE.md). If the branch differs from the default
+            # branch in any of them, don't run: review those first, then ask @claude once they're
+            # on main. Compare with the default branch, not the PR's base, so a PR stacked on
+            # another branch is covered too. The compare API lists at most 300 files: at that
+            # size, fail closed.
+            compare=$(gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha")
+            files=$(jq -r '.files[].filename' <<<"$compare")
+            if [ "$(jq '.files | length' <<<"$compare")" -ge 300 ]; then
+              echo "::notice::PR #$NUMBER is too big to check for agent instruction changes. @claude doesn't run on it."
+              run=false
+            elif grep -qE '(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*|\.(mcp|claude)\.json)$' <<<"$files"; then
               echo "::notice::PR #$NUMBER changes agent instruction files. @claude doesn't run on it until they're on main."
               run=false
             fi
