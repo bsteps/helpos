@@ -12,6 +12,7 @@ import {
   useEditDraft,
   useRegenerateDraft,
   useRetryDraft,
+  useWriteDraft,
 } from "@/api/queries.ts";
 import { EmailFrame } from "@/components/email-frame.tsx";
 import { Textarea } from "@/components/textarea.tsx";
@@ -48,12 +49,12 @@ function liveDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | unde
 }
 
 /**
- * True when the ticket's newest reply is one that was approved, failed to send and was then
- * discarded: no draft is coming until someone asks for one.
+ * The ticket's newest reply when it was discarded (a pending one, or one that failed to send):
+ * no draft is coming until someone asks for one.
  */
-function discardedAfterFailure(drafts: Draft[]): boolean {
+function discardedReply(drafts: Draft[]): Draft | undefined {
   const newest = drafts.filter((d) => d.kind === "reply").at(-1);
-  return newest?.status === "discarded" && newest.approvedAt !== null;
+  return newest?.status === "discarded" ? newest : undefined;
 }
 
 /** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
@@ -61,12 +62,13 @@ function waitingOn(ticket: TicketDetail | undefined, redrafting: boolean) {
   return (drafts: Draft[]): boolean => {
     // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
     if (drafts.some((d) => d.status === "approved")) return true;
-    // After a failed reply was discarded, only a requested new draft is worth waiting for (an
+    // After a reply was discarded, only a requested new draft is worth waiting for (an
     // older sent reply mustn't stop the polling).
-    if (discardedAfterFailure(drafts)) return redrafting;
+    if (discardedReply(drafts)) return redrafting;
     const live = liveDraft(drafts);
     if (live || ticket?.status !== "open") return false;
-    return !ticket.automated && !ticket.aiPausedReason;
+    // A paused ticket waits only on a draft someone asked for.
+    return redrafting || (!ticket.automated && !ticket.aiPausedReason);
   };
 }
 
@@ -179,9 +181,9 @@ export function TicketPage() {
         ) : (
           <DraftPanel
             ticket={t}
-            // After a failed reply was discarded, an older sent reply isn't the one to show.
-            draft={discardedAfterFailure(drafts.data) ? undefined : liveDraft(drafts.data)}
-            discarded={discardedAfterFailure(drafts.data) && !redraft.isSuccess}
+            // After a reply was discarded, an older sent reply isn't the one to show.
+            draft={discardedReply(drafts.data) ? undefined : liveDraft(drafts.data)}
+            discarded={redraft.isSuccess ? undefined : discardedReply(drafts.data)}
             redraft={redraft}
           />
         )}
@@ -237,24 +239,43 @@ function DraftPanel({
 }: {
   ticket: TicketDetail;
   draft: Draft | undefined;
-  discarded: boolean;
+  discarded: Draft | undefined;
   redraft: ReturnType<typeof useRegenerateDraft>;
 }) {
   if (!draft) {
     if (ticket.status !== "open" || ticket.automated) return null;
-    if (discarded) return <Redraft regenerate={redraft} />;
+    if (discarded) {
+      return (
+        <NewDraft
+          ticketId={ticket.id}
+          regenerate={redraft}
+          note={
+            discarded.approvedAt
+              ? "The reply that couldn't be sent was discarded. Nothing has gone to the customer."
+              : "The draft was discarded. Nothing has gone to the customer."
+          }
+        />
+      );
+    }
     if (ticket.aiPausedReason) {
       return (
-        <Alert variant="warning">
-          <AlertIcon />
-          <AlertContent>
-            <AlertTitle>AI paused</AlertTitle>
-            <AlertDescription>
-              Today's AI budget for this workspace is spent, so this ticket has no draft. It resumes
-              at midnight UTC.
-            </AlertDescription>
-          </AlertContent>
-        </Alert>
+        <>
+          <Alert variant="warning">
+            <AlertIcon />
+            <AlertContent>
+              <AlertTitle>AI paused</AlertTitle>
+              <AlertDescription>
+                Today's AI budget for this workspace is spent, so this ticket has no draft. It
+                resumes at midnight UTC.
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+          <NewDraft
+            ticketId={ticket.id}
+            regenerate={redraft}
+            note="You can write the reply yourself."
+          />
+        </>
       );
     }
     return (
@@ -268,38 +289,97 @@ function DraftPanel({
   }
   // Keyed by draft only: a refetched body must not remount the card, or an approval refused
   // because the text changed would lose its "this draft changed" message (and any typed text).
-  return <DraftCard key={draft.id} ticketId={ticket.id} draft={draft} />;
+  // Forget an earlier "new draft" request on discard, so the choice shows again, not a spinner.
+  return (
+    <DraftCard
+      key={draft.id}
+      ticketId={ticket.id}
+      draft={draft}
+      onDiscarded={() => redraft.reset()}
+    />
+  );
 }
 
-/** After a reply that couldn't be sent was discarded: ask the AI for a new one. */
-function Redraft({ regenerate }: { regenerate: ReturnType<typeof useRegenerateDraft> }) {
-  const budgetSpent =
-    regenerate.error instanceof ApiError && regenerate.error.code === "daily_budget_reached";
+/** No draft to review: ask the AI for a new one, or write one yourself. */
+function NewDraft({
+  ticketId,
+  regenerate,
+  note,
+}: {
+  ticketId: string;
+  regenerate: ReturnType<typeof useRegenerateDraft>;
+  note: string;
+}) {
+  const write = useWriteDraft(ticketId);
+  const [writing, setWriting] = useState(false);
+  const [body, setBody] = useState("");
+  const error = regenerate.error ?? write.error;
+  const budgetSpent = error instanceof ApiError && error.code === "daily_budget_reached";
+  const busy = regenerate.isPending || write.isPending;
   return (
     <Card variant="muted" size="compact">
       <CardContent className="flex flex-col gap-3">
-        <p className="text-muted-foreground">
-          The reply that couldn't be sent was discarded. Nothing has gone to the customer.
-        </p>
-        {regenerate.isError ? (
+        <p className="text-muted-foreground">{note}</p>
+        {writing ? (
+          <Textarea
+            label="Your reply"
+            value={body}
+            onChange={setBody}
+            disabled={write.isPending}
+            rows={8}
+          />
+        ) : null}
+        {error ? (
           <Alert variant="destructive">
             <AlertIcon />
             <AlertContent>
               <AlertDescription>
                 {budgetSpent
-                  ? "Today's AI budget is spent. Try again after midnight UTC."
+                  ? "Today's AI budget is spent, so the AI can't write a draft until midnight UTC. You can write one yourself."
                   : "That didn't work. Try again."}
               </AlertDescription>
             </AlertContent>
           </Alert>
         ) : null}
-        <div className="flex justify-end">
-          <Button disabled={regenerate.isPending} onClick={() => regenerate.mutate()}>
-            {regenerate.isPending ? (
-              <Loader size={16} label="Asking for a draft" className="text-current" />
-            ) : null}
-            Write a new draft
-          </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          {writing ? (
+            <>
+              <Button variant="ghost" disabled={busy} onClick={() => setWriting(false)}>
+                Cancel
+              </Button>
+              <Button disabled={busy || body.trim() === ""} onClick={() => write.mutate(body)}>
+                {write.isPending ? (
+                  <Loader size={16} label="Saving" className="text-current" />
+                ) : null}
+                Save draft
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  regenerate.reset();
+                  setWriting(true);
+                }}
+              >
+                Write my own
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() => {
+                  write.reset();
+                  regenerate.mutate();
+                }}
+              >
+                {regenerate.isPending ? (
+                  <Loader size={16} label="Asking for a draft" className="text-current" />
+                ) : null}
+                Write a new draft
+              </Button>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -311,7 +391,15 @@ function FixNotice({ ticketId, drafts }: { ticketId: string; drafts: Draft[] }) 
   return draft ? <DraftCard key={draft.id} ticketId={ticketId} draft={draft} /> : null;
 }
 
-function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
+function DraftCard({
+  ticketId,
+  draft,
+  onDiscarded,
+}: {
+  ticketId: string;
+  draft: Draft;
+  onDiscarded?: () => void;
+}) {
   const edit = useEditDraft(ticketId);
   const approve = useApproveDraft(ticketId);
   const retry = useRetryDraft(ticketId);
@@ -325,6 +413,11 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
   const busy = edit.isPending || approve.isPending || retry.isPending || discard.isPending;
   const fixed = draft.kind === "fixed";
 
+  // Before the request, not after: once discarded, this card unmounts and its callbacks are skipped.
+  const drop = () => {
+    onDiscarded?.();
+    discard.mutate(draft.id);
+  };
   const save = () => edit.mutate({ id: draft.id, body }, { onSuccess: () => setEditing(false) });
 
   return (
@@ -455,7 +548,7 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
 
       {failed ? (
         <CardFooter className="flex-wrap justify-end">
-          <Button variant="outline" disabled={busy} onClick={() => discard.mutate(draft.id)}>
+          <Button variant="outline" disabled={busy} onClick={drop}>
             {discard.isPending ? (
               <Loader size={16} label="Discarding" className="text-current" />
             ) : null}
@@ -490,6 +583,14 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
             </>
           ) : (
             <>
+              {fixed ? null : (
+                <Button variant="ghost" disabled={busy} onClick={drop}>
+                  {discard.isPending ? (
+                    <Loader size={16} label="Discarding" className="text-current" />
+                  ) : null}
+                  Discard
+                </Button>
+              )}
               <Button
                 variant="outline"
                 disabled={busy}

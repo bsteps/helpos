@@ -154,7 +154,30 @@ export function useRegenerateDraft(ticketId: string) {
         }),
       );
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        // A ticket the AI paused shows its new draft once the ticket is fetched again.
+        queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
+      ]),
+  });
+}
+
+/** Saves a person's own text as the ticket's new pending draft, in place of any pending one. */
+export function useWriteDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: string): Promise<void> => {
+      await unwrap(
+        api.POST("/v1/tickets/{id}/drafts", { params: { path: { id: ticketId } }, body: { body } }),
+      );
+    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        // A written draft lifts the ticket's "AI paused" state.
+        queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
+      ]),
   });
 }
 
