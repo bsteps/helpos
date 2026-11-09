@@ -602,10 +602,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           );
         } catch (settleError) {
           // The reservation stays counted, so the budget may overcount, never undercount.
-          deps.logger.warn(
-            { err: settleError },
-            "github issue draft: usage not settled",
-          );
+          deps.logger.warn({ err: settleError }, "github issue draft: usage not settled");
         }
       }
       return c.json({ error: "ai_unavailable" }, 502);
@@ -753,10 +750,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
               ),
           );
         } catch (error) {
-          deps.logger.warn(
-            { err: error, ticketId },
-            "github issue: claim kept fresh",
-          );
+          deps.logger.warn({ err: error, ticketId }, "github issue: claim kept fresh");
         }
         // What GitHub said: a revoked token should be fixed, not retried forever.
         return c.json({ error: earlier.ok ? "github_unavailable" : earlier.reason }, 502);
@@ -846,10 +840,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
               ),
           );
         } catch (error) {
-          deps.logger.warn(
-            { err: error, ticketId },
-            "github issue: claim not released",
-          );
+          deps.logger.warn({ err: error, ticketId }, "github issue: claim not released");
         }
       }
       return c.json({ error: "issue_not_linked", url: made.url }, 500);
@@ -873,10 +864,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           ),
         );
       } catch (error) {
-        deps.logger.warn(
-          { err: error, ticketId },
-          "github issue: recheck not queued",
-        );
+        deps.logger.warn({ err: error, ticketId }, "github issue: recheck not queued");
       }
     };
     let state: "open" | "closed" = "open";
