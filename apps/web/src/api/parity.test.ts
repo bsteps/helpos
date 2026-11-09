@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import type { paths } from "./schema.gen.ts";
 
@@ -52,12 +53,21 @@ function sourceFiles(dir: string): string[] {
 
 function dashboardCalls(): Set<string> {
   const calls = new Set<string>();
-  const src = fileURLToPath(new URL("..", import.meta.url));
-  const callPattern = /\bapi\.(GET|POST|PUT|PATCH|DELETE)\(\s*["'`](\/[^"'`]+)["'`]/g;
-  for (const file of sourceFiles(src)) {
-    for (const match of readFileSync(file, "utf8").matchAll(callPattern)) {
-      calls.add(`${match[1]} ${match[2]}`);
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "api" &&
+      node.arguments[0] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      calls.add(`${node.expression.name.text} ${node.arguments[0].text}`);
     }
+    ts.forEachChild(node, visit);
+  };
+  for (const file of sourceFiles(fileURLToPath(new URL("..", import.meta.url)))) {
+    visit(ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest));
   }
   return calls;
 }
