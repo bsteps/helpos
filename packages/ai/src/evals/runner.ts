@@ -8,7 +8,7 @@ import { draftIssueTask, draftReplyTask } from "./task.ts";
 
 export type EvalResult = { file: string; name: string; failures: string[] };
 
-export async function loadCases(dir: string): Promise<Array<{ file: string; evalCase: EvalCase }>> {
+async function loadCases(dir: string): Promise<Array<{ file: string; evalCase: EvalCase }>> {
   const files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
   return Promise.all(
     files.map(async (file) => {

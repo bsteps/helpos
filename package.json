@@ -16,7 +16,7 @@
     "check:fix": "biome check --write .",
     "check:changed": "node scripts/check-changed/index.mjs",
     "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
-    "verify": "biome ci . && turbo run typecheck test build && pnpm eval && pnpm demo:check",
+    "verify": "biome ci . && pnpm knip && turbo run typecheck test build && pnpm eval && pnpm demo:check",
     "eval": "pnpm --filter @helpos/ai eval",
     "helpos:init": "pnpm --filter @helpos/server run init",
     "helpos:ai-budget": "pnpm --filter @helpos/server run ai-budget",
@@ -26,11 +26,13 @@
     "rename-brand": "node scripts/rename-brand.mjs",
     "setup:worktree": "node scripts/setup-worktree.mjs",
     "demo:check": "node scripts/check-demo-compose.mjs",
-    "test:e2e": "pnpm --filter @helpos/web build && pnpm --filter @helpos/web test:e2e"
+    "test:e2e": "pnpm --filter @helpos/web build && pnpm --filter @helpos/web test:e2e",
+    "knip": "knip"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
     "@types/node": "24.19.2",
+    "knip": "6.44.1",
     "turbo": "2.11.10",
     "typescript": "6.0.3",
     "vitest": "5.1.0"

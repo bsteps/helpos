@@ -2,7 +2,7 @@
 // Pure (no git, no processes) so the rules are easy to test and to reuse in CI later.
 
 /** @typedef {"none" | "affected" | "all"} Scope */
-/** @typedef {{ lintFiles: string[], scope: Scope, evals: boolean }} Decision */
+/** @typedef {{ lintFiles: string[], scope: Scope, evals: boolean, knip: boolean }} Decision */
 
 // Files that can't change what TypeScript or a test sees.
 const docOnly = [/\.md$/i, /^docs\//, /^LICENSE$/, /^NOTICE$/, /^\.github\/ISSUE_TEMPLATE\//];
@@ -15,6 +15,7 @@ const runsEverything = [
   /^turbo\.json$/,
   /^tsconfig[^/]*\.json$/,
   /^biome\.json$/,
+  /^knip\.jsonc$/,
   /^\.nvmrc$/,
   /^scripts\//,
   /^fixtures\//,
@@ -44,5 +45,6 @@ export function decide(changed) {
   const evals = scope === "all" || code.some((f) => aiSource.test(f) && !testFile.test(f));
 
   // Doc files are nothing Biome checks, so the lint list uses the same rule as the rest.
-  return { lintFiles: code, scope, evals };
+  // Knip looks at the whole repo, but in seconds: any code change can leave an export unused.
+  return { lintFiles: code, scope, evals, knip: code.length > 0 };
 }

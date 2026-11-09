@@ -27,7 +27,7 @@ const { integrations, ticketGithubIssues } = schema;
 export const recheckIssueJob = defineTenantJob("github.recheck-issue", { linkId: z.uuid() });
 
 /** How long before a check, and between checks while GitHub can't be reached. */
-export const defaultRecheckSeconds = 120;
+const defaultRecheckSeconds = 120;
 /** Checks stop a day after the link's last change: the issue's later webhooks still arrive. */
 const recheckForMs = 24 * 60 * 60 * 1000;
 

@@ -41,7 +41,7 @@ const visibilitySchema = z.enum(schema.knowledgeVisibilities).openapi({
 });
 
 /** Large enough for a long help article, small enough to bound one ingest's embedding cost. */
-export const maxMarkdownChars = 200_000;
+const maxMarkdownChars = 200_000;
 
 const createBody = z.discriminatedUnion("kind", [
   z.strictObject({

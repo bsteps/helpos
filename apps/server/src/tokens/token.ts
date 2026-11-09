@@ -6,7 +6,7 @@ import type { Scope } from "../auth/principal.ts";
 export const tokenScopes: readonly (ApiTokenScope & Scope)[] = schema.apiTokenScopes;
 
 /** Recognisable in logs and by secret scanners, so a leaked token is easy to spot. */
-export const tokenPrefix = "hos_";
+const tokenPrefix = "hos_";
 /** `hos_` and 32 random bytes in base64url (43 characters, no padding). */
 const tokenPattern = /^hos_[A-Za-z0-9_-]{43}$/;
 const bearerPattern = /^Bearer (\S+)$/i;

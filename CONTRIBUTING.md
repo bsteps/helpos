@@ -31,7 +31,8 @@ Then open <http://localhost:3000/health> (should say `ok`) and <http://localhost
 git switch -c 42-short-description    # branch named after the issue
 # …make changes…
 pnpm check:fix                            # format + lint
-pnpm verify                                # typecheck + tests
+pnpm knip                                  # unused files, exports, dependencies
+pnpm verify                                # lint, knip, typecheck + tests
 git commit -m "fix: keep Outlook replies in the same thread"
 git push -u origin 42-short-description
 ```

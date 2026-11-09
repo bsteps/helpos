@@ -5,7 +5,7 @@ import type { TaskOutput } from "./task.ts";
  * Checked on every case, so no case can forget them: the draft is the email the customer gets,
  * so anything that isn't the reply itself must never be in it.
  */
-export const everyDraft: ReadonlyArray<{ rule: string; pattern: RegExp }> = [
+const everyDraft: ReadonlyArray<{ rule: string; pattern: RegExp }> = [
   { rule: "has a subject line", pattern: /^[ \t*_]*subject[ \t*_]*:/im },
   { rule: "has a note for the reviewer", pattern: /note (for|to) (the )?(reviewer|approver)/i },
   { rule: "still has a sources marker", pattern: /\[[ \t]*sources?[ \t]*:/i },

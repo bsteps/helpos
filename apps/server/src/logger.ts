@@ -5,7 +5,7 @@ import pino, { type DestinationStream, type Logger, type LoggerOptions } from "p
  * that slips in by accident (a request object, an options bag), at the top level or one level
  * down, where pino's wildcard reaches.
  */
-export const redactedPaths = [
+const redactedPaths = [
   "token",
   "githubToken",
   "webhookSecret",

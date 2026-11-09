@@ -6,7 +6,7 @@ import type { ApiTokenScope, schema } from "@helpos/db";
 // and address is made up; emails use the reserved `.test` domain, so nothing can ever be mailed.
 
 /** Changing this changes every ID, token and timestamp jitter below. */
-export const seed = "helpos-demo-v1";
+const seed = "helpos-demo-v1";
 /** All timestamps count from here, so they don't depend on when the seed runs. */
 const baseTime = Date.UTC(2026, 0, 12, 8, 0, 0);
 
@@ -26,7 +26,7 @@ function prng(key: string): () => number {
  * the name. Derived per name rather than drawn in sequence, so adding a ticket later doesn't
  * change the IDs of all the others.
  */
-export function seedId(name: string, at: Date): string {
+function seedId(name: string, at: Date): string {
   const bytes = createHash("sha256").update(`${seed}:id:${name}`).digest().subarray(0, 16);
   let ts = at.getTime();
   for (let i = 5; i >= 0; i--) {
@@ -519,9 +519,8 @@ const tenantSpecs: TenantSpec[] = [
 
 // --- The rows, built from the scenarios ------------------------------------------------------
 
-export type DemoUser = { email: string; name: string };
+type DemoUser = { email: string; name: string };
 export type DemoData = ReturnType<typeof buildDemoData>;
-export type DemoTenant = DemoData["tenants"][number];
 
 /** Builds every row the seed writes. Same input, same output: there is no input. */
 export function buildDemoData() {

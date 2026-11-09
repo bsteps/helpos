@@ -31,6 +31,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
+      # Unused files, exports and dependencies (knip.jsonc).
+      - run: pnpm knip
       - run: pnpm exec turbo run typecheck test build
       - run: pnpm test:scripts
       # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).

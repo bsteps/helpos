@@ -1,0 +1,25 @@
+// knip finds unused files, exports and dependencies. `pnpm knip` runs it; CI and `pnpm verify` too.
+// Every ignore below says why. Prefer deleting the code to adding an ignore.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      // Repo tooling, plus the Cloudflare Email Worker the demo docs tell you to deploy by hand.
+      "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
+    },
+    "apps/server": {
+      "entry": ["src/worker.ts", "src/cli/*.ts"]
+    },
+    "apps/web": {
+      // Playwright picks up *.setup.ts through a testMatch regex knip can't read.
+      "entry": ["scripts/*.mjs", "e2e/**/*.setup.ts"]
+    }
+  },
+  "ignoreIssues": {
+    // Follow-up: issue #84 is changing these folders in parallel, so their unused exports are
+    // listed in the knip PR instead of deleted. Remove these lines once #84 lands.
+    "apps/server/src/drafts/**": ["exports", "types"],
+    "apps/server/src/outbound-email/**": ["exports", "types"],
+    "apps/web/src/**": ["exports", "types"]
+  }
+}

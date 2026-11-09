@@ -54,3 +54,13 @@ test("normalises Windows paths and drops duplicates", () => {
   assert.deepEqual(d.lintFiles, ["apps/server/a.ts"]);
   assert.equal(d.scope, "affected");
 });
+
+test("knip runs on any code change, never on docs alone", () => {
+  assert.equal(decide(["README.md", "docs/guide.md"]).knip, false);
+  assert.equal(decide(["apps/server/src/app.ts"]).knip, true);
+  assert.equal(decide(["deploy/demo/cloudflare-email-worker.mjs"]).knip, true);
+});
+
+test("knip config runs everything", () => {
+  assert.equal(decide(["knip.jsonc"]).scope, "all");
+});

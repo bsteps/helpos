@@ -5,7 +5,7 @@ import type { MiddlewareHandler } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 
 /** Paths the API owns. Everything else is the dashboard. */
-export function isApiPath(path: string): boolean {
+function isApiPath(path: string): boolean {
   return (
     path === "/health" || path === "/openapi.json" || path === "/v1" || path.startsWith("/v1/")
   );
@@ -18,7 +18,7 @@ export function isApiPath(path: string): boolean {
  * policy on top of its own. Inline styles are allowed: emails are laid out with them, and the
  * motion library injects a few; with scripts locked down they can't do more than style.
  */
-export const dashboardCsp = {
+const dashboardCsp = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'"],

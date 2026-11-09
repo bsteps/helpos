@@ -10,8 +10,6 @@ import {
   type TenantTx,
 } from "@helpos/db";
 
-export type { KnowledgeHit };
-
 export interface SearchQuery {
   tenantId: string;
   text: string;

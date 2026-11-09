@@ -26,9 +26,9 @@ export type DraftInput = {
 
 /** Bounds the prompt: the most recent messages matter most, and each is cut to a sane size. */
 export const maxHistoryMessages = 10;
-export const maxMessageChars = 4_000;
+const maxMessageChars = 4_000;
 export const maxKnowledgeArticles = 8;
-export const maxArticleChars = 3_000;
+const maxArticleChars = 3_000;
 
 export type DraftUsage = { inputTokens: number; outputTokens: number };
 export type DraftResult = {

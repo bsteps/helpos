@@ -40,7 +40,7 @@ const changed = [
   ...lines(git("diff", "--name-only", base)),
   ...lines(git("ls-files", "--others", "--exclude-standard")),
 ];
-const { lintFiles, scope, evals } = decide(changed);
+const { lintFiles, scope, evals, knip } = decide(changed);
 const present = lintFiles.filter((f) => existsSync(f));
 
 process.stdout.write(
@@ -64,6 +64,7 @@ if (present.length > 0) {
     ],
   ]);
 }
+if (knip) steps.push(["pnpm", ["exec", "knip"]]);
 if (scope === "all") {
   steps.push(["pnpm", ["exec", "turbo", "run", "typecheck", "test"]]);
   // List the test files here: with no shell, nothing would expand a glob on older Node versions.
