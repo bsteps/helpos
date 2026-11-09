@@ -80,3 +80,29 @@ test("someone without knowledge:write sees the sources but no edit controls", as
   await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Read again" })).toHaveCount(0);
 });
+
+test("a delete that fails says so, and the message goes once the owner keeps the source", async ({
+  page,
+}) => {
+  const title = uniqueSubject("Delete fails");
+  await signIn(page);
+  const added = await page.request.post("/v1/knowledge/sources", {
+    data: { kind: "markdown", title, content: "A note whose delete fails." },
+  });
+  expect(added.status(), await added.text()).toBe(201);
+  await page.route("**/v1/knowledge/sources/*", (route) =>
+    route.request().method() === "DELETE"
+      ? route.fulfill({ status: 500, json: { error: "internal" } })
+      : route.fallback(),
+  );
+  await page.getByRole("link", { name: "Knowledge" }).click();
+
+  const card = page.getByTestId("knowledge-source").filter({ hasText: title });
+  await card.getByRole("button", { name: "Delete" }).click();
+  await card.getByRole("button", { name: "Delete" }).click();
+  await expect(card.getByText("Couldn't delete it. Try again.")).toBeVisible();
+
+  await card.getByRole("button", { name: "Keep" }).click();
+  await expect(card.getByText("Couldn't delete it. Try again.")).toBeHidden();
+  await expect(card.getByRole("button", { name: "Edit" })).toBeVisible();
+});

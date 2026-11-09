@@ -54,7 +54,7 @@ export function KnowledgePage() {
       {canWrite && adding ? <AddSource onDone={() => setAdding(false)} /> : null}
 
       {sources.isPending ? <Loader size={16} label="Loading" /> : null}
-      {sources.isError ? (
+      {sources.isError && !sources.data ? (
         <Alert variant="destructive">
           <AlertIcon />
           <AlertContent>
@@ -242,6 +242,11 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
   const inGit = source.managedBy === "git";
   const badge = statusBadge[source.status];
   const busy = reingest.isPending || remove.isPending;
+  const switchMode = (next: typeof mode) => {
+    reingest.reset();
+    remove.reset();
+    setMode(next);
+  };
   const link = source.url ? webLink(source.url) : null;
 
   return (
@@ -289,13 +294,15 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
               </AlertContent>
             </Alert>
           ) : null}
-          {mode === "edit" ? <EditSource source={source} onDone={() => setMode("view")} /> : null}
+          {mode === "edit" ? (
+            <EditSource source={source} onDone={() => switchMode("view")} />
+          ) : null}
         </CardContent>
       ) : null}
       {canWrite && !inGit && mode === "confirmDelete" ? (
         <CardFooter className="flex-wrap justify-end gap-2">
           <p className="mr-auto text-sm">Delete it? Drafts stop using it.</p>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMode("view")}>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("view")}>
             Keep
           </Button>
           <Button
@@ -310,14 +317,17 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
       ) : null}
       {canWrite && !inGit && mode === "view" ? (
         <CardFooter className="justify-end gap-2">
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMode("edit")}>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("edit")}>
             Edit
           </Button>
           <Button
             variant="ghost"
             size="sm"
             disabled={busy || source.status === "pending"}
-            onClick={() => reingest.mutate(source.id)}
+            onClick={() => {
+              remove.reset();
+              reingest.mutate(source.id);
+            }}
           >
             Read again
           </Button>
@@ -325,10 +335,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             variant="ghost"
             size="sm"
             disabled={busy}
-            onClick={() => {
-              reingest.reset();
-              setMode("confirmDelete");
-            }}
+            onClick={() => switchMode("confirmDelete")}
           >
             Delete
           </Button>
