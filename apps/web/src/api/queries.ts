@@ -1,4 +1,5 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { stillReading } from "../lib/knowledge.ts";
 import {
   ApiError,
   api,
@@ -268,8 +269,7 @@ export const knowledgeSourcesQuery = queryOptions({
   queryKey: keys.knowledgeSources,
   queryFn: async (): Promise<KnowledgeSource[]> =>
     (await unwrap(api.GET("/v1/knowledge/sources"))).sources,
-  refetchInterval: (query) =>
-    (query.state.data ?? []).some((s) => s.status === "pending") ? 2_000 : false,
+  refetchInterval: (query) => (stillReading(query.state.data ?? []) ? 2_000 : false),
 });
 
 export function useAddKnowledgeSource() {

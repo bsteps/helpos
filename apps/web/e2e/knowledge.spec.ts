@@ -22,6 +22,7 @@ test("an owner adds a Markdown source, sees it become ready, edits it and delete
   await expect(card).toContainText("1 passage");
 
   await card.getByRole("button", { name: "Edit" }).click();
+  await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
   await card.getByLabel("Visibility").selectOption("public");
   await card.getByRole("button", { name: "Save" }).click();
   await expect(card).toContainText("Public");
@@ -105,4 +106,38 @@ test("a delete that fails says so, and the message goes once the owner keeps the
   await card.getByRole("button", { name: "Keep" }).click();
   await expect(card.getByText("Couldn't delete it. Try again.")).toBeHidden();
   await expect(card.getByRole("button", { name: "Edit" })).toBeVisible();
+});
+
+test("without knowledge:read, the Knowledge page sends you to the inbox", async ({ page }) => {
+  await page.route("**/v1/me", async (route) => {
+    const response = await route.fetch();
+    const me = (await response.json()) as { scopes: string[] };
+    await route.fulfill({
+      response,
+      json: { ...me, scopes: me.scopes.filter((s) => !s.startsWith("knowledge:")) },
+    });
+  });
+  await signIn(page);
+  await expect(page.getByRole("link", { name: "Knowledge" })).toHaveCount(0);
+
+  await page.goto("/knowledge");
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await expect(page).not.toHaveURL(/\/knowledge$/);
+});
+
+test("when the sources fail to load, Try again loads them", async ({ page }) => {
+  await signIn(page);
+  let failing = true;
+  await page.route("**/v1/knowledge/sources", (route) =>
+    failing && route.request().method() === "GET"
+      ? route.fulfill({ status: 500, json: { error: "internal" } })
+      : route.fallback(),
+  );
+  await page.getByRole("link", { name: "Knowledge" }).click();
+  await expect(page.getByText("Couldn't load the knowledge sources.")).toBeVisible();
+
+  failing = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByText("Couldn't load the knowledge sources.")).toBeHidden();
+  await expect(page.getByRole("list", { name: "Knowledge sources" })).toBeVisible();
 });

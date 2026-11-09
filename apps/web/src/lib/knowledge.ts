@@ -1,3 +1,12 @@
+import type { KnowledgeSource } from "@/api/client.ts";
+
+/** A source waiting for the daily AI budget can wait hours, so it isn't worth watching. */
+export function stillReading(sources: readonly KnowledgeSource[]): boolean {
+  return sources.some((s) => s.status === "pending" && s.error !== "daily_budget_reached");
+}
+
+const aiUnavailable = "The AI service couldn't process it. It tries again by itself.";
+
 const messages: Record<string, string> = {
   blocked_address: "This address is private or local, so it isn't fetched.",
   no_url: "This source has no address to fetch.",
@@ -7,8 +16,8 @@ const messages: Record<string, string> = {
   too_large: "The page is too large to fetch.",
   too_long: "It's too long for one source. Split it into smaller ones.",
   unsupported_content_type: "This address isn't a web page or text.",
-  embedding_unavailable: "The AI service couldn't process it. It tries again by itself.",
-  embedding_failed: "The AI service couldn't process it. It tries again by itself.",
+  embedding_unavailable: aiUnavailable,
+  embedding_failed: aiUnavailable,
   daily_budget_reached: "Waiting for today's AI budget to reset at midnight UTC.",
 };
 
@@ -17,6 +26,11 @@ export function knowledgeErrorMessage(code: string): string {
   if (known) return known;
   const status = /^http_(\d{3})$/.exec(code)?.[1];
   if (status === "404" || status === "410") return `The page wasn't found (HTTP ${status}).`;
+  if (status === "401" || status === "403") {
+    return `The page needs a sign-in, so it can't be read (HTTP ${status}).`;
+  }
+  if (status === "429")
+    return "The site is limiting requests (HTTP 429). It tries again by itself.";
   if (status) return `The site answered with an error (HTTP ${status}).`;
   return `Reading it failed (${code}).`;
 }

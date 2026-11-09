@@ -10,7 +10,13 @@ import {
   useReingestKnowledgeSource,
 } from "@/api/queries.ts";
 import { Textarea } from "@/components/textarea.tsx";
-import { Alert, AlertContent, AlertDescription, AlertIcon } from "@/components/ui/alert.tsx";
+import {
+  Alert,
+  AlertAction,
+  AlertContent,
+  AlertDescription,
+  AlertIcon,
+} from "@/components/ui/alert.tsx";
 import { AnimatedBadge } from "@/components/ui/animated-badge.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -24,7 +30,7 @@ import {
 } from "@/components/ui/card.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
-import { knowledgeErrorMessage } from "@/lib/knowledge-error.ts";
+import { knowledgeErrorMessage } from "@/lib/knowledge.ts";
 
 type Visibility = KnowledgeSource["visibility"];
 
@@ -58,14 +64,26 @@ export function KnowledgePage() {
         <Alert variant="destructive">
           <AlertIcon />
           <AlertContent>
-            <AlertDescription>
-              Couldn't load the knowledge sources. Reload to try again.
-            </AlertDescription>
+            <AlertDescription>Couldn't load the knowledge sources.</AlertDescription>
           </AlertContent>
+          <AlertAction>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={sources.isFetching}
+              onClick={() => void sources.refetch()}
+            >
+              Try again
+            </Button>
+          </AlertAction>
         </Alert>
       ) : null}
       {sources.data?.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No sources yet.</p>
+        <p className="text-muted-foreground text-sm">
+          {canWrite
+            ? "No sources yet. Add a help page or a note, and AI drafts start quoting it."
+            : "No sources yet. A workspace owner can add them."}
+        </p>
       ) : null}
       {sources.data && sources.data.length > 0 ? (
         <ul aria-label="Knowledge sources" className="flex flex-col gap-3">
@@ -309,7 +327,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             variant="primary"
             size="sm"
             disabled={busy}
-            onClick={() => remove.mutate(source.id, { onSuccess: () => setMode("view") })}
+            onClick={() => remove.mutate(source.id)}
           >
             Delete
           </Button>
@@ -351,16 +369,16 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   const [visibility, setVisibility] = useState<Visibility>(source.visibility);
   const [content, setContent] = useState("");
 
+  const body = {
+    ...(title.trim() !== source.title ? { title: title.trim() } : {}),
+    ...(visibility !== source.visibility ? { visibility } : {}),
+    ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
+  };
+  const changed = Object.keys(body).length > 0;
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const body = {
-      ...(title.trim() !== source.title ? { title: title.trim() } : {}),
-      ...(visibility !== source.visibility ? { visibility } : {}),
-      ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
-    };
-    const changed = Object.keys(body).length > 0;
-    if (!changed) return onDone();
-    edit.mutate({ id: source.id, body }, { onSuccess: onDone });
+    if (changed) edit.mutate({ id: source.id, body }, { onSuccess: onDone });
   };
 
   return (
@@ -389,7 +407,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
         <Button type="button" variant="ghost" onClick={onDone} disabled={edit.isPending}>
           Cancel
         </Button>
-        <Button type="submit" disabled={edit.isPending || title.trim() === ""}>
+        <Button type="submit" disabled={edit.isPending || title.trim() === "" || !changed}>
           Save
         </Button>
       </div>

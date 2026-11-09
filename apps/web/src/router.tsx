@@ -72,6 +72,9 @@ const settingsRoute = createRoute({
 const knowledgeRoute = createRoute({
   getParentRoute: () => signedInRoute,
   path: "/knowledge",
+  beforeLoad: ({ context }) => {
+    if (!context.me.scopes.includes("knowledge:read")) throw redirect({ to: "/" });
+  },
   component: KnowledgePage,
 });
 
