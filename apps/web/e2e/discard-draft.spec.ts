@@ -1,9 +1,6 @@
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { deliver, plainEmail, signIn, state, uniqueSubject, waitForMail } from "./support.ts";
 
-// A pending AI draft the reviewer doesn't want: they discard it, then ask the AI for a new one
-// or write their own. Nothing reaches anyone until a draft is approved.
-
 async function openPendingDraft(page: Page, subject: string) {
   await signIn(page);
   await page.getByRole("link", { name: subject }).click();
@@ -28,16 +25,16 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
   ).toBeVisible();
   await expect(page.getByTestId("draft-body")).toBeHidden();
   await expect(page.getByRole("button", { name: "Approve & send" })).toBeHidden();
-  expect(await repliesInMailpit(request, subject)).toBe(0);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Write a new draft" }).click();
+  await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
   expect(await repliesInMailpit(request, subject)).toBe(0);
 
-  // Discarding the new one offers the choice again, not a draft that never comes.
   await page.getByRole("button", { name: "Discard", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Write a new draft" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
   await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
 });
 
@@ -52,14 +49,38 @@ test("after a discard, a hand-written draft is saved and approved", async ({ pag
   await page.getByRole("textbox", { name: "Your reply" }).fill(mine);
   await page.getByRole("button", { name: "Save draft" }).click();
 
-  const draft = page.getByTestId("draft-body");
-  await expect(draft).toHaveText(mine);
+  await expect(page.getByTestId("draft-body")).toHaveText(mine);
   await expect(page.getByText("Waiting for approval")).toBeVisible();
   await page.getByRole("button", { name: "Approve & send" }).click();
   await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
 
-  // Still shadow mode: it goes to the owner, never the customer.
   const mail = await waitForMail(request, `Re: ${subject}`);
   expect(mail.to).toEqual([state().owner]);
   expect(mail.text).toContain(mine);
+});
+
+test("a spent AI budget says so, and a hand-written draft still works", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject("Late parcel");
+  await deliver(request, plainEmail(subject, "Hi, my parcel is late."));
+  await openPendingDraft(page, subject);
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+
+  await page.route("**/v1/tickets/*/drafts", (route) =>
+    route.request().method() === "POST" && route.request().postDataJSON()?.regenerate
+      ? route.fulfill({ status: 409, json: { error: "daily_budget_reached" } })
+      : route.fallback(),
+  );
+  await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
+  await expect(page.getByText("Today's AI budget is spent")).toBeVisible();
+  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
+
+  await page.getByRole("button", { name: "Write my own" }).click();
+  const mine = "Sorry about that. It's on the way and arrives tomorrow.";
+  await page.getByRole("textbox", { name: "Your reply" }).fill(mine);
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByTestId("draft-body")).toHaveText(mine);
+  await expect(page.getByText("Waiting for approval")).toBeVisible();
 });

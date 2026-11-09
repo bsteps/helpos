@@ -40,36 +40,45 @@ import { GithubIssuePanel } from "./ticket-github.tsx";
 
 const isConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
 
+function newestDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | undefined {
+  return drafts.filter((d) => d.kind === kind).at(-1);
+}
+
 /**
- * The draft of a kind that matters now: the newest one that wasn't thrown away. A reply and a
+ * The draft of a kind that matters now: the newest one, unless it was thrown away. A reply and a
  * "fixed" notice are separate: one doesn't hide or replace the other.
  */
 function liveDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | undefined {
-  return drafts.filter((d) => d.kind === kind && d.status !== "discarded").at(-1);
+  const newest = newestDraft(drafts, kind);
+  return newest?.status === "discarded" ? undefined : newest;
 }
 
-/**
- * The ticket's newest reply when it was discarded (a pending one, or one that failed to send):
- * no draft is coming until someone asks for one.
- */
-function discardedReply(drafts: Draft[]): Draft | undefined {
-  const newest = drafts.filter((d) => d.kind === "reply").at(-1);
-  return newest?.status === "discarded" ? newest : undefined;
+/** A new AI draft was asked for while this reply was the newest (`null`: there was none). */
+type Asked = { replacing: string | null } | undefined;
+
+type DraftView =
+  | { kind: "none" }
+  | { kind: "draft"; draft: Draft }
+  | { kind: "writing" }
+  | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" };
+
+function draftView(ticket: TicketDetail | undefined, drafts: Draft[], asked: Asked): DraftView {
+  const newest = newestDraft(drafts);
+  const live = liveDraft(drafts);
+  if (live) return { kind: "draft", draft: live };
+  if (ticket?.status !== "open" || ticket.automated) return { kind: "none" };
+  if (asked && asked.replacing === (newest?.id ?? null)) return { kind: "writing" };
+  if (newest) return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
+  if (ticket.aiPausedReason) return { kind: "choose", after: "ai_paused" };
+  return { kind: "writing" };
 }
 
 /** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
-function waitingOn(ticket: TicketDetail | undefined, redrafting: boolean) {
-  return (drafts: Draft[]): boolean => {
+function waitingOn(ticket: TicketDetail | undefined, asked: Asked) {
+  return (drafts: Draft[]): boolean =>
     // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
-    if (drafts.some((d) => d.status === "approved")) return true;
-    // After a reply was discarded, only a requested new draft is worth waiting for (an
-    // older sent reply mustn't stop the polling).
-    if (discardedReply(drafts)) return redrafting;
-    const live = liveDraft(drafts);
-    if (live || ticket?.status !== "open") return false;
-    // A paused ticket waits only on a draft someone asked for.
-    return redrafting || (!ticket.automated && !ticket.aiPausedReason);
-  };
+    drafts.some((d) => d.status === "approved") ||
+    draftView(ticket, drafts, asked).kind === "writing";
 }
 
 export function TicketPage() {
@@ -77,7 +86,9 @@ export function TicketPage() {
   const ticket = useQuery(ticketQuery(id));
   // Up here, not in the card that asks: whether a new draft was asked for decides the polling.
   const redraft = useRegenerateDraft(id);
-  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, redraft.isSuccess)));
+  const [replacing, setReplacing] = useState<string | null>(null);
+  const asked: Asked = redraft.isSuccess ? { replacing } : undefined;
+  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, asked)));
   const close = useCloseTicket(id);
 
   if (ticket.isPending) {
@@ -180,11 +191,13 @@ export function TicketPage() {
           </Alert>
         ) : (
           <DraftPanel
-            ticket={t}
-            // After a reply was discarded, an older sent reply isn't the one to show.
-            draft={discardedReply(drafts.data) ? undefined : liveDraft(drafts.data)}
-            discarded={redraft.isSuccess ? undefined : discardedReply(drafts.data)}
+            ticketId={t.id}
+            view={draftView(t, drafts.data, asked)}
             redraft={redraft}
+            ask={() => {
+              setReplacing(newestDraft(drafts.data)?.id ?? null);
+              redraft.mutate();
+            }}
           />
         )}
       </section>
@@ -231,83 +244,74 @@ const statusBadge = {
   discarded: { status: "neutral", label: "Discarded" },
 } as const;
 
+const chooseNote = {
+  discarded: "The draft was discarded. Nothing has gone to the customer.",
+  send_failed: "The reply that couldn't be sent was discarded. Nothing has gone to the customer.",
+  ai_paused: "You can write the reply yourself.",
+} as const;
+
 function DraftPanel({
-  ticket,
-  draft,
-  discarded,
+  ticketId,
+  view,
   redraft,
+  ask,
 }: {
-  ticket: TicketDetail;
-  draft: Draft | undefined;
-  discarded: Draft | undefined;
+  ticketId: string;
+  view: DraftView;
   redraft: ReturnType<typeof useRegenerateDraft>;
+  ask: () => void;
 }) {
-  if (!draft) {
-    if (ticket.status !== "open" || ticket.automated) return null;
-    if (discarded) {
+  switch (view.kind) {
+    case "none":
+      return null;
+    case "writing":
       return (
-        <NewDraft
-          ticketId={ticket.id}
-          regenerate={redraft}
-          note={
-            discarded.approvedAt
-              ? "The reply that couldn't be sent was discarded. Nothing has gone to the customer."
-              : "The draft was discarded. Nothing has gone to the customer."
-          }
-        />
+        <Card variant="muted" size="compact">
+          <CardContent className="flex items-center gap-3 text-muted-foreground">
+            <Loader size={16} label="Waiting for the draft" />
+            The AI is writing a draft…
+          </CardContent>
+        </Card>
       );
-    }
-    if (ticket.aiPausedReason) {
+    case "choose":
       return (
         <>
-          <Alert variant="warning">
-            <AlertIcon />
-            <AlertContent>
-              <AlertTitle>AI paused</AlertTitle>
-              <AlertDescription>
-                Today's AI budget for this workspace is spent, so this ticket has no draft. It
-                resumes at midnight UTC.
-              </AlertDescription>
-            </AlertContent>
-          </Alert>
+          {view.after === "ai_paused" ? (
+            <Alert variant="warning">
+              <AlertIcon />
+              <AlertContent>
+                <AlertTitle>AI paused</AlertTitle>
+                <AlertDescription>
+                  Today's AI budget for this workspace is spent, so this ticket has no draft. It
+                  resumes at midnight UTC.
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
+          ) : null}
           <NewDraft
-            ticketId={ticket.id}
+            ticketId={ticketId}
             regenerate={redraft}
-            note="You can write the reply yourself."
+            ask={ask}
+            note={chooseNote[view.after]}
           />
         </>
       );
-    }
-    return (
-      <Card variant="muted" size="compact">
-        <CardContent className="flex items-center gap-3 text-muted-foreground">
-          <Loader size={16} label="Waiting for the draft" />
-          The AI is writing a draft…
-        </CardContent>
-      </Card>
-    );
+    case "draft":
+      // Keyed by draft only: a refetched body must not remount the card, or an approval refused
+      // because the text changed would lose its "this draft changed" message (and any typed text).
+      return <DraftCard key={view.draft.id} ticketId={ticketId} draft={view.draft} />;
   }
-  // Keyed by draft only: a refetched body must not remount the card, or an approval refused
-  // because the text changed would lose its "this draft changed" message (and any typed text).
-  // Forget an earlier "new draft" request on discard, so the choice shows again, not a spinner.
-  return (
-    <DraftCard
-      key={draft.id}
-      ticketId={ticket.id}
-      draft={draft}
-      onDiscarded={() => redraft.reset()}
-    />
-  );
 }
 
-/** No draft to review: ask the AI for a new one, or write one yourself. */
 function NewDraft({
   ticketId,
   regenerate,
+  ask,
   note,
 }: {
   ticketId: string;
   regenerate: ReturnType<typeof useRegenerateDraft>;
+  ask: () => void;
   note: string;
 }) {
   const write = useWriteDraft(ticketId);
@@ -370,13 +374,13 @@ function NewDraft({
                 disabled={busy}
                 onClick={() => {
                   write.reset();
-                  regenerate.mutate();
+                  ask();
                 }}
               >
                 {regenerate.isPending ? (
                   <Loader size={16} label="Asking for a draft" className="text-current" />
                 ) : null}
-                Write a new draft
+                Ask the AI for a draft
               </Button>
             </>
           )}
@@ -391,15 +395,7 @@ function FixNotice({ ticketId, drafts }: { ticketId: string; drafts: Draft[] }) 
   return draft ? <DraftCard key={draft.id} ticketId={ticketId} draft={draft} /> : null;
 }
 
-function DraftCard({
-  ticketId,
-  draft,
-  onDiscarded,
-}: {
-  ticketId: string;
-  draft: Draft;
-  onDiscarded?: () => void;
-}) {
+function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
   const edit = useEditDraft(ticketId);
   const approve = useApproveDraft(ticketId);
   const retry = useRetryDraft(ticketId);
@@ -413,17 +409,12 @@ function DraftCard({
   const busy = edit.isPending || approve.isPending || retry.isPending || discard.isPending;
   const fixed = draft.kind === "fixed";
 
-  // Before the request, not after: once discarded, this card unmounts and its callbacks are skipped.
-  const drop = () => {
-    onDiscarded?.();
-    discard.mutate(draft.id);
-  };
   const save = () => edit.mutate({ id: draft.id, body }, { onSuccess: () => setEditing(false) });
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle as="h2">{fixed ? "Fix notice" : pending ? "AI draft" : "Reply"}</CardTitle>
+        <CardTitle as="h2">{fixed ? "Fix notice" : pending ? "Draft" : "Reply"}</CardTitle>
         <CardDescription>
           {draft.sentAt
             ? `Sent ${formatDateTime(draft.sentAt)}`
@@ -548,7 +539,7 @@ function DraftCard({
 
       {failed ? (
         <CardFooter className="flex-wrap justify-end">
-          <Button variant="outline" disabled={busy} onClick={drop}>
+          <Button variant="outline" disabled={busy} onClick={() => discard.mutate(draft.id)}>
             {discard.isPending ? (
               <Loader size={16} label="Discarding" className="text-current" />
             ) : null}
@@ -583,14 +574,12 @@ function DraftCard({
             </>
           ) : (
             <>
-              {fixed ? null : (
-                <Button variant="ghost" disabled={busy} onClick={drop}>
-                  {discard.isPending ? (
-                    <Loader size={16} label="Discarding" className="text-current" />
-                  ) : null}
-                  Discard
-                </Button>
-              )}
+              <Button variant="ghost" disabled={busy} onClick={() => discard.mutate(draft.id)}>
+                {discard.isPending ? (
+                  <Loader size={16} label="Discarding" className="text-current" />
+                ) : null}
+                Discard
+              </Button>
               <Button
                 variant="outline"
                 disabled={busy}
