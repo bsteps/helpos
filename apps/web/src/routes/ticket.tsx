@@ -283,7 +283,6 @@ function DraftPanel({
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
                   variant="outline"
-                  disabled={redraft.isPending}
                   onClick={() => {
                     redraft.reset();
                     setComposing(true);
@@ -291,12 +290,7 @@ function DraftPanel({
                 >
                   Write my own
                 </Button>
-                <Button disabled={redraft.isPending} onClick={askAi}>
-                  {redraft.isPending ? (
-                    <Loader size={16} label="Asking for a draft" className="text-current" />
-                  ) : null}
-                  Ask the AI for a draft
-                </Button>
+                <Button onClick={askAi}>Ask the AI for a draft</Button>
               </div>
             </CardContent>
           </Card>
