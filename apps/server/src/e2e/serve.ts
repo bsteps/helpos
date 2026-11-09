@@ -185,23 +185,27 @@ const seedOwner = "maya.okafor@northwind-cycles.test";
 const seedPassword = "northwind demo password";
 await setOwnerPassword(seedOwner, seedPassword);
 
-// A workspace whose daily AI budget is one draft: its first email uses it up, so the next
-// ticket gets no draft. The test for the paused state needs this, and no other test uses it.
-const budgetOwner = "owner@budget-bikes.test";
-const budgetMailbox = "support@budget-bikes.test";
-const budgetPassword = "budget bikes demo password";
-const budgetWorkspace = await initWorkspace(
-  { db, auth },
-  { workspace: "Budget Bikes", mailbox: budgetMailbox, owner: budgetOwner },
-);
-if (!budgetWorkspace.ok) throw new Error("e2e: budget workspace setup failed");
-await db.withTenant(budgetWorkspace.tenantId, (tx) =>
+/** A workspace of its own for one test, so whatever that test changes stays out of the others. */
+async function testWorkspace(name: string, slug: string) {
+  const owner = `owner@${slug}.test`;
+  const mailbox = `support@${slug}.test`;
+  const password = `${name} demo password`;
+  const created = await initWorkspace({ db, auth }, { workspace: name, mailbox, owner });
+  if (!created.ok) throw new Error(`e2e: ${name} workspace setup failed`);
+  await setOwnerPassword(owner, password);
+  return { tenantId: created.tenantId, owner, mailbox, password };
+}
+
+// Its daily AI budget is one draft: the first email uses it up, so the next ticket gets none.
+const budget = await testWorkspace("Budget Bikes", "budget-bikes");
+await db.withTenant(budget.tenantId, (tx) =>
   tx
     .update(schema.tenants)
     .set({ aiDailyTokenBudget: e2eDraftUsage.inputTokens + e2eDraftUsage.outputTokens })
-    .where(eq(schema.tenants.id, budgetWorkspace.tenantId)),
+    .where(eq(schema.tenants.id, budget.tenantId)),
 );
-await setOwnerPassword(budgetOwner, budgetPassword);
+// Its shadow recipient is changed by a test, which must not redirect other tests' replies.
+const shadow = await testWorkspace("Shadow Shop", "shadow-shop");
 
 const app = createApp({
   db,
@@ -236,9 +240,12 @@ writeFileSync(
     smtpDownMarker: e2eSmtpDownMarker,
     seedOwner,
     seedPassword,
-    budgetOwner,
-    budgetMailbox,
-    budgetPassword,
+    budgetOwner: budget.owner,
+    budgetMailbox: budget.mailbox,
+    budgetPassword: budget.password,
+    shadowOwner: shadow.owner,
+    shadowMailbox: shadow.mailbox,
+    shadowPassword: shadow.password,
   }),
 );
 // Listening last: Playwright starts the tests as soon as /health answers.

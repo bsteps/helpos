@@ -18,19 +18,19 @@ test("an owner changes the shadow recipient, and the next approved reply goes th
   page,
   request,
 }) => {
-  const { owner } = state();
-  const reviewer = "reviewer@acme.test";
-  await signIn(page);
+  const { shadowOwner, shadowMailbox, shadowPassword } = state();
+  const reviewer = "reviewer@shadow-shop.test";
+  await signIn(page, { email: shadowOwner, password: shadowPassword });
   await openSettings(page);
   await expect(page.getByText("On", { exact: true })).toBeVisible();
   await expect(page.getByTestId("shadow-mode-summary")).toHaveText(
-    `Replies go to ${owner}, not to customers.`,
+    `Replies go to ${shadowOwner}, not to customers.`,
   );
 
   await saveRecipient(page, reviewer);
   try {
     const subject = uniqueSubject("Password reset");
-    await deliver(request, plainEmail(subject, "Hi, I can't reset my password."));
+    await deliver(request, plainEmail(subject, "Hi, I can't reset my password.", shadowMailbox));
     await page.goto("/");
     await page.getByRole("link", { name: subject }).click();
     await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
@@ -41,7 +41,7 @@ test("an owner changes the shadow recipient, and the next approved reply goes th
     expect(mail.to).toEqual([reviewer]);
   } finally {
     await openSettings(page);
-    await saveRecipient(page, owner);
+    await saveRecipient(page, shadowOwner);
   }
 });
 

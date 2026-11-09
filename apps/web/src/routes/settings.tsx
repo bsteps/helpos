@@ -63,6 +63,7 @@ function ShadowModeSettings() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    setConfirmingOff(false);
     update.mutate(
       { recipient: recipientInput.trim() },
       { onSuccess: () => setTypedRecipient(null) },

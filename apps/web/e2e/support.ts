@@ -27,6 +27,10 @@ export interface E2eState {
   budgetOwner: string;
   budgetMailbox: string;
   budgetPassword: string;
+  /** The owner of a workspace whose shadow recipient a test changes, its mailbox and password. */
+  shadowOwner: string;
+  shadowMailbox: string;
+  shadowPassword: string;
 }
 
 export function state(): E2eState {

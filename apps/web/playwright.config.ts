@@ -21,6 +21,8 @@ export default defineConfig({
   reporter: ci ? [["github"], ["html", { open: "never" }]] : [["list"]],
   use: {
     baseURL: `http://localhost:${port}`,
+    // Numbers and dates render in the browser's locale, which otherwise follows the machine.
+    locale: "en-US",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
