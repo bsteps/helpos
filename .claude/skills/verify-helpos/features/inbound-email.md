@@ -9,7 +9,8 @@ An email provider posts each raw email to HelpOS. The address it was sent to pic
 - `inbound-duplicate` stores the same Message-ID once.
 - `inbound-automated` marks bounces, out-of-office and mailing-list mail as `automated`, with no draft.
 - `inbound-reject` returns 401 for a wrong secret, 404 for an unknown mailbox, 413 for too large.
-- `inbound-html` stores HTML mail and returns it sanitised. Attachments are stored as files.
+- `inbound-html` stores HTML mail and returns it sanitised.
+- `inbound-attachment` stores attachments safely. Nothing shows them yet (no API, no dashboard).
 
 ## How to get to it (user POV)
 
@@ -26,7 +27,7 @@ Preconditions: baseline. Fixtures are in `fixtures/email/`.
 - **Thread.** Post `@fixtures/email/reply.eml`. It joins the ticket of the email it answers (when that one is stored) instead of making a new one.
 - **Automated.** Post `@fixtures/email/bounce.eml` and `@fixtures/email/out-of-office.eml`. The ticket has `automated: true`, the inbox row shows `Automated`, and no draft is ever written.
 - **HTML and XSS.** Post `@fixtures/email/xss.eml`, then open the ticket in the dashboard. The HTML shows inside a sandboxed frame, and no script runs (no dialog, nothing in the console). The API `html` field has no `<script>`.
-- **Attachment.** Post `@fixtures/email/attachment.eml`. The ticket's message lists the attachment.
+- **Attachment.** Post `@fixtures/email/attachment.eml` (filename `../../etc/passwd`, a path-traversal try). It returns `201`. Attachments are stored (an `attachments` row, bytes under a generated key in the file store) but **not exposed**: no API field or endpoint and no dashboard view lists them. Proof is the row, read with `docker exec helpos-postgres-1 psql -U postgres -d <dbName> -tAc "select filename, size_bytes from attachments"`, and no file outside `HELPOS_FILES_DIR`.
 - **Prompt injection.** Post `@fixtures/email/prompt-injection.eml`. The draft answers the customer and does not obey the email's instructions.
 - **Rejections.** `$A none POST v1/inbound/email @fixtures/email/plain.eml` returns `401`. `@fixtures/email/unknown-mailbox.eml` returns `404 unknown_mailbox`, and nothing is stored.
 
