@@ -234,14 +234,26 @@ test("AI review jobs never take instructions from the PR's own files", () => {
   assert.ok(review.includes('xargs -0 -r git checkout "$BASE_SHA" --'));
 });
 
+test("AI review jobs judge against the current base branch, without the PR's symlinks", () => {
+  const review = read(`${dir}ai-check.yml`);
+  assert.ok(review.includes('"refs/remotes/origin/$GITHUB_BASE_REF^{commit}"'), "current base tip");
+  assert.match(review, /if \[\[ \$entry == 120000\* \]\]; then rm -f -- /, "symlinks removed");
+});
+
 test("the AI check report counts only this run's comments and fails on a broken setup", () => {
   const review = read(`${dir}ai-check.yml`);
   assert.ok(review.includes('grep -cvxF -f "$INPUTS/earlier-ids.txt"'), "re-runs aren't new");
   assert.doesNotMatch(code(review), /\|\s*head\b/, "head can break a pipe under pipefail");
+  assert.match(review, /status="Didn't finish[^"]*\$new finding/, "a partial run still reports");
   assert.equal(code(review).match(/git -c core\.quotepath=off diff/g)?.length, 2, "file names");
   assert.ok(review.includes(`PREP: ${expr("steps.prep.outcome")}`));
   assert.match(review, /if \[ "\$PREP" != "success" \]; then\n\s+status="Couldn't prepare/);
   assert.match(review, /\[ "\$PREP" = "success" \]\n$/, "the report step fails when prep failed");
+});
+
+test("the test-signal check covers every test file type", () => {
+  const paths = block(read(`${dir}ai-check-test-signal.yml`), "on");
+  for (const path of ['"**/*.test.*"', '"**/*.spec.*"']) assert.ok(paths.includes(path), path);
 });
 
 test("the security check covers code, config, CI and agent instruction files", () => {
@@ -288,6 +300,7 @@ test("@claude runs only for maintainers, skips forks and commits only through th
   const job = jobs(claude).claude ?? "";
   const gate = condition(job);
   assert.ok(gate.includes("startsWith(github.event.comment.body, '@claude')"), "quotes don't run");
+  assert.ok(gate.includes("github.event.issue.state == 'open'"), "closed issues and PRs don't run");
   assert.ok(gate.includes(`${maintainersOnly}, github.event.comment.author_association)`));
   assert.ok(gate.includes("github.event.comment.user.type == 'User'"));
   assert.deepEqual(permissions(job), {

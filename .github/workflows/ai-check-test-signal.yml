@@ -9,10 +9,8 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     # Only code this check is about. Docs-only PRs never start it.
     paths:
-      - "**/*.test.ts"
-      - "**/*.test.tsx"
-      - "**/*.test.mjs"
-      - "**/*.spec.ts"
+      - "**/*.test.*"
+      - "**/*.spec.*"
       - "apps/web/e2e/**"
       - "apps/server/src/e2e/**"
       - "packages/ai/evals/**"

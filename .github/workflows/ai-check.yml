@@ -68,6 +68,12 @@ jobs:
           set -euo pipefail
           mkdir -p "$INPUTS"
 
+          # Judge against the base branch as it is now: the event's base SHA can be the tip
+          # from when the PR was opened. GITHUB_BASE_REF is set by GitHub for pull_request.
+          if tip=$(git rev-parse --verify --quiet "refs/remotes/origin/$GITHUB_BASE_REF^{commit}"); then
+            BASE_SHA="$tip"
+          fi
+
           # The skill and rules must already be on the base branch. That skips the PR that
           # adds a check, and means a PR can never weaken the rules it's checked against.
           skill=".claude/skills/$CHECK-check/SKILL.md"
@@ -104,6 +110,12 @@ jobs:
           git ls-tree -r -z --name-only "$BASE_SHA" \
             | { grep -zE '(^|/)(CLAUDE|CLAUDE\.local|AGENTS)\.md$' || true; } \
             | xargs -0 -r git checkout "$BASE_SHA" --
+
+          # Symlinks from the PR could point outside the checkout. Claude Code's deny rules
+          # also check where a link leads, but there's no reason to keep them: remove them.
+          git ls-files -s -z | while IFS= read -r -d '' entry; do
+            if [[ $entry == 120000* ]]; then rm -f -- "${entry#*$'\t'}"; fi
+          done
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
@@ -172,7 +184,7 @@ jobs:
           elif [ "$RUN_STATE" = "missing" ]; then
             status="Skipped: this check isn't on the base branch yet."
           elif [ "$OUTCOME" != "success" ]; then
-            status="Didn't finish on \`$short\` (turn or time limit, or an error). [Run log]($RUN_URL). Advisory only."
+            status="Didn't finish on \`$short\` (turn or time limit, or an error), after $new finding(s) posted as inline comments. [Run log]($RUN_URL). Advisory only."
           elif [ "$new" -gt 0 ]; then
             status="$new finding(s) on \`$short\`, posted as inline comments. Advisory only."
           elif [ "$earlier" -gt 0 ]; then

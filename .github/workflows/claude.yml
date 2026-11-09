@@ -28,6 +28,7 @@ jobs:
   claude:
     if: >-
       startsWith(github.event.comment.body, '@claude') &&
+      github.event.issue.state == 'open' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       github.event.comment.user.type == 'User'
     runs-on: ubuntu-latest
