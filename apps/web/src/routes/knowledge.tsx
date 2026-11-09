@@ -443,7 +443,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (changed && !onlySpaces && !edit.isPending)
+    if (changed && !onlySpaces && title.trim() !== "" && !edit.isPending)
       edit.mutate({ id: source.id, body }, { onSuccess: onDone });
   };
 
