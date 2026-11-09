@@ -45,6 +45,23 @@ pnpm verify           # everything CI runs. Run once before you open a PR (itera
 - Never commit secrets, real customer data or `.env` files.
 - New dependency? Check that it's maintained, that its licence is AGPL-compatible, and that it really earns its weight. Mention it in the PR.
 
+## Rules and what enforces them
+
+When a rule here has a check, the check is the rule: if you hit it, do what its error says. When you're corrected for a mistake, fix it, then make it fail here (code, types, lint or a test) before you add a line of prose.
+
+| Rule                                                                                                                           | Enforced by                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Raw database client, `drizzle-orm` and `pg-boss` only inside `packages/db`                                                     | Biome `noRestrictedImports` (`biome.json`)                                                                  |
+| Every public table has RLS enabled, forced and a policy; a table without `tenant_id` is listed with the reason                 | `packages/db/src/schema.test.ts`                                                                            |
+| Views are `security_invoker`; `SECURITY DEFINER` only from the allowlist                                                       | `packages/db/src/schema.test.ts`                                                                            |
+| Tenant A can't read, change or guess tenant B's rows                                                                           | `packages/db/src/leak.test.ts`                                                                              |
+| Every API route says who may call it (`access`), checked before the body is read                                               | `apiRoute()` type in `apps/server/src/auth/access.ts`, Biome (no raw `createRoute`), `access.test.ts` sweep |
+| Routes under `/v1/tickets/{id}` need `tickets:read`                                                                            | `apps/server/src/auth/access.test.ts`                                                                       |
+| Data a route shows only to some callers needs a `Grant` (a draft's knowledge needs `knowledge:read`)                           | `Grant` type in `apps/server/src/auth/access.ts`                                                            |
+| Errors are logged as their summary, never their message                                                                        | `createLogger()` serializers, Biome (no raw `pino`)                                                         |
+| GitHub Actions pinned to a SHA, `persist-credentials: false`, locked-down AI review                                            | `scripts/workflows.test.mjs`                                                                                |
+| Which scopes a route needs, an audit event on every write, inbound content as data, safe output, `safe-fetch` for outside URLs | Judgment: the tenant-isolation and security-baseline checks, and review                                     |
+
 ## Code style and patterns
 
 - **Feature folders:** each feature owns its schema, API routes, domain logic and tests. Shared code goes in `packages/`.
