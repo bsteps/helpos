@@ -43,7 +43,7 @@ export class Grant<S extends Scope> {
 }
 
 /** Why `principal` may not call a route with `access`, or null when it may. */
-export function accessRefusal(
+function accessRefusal(
   access: Access,
   principal: Principal | undefined,
 ): "unauthorized" | "forbidden" | "session_required" | null {
