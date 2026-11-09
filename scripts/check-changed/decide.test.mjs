@@ -9,8 +9,9 @@ test("docs-only changes skip lint, typecheck, tests and evals", () => {
   assert.deepEqual(d.lintFiles, []);
 });
 
-test("Markdown is left out of the lint list, but other doc files stay", () => {
-  assert.deepEqual(decide(["README.md", "docs/openapi.json"]).lintFiles, ["docs/openapi.json"]);
+test("the lint list drops doc files and keeps code and config", () => {
+  const d = decide(["README.md", "LICENSE", "docs/guide.md", "biome.json", "apps/web/src/a.tsx"]);
+  assert.deepEqual(d.lintFiles, ["biome.json", "apps/web/src/a.tsx"]);
 });
 
 test("one package checks that package and its dependents", () => {

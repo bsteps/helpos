@@ -22,6 +22,9 @@ if (!pnpmPath) throw new Error("Run this through pnpm: pnpm check:changed");
 const pnpm = (/** @type {string[]} */ args) =>
   /\.[cm]?js$/.test(pnpmPath) ? [process.execPath, [pnpmPath, ...args]] : [pnpmPath, args];
 
+// git prints paths relative to the repo root, and every step expects to run there.
+process.chdir(git("rev-parse", "--show-toplevel"));
+
 const target = process.argv[2] ?? "origin/main";
 const found = spawnSync("git", ["rev-parse", "--verify", "--quiet", target], { encoding: "utf8" });
 if (found.status !== 0) {
@@ -67,7 +70,8 @@ if (scope === "all") {
   const scriptTests = readdirSync("scripts", { recursive: true, encoding: "utf8" })
     .filter((f) => f.endsWith(".test.mjs"))
     .map((f) => `scripts/${f.replaceAll("\\", "/")}`);
-  steps.push(["node", ["--test", ...scriptTests]]);
+  // With no files, `node --test` would search the whole repo for tests of its own.
+  if (scriptTests.length > 0) steps.push(["node", ["--test", ...scriptTests]]);
 } else if (scope === "affected") {
   steps.push(["pnpm", ["exec", "turbo", "run", "typecheck", "test", `--filter=...[${base}]`]]);
 }
