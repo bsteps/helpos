@@ -21,11 +21,6 @@ on:
 
 permissions: {}
 
-# One run per PR: a new push cancels the run for the old one.
-concurrency:
-  group: ai-check-security-baseline-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   check:
     # Maintainers' non-draft PRs from branches in this repo only. Fork PRs get no secrets on
@@ -35,6 +30,11 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) &&
       github.event.pull_request.user.type == 'User' &&
       !github.event.pull_request.draft
+    # One run per PR: a new push cancels the run for the old one. On the job, not the workflow,
+    # so a run whose job is skipped (a draft, a bot) never cancels a real one.
+    concurrency:
+      group: ai-check-security-baseline-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions:
       contents: read
       pull-requests: write

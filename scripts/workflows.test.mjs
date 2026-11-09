@@ -238,6 +238,12 @@ test("AI review jobs judge against the current base branch, without the PR's sym
   const review = read(`${dir}ai-check.yml`);
   assert.ok(review.includes('"refs/remotes/origin/$GITHUB_BASE_REF^{commit}"'), "current base tip");
   assert.match(review, /if \[\[ \$entry == 120000\* \]\]; then rm -f -- /, "symlinks removed");
+  assert.ok(
+    review.indexOf("120000*") < review.indexOf('git checkout "$BASE_SHA" -- .claude'),
+    "remove PR symlinks before restoring base files",
+  );
+  assert.match(review, /read it in parts/, "long diffs are read to the end");
+  assert.match(review, /DIFF_LINES:-0\}" -gt \d+/, "the status warns about long diffs");
 });
 
 test("the AI check report counts only this run's comments and fails on a broken setup", () => {
@@ -281,7 +287,12 @@ test("each AI check is gated to maintainers' same-repo PRs, capped and path-filt
     ]) {
       assert.ok(gate.includes(rule), `${name}: job if: lacks ${rule}`);
     }
-    assert.match(block(text, "concurrency"), /pull_request\.number[\s\S]*cancel-in-progress: true/);
+    assert.equal(block(text, "concurrency"), "", `${name}: concurrency belongs on the job`);
+    assert.match(
+      job,
+      /^ {4}concurrency:\n {6}group: ai-check-[\w-]+-\$\{\{ github\.event\.pull_request\.number \}\}\n {6}cancel-in-progress: true$/m,
+      `${name}: one run per PR, on the job`,
+    );
     assert.deepEqual(permissions(job), { contents: "read", "pull-requests": "write" }, name);
     assert.doesNotMatch(text, /secrets: inherit/, `${name}: pass only the one secret`);
 

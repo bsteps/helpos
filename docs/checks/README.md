@@ -4,7 +4,7 @@ Short rule lists for the narrow AI review checks that run on pull requests. **Au
 
 | Check             | Rules                                        | Skill                                    | Runs when a PR changes             |
 | ----------------- | -------------------------------------------- | ---------------------------------------- | ---------------------------------- |
-| Tenant isolation  | [tenant-isolation.md](tenant-isolation.md)   | `.claude/skills/tenant-isolation-check`  | `packages/db`, `apps/server/src`   |
+| Tenant isolation  | [tenant-isolation.md](tenant-isolation.md)   | `.claude/skills/tenant-isolation-check`  | `apps/server`, `packages/`         |
 | Security baseline | [security-baseline.md](security-baseline.md) | `.claude/skills/security-baseline-check` | anything but docs; agent files too |
 | Test signal       | [test-signal.md](test-signal.md)             | `.claude/skills/test-signal-check`       | tests, e2e, evals, fixtures        |
 
