@@ -43,7 +43,12 @@ async function call(method, path, bearer, body) {
     headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
     body: body && JSON.stringify(body),
   });
-  return { status: res.status, json: await res.json() };
+  const text = await res.text();
+  try {
+    return { status: res.status, json: text ? JSON.parse(text) : {} };
+  } catch {
+    quit(1, `${method} ${path} answered ${res.status}, not JSON: ${text.slice(0, 200)}`);
+  }
 }
 async function drafts() {
   const { status, json } = await call("GET", `/v1/tickets/${ticketId}/drafts`, reader);
