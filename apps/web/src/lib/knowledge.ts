@@ -2,7 +2,7 @@ import type { KnowledgeSource } from "@/api/client.ts";
 
 const fastPollMs = 2_000;
 const slowPollMs = 30_000;
-const budgetPollMs = 5 * 60_000;
+const idlePollMs = 60_000;
 const slowAfterMs = 2 * 60_000;
 
 /** A source as the list shows it: when this browser first saw it pending, if it is. */
@@ -31,14 +31,14 @@ export function withPendingSince(
 
 /**
  * How soon to look again: every 2 seconds while a source has just started being read, every
- * 30 seconds once one has been pending for minutes, and every 5 minutes for a source waiting
- * for the daily AI budget, which resets at midnight UTC.
+ * 30 seconds once one has been pending for minutes, and otherwise every minute, so sources
+ * that agents or other people add or change show up. React Query pauses it in a hidden tab.
  */
-export function pollDelay(sources: readonly ListedSource[], now: number): number | false {
-  const pending = sources.filter((s) => s.status === "pending");
-  if (pending.length === 0) return false;
-  const reading = pending.filter((s) => s.error !== "daily_budget_reached");
-  if (reading.length === 0) return budgetPollMs;
+export function pollDelay(sources: readonly ListedSource[], now: number): number {
+  const reading = sources.filter(
+    (s) => s.status === "pending" && s.error !== "daily_budget_reached",
+  );
+  if (reading.length === 0) return idlePollMs;
   const fresh = reading.some((s) => now - (s.pendingSince ?? now) < slowAfterMs);
   return fresh ? fastPollMs : slowPollMs;
 }

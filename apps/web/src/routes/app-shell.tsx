@@ -24,7 +24,7 @@ export function AppShell() {
             {me.scopes.includes("knowledge:read") ? (
               <Link
                 to="/knowledge"
-                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground sm:px-3"
+                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground data-[status=active]:text-foreground sm:px-3"
               >
                 Knowledge
               </Link>
@@ -32,7 +32,7 @@ export function AppShell() {
             {me.scopes.includes("workspace:admin") ? (
               <Link
                 to="/settings"
-                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground sm:px-3"
+                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground data-[status=active]:text-foreground sm:px-3"
               >
                 Settings
               </Link>

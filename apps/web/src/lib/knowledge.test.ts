@@ -48,12 +48,12 @@ describe("pollDelay", () => {
     expect(pollDelay([pendingFor(300)], now)).toBe(30_000);
   });
 
-  it("checks every 5 minutes on a source waiting for the daily AI budget", () => {
-    expect(pollDelay([pendingFor(5, "daily_budget_reached")], now)).toBe(300_000);
+  it("checks every minute when nothing is being read, so others' changes show up", () => {
+    expect(pollDelay([source("ready"), source("failed", "no_text")], now)).toBe(60_000);
   });
 
-  it("stops once every source is ready or failed", () => {
-    expect(pollDelay([source("ready"), source("failed", "no_text")], now)).toBe(false);
+  it("checks a source waiting for the daily AI budget only every minute", () => {
+    expect(pollDelay([pendingFor(5, "daily_budget_reached")], now)).toBe(60_000);
   });
 });
 

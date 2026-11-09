@@ -112,7 +112,7 @@ const visibilityOptions = [
 ] as const;
 
 /** Why a change didn't happen, in words that say whether trying again can help. */
-function problem(error: unknown, failed: string, invalid: string): string {
+function problem(error: unknown, failed: string, invalid = `${failed} Try again.`): string {
   if (!(error instanceof ApiError)) {
     return `${failed} Something went wrong. Check your connection, then try again or reload the page.`;
   }
@@ -191,6 +191,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
           </fieldset>
           <Input
             label="Title"
+            maxLength={300}
             value={title}
             onChange={afterReset(add.reset, setTitle)}
             required
@@ -199,6 +200,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
           {kind === "url" ? (
             <Input
               label="URL"
+              maxLength={2000}
               type="url"
               placeholder="https://…"
               value={url}
@@ -209,6 +211,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
           ) : (
             <Textarea
               label="Content"
+              maxLength={200_000}
               value={content}
               onChange={afterReset(add.reset, setContent)}
               rows={6}
@@ -333,7 +336,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             <AlertIcon />
             <AlertContent>
               <AlertDescription>
-                {problem(reingest.error, "Couldn't read it again.", "Try again.")}
+                {problem(reingest.error, "Couldn't read it again.")}
               </AlertDescription>
             </AlertContent>
           </Alert>
@@ -342,9 +345,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           <Alert variant="destructive">
             <AlertIcon />
             <AlertContent>
-              <AlertDescription>
-                {problem(remove.error, "Couldn't delete it.", "Try again.")}
-              </AlertDescription>
+              <AlertDescription>{problem(remove.error, "Couldn't delete it.")}</AlertDescription>
             </AlertContent>
           </Alert>
         ) : null}
@@ -432,9 +433,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   const changed = Object.keys(body).length > 0;
   const onlySpaces = content !== "" && content.trim() === "";
   // Not after this person's own save, which changes it too before the form closes.
-  const changedMeanwhile =
-    (edit.isIdle || edit.isError) &&
-    (source.title !== opened.title || source.visibility !== opened.visibility);
+  const changedMeanwhile = (edit.isIdle || edit.isError) && source.updatedAt !== opened.updatedAt;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -449,13 +448,15 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           <AlertIcon />
           <AlertContent>
             <AlertDescription>
-              This source changed while you were editing. Saving sends only the fields you changed.
+              This source was updated while you were editing. Saving changes only the fields you
+              edit.
             </AlertDescription>
           </AlertContent>
         </Alert>
       ) : null}
       <Input
         label="Title"
+        maxLength={300}
         value={title}
         onChange={afterReset(edit.reset, setTitle)}
         required
@@ -471,6 +472,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
       {source.kind === "markdown" ? (
         <Textarea
           label="Replace content"
+          maxLength={200_000}
           placeholder="Leave empty to keep the current text"
           value={content}
           onChange={afterReset(edit.reset, setContent)}
