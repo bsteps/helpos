@@ -107,26 +107,27 @@ const visibilityOptions = [
   { value: "public", label: "Public: may be shown to customers" },
 ] as const;
 
-function actionProblem(error: unknown, action: "delete" | "reingest"): string {
-  const failed = action === "delete" ? "Couldn't delete it." : "Couldn't read it again.";
-  if (error instanceof ApiError && error.code === "managed_in_git") {
-    return `${failed} It's managed in the workspace's git repo now.`;
+/** Why a change didn't happen, in words that say whether trying again can help. */
+function problem(error: unknown, failed: string, kind?: KnowledgeSource["kind"]): string {
+  if (!(error instanceof ApiError)) {
+    return `${failed} The server didn't answer; check your connection and try again.`;
   }
-  if (error instanceof ApiError) return `${failed} Try again.`;
-  return `${failed} The server didn't answer; check your connection and try again.`;
-}
-
-function addProblem(error: unknown, kind: KnowledgeSource["kind"]): string {
-  if (error instanceof ApiError) {
-    if (error.code === "url_taken") return "There's already a source for this URL.";
-    if (error.code === "slug_taken") return "There's already a source with this title.";
-    if (error.status === 400) {
-      return kind === "url"
-        ? "Enter the full address of a web page, starting with https://."
-        : "Check the title and content: one of them is too long.";
-    }
+  switch (error.code) {
+    case "url_taken":
+      return "There's already a source for this URL.";
+    case "slug_taken":
+      return "There's already a source with this title.";
+    case "managed_in_git":
+      return `${failed} It's managed in the workspace's git repo now.`;
+    case "not_found":
+      return `${failed} It was deleted.`;
   }
-  return "That didn't work. Try again.";
+  if (error.status === 400) {
+    return kind === "url"
+      ? "Enter the full address of a web page, starting with https://."
+      : "Check the title and content: one of them is too long.";
+  }
+  return `${failed} Try again.`;
 }
 
 function AddSource({ onDone }: { onDone: () => void }) {
@@ -217,7 +218,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
             <Alert variant="destructive">
               <AlertIcon />
               <AlertContent>
-                <AlertDescription>{addProblem(add.error, kind)}</AlertDescription>
+                <AlertDescription>{problem(add.error, "Couldn't add it.", kind)}</AlertDescription>
               </AlertContent>
             </Alert>
           ) : null}
@@ -256,6 +257,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
   const reingest = useReingestKnowledgeSource();
   const remove = useDeleteKnowledgeSource();
   const inGit = source.managedBy === "git";
+  const shown = inGit ? "view" : mode;
   const badge = statusBadge[source.status];
   const busy = reingest.isPending || remove.isPending;
   const switchMode = (next: typeof mode) => {
@@ -281,7 +283,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           </AnimatedBadge>
         </CardAction>
       </CardHeader>
-      {source.url || source.error || reingest.isError || remove.isError || mode === "edit" ? (
+      {source.url || source.error || reingest.isError || remove.isError || shown === "edit" ? (
         <CardContent className="flex flex-col gap-3">
           {source.url ? (
             link ? (
@@ -306,18 +308,18 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
               <AlertContent>
                 <AlertDescription>
                   {reingest.isError
-                    ? actionProblem(reingest.error, "reingest")
-                    : actionProblem(remove.error, "delete")}
+                    ? problem(reingest.error, "Couldn't read it again.")
+                    : problem(remove.error, "Couldn't delete it.")}
                 </AlertDescription>
               </AlertContent>
             </Alert>
           ) : null}
-          {mode === "edit" ? (
+          {shown === "edit" ? (
             <EditSource source={source} onDone={() => switchMode("view")} />
           ) : null}
         </CardContent>
       ) : null}
-      {canWrite && !inGit && mode === "confirmDelete" ? (
+      {canWrite && !inGit && shown === "confirmDelete" ? (
         <CardFooter className="flex-wrap justify-end gap-2">
           <p className="mr-auto text-sm">Delete it? Drafts stop using it.</p>
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("view")}>
@@ -330,6 +332,9 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             disabled={busy}
             onClick={() => remove.mutate(source.id)}
           >
+            {remove.isPending ? (
+              <Loader size={16} label="Deleting" className="text-current" />
+            ) : null}
             Delete
           </Button>
         </CardFooter>
@@ -341,7 +346,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           </p>
         </CardFooter>
       ) : null}
-      {canWrite && !inGit && mode === "view" ? (
+      {canWrite && !inGit && shown === "view" ? (
         <CardFooter className="justify-end gap-2">
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("edit")}>
             Edit
@@ -383,10 +388,11 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
     ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
   };
   const changed = Object.keys(body).length > 0;
+  const onlySpaces = content !== "" && content.trim() === "";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (changed) edit.mutate({ id: source.id, body }, { onSuccess: onDone });
+    if (changed && !onlySpaces) edit.mutate({ id: source.id, body }, { onSuccess: onDone });
   };
 
   return (
@@ -407,7 +413,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           onChange={setContent}
           rows={6}
           error={
-            content !== "" && content.trim() === ""
+            onlySpaces
               ? "That's only spaces. Add some text, or leave it empty to keep the current text."
               : undefined
           }
@@ -418,7 +424,9 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
         <Alert variant="destructive">
           <AlertIcon />
           <AlertContent>
-            <AlertDescription>Couldn't save. Nothing changed; try again.</AlertDescription>
+            <AlertDescription>
+              {problem(edit.error, "Couldn't save. Nothing changed.", source.kind)}
+            </AlertDescription>
           </AlertContent>
         </Alert>
       ) : null}
@@ -426,7 +434,10 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
         <Button type="button" variant="ghost" onClick={onDone} disabled={edit.isPending}>
           Cancel
         </Button>
-        <Button type="submit" disabled={edit.isPending || title.trim() === "" || !changed}>
+        <Button
+          type="submit"
+          disabled={edit.isPending || title.trim() === "" || !changed || onlySpaces}
+        >
           Save
         </Button>
       </div>

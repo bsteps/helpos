@@ -42,6 +42,11 @@ describe("pollDelay", () => {
     expect(pollDelay([source("pending", null, "not a date")], now)).toBe(2_000);
   });
 
+  it("stays slow for a stuck source once a newer one has finished", () => {
+    const stuck = source("pending", null, secondsAgo(600));
+    expect(pollDelay([stuck, source("ready", null, secondsAgo(1))], now)).toBe(30_000);
+  });
+
   it("stops once every source is ready or failed", () => {
     expect(pollDelay([source("ready"), source("failed", "no_text")], now)).toBe(false);
   });

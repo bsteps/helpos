@@ -1,5 +1,5 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { pollDelay } from "../lib/knowledge.ts";
+import { pollDelay } from "@/lib/knowledge.ts";
 import {
   ApiError,
   api,

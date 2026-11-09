@@ -175,3 +175,26 @@ test("a source managed in git is read-only and says where to change it", async (
   await expect(card).toContainText("edit its file in the workspace's git repo");
   await expect(card.getByRole("button")).toHaveCount(0);
 });
+
+test("a save the API refuses says why instead of asking to try again", async ({ page }) => {
+  const title = uniqueSubject("Moved to git");
+  await signIn(page);
+  const added = await page.request.post("/v1/knowledge/sources", {
+    data: { kind: "markdown", title, content: "A note that moves to git." },
+  });
+  expect(added.status(), await added.text()).toBe(201);
+  await page.route("**/v1/knowledge/sources/*", (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({ status: 409, json: { error: "managed_in_git" } })
+      : route.fallback(),
+  );
+  await page.getByRole("link", { name: "Knowledge" }).click();
+
+  const card = page.getByTestId("knowledge-source").filter({ hasText: title });
+  await card.getByRole("button", { name: "Edit" }).click();
+  await card.getByLabel("Visibility").selectOption("public");
+  await card.getByRole("button", { name: "Save" }).click();
+  await expect(card).toContainText(
+    "Couldn't save. Nothing changed. It's managed in the workspace's git repo now.",
+  );
+});
