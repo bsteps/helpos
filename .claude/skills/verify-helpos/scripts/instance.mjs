@@ -12,6 +12,11 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../
 export const evidenceRoot = join(repoRoot, ".helpos", "verify");
 /** Written by launch.mjs: the pids it started. cleanup.mjs stops nothing else. */
 export const launchRecord = join(evidenceRoot, "instance.json");
+/**
+ * Live credentials the helpers keep between runs (the owner's session, the last minted token).
+ * Not in the evidence folder: that one is meant to be attached as proof.
+ */
+export const stateRoot = join(repoRoot, ".helpos", "verify-state");
 
 export function launchedPids() {
   if (!existsSync(launchRecord)) return new Set();
@@ -91,12 +96,17 @@ export function instance() {
   const dotenvPath = join(repoRoot, ".env");
   const dotenv = existsSync(dotenvPath) ? parseEnv(readFileSync(dotenvPath, "utf8")) : {};
   const isolation = isolationFor(repoRoot, { isWorktree: isWorktree(repoRoot) });
-  // The shell wins over .env, as it does for `node --env-file`.
+  // The shell wins over .env, as it does for `node --env-file`, which is how the server and the
+  // children read .env: so this merge is what they will connect to.
   const config = { ...dotenv, ...process.env };
   const overrides = isolatedEnv(config, isolation);
   if (!overrides.ok) throw new Error(`Refusing to drive this checkout: ${overrides.reason}`);
   // In a worktree, isolatedEnv() checked these. The main checkout uses .env as written, and the
-  // helpers set a known demo password and seed tokens, so it must be a local database too.
+  // helpers set a known demo password and seed tokens, so it must be a local database too, and
+  // named: unset, the server would fall back to whatever its driver defaults to.
+  if (!config.HELPOS_DATABASE_URL) {
+    throw new Error("Refusing to drive this checkout: HELPOS_DATABASE_URL is not set");
+  }
   const remote = Object.entries(config).find(
     ([name, value]) => /^HELPOS_DATABASE_\w*URL$/.test(name) && value && !isLocalDatabaseUrl(value),
   );
@@ -122,7 +132,7 @@ export function instance() {
  * The last ticket, token and knowledge source the scripts created, so a person testing by hand
  * writes `{ticket}` instead of copying IDs between commands.
  */
-const lastFile = join(evidenceRoot, "last.json");
+export const lastFile = join(stateRoot, "last.json");
 const seededMarker = join(repoRoot, ".helpos", "seeded");
 export function lastCreated() {
   if (!existsSync(lastFile)) return {};
@@ -139,7 +149,7 @@ export function lastCreated() {
   }
 }
 export function remember(values) {
-  mkdirSync(evidenceRoot, { recursive: true });
+  mkdirSync(stateRoot, { recursive: true });
   writeFileSync(lastFile, `${JSON.stringify({ ...lastCreated(), ...values }, null, 2)}\n`);
   for (const [k, v] of Object.entries(values)) {
     process.stderr.write(`(saved {${k}} = ${k === "token" ? `${v.slice(0, 8)}…` : v})\n`);
@@ -203,7 +213,7 @@ export async function getJson(inst, path, headers) {
  * still works (checked with GET /v1/me), so each helper call doesn't add another session.
  */
 export async function ownerCookie(inst) {
-  const file = join(evidenceRoot, "owner-session.txt");
+  const file = join(stateRoot, "owner-session.txt");
   if (existsSync(file)) {
     const cookie = readFileSync(file, "utf8").trim();
     const me = await fetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } });
@@ -221,7 +231,7 @@ export async function ownerCookie(inst) {
     .getSetCookie()
     .map((c) => c.split(";")[0])
     .join("; ");
-  mkdirSync(evidenceRoot, { recursive: true });
+  mkdirSync(stateRoot, { recursive: true });
   writeFileSync(file, `${cookie}\n`);
   return cookie;
 }
@@ -230,11 +240,14 @@ export async function ownerCookie(inst) {
  * The value after `flag` in `args`, or undefined when the flag isn't there. A flag with no value
  * after it, or with another flag there instead, stops the script rather than send "--body".
  */
-export function flagArg(args, flag) {
+export function flagArg(args, flag, { anyValue = false } = {}) {
   const i = args.indexOf(flag);
   if (i < 0) return undefined;
   const value = args[i + 1];
-  if (value === undefined || value.startsWith("--")) quit(2, `${flag} needs a value after it`);
+  // A secret can start with dashes; a subject that does is far more likely a forgotten value.
+  if (value === undefined || (!anyValue && value.startsWith("--"))) {
+    quit(2, `${flag} needs a value after it`);
+  }
   return value;
 }
 

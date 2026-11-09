@@ -33,11 +33,14 @@ const localHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 /** Whether a Postgres URL points at this machine (not a remote host, nor a `?host=` override). */
 export function isLocalDatabaseUrl(raw) {
   try {
-    const url = new URL(raw);
-    return localHosts.has(url.hostname.toLowerCase()) && !url.searchParams.has("host");
+    return isLocalUrl(new URL(raw));
   } catch {
     return false;
   }
+}
+
+function isLocalUrl(url) {
+  return localHosts.has(url.hostname.toLowerCase()) && !url.searchParams.has("host");
 }
 
 const dbVars = [
@@ -70,7 +73,7 @@ export function isolatedEnv(env, isolation) {
     } catch {
       return { ok: false, reason: `${name} is not a valid URL` };
     }
-    if (!isLocalDatabaseUrl(raw)) {
+    if (!isLocalUrl(url)) {
       return { ok: false, reason: `${name} points at a non-local database` };
     }
     url.pathname = `/${isolation.dbName}`;

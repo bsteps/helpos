@@ -55,6 +55,11 @@ rmSync(launchRecord, { force: true });
 const child = spawn("pnpm dev", { stdio: "inherit", shell: true, cwd: repoRoot, env });
 let running = true;
 // exitCode, not exit(): exiting while a fetch's socket closes crashes libuv on Windows.
+child.on("error", (error) => {
+  running = false;
+  process.exitCode = 1;
+  process.stderr.write(`verify-helpos: pnpm dev didn't start: ${error.message}\n`);
+});
 child.on("exit", (code) => {
   running = false;
   process.exitCode = code ?? 1;
@@ -77,12 +82,15 @@ function writeRecord(pids) {
 }
 
 // Record which processes this launch started (those below its own child), so cleanup.mjs stops
-// only those. Polls for as long as pnpm dev runs: a slow first start is still recorded.
+// only those. Polls for as long as pnpm dev runs: a slow first start is still recorded, and so is
+// a server that node --watch restarts with a new pid. Every 2s until both are up, then every 10s.
 const startedAt = Date.now();
 let warned = false;
 let recordedPids = "";
+let bothUp = false;
 while (running) {
-  await new Promise((r) => setTimeout(r, 2000));
+  await new Promise((r) => setTimeout(r, bothUp ? 10_000 : 2000));
+  if (!running) break;
   // Processes are listed only once something answers, not on every poll of a slow start.
   const up = await Promise.all([`${inst.apiUrl}/health`, inst.webUrl].map(answers));
   const found = ports.map((port, i) =>
@@ -95,6 +103,7 @@ while (running) {
     recordedPids = sofar.join(",");
   }
   if (found.some((f) => f.length === 0)) {
+    if (bothUp) continue;
     if (!warned && Date.now() - startedAt > 240_000) {
       warned = true;
       process.stdout.write(
@@ -104,6 +113,8 @@ while (running) {
     }
     continue;
   }
-  process.stdout.write(`verify-helpos: recorded pids ${recordedPids} in ${launchRecord}\n`);
-  break;
+  if (!bothUp) {
+    process.stdout.write(`verify-helpos: recorded pids ${recordedPids} in ${launchRecord}\n`);
+  }
+  bothUp = true;
 }

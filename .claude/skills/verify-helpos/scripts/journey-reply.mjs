@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
   evidenceRoot,
+  flagArg,
   instance,
   isQuit,
   quit,
@@ -18,7 +19,7 @@ import {
   whyNoDraft,
 } from "./instance.mjs";
 
-const via = process.argv[process.argv.indexOf("--via") + 1];
+const via = flagArg(process.argv, "--via");
 if (via !== "api" && via !== "web") {
   process.stderr.write("Usage: journey-reply.mjs --via api|web [--headed]\n");
   quit(2);

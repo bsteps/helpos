@@ -51,7 +51,7 @@ Warnings (`warn`) name features that will not work: knowledge sources still `pen
 | `inbound` | the email provider | body `@fixtures/email/<name>.eml`; `support@acme.test` is swapped for the Northwind mailbox |
 | `none` | nobody | proves auth is required |
 
-**Placeholders instead of copied IDs.** `api.mjs` and `new-email.mjs` remember what they last created in `.helpos/verify/last.json`. Write `{ticket}`, `{draft}` (that ticket's draft, waiting for the AI if needed), `{draftBody}` (its exact text as a JSON string, for `'{"body":{draftBody}}'`), `{token}`, `{tokenId}` or `{source}` in the path, body or `<as>`. Never pipe `api.mjs` output into another `node` command: Git Bash runs `node` through `winpty`, which breaks pipes into it.
+**Placeholders instead of copied IDs.** `api.mjs` and `new-email.mjs` remember what they last created in `.helpos/verify-state/last.json` (kept out of `.helpos/verify/`, the evidence you may share, because it holds a live token). Write `{ticket}`, `{draft}` (that ticket's draft, waiting for the AI if needed), `{draftBody}` (its exact text as a JSON string, for `'{"body":{draftBody}}'`), `{token}`, `{tokenId}` or `{source}` in the path, body or `<as>`. Never pipe `api.mjs` output into another `node` command: Git Bash runs `node` through `winpty`, which breaks pipes into it.
 
 No seed token has `tickets:write`, `knowledge:write` or `github:write` in Northwind. Use `owner`, or mint a token.
 

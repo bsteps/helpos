@@ -9,10 +9,12 @@ import { flagArg, getJson, instance, ownerCookie, quit, requireRunning } from ".
 const args = process.argv.slice(2);
 const opt = (name, fallback) => flagArg(args, name) ?? fallback;
 const number = Number(args[0]);
-const secret = opt("--secret");
+// From the environment too, so it needn't appear in the shell history or the process list.
+const { GITHUB_WEBHOOK_SECRET: secretFromEnv } = process.env;
+const secret = flagArg(args, "--secret", { anyValue: true }) ?? secretFromEnv;
 if (!Number.isInteger(number) || number < 1 || !secret) {
   process.stderr.write(
-    "Usage: github-webhook.mjs <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]\n",
+    "Usage: github-webhook.mjs <issueNumber> (--secret <webhook secret> | GITHUB_WEBHOOK_SECRET=...) [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]\n",
   );
   quit(2);
 }

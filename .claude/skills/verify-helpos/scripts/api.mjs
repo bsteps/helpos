@@ -8,7 +8,7 @@
 //                   with support@acme.test (the fixtures' address) swapped for the Northwind mailbox
 //         none      no credentials
 // [body]: JSON text, or @file to read it from a file.
-// Placeholders, filled from what the scripts last created (.helpos/verify/last.json):
+// Placeholders, filled from what the scripts last created (.helpos/verify-state/last.json):
 //   {ticket}     the last ticket (from new-email.mjs or an inbound call)
 //   {draft}      that ticket's pending draft, waiting for the AI if needed; {draftBody} is its
 //                exact text as a JSON string, for approve: '{"body":{draftBody}}'
@@ -52,7 +52,32 @@ const bodyFile = argv[3]?.startsWith("@") ? argv[3].slice(1) : undefined;
 const fileText =
   bodyFile && !bodyFile.endsWith(".eml") ? readFileSync(bodyFile, "utf8") : undefined;
 const placeholders = `${argv.join(" ")} ${fileText ?? ""}`.match(placeholder) ?? [];
+// A saved value is an ID or a token; anything else in it (a hand-edited last.json) is refused,
+// since it would be pasted into a path or JSON as it is.
+for (const [key, value] of Object.entries(last)) {
+  if (typeof value !== "string" || !/^[\w-]+$/.test(value)) {
+    quit(
+      2,
+      `The saved {${key}} looks damaged (${JSON.stringify(value)}): ${hint[key] ?? "create it again"}.`,
+    );
+  }
+}
 const values = { ...last };
+// A body that can't be JSON fails now, not after two minutes of waiting for the AI's draft.
+const jsonBody = fileText ?? (argv[3]?.startsWith("@") ? undefined : argv[3]);
+if (jsonBody !== undefined && argv[0] !== "inbound") {
+  const sample = jsonBody.replace(placeholder, (_, key) => (key === "draftBody" ? '"x"' : "x"));
+  try {
+    JSON.parse(sample);
+  } catch {
+    quit(
+      2,
+      `The body isn't valid JSON: ${jsonBody}\n` +
+        'Through pnpm on Windows, a body with both " quotes and & | < > ^ gets cut at that ' +
+        "character. Put the body in a file and pass @file instead.",
+    );
+  }
+}
 if (placeholders.some((p) => p === "{draft}" || p === "{draftBody}")) {
   const draft = await waitForDraft(last.ticket);
   values.draft = draft.id;

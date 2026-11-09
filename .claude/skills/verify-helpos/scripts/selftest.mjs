@@ -7,10 +7,10 @@ import { existsSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync }
 import { join } from "node:path";
 import {
   allScopes,
-  evidenceRoot,
   getJson,
   instance,
   lastCreated,
+  lastFile,
   quit,
   repoRoot,
   requireRunning,
@@ -40,7 +40,6 @@ if (usage.paused || usage.remainingTokens < neededTokens) {
 }
 
 // The person's {ticket}, {token}… survive a selftest run in the middle of their checklist.
-const lastFile = join(evidenceRoot, "last.json");
 const saved = existsSync(lastFile) ? readFileSync(lastFile, "utf8") : undefined;
 // Its time too: lastCreated() compares it with the seed marker to spot IDs from before a reset.
 const savedAt = saved === undefined ? undefined : statSync(lastFile).mtime;
