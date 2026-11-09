@@ -75,6 +75,10 @@ const { chromium } = await import("@playwright/test");
 
 **Feature map.** `features/README.md` lists every screen and endpoint with a recipe. Read the feature file before driving that feature, and cover every entry point it lists.
 
+## Selftest
+
+`pnpm app:selftest [--with-browser]` runs every terminal step of the hand-test checklist through the real helpers and checks each result (61 steps with the browser). Run it after changing any helper or checklist step, before handing steps to a person. A step that fails here would have failed for them.
+
 ## Evidence
 
 - Journeys write to `.helpos/verify/<timestamp>-<journey>/`: `steps.json` (each action and what was observed), screenshots for browser steps, and `mail.json` (the caught email). `FAILED.txt` and `failure.png` appear on failure. `.helpos/` is git-ignored.

@@ -38,7 +38,8 @@
     "app:password": "node .claude/skills/verify-helpos/scripts/owner-password.mjs",
     "app:info": "node .claude/skills/verify-helpos/scripts/instance.mjs",
     "app:journey": "node .claude/skills/verify-helpos/scripts/journey-reply.mjs",
-    "app:run": "node .claude/skills/verify-helpos/scripts/instance.mjs run"
+    "app:run": "node .claude/skills/verify-helpos/scripts/instance.mjs run",
+    "app:selftest": "node .claude/skills/verify-helpos/scripts/selftest.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
