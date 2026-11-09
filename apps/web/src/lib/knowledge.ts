@@ -2,39 +2,39 @@ import type { KnowledgeSource } from "@/api/client.ts";
 
 const fastPollMs = 2_000;
 const slowPollMs = 30_000;
+const budgetPollMs = 5 * 60_000;
 const slowAfterMs = 2 * 60_000;
 
-const beingRead = (s: KnowledgeSource) =>
-  s.status === "pending" && s.error !== "daily_budget_reached";
+/** A source as the list shows it: when this browser first saw it pending, if it is. */
+export type ListedSource = KnowledgeSource & { pendingSince?: number };
 
 /**
- * Records when this browser first saw each source being read. Times come from this clock, not
- * the server's, so a skewed server clock can't keep a stuck source on fast polling.
+ * Carries each pending source's first-seen time over from the previous list. Times come from
+ * this browser's clock, not the server's, so a skewed server clock can't change the pace.
  */
-export function notePending(
-  since: Map<string, number>,
+export function withPendingSince(
   sources: readonly KnowledgeSource[],
+  previous: readonly ListedSource[] | undefined,
   now: number,
-): void {
-  const reading = new Set(sources.filter(beingRead).map((s) => s.id));
-  for (const id of since.keys()) if (!reading.has(id)) since.delete(id);
-  for (const id of reading) if (!since.has(id)) since.set(id, now);
+): ListedSource[] {
+  const seen = new Map(previous?.map((s) => [s.id, s.pendingSince]));
+  return sources.map((s) =>
+    s.status === "pending" ? { ...s, pendingSince: seen.get(s.id) ?? now } : s,
+  );
 }
 
 /**
- * How soon to look again while a source is being read: often at first, then rarely, so a
- * source stuck in `pending` doesn't keep every open tab asking every 2 seconds. A source
- * waiting for the daily AI budget can wait hours, so it isn't watched at all.
+ * How soon to look again: every 2 seconds while a source has just started being read, every
+ * 30 seconds once one has been pending for minutes, and every 5 minutes for a source waiting
+ * for the daily AI budget, which resets at midnight UTC.
  */
-export function pollDelay(
-  sources: readonly KnowledgeSource[],
-  now: number,
-  since: ReadonlyMap<string, number>,
-): number | false {
-  const reading = sources.filter(beingRead);
-  if (reading.length === 0) return false;
-  const newest = Math.max(...reading.map((s) => since.get(s.id) ?? now));
-  return now - newest < slowAfterMs ? fastPollMs : slowPollMs;
+export function pollDelay(sources: readonly ListedSource[], now: number): number | false {
+  const pending = sources.filter((s) => s.status === "pending");
+  if (pending.length === 0) return false;
+  const reading = pending.filter((s) => s.error !== "daily_budget_reached");
+  if (reading.length === 0) return budgetPollMs;
+  const fresh = reading.some((s) => now - (s.pendingSince ?? now) < slowAfterMs);
+  return fresh ? fastPollMs : slowPollMs;
 }
 
 const aiUnavailable = "The AI service couldn't process it. It tries again by itself.";

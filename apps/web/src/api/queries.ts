@@ -1,10 +1,9 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { notePending, pollDelay } from "@/lib/knowledge.ts";
+import { type ListedSource, pollDelay, withPendingSince } from "@/lib/knowledge.ts";
 import {
   ApiError,
   api,
   type Draft,
-  type KnowledgeSource,
   type KnowledgeSourceUpdate,
   type Me,
   type NewKnowledgeSource,
@@ -265,16 +264,14 @@ export const aiUsageQuery = queryOptions({
   refetchInterval: 30_000,
 });
 
-const pendingSince = new Map<string, number>();
-
 export const knowledgeSourcesQuery = queryOptions({
   queryKey: keys.knowledgeSources,
-  queryFn: async (): Promise<KnowledgeSource[]> => {
+  queryFn: async ({ client }): Promise<ListedSource[]> => {
     const { sources } = await unwrap(api.GET("/v1/knowledge/sources"));
-    notePending(pendingSince, sources, Date.now());
-    return sources;
+    const previous = client.getQueryData<ListedSource[]>(keys.knowledgeSources);
+    return withPendingSince(sources, previous, Date.now());
   },
-  refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now(), pendingSince),
+  refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now()),
 });
 
 /** Every change to a source shows up in the list, so each one refetches it when done. */
@@ -316,7 +313,7 @@ export const useDeleteKnowledgeSource = () =>
       }
     },
     (queryClient, id) =>
-      queryClient.setQueryData<KnowledgeSource[]>(keys.knowledgeSources, (sources) =>
+      queryClient.setQueryData<ListedSource[]>(keys.knowledgeSources, (sources) =>
         sources?.filter((s) => s.id !== id),
       ),
   );

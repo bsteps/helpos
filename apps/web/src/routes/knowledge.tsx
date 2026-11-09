@@ -123,9 +123,8 @@ function problem(error: unknown, failed: string, invalid: string): string {
       return "There's already a source with this title.";
     case "managed_in_git":
       return `${failed} It's managed in the workspace's git repo now.`;
-    case "not_found":
-      return `${failed} It was deleted.`;
   }
+  if (error.status === 404) return `${failed} It was deleted.`;
   if (error.status === 403) return `${failed} Your account can't change knowledge sources.`;
   if (error.status === 400) return invalid;
   return `${failed} Try again.`;
@@ -292,42 +291,38 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           </AnimatedBadge>
         </CardAction>
       </CardHeader>
-      {source.url || source.error || reingest.isError || remove.isError || shown === "edit" ? (
-        <CardContent className="flex flex-col gap-3">
-          {source.url ? (
-            link ? (
-              <a href={link} className="break-all text-sm underline" rel="noreferrer noopener">
-                {source.url}
-              </a>
-            ) : (
-              <span className="break-all text-sm">{source.url}</span>
-            )
-          ) : null}
-          {source.error ? (
-            <Alert variant={source.status === "failed" ? "destructive" : "default"}>
-              <AlertIcon />
-              <AlertContent>
-                <AlertDescription>{knowledgeErrorMessage(source.error)}</AlertDescription>
-              </AlertContent>
-            </Alert>
-          ) : null}
-          {reingest.isError || remove.isError ? (
-            <Alert variant="destructive">
-              <AlertIcon />
-              <AlertContent>
-                <AlertDescription>
-                  {reingest.isError
-                    ? problem(reingest.error, "Couldn't read it again.", "Try again.")
-                    : problem(remove.error, "Couldn't delete it.", "Try again.")}
-                </AlertDescription>
-              </AlertContent>
-            </Alert>
-          ) : null}
-          {shown === "edit" ? (
-            <EditSource source={source} onDone={() => switchMode("view")} />
-          ) : null}
-        </CardContent>
-      ) : null}
+      <CardContent className="flex flex-col gap-3 empty:hidden">
+        {source.url ? (
+          link ? (
+            <a href={link} className="break-all text-sm underline" rel="noreferrer noopener">
+              {source.url}
+            </a>
+          ) : (
+            <span className="break-all text-sm">{source.url}</span>
+          )
+        ) : null}
+        {source.error ? (
+          <Alert variant={source.status === "failed" ? "destructive" : "default"}>
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{knowledgeErrorMessage(source.error)}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : null}
+        {reingest.isError || remove.isError ? (
+          <Alert variant="destructive">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>
+                {reingest.isError
+                  ? problem(reingest.error, "Couldn't read it again.", "Try again.")
+                  : problem(remove.error, "Couldn't delete it.", "Try again.")}
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : null}
+        {shown === "edit" ? <EditSource source={source} onDone={() => switchMode("view")} /> : null}
+      </CardContent>
       {canWrite && !inGit && shown === "confirmDelete" ? (
         <CardFooter className="flex-wrap justify-end gap-2">
           <p className="mr-auto text-sm">Delete it? Drafts stop using it.</p>
