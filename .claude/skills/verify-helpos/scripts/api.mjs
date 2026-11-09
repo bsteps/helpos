@@ -125,9 +125,13 @@ try {
 } catch {}
 process.stdout.write(`${res.status}\n${shown}\n`);
 if (res.ok) {
-  const json = text ? JSON.parse(text) : {};
+  let json = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {}
   const post = method.toUpperCase() === "POST";
-  if (json.ticketId) remember({ ticket: json.ticketId });
+  // Only what a POST made or acted on: reading another ticket's draft must not move {ticket}.
+  if (post && json.ticketId) remember({ ticket: json.ticketId });
   if (post && path === "/v1/tokens" && json.token)
     remember({ token: json.token, tokenId: json.id });
   if (post && path === "/v1/knowledge/sources" && json.id) remember({ source: json.id });
