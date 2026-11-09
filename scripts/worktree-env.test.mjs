@@ -7,6 +7,7 @@ import {
   defaults,
   isolatedEnv,
   isolationFor,
+  needsSeed,
   parseEnv,
 } from "./worktree-env.mjs";
 
@@ -114,4 +115,15 @@ test("a worktree refuses when a required database URL is missing", () => {
 
 test("parseEnv takes only the first quoted value before a comment", () => {
   assert.deepEqual(parseEnv('A="a" # c "b"'), { A: "a" });
+});
+
+test("a worktree seeds a database it just created, even when the marker matches", () => {
+  const iso = isolationFor("/wt/a", wt);
+  const marker = `${iso.dbName}\n`;
+  assert.equal(needsSeed({ isolation: iso, created: true, marker }), true);
+  assert.equal(needsSeed({ isolation: iso, created: false, marker }), false);
+  assert.equal(needsSeed({ isolation: iso, created: false, marker: "helpos_wt_other" }), true);
+  assert.equal(needsSeed({ isolation: iso, created: false, marker: undefined }), true);
+  const main = isolationFor("/main", { isWorktree: false });
+  assert.equal(needsSeed({ isolation: main, created: false, marker: undefined }), false);
 });

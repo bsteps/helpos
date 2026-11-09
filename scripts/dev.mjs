@@ -8,7 +8,13 @@ import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { envMessages, isWorktree, linkEnv, mainCheckoutDir } from "./worktree.mjs";
-import { databaseSetupSql, isolatedEnv, isolationFor, parseEnv } from "./worktree-env.mjs";
+import {
+  databaseSetupSql,
+  isolatedEnv,
+  isolationFor,
+  needsSeed,
+  parseEnv,
+} from "./worktree-env.mjs";
 
 // Commands are fixed strings (no user input). They run through the shell so Windows finds
 // `pnpm.cmd`; passing one string avoids Node's unescaped-args warning (DEP0190).
@@ -63,8 +69,9 @@ const childEnv = { ...process.env, ...overrides.env };
 // its bind mounts don't change and Docker doesn't recreate the shared Postgres container.
 const composeFile = worktree ? join(mainCheckoutDir(), "docker-compose.yml") : "docker-compose.yml";
 run(`docker compose -f "${composeFile}" up -d --wait`);
+let created = false;
 if (isolation.isolated) {
-  ensureDatabase(isolation.dbName);
+  created = ensureDatabase(isolation.dbName);
   process.stdout.write(`Worktree database: ${isolation.dbName}\n`);
 }
 run("pnpm --filter @helpos/db migrate", childEnv);
@@ -72,12 +79,10 @@ run("pnpm --filter @helpos/db migrate", childEnv);
 // A fresh worktree gets demo data: an empty database is a bad test. The seed is safe to rerun,
 // so the marker only saves time; delete .helpos/seeded to seed again.
 // It names the database it was written for, so a new database (moved folder, dropped
-// database) is seeded again.
+// database) is seeded again, and so is any database this run had to create.
 const seeded = ".helpos/seeded";
-if (
-  isolation.isolated &&
-  (!existsSync(seeded) || readFileSync(seeded, "utf8").trim() !== isolation.dbName)
-) {
+const marker = existsSync(seeded) ? readFileSync(seeded, "utf8") : undefined;
+if (needsSeed({ isolation, created, marker })) {
   run("pnpm db:seed", childEnv);
   mkdirSync(".helpos", { recursive: true });
   writeFileSync(seeded, `${isolation.dbName}\n`);
@@ -117,7 +122,7 @@ function ensureDatabase(name) {
     );
   const exists = psql(["-tAc", `SELECT 1 FROM pg_database WHERE datname = '${name}'`]);
   if (exists.status !== 0) fail(`checking for database ${name}`, exists.stderr);
-  if (exists.stdout.trim() === "1") return;
+  if (exists.stdout.trim() === "1") return false;
   const create = psql(["-c", `CREATE DATABASE ${name} OWNER helpos_owner`]);
   if (create.status !== 0) fail(`creating database ${name}`, create.stderr);
   const setup = psql(["-v", "ON_ERROR_STOP=1", "-d", name], databaseSetupSql());
@@ -127,6 +132,7 @@ function ensureDatabase(name) {
     fail(`setting up database ${name}`, setup.stderr);
   }
   process.stdout.write(`Created database ${name}\n`);
+  return true;
 }
 
 function fail(what, detail) {

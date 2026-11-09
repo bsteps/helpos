@@ -72,6 +72,15 @@ export function isolatedEnv(env, isolation) {
   return { ok: true, env: out };
 }
 
+/**
+ * Whether `pnpm dev` should seed: only in a worktree, when this run created its database (say
+ * after `docker compose down -v`) or the seeded marker doesn't name this database.
+ */
+export function needsSeed({ isolation, created, marker }) {
+  if (!isolation.isolated) return false;
+  return created || marker?.trim() !== isolation.dbName;
+}
+
 // Node's own .env parser, so values read here match what `--env-file` gives the children.
 export { parseEnv } from "node:util";
 
