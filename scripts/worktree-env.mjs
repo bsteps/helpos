@@ -30,6 +30,16 @@ export function isolationFor(path, { isWorktree, platform = process.platform }) 
 
 const localHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
+/** Whether a Postgres URL points at this machine (not a remote host, nor a `?host=` override). */
+export function isLocalDatabaseUrl(raw) {
+  try {
+    const url = new URL(raw);
+    return localHosts.has(url.hostname.toLowerCase()) && !url.searchParams.has("host");
+  } catch {
+    return false;
+  }
+}
+
 const dbVars = [
   "HELPOS_DATABASE_URL",
   "HELPOS_DATABASE_OWNER_URL",
@@ -60,7 +70,7 @@ export function isolatedEnv(env, isolation) {
     } catch {
       return { ok: false, reason: `${name} is not a valid URL` };
     }
-    if (!localHosts.has(url.hostname.toLowerCase()) || url.searchParams.has("host")) {
+    if (!isLocalDatabaseUrl(raw)) {
       return { ok: false, reason: `${name} points at a non-local database` };
     }
     url.pathname = `/${isolation.dbName}`;

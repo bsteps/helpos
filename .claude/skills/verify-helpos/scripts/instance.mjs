@@ -19,7 +19,7 @@ export function launchedPids() {
 }
 
 const { isWorktree } = await import(pathToFileURL(join(repoRoot, "scripts/worktree.mjs")).href);
-const { isolationFor, isolatedEnv, parseEnv } = await import(
+const { isLocalDatabaseUrl, isolationFor, isolatedEnv, parseEnv } = await import(
   pathToFileURL(join(repoRoot, "scripts/worktree-env.mjs")).href
 );
 
@@ -54,6 +54,14 @@ export function instance() {
   const config = { ...dotenv, ...process.env };
   const overrides = isolatedEnv(config, isolation);
   if (!overrides.ok) throw new Error(`Refusing to drive this checkout: ${overrides.reason}`);
+  // In a worktree, isolatedEnv() checked these. The main checkout uses .env as written, and the
+  // helpers set a known demo password and seed tokens, so it must be a local database too.
+  const remote = Object.entries(config).find(
+    ([name, value]) => /^HELPOS_DATABASE_\w*URL$/.test(name) && value && !isLocalDatabaseUrl(value),
+  );
+  if (remote) {
+    throw new Error(`Refusing to drive this checkout: ${remote[0]} is not a local database`);
+  }
   return {
     repoRoot,
     dbName: isolation.dbName,
