@@ -1,8 +1,21 @@
 import type { KnowledgeSource } from "@/api/client.ts";
 
-/** A source waiting for the daily AI budget can wait hours, so it isn't worth watching. */
-export function stillReading(sources: readonly KnowledgeSource[]): boolean {
-  return sources.some((s) => s.status === "pending" && s.error !== "daily_budget_reached");
+const fastPollMs = 2_000;
+const slowPollMs = 30_000;
+const slowAfterMs = 2 * 60_000;
+
+/**
+ * How soon to look again while a source is being read: often at first, then rarely, so a
+ * source stuck in `pending` doesn't keep every open tab asking every 2 seconds. A source
+ * waiting for the daily AI budget can wait hours, so it isn't watched at all.
+ */
+export function pollDelay(sources: readonly KnowledgeSource[], now: number): number | false {
+  const reading = sources.filter(
+    (s) => s.status === "pending" && s.error !== "daily_budget_reached",
+  );
+  if (reading.length === 0) return false;
+  const newest = Math.max(...reading.map((s) => Date.parse(s.updatedAt)));
+  return now - newest < slowAfterMs ? fastPollMs : slowPollMs;
 }
 
 const aiUnavailable = "The AI service couldn't process it. It tries again by itself.";

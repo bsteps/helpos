@@ -73,6 +73,9 @@ export function KnowledgePage() {
               disabled={sources.isFetching}
               onClick={() => void sources.refetch()}
             >
+              {sources.isFetching ? (
+                <Loader size={16} label="Loading" className="text-current" />
+              ) : null}
               Try again
             </Button>
           </AlertAction>
@@ -333,6 +336,13 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           </Button>
         </CardFooter>
       ) : null}
+      {canWrite && inGit ? (
+        <CardFooter>
+          <p className="text-muted-foreground text-sm">
+            To change it, edit its file in the workspace's git repo.
+          </p>
+        </CardFooter>
+      ) : null}
       {canWrite && !inGit && mode === "view" ? (
         <CardFooter className="justify-end gap-2">
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("edit")}>
@@ -370,7 +380,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   const [content, setContent] = useState("");
 
   const body = {
-    ...(title.trim() !== source.title ? { title: title.trim() } : {}),
+    ...(title.trim() !== source.title.trim() ? { title: title.trim() } : {}),
     ...(visibility !== source.visibility ? { visibility } : {}),
     ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
   };

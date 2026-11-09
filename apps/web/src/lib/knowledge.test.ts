@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { KnowledgeSource } from "@/api/client.ts";
-import { knowledgeErrorMessage, stillReading } from "./knowledge.ts";
+import { knowledgeErrorMessage, pollDelay } from "./knowledge.ts";
 
-function source(status: KnowledgeSource["status"], error: string | null = null): KnowledgeSource {
+const now = Date.parse("2026-11-09T12:00:00Z");
+const secondsAgo = (s: number) => new Date(now - s * 1000).toISOString();
+
+function source(
+  status: KnowledgeSource["status"],
+  error: string | null = null,
+  updatedAt = secondsAgo(5),
+): KnowledgeSource {
   return {
     id: crypto.randomUUID(),
     slug: "s",
@@ -17,22 +24,26 @@ function source(status: KnowledgeSource["status"], error: string | null = null):
     sourcePath: null,
     embeddingModel: null,
     createdAt: "2026-11-09T00:00:00Z",
-    updatedAt: "2026-11-09T00:00:00Z",
+    updatedAt,
     ingestedAt: null,
   };
 }
 
-describe("stillReading", () => {
-  it("is true while a source is being read", () => {
-    expect(stillReading([source("ready"), source("pending")])).toBe(true);
+describe("pollDelay", () => {
+  it("looks again every 2 seconds while a source has just started being read", () => {
+    expect(pollDelay([source("ready"), source("pending")], now)).toBe(2_000);
   });
 
-  it("is false once every source is ready or failed", () => {
-    expect(stillReading([source("ready"), source("failed", "no_text")])).toBe(false);
+  it("slows to every 30 seconds once a source has been pending for minutes", () => {
+    expect(pollDelay([source("pending", null, secondsAgo(300))], now)).toBe(30_000);
   });
 
-  it("ignores a source waiting hours for the daily AI budget", () => {
-    expect(stillReading([source("pending", "daily_budget_reached")])).toBe(false);
+  it("stops once every source is ready or failed", () => {
+    expect(pollDelay([source("ready"), source("failed", "no_text")], now)).toBe(false);
+  });
+
+  it("stops for a source waiting hours for the daily AI budget", () => {
+    expect(pollDelay([source("pending", "daily_budget_reached")], now)).toBe(false);
   });
 });
 

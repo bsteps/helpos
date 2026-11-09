@@ -141,3 +141,37 @@ test("when the sources fail to load, Try again loads them", async ({ page }) => 
   await expect(page.getByText("Couldn't load the knowledge sources.")).toBeHidden();
   await expect(page.getByRole("list", { name: "Knowledge sources" })).toBeVisible();
 });
+
+test("a source managed in git is read-only and says where to change it", async ({ page }) => {
+  const title = uniqueSubject("Git note");
+  await signIn(page);
+  await page.route("**/v1/knowledge/sources", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const { sources } = (await response.json()) as { sources: unknown[] };
+    const fromGit = {
+      id: crypto.randomUUID(),
+      slug: "git-note",
+      kind: "markdown",
+      title,
+      url: null,
+      visibility: "public",
+      status: "ready",
+      error: null,
+      chunkCount: 1,
+      managedBy: "git",
+      sourcePath: "knowledge/git-note.md",
+      embeddingModel: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ingestedAt: new Date().toISOString(),
+    };
+    await route.fulfill({ response, json: { sources: [...sources, fromGit] } });
+  });
+  await page.getByRole("link", { name: "Knowledge" }).click();
+
+  const card = page.getByTestId("knowledge-source").filter({ hasText: title });
+  await expect(card).toContainText("knowledge/git-note.md");
+  await expect(card).toContainText("edit its file in the workspace's git repo");
+  await expect(card.getByRole("button")).toHaveCount(0);
+});
