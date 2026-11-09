@@ -36,7 +36,9 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
     `Subject: ${sent}`,
   ].join("\r\n");
   let bodyPart = original.slice(split.index + split[0].length);
-  const text = body ?? (subject && fixture === "plain" ? subject : undefined);
+  // "plain" and "plain.eml" name the same default sample.
+  const isPlain = fixture.replace(/\.eml$/, "") === "plain";
+  const text = body ?? (subject && isPlain ? subject : undefined);
   if (text !== undefined) {
     if (!/^Content-Type:\s*text\/plain/im.test(headers) || /multipart/i.test(headers)) {
       throw new Error(`--body works only on a single-part text/plain sample, not "${fixture}"`);

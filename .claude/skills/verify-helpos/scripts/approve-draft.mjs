@@ -66,7 +66,9 @@ async function drafts() {
 
 let pending;
 for (let i = 0; i < 60 && !pending; i++) {
-  pending = (await drafts()).find((d) => d.status === "pending");
+  // The customer reply first, the same draft api.mjs's {draft} picks.
+  const waiting = (await drafts()).filter((d) => d.status === "pending");
+  pending = waiting.find((d) => d.kind === "reply") ?? waiting[0];
   if (pending) break;
   const why = await whyNoDraft(inst, ticketId, reader);
   if (why) quit(1, `No draft to approve: ${why}.`);

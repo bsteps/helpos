@@ -15,6 +15,7 @@ import {
   requireRunning,
   seed,
   seedToken,
+  whyNoDraft,
 } from "./instance.mjs";
 
 const via = process.argv[process.argv.indexOf("--via") + 1];
@@ -58,7 +59,17 @@ async function api(path, token = reader, init = {}) {
       ...init.headers,
     },
   });
-  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+  return { status: res.status, body: res.status === 204 ? null : await jsonOf(res, path) };
+}
+
+/** The response's JSON; anything else (a proxy's error page) fails the journey with its start. */
+async function jsonOf(res, what) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    fail(`${what} answered ${res.status}, not JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 const subject = `Verify ${via} ${stamp}`;
@@ -77,7 +88,7 @@ const inbound = await fetch(`${inst.apiUrl}/v1/inbound/email`, {
   headers: { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" },
   body: raw,
 });
-const delivered = await inbound.json();
+const delivered = await jsonOf(inbound, "POST /v1/inbound/email");
 if (inbound.status !== 201) fail(`inbound email → ${inbound.status} ${JSON.stringify(delivered)}`);
 record("customer email delivered to POST /v1/inbound/email", { status: 201, ...delivered });
 
@@ -91,7 +102,12 @@ record("ticket exists with the email's subject", {
 
 const draft = await until("the AI draft", 120, async () => {
   const { body } = await api(`/v1/tickets/${delivered.ticketId}/drafts`);
-  return body.drafts?.find((d) => d.status === "pending" && d.kind === "reply");
+  const found = body.drafts?.find((d) => d.status === "pending" && d.kind === "reply");
+  if (found) return found;
+  // Say at once when no draft can come (the AI budget is spent), instead of timing out.
+  const why = await whyNoDraft(inst, delivered.ticketId, reader);
+  if (why) fail(`no AI draft will come: ${why}`);
+  return undefined;
 });
 record("worker wrote a pending AI draft", {
   draftId: draft.id,
@@ -158,10 +174,13 @@ const mail = await until("Mailpit to catch the reply", 30, async () => {
   const res = await fetch(
     `${inst.mailpitUrl}/api/v1/search?query=${encodeURIComponent(`subject:"Re: ${subject}"`)}`,
   );
-  const { messages } = await res.json();
+  const { messages } = await jsonOf(res, "Mailpit search");
   return messages?.[0];
 });
-const detail = await (await fetch(`${inst.mailpitUrl}/api/v1/message/${mail.ID}`)).json();
+const detail = await jsonOf(
+  await fetch(`${inst.mailpitUrl}/api/v1/message/${mail.ID}`),
+  "Mailpit message",
+);
 writeFileSync(join(dir, "mail.json"), `${JSON.stringify(detail, null, 2)}\n`);
 const to = detail.To.map((t) => t.Address.toLowerCase());
 // Whoever the workspace names now, not the seed's default: a hand test may have changed it.
