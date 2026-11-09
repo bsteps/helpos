@@ -230,7 +230,7 @@ export function tidyAuthored(text: string): string {
  * For text pulled out of HTML, where spacing is the page's layout, not content: trims each
  * line, collapses runs of spaces, and keeps at most one blank line between paragraphs.
  */
-export function tidy(text: string): string {
+function tidy(text: string): string {
   return text
     .replaceAll(nul, "")
     .replaceAll(/\r\n?/g, "\n")

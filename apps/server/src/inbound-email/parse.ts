@@ -23,7 +23,7 @@ export interface ParsedEmail {
   automated: AutomatedReason | null;
 }
 
-export interface ParsedAttachment {
+interface ParsedAttachment {
   filename: string | null;
   contentType: string;
   contentId: string | null;

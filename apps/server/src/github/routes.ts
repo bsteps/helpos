@@ -313,7 +313,7 @@ function readable(box: SecretBox, sealed: string, tenantId: string): boolean {
   }
 }
 
-export function webhookUrl(publicUrl: string, tenantId: string): string {
+function webhookUrl(publicUrl: string, tenantId: string): string {
   // Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`).
   const base = publicUrl.endsWith("/") ? publicUrl : `${publicUrl}/`;
   const url = new URL(webhookPath.slice(1), base);

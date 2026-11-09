@@ -32,7 +32,7 @@ export interface IngestWorkerDeps {
   fetchRetryDelaysMs?: readonly number[] | undefined;
 }
 
-export const ingestActor = { type: "system", id: "ingest-source" } as const;
+const ingestActor = { type: "system", id: "ingest-source" } as const;
 
 /** A help-center page is far smaller; anything bigger is not an article. */
 export const maxPageBytes = 2 * 1024 * 1024;
@@ -55,7 +55,7 @@ const temporaryErrors = new Set([
   "http_503",
   "http_504",
 ]);
-export const isTemporary = (error: string) => temporaryErrors.has(error);
+const isTemporary = (error: string) => temporaryErrors.has(error);
 const defaultFetchRetryDelaysMs = [1_000, 3_000];
 
 /**

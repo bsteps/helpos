@@ -1,7 +1,7 @@
 import { type AuthStore, type Database, isUniqueViolation, schema, uuidv7 } from "@helpos/db";
 import { z } from "zod";
 
-export const initWorkspaceInput = z.object({
+const initWorkspaceInput = z.object({
   workspace: z.string().trim().min(1).max(200),
   mailbox: z.email().trim().toLowerCase(),
   owner: z.email().trim().toLowerCase(),

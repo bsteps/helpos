@@ -2,7 +2,7 @@ import type { Database, SessionAuth } from "@helpos/db";
 import { type Authenticate, type Scope, scopes } from "./principal.ts";
 
 /** What a signed-in human may do. Only owners administer the workspace. */
-export function scopesForRole(role: "owner" | "member"): ReadonlySet<Scope> {
+function scopesForRole(role: "owner" | "member"): ReadonlySet<Scope> {
   return new Set(role === "owner" ? scopes : scopes.filter((s) => s !== "workspace:admin"));
 }
 

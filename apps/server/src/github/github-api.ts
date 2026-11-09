@@ -11,7 +11,7 @@ import { Octokit } from "@octokit/core";
  * labels, assignees or milestones through here, so neither the AI nor a caller can add them:
  * what the customer wrote is data, never instructions.
  */
-export interface GithubApi {
+interface GithubApi {
   checkRepo(repo: RepoName): Promise<GithubResult<{ private: boolean }>>;
   /**
    * `marker` goes at the end of the body as an HTML comment, which GitHub doesn't show. It is
@@ -38,7 +38,7 @@ export interface GithubApi {
   issueState(repo: RepoName, number: number): Promise<GithubResult<IssueState>>;
 }
 
-export type IssueState = {
+type IssueState = {
   state: "open" | "closed";
   stateReason: string | null;
   /** GitHub's `updated_at`: orders this reading against webhook deliveries. */
@@ -50,7 +50,7 @@ export type IssueState = {
  * not the brand: it is stored in issues on GitHub, and a renamed product must still recognise
  * the issues it opened before.
  */
-export function markerComment(marker: string): string {
+function markerComment(marker: string): string {
   return `<!-- helpdesk-claim:${marker} -->`;
 }
 
@@ -71,7 +71,7 @@ export type GithubFailure =
  * `uncertain`: GitHub never gave an answer (a timeout, a dropped connection) or failed on its
  * side (5xx), so a write may have happened. A clear refusal (4xx) is never uncertain.
  */
-export type GithubResult<T> =
+type GithubResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: GithubFailure; uncertain: boolean };
 

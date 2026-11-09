@@ -28,7 +28,7 @@ export interface GithubWebhookDeps {
 
 export const webhookPath = "/v1/integrations/github/webhook";
 /** A webhook delivery is a few KB; GitHub caps them at 25 MB. Nothing we read is near this. */
-export const maxWebhookBytes = 1024 * 1024;
+const maxWebhookBytes = 1024 * 1024;
 
 /**
  * A cached secret older than this is read again when a signature doesn't match it: the secret

@@ -15,7 +15,7 @@ export interface SecretBox {
   open(sealed: string, binding: SecretBinding): string;
 }
 
-export type SecretBinding = { tenantId: string; purpose: "github-token" | "github-webhook-secret" };
+type SecretBinding = { tenantId: string; purpose: "github-token" | "github-webhook-secret" };
 
 export class SecretBoxError extends Error {
   override readonly name = "SecretBoxError";
