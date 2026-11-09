@@ -64,8 +64,9 @@ child.on("error", (error) => {
 child.on("exit", (code) => {
   running = false;
   process.exitCode = code ?? 1;
-  // pnpm dev is gone, and its processes with it: a record would only name reused pids later.
-  rmSync(launchRecord, { force: true });
+  // On Windows the server and Vite can outlive pnpm dev: the record stays while any of them
+  // still holds a port, so app:stop can still stop them. Only once both are free is it stale.
+  if (ports.every((port) => listeners(port).length === 0)) rmSync(launchRecord, { force: true });
 });
 
 /** Whether something answers HTTP on the port: a fetch, far cheaper than listing processes. */

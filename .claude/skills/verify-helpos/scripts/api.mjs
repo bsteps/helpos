@@ -55,12 +55,15 @@ if (bodyFile?.endsWith(".eml") && argv[0] !== "inbound") {
     "An .eml body is an email: send it as inbound (api.mjs inbound POST v1/inbound/email @file).",
   );
 }
-const fileText =
-  bodyFile && !bodyFile.endsWith(".eml") ? readFileSync(bodyFile, "utf8") : undefined;
+// For inbound the file is an email, whatever its name: sent as its bytes, with no placeholders.
+const fileText = bodyFile && argv[0] !== "inbound" ? readFileSync(bodyFile, "utf8") : undefined;
 const placeholders = `${argv.join(" ")} ${fileText ?? ""}`.match(placeholder) ?? [];
 // A saved value is an ID or a token; anything else in it (a hand-edited last.json) is refused,
 // since it would be pasted into a path or JSON as it is.
-for (const [key, value] of Object.entries(last)) {
+for (const key of new Set(placeholders.map((p) => p.slice(1, -1)))) {
+  const value = last[key];
+  // Unknown yet is reported by fill(), with how to create it; {draft} comes from the ticket.
+  if (value === undefined || key === "draft" || key === "draftBody") continue;
   if (typeof value !== "string" || !/^[\w-]+$/.test(value)) {
     quit(
       2,

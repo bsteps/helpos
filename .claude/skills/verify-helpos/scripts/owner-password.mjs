@@ -33,10 +33,9 @@ const init = runCommand(
   inst,
   { encoding: "utf8" },
 );
-if (init.status !== 0) {
-  process.stderr.write(`helpos:init failed:\n${init.stderr}${init.stdout}`);
-  quit(1);
-}
+// A failed init (the workspace may already exist) falls through to the sign-in check below,
+// which says whether the owner already has the demo password; its output is shown if not.
+const initFailed = init.status !== 0 ? `helpos:init failed:\n${init.stderr}${init.stdout}` : "";
 const link = /https?:\/\/\S+#token=\S+/.exec(init.stdout)?.[0];
 if (link) {
   const token = new URLSearchParams(new URL(link).hash.slice(1)).get("token");
@@ -49,6 +48,7 @@ if (link) {
 
 const signIn = await post("/v1/auth/sign-in", { email: owner, password: ownerPassword });
 if (signIn.status !== 204) {
+  if (initFailed) quit(1, initFailed);
   process.stderr.write(
     `${owner} has a password, but not the demo one (${signIn.status}). ` +
       "Someone set it by hand; reset the worktree database or sign in with theirs.\n",

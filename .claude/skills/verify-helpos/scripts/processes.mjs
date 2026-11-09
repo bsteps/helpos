@@ -10,24 +10,34 @@ const webDir = join(resolve(dirname(fileURLToPath(import.meta.url)), "../../../.
 const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
 // The file `pnpm dev` runs for the API, read from apps/server's own dev script, so a change
 // there is followed here instead of making the real server look like a stranger.
-const serverDev = JSON.parse(readFileSync(join(webDir, "..", "server", "package.json"), "utf8"))
-  .scripts.dev;
-const serverEntry = /\S+\.[cm]?[jt]s(?=\s|$)/.exec(serverDev)?.[0] ?? "src/main.ts";
-const serverEntryPattern = new RegExp(
-  serverEntry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]"),
-);
+function serverDevScript() {
+  try {
+    const dev = JSON.parse(readFileSync(join(webDir, "..", "server", "package.json"), "utf8"))
+      .scripts?.dev;
+    if (typeof dev === "string") return dev;
+  } catch {}
+  return "node --watch --env-file-if-exists=../../.env src/main.ts";
+}
+const serverDev = serverDevScript();
+const pathPattern = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]");
+// The entry file and the --env-file flag together: another project's `node src/main.ts` rarely
+// also loads ../../.env, so a match on both is this repo's server.
+const serverMarks = [
+  /\S+\.[cm]?[jt]s(?=\s|$)/.exec(serverDev)?.[0] ?? "src/main.ts",
+  ...(serverDev.match(/--env-file\S*/g) ?? []),
+].map((mark) => new RegExp(pathPattern(mark)));
 
 /**
- * Whether a listening process is this checkout's HelpOS: the API (`src/main.ts`), or this
- * checkout's own Vite. Another project's Vite is not.
+ * Whether a listening process is this checkout's HelpOS: the API (its dev script's entry file and
+ * --env-file flag), or this checkout's own Vite. Another project's Vite is not.
  *
- * The API's command line carries no path, and neither Windows nor ps shows a process's working
- * directory, so another project's `src/main.ts` on the same port would pass. That only labels it
- * in doctor, whose health and proxy checks then fail on it: launch refuses any held port, and
- * cleanup stops only pids that launch recorded below its own child.
+ * The API's command line carries no absolute path, and neither Windows nor ps shows a process's
+ * working directory, so a stranger with the same entry and flag would still pass. That only
+ * labels it in doctor, whose health and proxy checks then fail on it: launch refuses any held
+ * port, and cleanup stops only pids that launch recorded below its own child.
  */
 function isHelposListener(cmd) {
-  if (serverEntryPattern.test(cmd)) return true;
+  if (serverMarks.every((mark) => mark.test(cmd))) return true;
   return /[\\/]vite[\\/]bin[\\/]vite\.js/.test(cmd) && sameCase(cmd).includes(sameCase(webDir));
 }
 

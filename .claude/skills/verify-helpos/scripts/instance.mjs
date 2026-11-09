@@ -37,8 +37,10 @@ const { isLocalDatabaseUrl, isolationFor, isolatedEnv, parseEnv } = await import
 // a server that accepts a connection and never answers must fail the step, not hang it.
 const plainFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
+  // A caller with its own signal (a 2s probe) keeps it, and its own TimeoutError.
+  if (init.signal) return plainFetch(url, init);
   try {
-    return await plainFetch(url, { signal: AbortSignal.timeout(30_000), ...init });
+    return await plainFetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
   } catch (error) {
     if (error?.name !== "TimeoutError") throw error;
     throw new Error(`${init.method ?? "GET"} ${url} didn't answer within 30 seconds`);
@@ -115,7 +117,8 @@ export function instance() {
   }
   return {
     repoRoot,
-    dbName: isolation.dbName,
+    // A worktree's own database; in the main checkout, whichever one .env or the shell names.
+    dbName: isolation.dbName ?? new URL(config.HELPOS_DATABASE_URL).pathname.slice(1),
     apiUrl: `http://localhost:${isolation.serverPort}`,
     webUrl: `http://localhost:${isolation.webPort}`,
     mailpitUrl: "http://localhost:8025",
