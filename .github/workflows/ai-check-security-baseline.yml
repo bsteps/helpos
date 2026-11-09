@@ -15,8 +15,9 @@ on:
       # After the exclusion: for agents, Markdown is instructions, so these always count.
       - ".claude/**"
       - ".github/**/*.md"
-      - "AGENTS.md"
+      - "**/AGENTS.md"
       - "**/CLAUDE.md"
+      - "**/CLAUDE.local.md"
 
 permissions: {}
 

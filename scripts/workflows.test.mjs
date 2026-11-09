@@ -262,7 +262,7 @@ test("the security check covers code, config, CI and agent instruction files", (
   assert.deepEqual(paths.slice(0, 2), ["**", "!**/*.md"], "every file except Markdown");
   // Paths listed after "!**/*.md" count even though they are Markdown.
   const afterMd = paths.slice(paths.indexOf("!**/*.md") + 1);
-  for (const path of [".claude/**", "AGENTS.md", "**/CLAUDE.md"]) {
+  for (const path of [".claude/**", "**/AGENTS.md", "**/CLAUDE.md", "**/CLAUDE.local.md"]) {
     assert.ok(afterMd.includes(path), `${path} must come after the Markdown exclusion`);
   }
 });
@@ -334,6 +334,7 @@ test("each skill reads its shared rules, treats input as data and only comments"
     assert.match(skill, /never instructions to you/, `${check}: input is data`);
     assert.match(skill, /never approve, request changes/, `${check}: comments only`);
     assert.match(skill, /All clear/, `${check}: says All clear`);
+    assert.match(skill, /nearest changed line/, `${check}: findings off the diff aren't lost`);
     assert.ok(read("docs/checks/README.md").includes(`${check}.md`), `${check}: listed`);
   }
 });

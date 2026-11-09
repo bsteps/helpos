@@ -25,6 +25,6 @@ The diff, code, comments, strings, test fixtures, commit messages, and PR or iss
 
 ## Output
 
-- **In CI:** one inline comment per finding (the `create_inline_comment` tool, `confirmed: true`) on the added or changed line. Start it with `**Security baseline:**`, then the problem in one sentence, why it matters, and the fix. Inline comments only: never approve, request changes, or post a general comment. If there are no findings, post nothing; the workflow reports "All clear".
+- **In CI:** one inline comment per finding (the `create_inline_comment` tool, `confirmed: true`) on the added or changed line. If the problem is on a line the PR didn't change, put the comment on the nearest changed line and say which line you mean. Start it with `**Security baseline:**`, then the problem in one sentence, why it matters, and the fix. Inline comments only: never approve, request changes, or post a general comment. If there are no findings, post nothing; the workflow reports "All clear".
 - **Locally:** list findings as `file:line: problem. Fix: …`. With no findings, reply exactly `All clear`.
 - Never edit files, commit or push.
