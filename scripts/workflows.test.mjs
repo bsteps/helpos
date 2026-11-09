@@ -370,6 +370,12 @@ test("@claude runs only for maintainers, skips forks and commits only through th
   );
   // The branch's own instruction files would load, so PRs that change them are skipped.
   assert.ok(claude.includes('gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha"'), "vs main");
+  // A fork's commit isn't in this repo: only compare when the fork check passed.
+  assert.ok(
+    claude.indexOf('if [ "$run" = "true" ]; then') > claude.indexOf("comes from a fork") &&
+      claude.indexOf('if [ "$run" = "true" ]; then') < claude.indexOf("repos/$REPO/compare/"),
+    "no compare call for fork PRs",
+  );
   assert.match(
     claude,
     /\.files \| length' <<<"\$compare"\)" -ge 300 \]; then\n[^\n]*\n\s+run=false/,

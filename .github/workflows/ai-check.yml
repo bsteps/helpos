@@ -204,8 +204,9 @@ jobs:
           else
             status="All clear on \`$short\`."
           fi
-          # A long diff may not have been read to the end within the turn limit. Say so.
-          if [ "$RUN_STATE" = "true" ] && [ "$OUTCOME" = "success" ] && [ "${DIFF_LINES:-0}" -gt 3000 ]; then
+          # A diff longer than one Read (2,000 lines) may not have been read to the end within the
+          # turn limit. Say so.
+          if [ "$RUN_STATE" = "true" ] && [ "$OUTCOME" = "success" ] && [ "${DIFF_LINES:-0}" -gt 2000 ]; then
             status="$status The diff has $DIFF_LINES lines, so the review may not cover all of it."
           fi
           body=$(printf '%s\n**%s:** %s' "$marker" "$TITLE" "$status")

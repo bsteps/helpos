@@ -72,14 +72,17 @@ jobs:
             # on main. Compare with the default branch, not the PR's base, so a PR stacked on
             # another branch is covered too. The compare API lists at most 300 files: at that
             # size, fail closed.
-            compare=$(gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha")
-            files=$(jq -r '.files[].filename' <<<"$compare")
-            if [ "$(jq '.files | length' <<<"$compare")" -ge 300 ]; then
-              echo "::notice::PR #$NUMBER is too big to check for agent instruction changes. @claude doesn't run on it."
-              run=false
-            elif grep -qE '(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*|\.(mcp|claude)\.json)$' <<<"$files"; then
-              echo "::notice::PR #$NUMBER changes agent instruction files. @claude doesn't run on it until they're on main."
-              run=false
+            # (Only for same-repo PRs: a fork's commit isn't in this repo, so the compare would fail.)
+            if [ "$run" = "true" ]; then
+              compare=$(gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha")
+              files=$(jq -r '.files[].filename' <<<"$compare")
+              if [ "$(jq '.files | length' <<<"$compare")" -ge 300 ]; then
+                echo "::notice::PR #$NUMBER is too big to check for agent instruction changes. @claude doesn't run on it."
+                run=false
+              elif grep -qE '(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*|\.(mcp|claude)\.json)$' <<<"$files"; then
+                echo "::notice::PR #$NUMBER changes agent instruction files. @claude doesn't run on it until they're on main."
+                run=false
+              fi
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
