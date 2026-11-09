@@ -191,7 +191,7 @@ async function testWorkspace(name: string, slug: string) {
   const mailbox = `support@${slug}.test`;
   const password = `${name} demo password`;
   const created = await initWorkspace({ db, auth }, { workspace: name, mailbox, owner });
-  if (!created.ok) throw new Error(`e2e: ${name} workspace setup failed`);
+  if (!created.ok) throw new Error(`e2e: ${name} workspace setup failed: ${created.reason}`);
   await setOwnerPassword(owner, password);
   return { tenantId: created.tenantId, owner, mailbox, password };
 }
