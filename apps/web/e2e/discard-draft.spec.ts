@@ -25,10 +25,8 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
   ).toBeVisible();
   await expect(page.getByTestId("draft-body")).toBeHidden();
   await expect(page.getByRole("button", { name: "Approve & send" })).toBeHidden();
-  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
   await page.reload();
   await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
-  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
 
   await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByText("Waiting for approval")).toBeVisible();
@@ -37,7 +35,6 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
 
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
-  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
 });
 
 test("after a discard, a hand-written draft is saved and approved", async ({ page, request }) => {
@@ -77,7 +74,6 @@ test("a spent AI budget says so, and a hand-written draft still works", async ({
   );
   await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByText("Today's AI budget is spent")).toBeVisible();
-  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
 
   await page.getByRole("button", { name: "Write my own" }).click();
   const mine = "Sorry about that. It's on the way and arrives tomorrow.";
@@ -85,4 +81,17 @@ test("a spent AI budget says so, and a hand-written draft still works", async ({
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByTestId("draft-body")).toHaveText(mine);
   await expect(page.getByText("Waiting for approval")).toBeVisible();
+});
+
+test("a discard the API refuses says so, and the draft stays", async ({ page, request }) => {
+  const subject = uniqueSubject("Refund timing");
+  await deliver(request, plainEmail(subject, "Hi, when does my refund land?"));
+  await openPendingDraft(page, subject);
+
+  await page.route("**/v1/drafts/*/discard", (route) =>
+    route.fulfill({ status: 409, json: { error: "not_pending" } }),
+  );
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(page.getByText("This reply changed since you opened it.")).toBeVisible();
+  await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
 });

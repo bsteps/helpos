@@ -2,17 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft, CircleCheck } from "lucide-react";
 import { useState } from "react";
-import { ApiError, type Draft, type Message, type TicketDetail } from "@/api/client.ts";
+import { ApiError, type Draft, type Message } from "@/api/client.ts";
 import {
   draftsQuery,
   ticketQuery,
   useApproveDraft,
   useCloseTicket,
+  useCreateDraft,
   useDiscardDraft,
   useEditDraft,
-  useRegenerateDraft,
   useRetryDraft,
-  useWriteDraft,
 } from "@/api/queries.ts";
 import { EmailFrame } from "@/components/email-frame.tsx";
 import { Textarea } from "@/components/textarea.tsx";
@@ -36,59 +35,33 @@ import {
 } from "@/components/ui/card.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
+import {
+  type Ask,
+  type DraftView,
+  draftView,
+  liveFixNotice,
+  newDraftError,
+  newestReply,
+  waitingOn,
+} from "./draft-view.ts";
 import { GithubIssuePanel } from "./ticket-github.tsx";
 
 const isConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
 
-function newestDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | undefined {
-  return drafts.filter((d) => d.kind === kind).at(-1);
-}
-
-/**
- * The draft of a kind that matters now: the newest one, unless it was thrown away. A reply and a
- * "fixed" notice are separate: one doesn't hide or replace the other.
- */
-function liveDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | undefined {
-  const newest = newestDraft(drafts, kind);
-  return newest?.status === "discarded" ? undefined : newest;
-}
-
-/** A new AI draft was asked for while this reply was the newest (`null`: there was none). */
-type Asked = { replacing: string | null } | undefined;
-
-type DraftView =
-  | { kind: "none" }
-  | { kind: "draft"; draft: Draft }
-  | { kind: "writing" }
-  | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" };
-
-function draftView(ticket: TicketDetail | undefined, drafts: Draft[], asked: Asked): DraftView {
-  const newest = newestDraft(drafts);
-  const live = liveDraft(drafts);
-  if (live) return { kind: "draft", draft: live };
-  if (ticket?.status !== "open" || ticket.automated) return { kind: "none" };
-  if (asked && asked.replacing === (newest?.id ?? null)) return { kind: "writing" };
-  if (newest) return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
-  if (ticket.aiPausedReason) return { kind: "choose", after: "ai_paused" };
-  return { kind: "writing" };
-}
-
-/** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
-function waitingOn(ticket: TicketDetail | undefined, asked: Asked) {
-  return (drafts: Draft[]): boolean =>
-    // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
-    drafts.some((d) => d.status === "approved") ||
-    draftView(ticket, drafts, asked).kind === "writing";
-}
-
 export function TicketPage() {
   const { id } = useParams({ from: "/signed-in/tickets/$id" });
+  // Keyed, so a reply being written on one ticket doesn't follow you to the next.
+  return <Ticket key={id} id={id} />;
+}
+
+function Ticket({ id }: { id: string }) {
   const ticket = useQuery(ticketQuery(id));
-  // Up here, not in the card that asks: whether a new draft was asked for decides the polling.
-  const redraft = useRegenerateDraft(id);
-  const [replacing, setReplacing] = useState<string | null>(null);
-  const asked: Asked = redraft.isSuccess ? { replacing } : undefined;
-  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, asked)));
+  // Up here, not in the cards: whether a new draft was asked for decides the polling, and a
+  // reply being written must survive a draft arriving meanwhile.
+  const redraft = useCreateDraft(id);
+  const [ask, setAsk] = useState<Ask>();
+  const [composing, setComposing] = useState(false);
+  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, ask)));
   const close = useCloseTicket(id);
 
   if (ticket.isPending) {
@@ -192,17 +165,18 @@ export function TicketPage() {
         ) : (
           <DraftPanel
             ticketId={t.id}
-            view={draftView(t, drafts.data, asked)}
+            view={draftView(t, drafts.data, ask, composing)}
             redraft={redraft}
-            ask={() => {
-              setReplacing(newestDraft(drafts.data)?.id ?? null);
-              redraft.mutate();
+            askAi={() => {
+              setAsk({ replacing: newestReply(drafts.data)?.id ?? null });
+              redraft.mutate({ regenerate: true }, { onError: () => setAsk(undefined) });
             }}
+            setComposing={setComposing}
           />
         )}
       </section>
 
-      {drafts.data && liveDraft(drafts.data, "fixed") ? (
+      {drafts.data && liveFixNotice(drafts.data) ? (
         <section aria-label="Fix notice" className="flex flex-col gap-3">
           <FixNotice ticketId={t.id} drafts={drafts.data} />
         </section>
@@ -254,12 +228,14 @@ function DraftPanel({
   ticketId,
   view,
   redraft,
-  ask,
+  askAi,
+  setComposing,
 }: {
   ticketId: string;
   view: DraftView;
-  redraft: ReturnType<typeof useRegenerateDraft>;
-  ask: () => void;
+  redraft: ReturnType<typeof useCreateDraft>;
+  askAi: () => void;
+  setComposing: (composing: boolean) => void;
 }) {
   switch (view.kind) {
     case "none":
@@ -267,11 +243,23 @@ function DraftPanel({
     case "writing":
       return (
         <Card variant="muted" size="compact">
-          <CardContent className="flex items-center gap-3 text-muted-foreground">
+          <CardContent className="flex flex-wrap items-center gap-3 text-muted-foreground">
             <Loader size={16} label="Waiting for the draft" />
             The AI is writing a draft…
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setComposing(true)}
+            >
+              Write my own instead
+            </Button>
           </CardContent>
         </Card>
+      );
+    case "compose":
+      return (
+        <Composer ticketId={ticketId} meanwhile={view.meanwhile} done={() => setComposing(false)} />
       );
     case "choose":
       return (
@@ -288,12 +276,30 @@ function DraftPanel({
               </AlertContent>
             </Alert>
           ) : null}
-          <NewDraft
-            ticketId={ticketId}
-            regenerate={redraft}
-            ask={ask}
-            note={chooseNote[view.after]}
-          />
+          <Card variant="muted" size="compact">
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-muted-foreground">{chooseNote[view.after]}</p>
+              {redraft.isError ? <NewDraftError error={redraft.error} /> : null}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  disabled={redraft.isPending}
+                  onClick={() => {
+                    redraft.reset();
+                    setComposing(true);
+                  }}
+                >
+                  Write my own
+                </Button>
+                <Button disabled={redraft.isPending} onClick={askAi}>
+                  {redraft.isPending ? (
+                    <Loader size={16} label="Asking for a draft" className="text-current" />
+                  ) : null}
+                  Ask the AI for a draft
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </>
       );
     case "draft":
@@ -303,87 +309,61 @@ function DraftPanel({
   }
 }
 
-function NewDraft({
+function NewDraftError({ error }: { error: Error }) {
+  return (
+    <Alert variant="destructive">
+      <AlertIcon />
+      <AlertContent>
+        <AlertDescription>
+          {newDraftError(error instanceof ApiError ? error.code : undefined)}
+        </AlertDescription>
+      </AlertContent>
+    </Alert>
+  );
+}
+
+const meanwhileNote = {
+  drafted: "A draft arrived while you were writing. Saving yours replaces it. Cancel to see it.",
+  answered:
+    "A reply was approved while you were writing, so yours can't be saved. Cancel to see it.",
+} as const;
+
+function Composer({
   ticketId,
-  regenerate,
-  ask,
-  note,
+  meanwhile,
+  done,
 }: {
   ticketId: string;
-  regenerate: ReturnType<typeof useRegenerateDraft>;
-  ask: () => void;
-  note: string;
+  meanwhile: "drafted" | "answered" | undefined;
+  done: () => void;
 }) {
-  const write = useWriteDraft(ticketId);
-  const [writing, setWriting] = useState(false);
+  const write = useCreateDraft(ticketId);
   const [body, setBody] = useState("");
-  const error = regenerate.error ?? write.error;
-  const budgetSpent = error instanceof ApiError && error.code === "daily_budget_reached";
-  const busy = regenerate.isPending || write.isPending;
   return (
     <Card variant="muted" size="compact">
       <CardContent className="flex flex-col gap-3">
-        <p className="text-muted-foreground">{note}</p>
-        {writing ? (
-          <Textarea
-            label="Your reply"
-            value={body}
-            onChange={setBody}
-            disabled={write.isPending}
-            rows={8}
-          />
+        {meanwhile && !write.isPending ? (
+          <p className="text-muted-foreground">{meanwhileNote[meanwhile]}</p>
         ) : null}
-        {error ? (
-          <Alert variant="destructive">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>
-                {budgetSpent
-                  ? "Today's AI budget is spent, so the AI can't write a draft until midnight UTC. You can write one yourself."
-                  : "That didn't work. Try again."}
-              </AlertDescription>
-            </AlertContent>
-          </Alert>
-        ) : null}
+        <Textarea
+          label="Your reply"
+          value={body}
+          onChange={setBody}
+          disabled={write.isPending}
+          rows={8}
+        />
+        {write.isError ? <NewDraftError error={write.error} /> : null}
         <div className="flex flex-wrap justify-end gap-2">
-          {writing ? (
-            <>
-              <Button variant="ghost" disabled={busy} onClick={() => setWriting(false)}>
-                Cancel
-              </Button>
-              <Button disabled={busy || body.trim() === ""} onClick={() => write.mutate(body)}>
-                {write.isPending ? (
-                  <Loader size={16} label="Saving" className="text-current" />
-                ) : null}
-                Save draft
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  regenerate.reset();
-                  setWriting(true);
-                }}
-              >
-                Write my own
-              </Button>
-              <Button
-                disabled={busy}
-                onClick={() => {
-                  write.reset();
-                  ask();
-                }}
-              >
-                {regenerate.isPending ? (
-                  <Loader size={16} label="Asking for a draft" className="text-current" />
-                ) : null}
-                Ask the AI for a draft
-              </Button>
-            </>
-          )}
+          <Button variant="ghost" disabled={write.isPending} onClick={done}>
+            Cancel
+          </Button>
+          <Button
+            disabled={write.isPending || body.trim() === "" || meanwhile === "answered"}
+            onClick={() => write.mutate({ body }, { onSuccess: done })}
+          >
+            {write.isPending ? <Loader size={16} label="Saving" className="text-current" /> : null}
+            Save draft
+          </Button>
         </div>
       </CardContent>
     </Card>
@@ -391,7 +371,7 @@ function NewDraft({
 }
 
 function FixNotice({ ticketId, drafts }: { ticketId: string; drafts: Draft[] }) {
-  const draft = liveDraft(drafts, "fixed");
+  const draft = liveFixNotice(drafts);
   return draft ? <DraftCard key={draft.id} ticketId={ticketId} draft={draft} /> : null;
 }
 
@@ -409,6 +389,12 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
   const busy = edit.isPending || approve.isPending || retry.isPending || discard.isPending;
   const fixed = draft.kind === "fixed";
 
+  const discardButton = (variant: "outline" | "ghost") => (
+    <Button variant={variant} disabled={busy} onClick={() => discard.mutate(draft.id)}>
+      {discard.isPending ? <Loader size={16} label="Discarding" className="text-current" /> : null}
+      Discard
+    </Button>
+  );
   const save = () => edit.mutate({ id: draft.id, body }, { onSuccess: () => setEditing(false) });
 
   return (
@@ -539,12 +525,7 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
 
       {failed ? (
         <CardFooter className="flex-wrap justify-end">
-          <Button variant="outline" disabled={busy} onClick={() => discard.mutate(draft.id)}>
-            {discard.isPending ? (
-              <Loader size={16} label="Discarding" className="text-current" />
-            ) : null}
-            Discard
-          </Button>
+          {discardButton("outline")}
           <Button disabled={busy} onClick={() => retry.mutate(draft.id)}>
             {retry.isPending ? (
               <Loader size={16} label="Retrying" className="text-current" />
@@ -574,12 +555,7 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
             </>
           ) : (
             <>
-              <Button variant="ghost" disabled={busy} onClick={() => discard.mutate(draft.id)}>
-                {discard.isPending ? (
-                  <Loader size={16} label="Discarding" className="text-current" />
-                ) : null}
-                Discard
-              </Button>
+              {discardButton("ghost")}
               <Button
                 variant="outline"
                 disabled={busy}
