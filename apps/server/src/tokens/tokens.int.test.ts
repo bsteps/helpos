@@ -38,6 +38,7 @@ const allTokenScopes = [
   "knowledge:read",
   "knowledge:write",
   "github:write",
+  "stats:read",
 ] as const;
 
 let testDb: TestDatabase;
