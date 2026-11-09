@@ -32,6 +32,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome ci .
       - run: pnpm exec turbo run typecheck test build
+      - run: pnpm test:scripts
       # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).
       - run: pnpm eval
       # Proves the one-command local setup works from a fresh clone (issue #5).

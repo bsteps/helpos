@@ -20,9 +20,11 @@ pnpm dev              # Postgres + Mailpit (Docker), migrations, server on :3000
 pnpm db:seed          # demo data: 2 workspaces, users, agent tokens, tickets (local DBs only)
 pnpm check            # lint + format check (Biome)
 pnpm check:fix        # auto-fix lint + format
+pnpm check:changed    # fast: lint changed files, typecheck + test affected packages. Use while iterating
+pnpm test:scripts     # tests for repo tooling in scripts/
 pnpm typecheck        # TypeScript, all packages
 pnpm test             # tests, all packages
-pnpm verify            # everything CI runs. Must pass before you open a PR
+pnpm verify           # everything CI runs. Run once before you open a PR (iterate with check:changed)
 ```
 
 ## Non-negotiable rules
