@@ -118,13 +118,13 @@ function problem(error: unknown, failed: string, invalid = `${failed} Try again.
   }
   switch (error.code) {
     case "url_taken":
-      return "There's already a source for this URL.";
+      return `${failed} There's already a source for this URL.`;
     case "slug_taken":
-      return "There's already a source with this title.";
+      return `${failed} There's already a source with this title.`;
     case "managed_in_git":
       return `${failed} It's managed in the workspace's git repo now.`;
   }
-  if (error.status === 404) return `${failed} It was deleted.`;
+  if (error.status === 404) return `${failed} It's no longer in this workspace.`;
   if (error.code === "forbidden") return `${failed} Your account can't change knowledge sources.`;
   if (error.status === 403) return `${failed} Reload the page, then try again.`;
   if (error.status === 400) return invalid;
