@@ -58,6 +58,44 @@ describe("migrations", () => {
     }
   });
 
+  // The check above only sees tables with a tenant_id column, so a table keyed some other way
+  // (the tenants table itself, #47) slipped past it. Every public table needs RLS; one without
+  // tenant_id is listed here with the reason, and still needs RLS and a policy.
+  const withoutTenantId: Record<string, string> = {
+    tenants: "the workspace row itself: its policy matches id, not tenant_id",
+  };
+
+  it("every public table has RLS forced and a policy; ones without tenant_id say why", async () => {
+    const rows = await owner<
+      { table: string; tenantId: boolean; enabled: boolean; forced: boolean; policies: number }[]
+    >`
+      select c.relname as table,
+        exists (select 1 from pg_attribute a where a.attrelid = c.oid
+                  and a.attname = 'tenant_id' and not a.attisdropped) as "tenantId",
+        c.relrowsecurity as enabled, c.relforcerowsecurity as forced,
+        (select count(*)::int from pg_policies p
+          where p.schemaname = 'public' and p.tablename = c.relname) as policies
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p')
+      order by c.relname`;
+    const fix =
+      "add ENABLE and FORCE ROW LEVEL SECURITY and a policy in the migration " +
+      "(see packages/db/migrations/0001_tenants-rls.sql)";
+    for (const row of rows) {
+      expect(row.enabled && row.forced && row.policies > 0, `${row.table}: ${fix}`).toBe(true);
+      if (!row.tenantId) {
+        expect(
+          withoutTenantId[row.table],
+          `${row.table} has no tenant_id: add tenant_id, or list it in withoutTenantId with why`,
+        ).toBeDefined();
+      }
+    }
+    expect(rows.filter((r) => !r.tenantId).map((r) => r.table)).toEqual(
+      Object.keys(withoutTenantId),
+    );
+  });
+
   it("every view is security_invoker", async () => {
     const unsafe = await owner<{ view: string }[]>`
       select c.relname as view from pg_class c
