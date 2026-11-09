@@ -38,7 +38,7 @@ export function Select<T extends string>({
           if (picked) onChange(picked.value);
         }}
         className={cn(
-          "h-11 rounded-full border border-border bg-transparent px-3.5 text-base text-foreground outline-none transition-colors duration-200",
+          "h-11 w-full rounded-full border border-border bg-transparent px-3.5 text-base text-foreground outline-none transition-colors duration-200",
           "focus:border-foreground/40 focus:ring-2 focus:ring-ring/40",
           "disabled:cursor-not-allowed disabled:opacity-60",
         )}

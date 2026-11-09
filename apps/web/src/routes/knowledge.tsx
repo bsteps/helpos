@@ -108,7 +108,7 @@ const visibilityOptions = [
 ] as const;
 
 /** Why a change didn't happen, in words that say whether trying again can help. */
-function problem(error: unknown, failed: string, kind?: KnowledgeSource["kind"]): string {
+function problem(error: unknown, failed: string, invalid: string): string {
   if (!(error instanceof ApiError)) {
     return `${failed} The server didn't answer; check your connection and try again.`;
   }
@@ -122,11 +122,7 @@ function problem(error: unknown, failed: string, kind?: KnowledgeSource["kind"])
     case "not_found":
       return `${failed} It was deleted.`;
   }
-  if (error.status === 400) {
-    return kind === "url"
-      ? "Enter the full address of a web page, starting with https://."
-      : "Check the title and content: one of them is too long.";
-  }
+  if (error.status === 400) return invalid;
   return `${failed} Try again.`;
 }
 
@@ -218,7 +214,15 @@ function AddSource({ onDone }: { onDone: () => void }) {
             <Alert variant="destructive">
               <AlertIcon />
               <AlertContent>
-                <AlertDescription>{problem(add.error, "Couldn't add it.", kind)}</AlertDescription>
+                <AlertDescription>
+                  {problem(
+                    add.error,
+                    "Couldn't add it.",
+                    kind === "url"
+                      ? "Enter the full address of a web page, starting with https://."
+                      : "Check the title and content: one of them is too long.",
+                  )}
+                </AlertDescription>
               </AlertContent>
             </Alert>
           ) : null}
@@ -308,8 +312,8 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
               <AlertContent>
                 <AlertDescription>
                   {reingest.isError
-                    ? problem(reingest.error, "Couldn't read it again.")
-                    : problem(remove.error, "Couldn't delete it.")}
+                    ? problem(reingest.error, "Couldn't read it again.", "Try again.")
+                    : problem(remove.error, "Couldn't delete it.", "Try again.")}
                 </AlertDescription>
               </AlertContent>
             </Alert>
@@ -425,7 +429,13 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           <AlertIcon />
           <AlertContent>
             <AlertDescription>
-              {problem(edit.error, "Couldn't save. Nothing changed.", source.kind)}
+              {problem(
+                edit.error,
+                "Couldn't save. Nothing changed.",
+                source.kind === "url"
+                  ? "Use a title of at most 300 characters."
+                  : "Check the title and content: one of them is too long.",
+              )}
             </AlertDescription>
           </AlertContent>
         </Alert>
