@@ -73,6 +73,9 @@ function toolList(text, flag) {
   return list;
 }
 
+/** A GitHub expression such as `${{ runner.temp }}`, written literally. */
+const expr = (inner) => `\${{ ${inner} }}`;
+
 /** The `check:` input a caller passes to ai-check.yml. */
 const checkId = (text) => /^\s+check: ([\w-]+)$/m.exec(code(text))?.[1] ?? "";
 
@@ -171,7 +174,6 @@ test("Claude workflows deny reads where credentials live", () => {
 
 test("AI review jobs are read-only: no shell, no edits, comments only", () => {
   const review = read(`${dir}ai-check.yml`);
-  const expr = (inner) => `\${{ ${inner} }}`; // a GitHub expression, written literally
   assert.deepEqual(toolList(review, "--allowedTools"), [
     `Read(/${expr("github.workspace")}/**)`,
     `Read(/${expr("runner.temp")}/pr/**)`,
@@ -237,8 +239,28 @@ test("@claude runs only for maintainers, skips forks and commits only through th
   assert.match(job, /concurrency:\n\s+group: claude-\$\{\{ github\.event\.issue\.number \}\}/);
   assert.match(claude, /head\.repo\.full_name[\s\S]*run=false/, "fork PRs are skipped");
   assert.match(claude, /use_commit_signing: "true"/, "no git push from the CLI");
+  const workspace = `/${expr("github.workspace")}/**)`;
   for (const tool of toolList(claude, "--allowedTools")) {
     assert.ok(!/^(Bash|Edit|Write|MultiEdit)\b/.test(tool), `@claude allows ${tool}`);
+    // File tools only inside the checkout. Everything else must be an MCP tool.
+    assert.ok(
+      tool.startsWith("mcp__github_") || /^(Read|Grep|Glob)\(\//.test(tool),
+      `@claude allows unscoped ${tool}`,
+    );
+    if (!tool.startsWith("mcp__")) assert.ok(tool.endsWith(workspace), `${tool}: not the checkout`);
+  }
+  // The action adds unscoped Read/Grep/Glob itself, so the deny list must cover the runner.
+  const denied = toolList(claude, "--disallowedTools");
+  for (const rule of [
+    `Read(/${expr("runner.temp")}/**)`,
+    "Read(//home/runner/runners/**)",
+    "Read(//home/runner/actions-runner/**)",
+    "Read(~/.config/**)",
+    "Read(~/.ssh/**)",
+    "Read(~/.gitconfig)",
+    "Read(~/.git-credentials)",
+  ]) {
+    assert.ok(denied.includes(rule), `@claude doesn't deny ${rule}`);
   }
   assert.match(claude, /never instructions/, "the prompt says issue and PR text is data");
 });
