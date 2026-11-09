@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  allScopes,
   evidenceRoot,
   getJson,
   instance,
@@ -14,6 +15,7 @@ import {
   repoRoot,
   requireRunning,
   seedToken,
+  seedTokenScopes,
 } from "./instance.mjs";
 
 const scripts = join(import.meta.dirname);
@@ -42,6 +44,9 @@ const lastFile = join(evidenceRoot, "last.json");
 const saved = existsSync(lastFile) ? readFileSync(lastFile, "utf8") : undefined;
 // Its time too: lastCreated() compares it with the seed marker to spot IDs from before a reset.
 const savedAt = saved === undefined ? undefined : statSync(lastFile).mtime;
+// From the server's own lists, so adding a scope doesn't break a step that isn't about it.
+const ownerScopes = await allScopes();
+const triageScopes = await seedTokenScopes("northwind:triage-bot");
 /** The shadow recipient before the selftest changed it, and whether it was put back. */
 let shadowRecipient;
 let shadowRestored = false;
@@ -189,14 +194,17 @@ const steps = [
   ],
 
   [
-    "me as owner: 9 scopes",
+    "me as owner: every scope",
     () => api("owner", "GET", "v1/me"),
-    (r) => status(r) === 200 && json(r).scopes.length === 9,
+    (r) => status(r) === 200 && json(r).scopes.length === ownerScopes.length,
   ],
   [
-    "me as triage-bot: agent, 3 scopes",
+    "me as triage-bot: agent, its seed scopes",
     () => api("northwind:triage-bot", "GET", "v1/me"),
-    (r) => status(r) === 200 && json(r).actor.type === "agent" && json(r).scopes.length === 3,
+    (r) =>
+      status(r) === 200 &&
+      json(r).actor.type === "agent" &&
+      json(r).scopes.length === triageScopes.length,
   ],
   ["me as nobody → 401", () => api("none", "GET", "v1/me"), (r) => status(r) === 401],
   [

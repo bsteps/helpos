@@ -30,7 +30,7 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
   const sent =
     subject ?? `${oldSubject.slice("Subject:".length).replace(/\s+/g, " ").trim()} ${stamp}`.trim();
   // Always a fresh Message-ID, even when the sample has none, so it is never a duplicate.
-  const headers = [
+  let headers = [
     ...lines.filter((l) => !/^(Message-ID|Subject):/i.test(l)),
     `Message-ID: <fresh-${crypto.randomUUID()}@customer.test>`,
     `Subject: ${sent}`,
@@ -44,6 +44,11 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
       throw new Error(`--body works only on a single-part text/plain sample, not "${fixture}"`);
     }
     bodyPart = `${text}\r\n`;
+    // The sample's own encoding (base64, quoted-printable) would garble the new plain text.
+    headers = [
+      ...headers.split("\r\n").filter((l) => !/^Content-Transfer-Encoding:/i.test(l)),
+      "Content-Transfer-Encoding: 8bit",
+    ].join("\r\n");
   }
   const raw = `${headers}\r\n\r\n${bodyPart}`;
   const res = await fetch(`${inst.apiUrl}/v1/inbound/email`, {

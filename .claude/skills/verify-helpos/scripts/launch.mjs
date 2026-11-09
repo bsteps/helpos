@@ -58,17 +58,42 @@ let running = true;
 child.on("exit", (code) => {
   running = false;
   process.exitCode = code ?? 1;
+  // pnpm dev is gone, and its processes with it: a record would only name reused pids later.
+  rmSync(launchRecord, { force: true });
 });
+
+/** Whether something answers HTTP on the port: a fetch, far cheaper than listing processes. */
+const answers = (url) =>
+  fetch(url, { signal: AbortSignal.timeout(1500) })
+    .then(() => true)
+    .catch(() => false);
+
+function writeRecord(pids) {
+  mkdirSync(evidenceRoot, { recursive: true });
+  writeFileSync(
+    launchRecord,
+    `${JSON.stringify({ launchPid: process.pid, startedAt: new Date().toISOString(), pids }, null, 2)}\n`,
+  );
+}
 
 // Record which processes this launch started (those below its own child), so cleanup.mjs stops
 // only those. Polls for as long as pnpm dev runs: a slow first start is still recorded.
 const startedAt = Date.now();
 let warned = false;
+let recordedPids = "";
 while (running) {
   await new Promise((r) => setTimeout(r, 2000));
-  const found = ports.map((port) =>
-    listeners(port).filter((l) => l.helpos && descendsFrom(l.pid, child.pid)),
+  // Processes are listed only once something answers, not on every poll of a slow start.
+  const up = await Promise.all([`${inst.apiUrl}/health`, inst.webUrl].map(answers));
+  const found = ports.map((port, i) =>
+    up[i] ? listeners(port).filter((l) => l.helpos && descendsFrom(l.pid, child.pid)) : [],
   );
+  // Recorded as soon as one port is up, so app:stop can stop it even if the other never comes.
+  const sofar = found.flat().flatMap((l) => helposChain(l.pid, { stopAt: child.pid }));
+  if (sofar.length > 0 && sofar.join(",") !== recordedPids) {
+    writeRecord(sofar);
+    recordedPids = sofar.join(",");
+  }
   if (found.some((f) => f.length === 0)) {
     if (!warned && Date.now() - startedAt > 240_000) {
       warned = true;
@@ -79,12 +104,6 @@ while (running) {
     }
     continue;
   }
-  const pids = found.flat().flatMap((l) => helposChain(l.pid, { stopAt: child.pid }));
-  mkdirSync(evidenceRoot, { recursive: true });
-  writeFileSync(
-    launchRecord,
-    `${JSON.stringify({ launchPid: process.pid, startedAt: new Date().toISOString(), pids }, null, 2)}\n`,
-  );
-  process.stdout.write(`verify-helpos: recorded pids ${pids.join(",")} in ${launchRecord}\n`);
+  process.stdout.write(`verify-helpos: recorded pids ${recordedPids} in ${launchRecord}\n`);
   break;
 }

@@ -37,11 +37,35 @@ export const seed = {
   },
 };
 
+/**
+ * Imports one of the server's own .ts files, so the helpers share its seed data and scopes
+ * instead of copying them. Needs Node's built-in type stripping (Node 24, as package.json says).
+ */
+async function serverModule(path) {
+  if (!process.features.typescript) {
+    quit(
+      1,
+      `The helpers import apps/server's .ts files: use Node 24 (this is ${process.version}).`,
+    );
+  }
+  return import(pathToFileURL(join(repoRoot, "apps/server/src", path)).href);
+}
+
 export async function seedToken(name) {
-  const { seedToken: make } = await import(
-    pathToFileURL(join(repoRoot, "apps/server/src/seed/demo-data.ts")).href
-  );
-  return make(name);
+  return (await serverModule("seed/demo-data.ts")).seedToken(name);
+}
+
+/** The scopes a seed token holds, from the seed data itself: `northwind:triage-bot`. */
+export async function seedTokenScopes(name) {
+  const [workspace, token] = name.split(":");
+  const { buildDemoData } = await serverModule("seed/demo-data.ts");
+  const tenant = buildDemoData().tenants.find((t) => t.key === workspace);
+  return tenant?.tokens.find((t) => t.name === token)?.scopes ?? [];
+}
+
+/** Every scope the API knows, which an owner holds. */
+export async function allScopes() {
+  return (await serverModule("auth/principal.ts")).scopes;
 }
 
 /** Embedding settings for a local Ollama, used only when the shared .env sets none. */
@@ -95,7 +119,12 @@ export function lastCreated() {
   if (existsSync(seededMarker) && statSync(lastFile).mtimeMs < statSync(seededMarker).mtimeMs) {
     return {};
   }
-  return JSON.parse(readFileSync(lastFile, "utf8"));
+  // Cut short (a helper killed while writing): no saved values, rather than every helper failing.
+  try {
+    return JSON.parse(readFileSync(lastFile, "utf8"));
+  } catch {
+    return {};
+  }
 }
 export function remember(values) {
   mkdirSync(evidenceRoot, { recursive: true });
@@ -218,16 +247,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     // quoted again: `--workspace "Northwind Cycles"` must stay one argument. On Windows that
     // shell is cmd.exe, which keeps `$` and `\` as they are and escapes a quote by doubling it.
     const quote = (arg) =>
-      /^[\w@%+=:,./-]+$/.test(arg)
+      /^[\w@+=:,./-]+$/.test(arg)
         ? arg
         : process.platform === "win32"
           ? `"${arg.replaceAll('"', '""')}"`
           : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
-    const command = process.argv
-      // An optional `--` right after `run`; one later on belongs to the command itself.
-      .slice(process.argv[3] === "--" ? 4 : 3)
-      .map(quote)
-      .join(" ");
+    const args = process.argv.slice(process.argv[3] === "--" ? 4 : 3);
+    // An optional `--` right after `run`; one later on belongs to the command itself.
+    // cmd.exe expands %NAME% even inside quotes, and no quoting stops it: refuse instead of
+    // running something other than what was typed.
+    const percent = process.platform === "win32" && args.find((a) => /%[^%\s]+%/.test(a));
+    if (percent) {
+      quit(
+        2,
+        `app:run can't pass ${percent} on Windows: cmd.exe would expand the %…%. Run it yourself.`,
+      );
+    }
+    const command = args.map(quote).join(" ");
     if (!command) quit(2, "Usage: instance.mjs run <command>");
     const result = spawnSync(command, {
       stdio: "inherit",

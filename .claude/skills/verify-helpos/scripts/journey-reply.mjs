@@ -62,12 +62,12 @@ async function api(path, token = reader, init = {}) {
   return { status: res.status, body: res.status === 204 ? null : await jsonOf(res, path) };
 }
 
-/** The response's JSON; anything else (a proxy's error page) fails the journey with its start. */
 /** Text without its line breaks and spacing, which the dashboard and the mailer may change. */
 function flat(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** The response's JSON; anything else (a proxy's error page) fails the journey with its start. */
 async function jsonOf(res, what) {
   const text = await res.text();
   try {

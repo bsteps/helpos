@@ -14,22 +14,27 @@ import {
 import { sendFreshEmail } from "./new-email.mjs";
 
 const args = process.argv.slice(2);
-let ticketId = args[0];
 const opt = (name, fallback) => flagArg(args, name) ?? fallback;
-if (!ticketId || ticketId.startsWith("--")) {
+const flagValues = new Set(
+  ["--reader", "--approver", "--subject", "--body"]
+    .map((f) => args.indexOf(f) + 1)
+    .filter((i) => i > 0),
+);
+let ticketId = args.find((a, i) => !a.startsWith("--") && !flagValues.has(i));
+if (!ticketId) {
   process.stderr.write(
-    "Usage: approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]\n",
+    "Usage: approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>] [--subject <text>] [--body <text>]\n",
   );
   quit(2);
 }
 const inst = instance();
 await requireRunning(inst);
 if (ticketId === "new") {
-  const subject = `API approve ${new Date().toISOString().slice(11, 19)}`;
+  const subject = opt("--subject", `API approve ${new Date().toISOString().slice(11, 19)}`);
   const { status, json } = await sendFreshEmail(inst, "plain", {
     subject,
-    body: "Hi, I cannot log in since this morning.",
-  });
+    body: opt("--body", "Hi, I cannot log in since this morning."),
+  }).catch((error) => quit(1, error.message));
   if (status !== 201) {
     process.stderr.write(`sending the customer email failed: ${status} ${JSON.stringify(json)}\n`);
     quit(1);
