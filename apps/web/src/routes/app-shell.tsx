@@ -20,11 +20,19 @@ export function AppShell() {
             </Link>
             <span className="truncate text-muted-foreground text-sm">{me.workspace.name}</span>
           </div>
-          <nav aria-label="Account" className="flex items-center gap-1">
+          <nav aria-label="Account" className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+            {me.scopes.includes("knowledge:read") ? (
+              <Link
+                to="/knowledge"
+                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground data-[status=active]:text-foreground sm:px-3"
+              >
+                Knowledge
+              </Link>
+            ) : null}
             {me.scopes.includes("workspace:admin") ? (
               <Link
                 to="/settings"
-                className="rounded-full px-3 py-1.5 text-muted-foreground text-sm hover:text-foreground"
+                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground data-[status=active]:text-foreground sm:px-3"
               >
                 Settings
               </Link>
@@ -38,7 +46,7 @@ export function AppShell() {
               }
             >
               <LogOut aria-hidden className="size-3.5" />
-              Sign out
+              <span className="sr-only sm:not-sr-only">Sign out</span>
             </Button>
           </nav>
         </div>

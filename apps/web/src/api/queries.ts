@@ -1,5 +1,14 @@
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, type Draft, type Me, unwrap } from "./client.ts";
+import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type ListedSource, pollDelay, withPendingSince } from "@/lib/knowledge.ts";
+import {
+  ApiError,
+  api,
+  type Draft,
+  type KnowledgeSourceUpdate,
+  type Me,
+  type NewKnowledgeSource,
+  unwrap,
+} from "./client.ts";
 
 export const keys = {
   me: ["me"] as const,
@@ -8,6 +17,9 @@ export const keys = {
   drafts: (id: string) => ["ticket", id, "drafts"] as const,
   github: ["integrations", "github"] as const,
   draftStats: ["stats", "drafts"] as const,
+  shadowMode: ["workspace", "shadow-mode"] as const,
+  aiUsage: ["ai-usage"] as const,
+  knowledgeSources: ["knowledge", "sources"] as const,
 };
 
 /** Who is signed in, or null when nobody is (the API answered 401). */
@@ -135,27 +147,32 @@ export function useDiscardDraft(ticketId: string) {
       unwrap(api.POST("/v1/drafts/{id}/discard", { params: { path: { id } } })),
     onSettled: () =>
       Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        invalidateDraftState(queryClient, ticketId),
         // The inbox flags tickets whose reply couldn't be sent.
         queryClient.invalidateQueries({ queryKey: keys.openTickets }),
       ]),
   });
 }
 
-/** Asks the AI for a fresh draft; it shows up in the drafts list when it's written. */
-export function useRegenerateDraft(ticketId: string) {
+/** Saves a person's draft, or asks the AI for a fresh one (it shows up in the drafts list once written). */
+export function useCreateDraft(ticketId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<void> => {
+    mutationFn: async (input: { regenerate: true } | { body: string }): Promise<void> => {
       await unwrap(
-        api.POST("/v1/tickets/{id}/drafts", {
-          params: { path: { id: ticketId } },
-          body: { regenerate: true },
-        }),
+        api.POST("/v1/tickets/{id}/drafts", { params: { path: { id: ticketId } }, body: input }),
       );
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSettled: () => invalidateDraftState(queryClient, ticketId),
   });
+}
+
+/** A new draft can lift the ticket's "AI paused" state, so the ticket is fetched again too. */
+function invalidateDraftState(queryClient: QueryClient, ticketId: string) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
+  ]);
 }
 
 export function useCloseTicket(ticketId: string) {
@@ -226,3 +243,81 @@ export function useCreateGithubIssue(ticketId: string) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
   });
 }
+
+export const shadowModeQuery = queryOptions({
+  queryKey: keys.shadowMode,
+  queryFn: () => unwrap(api.GET("/v1/workspace/shadow-mode")),
+});
+
+export function useUpdateShadowMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { enabled?: boolean; recipient?: string }) =>
+      unwrap(api.PATCH("/v1/workspace/shadow-mode", { body })),
+    onSuccess: (data) => queryClient.setQueryData(keys.shadowMode, data),
+  });
+}
+
+export const aiUsageQuery = queryOptions({
+  queryKey: keys.aiUsage,
+  queryFn: () => unwrap(api.GET("/v1/ai-usage")),
+  refetchInterval: 30_000,
+});
+
+export const knowledgeSourcesQuery = queryOptions({
+  queryKey: keys.knowledgeSources,
+  queryFn: async ({ client }): Promise<ListedSource[]> => {
+    const { sources } = await unwrap(api.GET("/v1/knowledge/sources"));
+    const previous = client.getQueryData<ListedSource[]>(keys.knowledgeSources);
+    return withPendingSince(sources, previous, Date.now());
+  },
+  refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now()),
+});
+
+/** Every change to a source shows up in the list, so each one refetches it when done. */
+function useKnowledgeMutation<TVariables, TData>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+  onSuccess?: (queryClient: QueryClient, variables: TVariables) => void,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: async (_data, variables) => {
+      // A list fetched before this change finished would undo it, so drop that one first.
+      await queryClient.cancelQueries({ queryKey: keys.knowledgeSources });
+      onSuccess?.(queryClient, variables);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
+  });
+}
+
+export const useAddKnowledgeSource = () =>
+  useKnowledgeMutation((body: NewKnowledgeSource) =>
+    unwrap(api.POST("/v1/knowledge/sources", { body })),
+  );
+
+export const useEditKnowledgeSource = () =>
+  useKnowledgeMutation(({ id, body }: { id: string; body: KnowledgeSourceUpdate }) =>
+    unwrap(api.PATCH("/v1/knowledge/sources/{id}", { params: { path: { id } }, body })),
+  );
+
+export const useReingestKnowledgeSource = () =>
+  useKnowledgeMutation((id: string) =>
+    unwrap(api.POST("/v1/knowledge/sources/{id}/reingest", { params: { path: { id } } })),
+  );
+
+/** Deleting a source that's already gone counts as done. It leaves the list at once. */
+export const useDeleteKnowledgeSource = () =>
+  useKnowledgeMutation(
+    async (id: string): Promise<void> => {
+      try {
+        await unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } }));
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    },
+    (queryClient, id) =>
+      queryClient.setQueryData<ListedSource[]>(keys.knowledgeSources, (sources) =>
+        sources?.filter((s) => s.id !== id),
+      ),
+  );

@@ -16,6 +16,10 @@ export type Me = components["schemas"]["Me"];
 export type GithubIntegration = components["schemas"]["GithubIntegration"];
 export type GithubConnected = components["schemas"]["GithubConnected"];
 export type GithubIssueDraft = components["schemas"]["GithubIssueDraft"];
+export type KnowledgeSource = components["schemas"]["KnowledgeSource"];
+export type KnowledgeSourceUpdate = components["schemas"]["KnowledgeSourceUpdate"];
+export type NewKnowledgeSource =
+  paths["/v1/knowledge/sources"]["post"]["requestBody"]["content"]["application/json"];
 
 /** A failed API call: the HTTP status and the API's error code, e.g. `not_pending`. */
 export class ApiError extends Error {
