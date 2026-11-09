@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { ApiError, type KnowledgeSource } from "@/api/client.ts";
 import {
   knowledgeSourcesQuery,
@@ -265,9 +265,6 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
   const reingest = useReingestKnowledgeSource();
   const remove = useDeleteKnowledgeSource();
   const inGit = source.managedBy === "git";
-  // A source that moves to git can't be edited or deleted here, so its open form or confirm
-  // closes for good rather than coming back if it ever moves out again.
-  if (inGit && mode !== "view") setMode("view");
   const badge = statusBadge[source.status];
   const busy = reingest.isPending || remove.isPending;
   const switchMode = (next: typeof mode) => {
@@ -275,6 +272,16 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
     remove.reset();
     setMode(next);
   };
+  const resetReingest = reingest.reset;
+  const resetRemove = remove.reset;
+  // A source that moves to git can't be edited or deleted here, so its open form or confirm,
+  // and any error from them, goes for good rather than coming back if it moves out again.
+  useEffect(() => {
+    if (!inGit) return;
+    resetReingest();
+    resetRemove();
+    setMode("view");
+  }, [inGit, resetReingest, resetRemove]);
   const link = source.url ? webLink(source.url) : null;
 
   return (

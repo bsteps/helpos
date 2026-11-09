@@ -46,7 +46,7 @@ export function AppShell() {
               }
             >
               <LogOut aria-hidden className="size-3.5" />
-              Sign out
+              <span className="sr-only sm:not-sr-only">Sign out</span>
             </Button>
           </nav>
         </div>
