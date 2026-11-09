@@ -1,5 +1,7 @@
-// Read-only: is this checkout's HelpOS instance worth driving? Exit 0 when every required check
-// passes. Warnings name features that will not work (no embeddings, no owner password).
+// Is this checkout's HelpOS instance worth driving? Exit 0 when every required check passes.
+// Warnings name features that will not work (no embeddings, no owner password). It changes
+// nothing, except one owner sign-in when the saved owner session no longer works: that session
+// is saved for the other helpers, as theirs would be.
 //   node .claude/skills/verify-helpos/scripts/doctor.mjs [--wait <seconds>]
 import {
   flagArg,

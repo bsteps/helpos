@@ -1,12 +1,21 @@
 // Finds and stops the HelpOS processes on this checkout's ports, and nothing else. Stopping the
 // `pnpm dev` task alone is not enough on Windows: its server and Vite children keep running.
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const windows = process.platform === "win32";
 const webDir = join(resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."), "apps", "web");
 const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
+// The file `pnpm dev` runs for the API, read from apps/server's own dev script, so a change
+// there is followed here instead of making the real server look like a stranger.
+const serverDev = JSON.parse(readFileSync(join(webDir, "..", "server", "package.json"), "utf8"))
+  .scripts.dev;
+const serverEntry = /\S+\.[cm]?[jt]s(?=\s|$)/.exec(serverDev)?.[0] ?? "src/main.ts";
+const serverEntryPattern = new RegExp(
+  serverEntry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]"),
+);
 
 /**
  * Whether a listening process is this checkout's HelpOS: the API (`src/main.ts`), or this
@@ -18,7 +27,7 @@ const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
  * cleanup stops only pids that launch recorded below its own child.
  */
 function isHelposListener(cmd) {
-  if (/src[\\/]main\.ts/.test(cmd)) return true;
+  if (serverEntryPattern.test(cmd)) return true;
   return /[\\/]vite[\\/]bin[\\/]vite\.js/.test(cmd) && sameCase(cmd).includes(sameCase(webDir));
 }
 

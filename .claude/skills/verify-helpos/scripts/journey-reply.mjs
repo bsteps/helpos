@@ -118,7 +118,7 @@ const draft = await until("the AI draft", 120, async () => {
 record("worker wrote a pending AI draft", {
   draftId: draft.id,
   body: draft.body,
-  sources: draft.sources.map((s) => s.title ?? s.sourceId),
+  sources: (draft.sources ?? []).map((s) => s.title ?? s.sourceId),
 });
 
 if (via === "api") {

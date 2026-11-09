@@ -49,6 +49,12 @@ const last = lastCreated();
 const placeholder = /\{(ticket|draft|draftBody|token|tokenId|source)\}/g;
 // A JSON body file may use them too (`@body.json` with {"body":{draftBody}}); an .eml is sent as is.
 const bodyFile = argv[3]?.startsWith("@") ? argv[3].slice(1) : undefined;
+if (bodyFile?.endsWith(".eml") && argv[0] !== "inbound") {
+  quit(
+    2,
+    "An .eml body is an email: send it as inbound (api.mjs inbound POST v1/inbound/email @file).",
+  );
+}
 const fileText =
   bodyFile && !bodyFile.endsWith(".eml") ? readFileSync(bodyFile, "utf8") : undefined;
 const placeholders = `${argv.join(" ")} ${fileText ?? ""}`.match(placeholder) ?? [];

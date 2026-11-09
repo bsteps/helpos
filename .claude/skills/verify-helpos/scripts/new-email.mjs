@@ -47,9 +47,11 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
       throw new Error(`--body works only on a single-part text/plain sample, not "${fixture}"`);
     }
     bodyPart = `${text}\r\n`;
-    // The sample's own encoding (base64, quoted-printable) would garble the new plain text.
+    // The new text is UTF-8 and unencoded: the sample's own charset or encoding (iso-8859-1,
+    // base64, quoted-printable) would garble it.
     headers = [
-      ...headers.split("\r\n").filter((l) => !/^Content-Transfer-Encoding:/i.test(l)),
+      ...headers.split("\r\n").filter((l) => !/^Content-(Transfer-Encoding|Type):/i.test(l)),
+      "Content-Type: text/plain; charset=utf-8",
       "Content-Transfer-Encoding: 8bit",
     ].join("\r\n");
   }

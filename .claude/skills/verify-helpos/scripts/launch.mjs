@@ -44,11 +44,12 @@ if (!inst.embeddingsInEnv) {
   }
 }
 // Hand tests and selftest runs write many drafts (a selftest run alone uses ~20,000 tokens), and
-// the shared .env's 200,000 cap ran out in one afternoon. Only this verification instance gets
-// the higher cap; the shell can still set its own.
-env.HELPOS_AI_DAILY_TOKEN_BUDGET = process.env.HELPOS_AI_DAILY_TOKEN_BUDGET ?? "1000000";
+// the shared .env's 200,000 cap ran out in one afternoon. Only a worktree's own verification
+// database gets the higher cap; the main checkout keeps .env's, and the shell can set its own.
+const { HELPOS_AI_DAILY_TOKEN_BUDGET: budgetFromShell } = process.env;
+if (inst.env.HELPOS_PORT) env.HELPOS_AI_DAILY_TOKEN_BUDGET = budgetFromShell ?? "1000000";
 process.stdout.write(
-  `verify-helpos: API ${inst.apiUrl}  dashboard ${inst.webUrl}  db ${inst.dbName}  AI cap ${env.HELPOS_AI_DAILY_TOKEN_BUDGET} tokens/day\n`,
+  `verify-helpos: API ${inst.apiUrl}  dashboard ${inst.webUrl}  db ${inst.dbName}  AI cap ${env.HELPOS_AI_DAILY_TOKEN_BUDGET ?? "from .env"}\n`,
 );
 // The previous run's record: its pids may be reused by now, and this launch makes its own.
 rmSync(launchRecord, { force: true });

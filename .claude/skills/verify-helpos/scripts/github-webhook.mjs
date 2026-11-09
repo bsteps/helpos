@@ -8,7 +8,10 @@ import { flagArg, getJson, instance, ownerCookie, quit, requireRunning } from ".
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => flagArg(args, name) ?? fallback;
-const number = Number(args[0]);
+const flagValues = new Set(
+  ["--secret", "--action", "--reason"].map((f) => args.indexOf(f) + 1).filter((i) => i > 0),
+);
+const number = Number(args.find((a, i) => !a.startsWith("--") && !flagValues.has(i)));
 // From the environment too, so it needn't appear in the shell history or the process list.
 const { GITHUB_WEBHOOK_SECRET: secretFromEnv } = process.env;
 const secret = flagArg(args, "--secret", { anyValue: true }) ?? secretFromEnv;
