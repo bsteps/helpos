@@ -100,5 +100,18 @@ test("parseEnv reads quoted values, `export` and trailing comments like Node doe
     HELPOS_SECRET: "has # inside",
     EMPTY: "",
   });
-  assert.ok(isolatedEnv(env, isolationFor("/wt/a", wt)).ok);
+  assert.ok(isolatedEnv({ ...localEnv, ...env }, isolationFor("/wt/a", wt)).ok);
+});
+
+test("a worktree refuses when a required database URL is missing", () => {
+  const iso = isolationFor("/wt/a", wt);
+  const { HELPOS_DATABASE_OWNER_URL: _, ...missing } = localEnv;
+  const result = isolatedEnv(missing, iso);
+  assert.equal(result.ok, false);
+  const { HELPOS_DATABASE_AUTH_URL: __, ...noAuth } = localEnv;
+  assert.ok(isolatedEnv(noAuth, iso).ok);
+});
+
+test("parseEnv takes only the first quoted value before a comment", () => {
+  assert.deepEqual(parseEnv('A="a" # c "b"'), { A: "a" });
 });

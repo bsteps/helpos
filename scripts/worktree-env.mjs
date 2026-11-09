@@ -48,7 +48,12 @@ export function isolatedEnv(env, isolation) {
   const out = {};
   for (const name of dbVars) {
     const raw = env[name];
-    if (!raw) continue;
+    // Unset, a variable would fall back to whatever the app or driver defaults to, outside this
+    // worktree's own database. The auth URL alone is optional for the server.
+    if (!raw) {
+      if (name === "HELPOS_DATABASE_AUTH_URL") continue;
+      return { ok: false, reason: `${name} is not set` };
+    }
     let url;
     try {
       url = new URL(raw);
@@ -67,22 +72,8 @@ export function isolatedEnv(env, isolation) {
   return { ok: true, env: out };
 }
 
-/**
- * Parses the KEY=value lines of a .env file the way Node's --env-file reads them for single-line
- * values: an optional `export `, values in single, double or back quotes, and `# comments` after
- * an unquoted value.
- */
-export function parseEnv(text) {
-  const out = {};
-  for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const raw = m[2].trim();
-    const quoted = /^(["'`])(.*)\1/.exec(raw);
-    out[m[1]] = quoted ? quoted[2] : raw.replace(/\s+#.*$/, "").trim();
-  }
-  return out;
-}
+// Node's own .env parser, so values read here match what `--env-file` gives the children.
+export { parseEnv } from "node:util";
 
 /** Per-database setup that docker/postgres/init.sql does for the default `helpos` database. */
 export function databaseSetupSql() {

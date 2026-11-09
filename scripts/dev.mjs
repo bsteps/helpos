@@ -71,8 +71,13 @@ run("pnpm --filter @helpos/db migrate", childEnv);
 
 // A fresh worktree gets demo data: an empty database is a bad test. The seed is safe to rerun,
 // so the marker only saves time; delete .helpos/seeded to seed again.
+// It names the database it was written for, so a new database (moved folder, dropped
+// database) is seeded again.
 const seeded = ".helpos/seeded";
-if (isolation.isolated && !existsSync(seeded)) {
+if (
+  isolation.isolated &&
+  (!existsSync(seeded) || readFileSync(seeded, "utf8").trim() !== isolation.dbName)
+) {
   run("pnpm db:seed", childEnv);
   mkdirSync(".helpos", { recursive: true });
   writeFileSync(seeded, `${isolation.dbName}\n`);
