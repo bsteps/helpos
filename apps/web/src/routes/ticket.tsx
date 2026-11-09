@@ -61,9 +61,11 @@ function waitingOn(ticket: TicketDetail | undefined, redrafting: boolean) {
   return (drafts: Draft[]): boolean => {
     // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
     if (drafts.some((d) => d.status === "approved")) return true;
+    // After a failed reply was discarded, only a requested new draft is worth waiting for (an
+    // older sent reply mustn't stop the polling).
+    if (discardedAfterFailure(drafts)) return redrafting;
     const live = liveDraft(drafts);
-    if (live || ticket?.status !== "open" || (discardedAfterFailure(drafts) && !redrafting))
-      return false;
+    if (live || ticket?.status !== "open") return false;
     return !ticket.automated && !ticket.aiPausedReason;
   };
 }

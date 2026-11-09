@@ -109,4 +109,8 @@ test("discarding a failed follow-up reply doesn't bring back the earlier sent on
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.getByText("The reply that couldn't be sent was discarded.")).toBeVisible();
   await expect(page.getByText("Sent", { exact: true })).toBeHidden();
+
+  // The new draft shows up by itself: the older sent reply doesn't stop the page checking.
+  await page.getByRole("button", { name: "Write a new draft" }).click();
+  await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
 });
