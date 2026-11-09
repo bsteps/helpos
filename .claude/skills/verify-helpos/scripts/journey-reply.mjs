@@ -4,12 +4,14 @@
 // .helpos/verify/<timestamp>-reply-<via>/.
 //   node .claude/skills/verify-helpos/scripts/journey-reply.mjs --via api|web [--headed]
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
   evidenceRoot,
   instance,
   isQuit,
   quit,
+  repoRoot,
   requireRunning,
   seed,
   seedToken,
@@ -109,7 +111,10 @@ if (via === "api") {
     status: approved.body.status,
   });
 } else {
-  const { chromium } = await import("@playwright/test");
+  // The dashboard's own Playwright (and its installed browsers), so the repo has one copy.
+  const { chromium } = createRequire(join(repoRoot, "apps", "web", "package.json"))(
+    "@playwright/test",
+  );
   const browser = await chromium.launch({ headless: !process.argv.includes("--headed") });
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   try {
@@ -158,13 +163,15 @@ const mail = await until("Mailpit to catch the reply", 30, async () => {
 });
 const detail = await (await fetch(`${inst.mailpitUrl}/api/v1/message/${mail.ID}`)).json();
 writeFileSync(join(dir, "mail.json"), `${JSON.stringify(detail, null, 2)}\n`);
-const to = detail.To.map((t) => t.Address);
-if (!to.includes(seed.northwind.owner))
-  fail(`reply went to ${to.join(", ")}, not the shadow recipient`);
-if (to.includes("sam.rivera@example.test"))
-  fail("shadow mode is on, yet the customer got the reply");
-if (!detail.Text.includes(draft.body.split("\n")[0].trim()))
-  fail("the sent text is not the approved draft");
+const to = detail.To.map((t) => t.Address.toLowerCase());
+// Whoever the workspace names now, not the seed's default: a hand test may have changed it.
+const { body: shadow } = await api("/v1/workspace/shadow-mode");
+if (!shadow.enabled || !shadow.recipient) fail("shadow mode is off: this journey needs it on");
+if (to.length !== 1 || to[0] !== shadow.recipient.toLowerCase())
+  fail(`reply went to ${to.join(", ")}, not only the shadow recipient ${shadow.recipient}`);
+// Compared without line breaks and spacing, which the mailer may rewrap.
+const flat = (s) => s.replace(/\s+/g, " ").trim();
+if (!flat(detail.Text).includes(flat(draft.body))) fail("the sent text is not the approved draft");
 record("Mailpit caught the reply, sent to the shadow recipient only", {
   to,
   subject: detail.Subject,

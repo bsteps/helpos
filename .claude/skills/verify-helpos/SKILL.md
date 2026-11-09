@@ -55,10 +55,11 @@ Warnings (`warn`) name features that will not work: knowledge sources still `pen
 
 No seed token has `tickets:write`, `knowledge:write` or `github:write` in Northwind. Use `owner`, or mint a token.
 
-**Dashboard.** Playwright from `apps/web` (browsers are already installed for it). Use roles and labels. They are stable, and the e2e suite in `apps/web/e2e/` uses the same ones:
+**Dashboard.** Playwright from `apps/web`, the repo's only copy (browsers are already installed for it). Use roles and labels. They are stable, and the e2e suite in `apps/web/e2e/` uses the same ones:
 
 ```js
-const { chromium } = await import("@playwright/test");
+import { createRequire } from "node:module";
+const { chromium } = createRequire(join(repoRoot, "apps", "web", "package.json"))("@playwright/test");
 // page.getByLabel("Email") / ("Password"), getByRole("button", { name: "Sign in" }),
 // getByRole("heading", { name: "Inbox" }), getByTestId("draft-body"), "Approve & send"
 ```
