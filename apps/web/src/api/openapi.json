@@ -910,6 +910,9 @@
         "x-access": {
           "noCaller": "The email provider proves itself with the shared inbound secret."
         },
+        "x-audit": {
+          "none": "A customer's email, not an action by a member or agent: the stored message is its record."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -992,6 +995,9 @@
         "x-access": {
           "noCaller": "The caller proves who they are with an email and password in the body."
         },
+        "x-audit": {
+          "none": "Signing in changes no workspace data, and users live outside workspaces."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1062,6 +1068,9 @@
         "x-access": {
           "noCaller": "The session cookie, if any, is the only credential, and signing out without one is harmless."
         },
+        "x-audit": {
+          "none": "Ends the caller's own session; it changes no workspace data."
+        },
         "responses": {
           "204": {
             "description": "Signed out"
@@ -1095,6 +1104,9 @@
         "description": "Uses the token from a password setup link (printed by `helpos:init`) to set the user's password, 12 to 128 characters. The token works once. Every existing session of that user is signed out.",
         "x-access": {
           "noCaller": "The one-time token in the body proves the caller holds the password setup link."
+        },
+        "x-audit": {
+          "none": "Users live outside workspaces, and the audit log belongs to one workspace."
         },
         "requestBody": {
           "required": true,
@@ -1210,6 +1222,11 @@
             "workspace:admin"
           ],
           "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "api_token.created"
+          ]
         },
         "requestBody": {
           "required": true,
@@ -1344,6 +1361,11 @@
         ],
         "x-access": {
           "anyCaller": "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler"
+        },
+        "x-audit": {
+          "records": [
+            "api_token.revoked"
+          ]
         },
         "parameters": [
           {
@@ -1573,6 +1595,11 @@
             "tickets:read"
           ]
         },
+        "x-audit": {
+          "records": [
+            "ticket.closed"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1721,6 +1748,12 @@
             "tickets:read"
           ]
         },
+        "x-audit": {
+          "records": [
+            "draft.created",
+            "draft.discarded"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1861,6 +1894,11 @@
             "drafts:write"
           ]
         },
+        "x-audit": {
+          "records": [
+            "draft.edited"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1961,6 +1999,11 @@
             "drafts:approve"
           ]
         },
+        "x-audit": {
+          "records": [
+            "draft.approved"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2059,6 +2102,11 @@
             "drafts:write"
           ]
         },
+        "x-audit": {
+          "records": [
+            "draft.discarded"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2136,6 +2184,11 @@
         "x-access": {
           "allScopes": [
             "drafts:approve"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "draft.send_retried"
           ]
         },
         "parameters": [
@@ -2322,6 +2375,11 @@
             "knowledge:write"
           ]
         },
+        "x-audit": {
+          "records": [
+            "knowledge_source.created"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2473,6 +2531,11 @@
             "knowledge:write"
           ]
         },
+        "x-audit": {
+          "records": [
+            "knowledge_source.reingest_requested"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2550,6 +2613,13 @@
         "x-access": {
           "allScopes": [
             "knowledge:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "knowledge_source.edited",
+            "knowledge_source.made_public",
+            "knowledge_source.made_internal"
           ]
         },
         "parameters": [
@@ -2647,6 +2717,11 @@
         "x-access": {
           "allScopes": [
             "knowledge:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "knowledge_source.deleted"
           ]
         },
         "parameters": [
@@ -2849,6 +2924,13 @@
             "workspace:admin"
           ]
         },
+        "x-audit": {
+          "records": [
+            "workspace.shadow_mode_enabled",
+            "workspace.shadow_mode_disabled",
+            "workspace.shadow_recipient_changed"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2975,6 +3057,11 @@
           ],
           "humansOnly": true
         },
+        "x-audit": {
+          "records": [
+            "github.connected"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -3080,6 +3167,11 @@
           ],
           "humansOnly": true
         },
+        "x-audit": {
+          "records": [
+            "github.disconnected"
+          ]
+        },
         "responses": {
           "204": {
             "description": "Disconnected, or nothing was connected"
@@ -3121,6 +3213,11 @@
             "workspace:admin"
           ],
           "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "github.webhook_secret_rotated"
+          ]
         },
         "responses": {
           "200": {
@@ -3189,6 +3286,11 @@
           "allScopes": [
             "github:write",
             "tickets:read"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "github_issue.drafted"
           ]
         },
         "parameters": [
@@ -3289,6 +3391,13 @@
           "allScopes": [
             "github:write",
             "tickets:read"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "github_issue.created",
+            "github_issue.closed",
+            "draft.created"
           ]
         },
         "parameters": [
@@ -3435,6 +3544,9 @@
         ],
         "x-access": {
           "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
+        },
+        "x-audit": {
+          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
         },
         "parameters": [
           {

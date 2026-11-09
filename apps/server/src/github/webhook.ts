@@ -69,6 +69,9 @@ const webhookRoute = apiRoute({
     noCaller:
       "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret.",
   },
+  audit: {
+    none: "Each change a delivery applies is audited where it's applied, with GitHub as the actor.",
+  },
   method: "post",
   path: webhookPath,
   summary: "Receive a GitHub webhook",

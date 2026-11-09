@@ -22,7 +22,7 @@ import {
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { dailyBudget, reserveUsage, settleUsage, utcDay } from "../ai-budget/budget.ts";
-import { type AuditActor, recordAudit } from "../audit/audit.ts";
+import { type AuditActor, nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
@@ -146,6 +146,7 @@ const getRoute = apiRoute({
 const connectRoute = apiRoute({
   // A token is a credential to the customer's code host: only a human admin stores one.
   access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["github.connected"] },
   method: "put",
   path: integrationPath,
   summary: "Connect a GitHub repo",
@@ -195,6 +196,7 @@ const connectRoute = apiRoute({
 
 const disconnectRoute = apiRoute({
   access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["github.disconnected"] },
   method: "delete",
   path: integrationPath,
   summary: "Disconnect the GitHub repo",
@@ -208,6 +210,7 @@ const disconnectRoute = apiRoute({
 const rotatePath = `${integrationPath}/webhook-secret`;
 const rotateRoute = apiRoute({
   access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["github.webhook_secret_rotated"] },
   method: "post",
   path: rotatePath,
   summary: "Give the GitHub webhook a new secret",
@@ -230,6 +233,7 @@ const rotateRoute = apiRoute({
 
 const draftIssueRoute = apiRoute({
   access: { allScopes: ["github:write", "tickets:read"] },
+  audit: { records: ["github_issue.drafted"] },
   method: "post",
   path: "/v1/tickets/{id}/github-issue/draft",
   summary: "Ask the AI to draft a GitHub issue from a ticket",
@@ -258,6 +262,8 @@ const createIssueRoute = apiRoute({
   // tickets:read too: the issue is made from the ticket, and the ticket's customer is who is
   // told when it is fixed, so a caller that cannot read the ticket cannot pick it either.
   access: { allScopes: ["github:write", "tickets:read"] },
+  // A close found on linking writes the "fixed" notice draft too.
+  audit: { records: ["github_issue.created", "github_issue.closed", "draft.created"] },
   method: "post",
   path: "/v1/tickets/{id}/github-issue",
   summary: "Create a GitHub issue from a ticket",
@@ -514,6 +520,7 @@ function registerConnectionRoutes(
           requestId: c.get("requestId"),
         });
       }
+      if (removed.length === 0) nothingToAudit("not connected");
     });
     secrets.forget(principal.tenantId);
     return c.body(null, 204);
@@ -956,6 +963,7 @@ async function recordIssue(
       .where(eq(ticketGithubIssues.ticketId, input.ticketId));
     const sameIssue = existing?.repo === input.repo && existing.issueNumber === input.issue.number;
     // Already linked and audited by the attempt that committed: nothing more to write.
+    if (sameIssue) nothingToAudit("linked and audited by an earlier attempt");
     return sameIssue ? { id: existing.id, repo: existing.repo } : "taken";
   }
   await recordAudit(tx, {

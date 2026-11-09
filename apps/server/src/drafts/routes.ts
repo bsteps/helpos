@@ -16,7 +16,7 @@ import {
 } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
-import { recordAudit } from "../audit/audit.ts";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { apiRoute, Grant } from "../auth/access.ts";
 import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
@@ -121,6 +121,7 @@ const listRoute = apiRoute({
 
 const editRoute = apiRoute({
   access: { allScopes: ["drafts:write"] },
+  audit: { records: ["draft.edited"] },
   method: "patch",
   path: "/v1/drafts/{id}",
   summary: "Edit a pending draft",
@@ -146,6 +147,7 @@ const editRoute = apiRoute({
 
 const approveRoute = apiRoute({
   access: { allScopes: ["drafts:approve"] },
+  audit: { records: ["draft.approved"] },
   method: "post",
   path: "/v1/drafts/{id}/approve",
   summary: "Approve a draft and send it",
@@ -172,6 +174,7 @@ const approveRoute = apiRoute({
 
 const discardRoute = apiRoute({
   access: { allScopes: ["drafts:write"] },
+  audit: { records: ["draft.discarded"] },
   method: "post",
   path: "/v1/drafts/{id}/discard",
   summary: "Discard a pending or failed draft",
@@ -189,6 +192,7 @@ const discardRoute = apiRoute({
 
 const retryRoute = apiRoute({
   access: { allScopes: ["drafts:approve"] },
+  audit: { records: ["draft.send_retried"] },
   method: "post",
   path: "/v1/drafts/{id}/retry",
   summary: "Retry sending a failed draft",
@@ -210,6 +214,7 @@ const retryRoute = apiRoute({
 const createDraftRoute = apiRoute({
   // tickets:read too: the draft answers the ticket, so it shows what the customer wrote.
   access: { allScopes: ["drafts:write", "tickets:read"] },
+  audit: { records: ["draft.created", "draft.discarded"] },
   method: "post",
   path: "/v1/tickets/{id}/drafts",
   summary: "Write a draft, or ask the AI for a new one",
@@ -515,6 +520,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
           { tenantId, messageId: latest.id },
           { singletonKey: latest.id },
         );
+        // The AI's draft is audited when the worker writes it.
+        if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");
         return "queued" as const;
       }
       const [draft] = await tx
@@ -589,7 +596,10 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       if (!retried) {
         const [current] = await tx.select().from(drafts).where(eq(drafts.id, id));
         if (!current) return "not_found" as const;
-        if (current.status === "sent") return presentOne(tx, principal, current);
+        if (current.status === "sent") {
+          nothingToAudit("already sent");
+          return presentOne(tx, principal, current);
+        }
         if (current.status !== "approved") return "conflict" as const;
         // Already approved: queue the send again in case its job was lost (it expired, or the
         // worker died, on the last attempt). The singleton key returns the live job if there

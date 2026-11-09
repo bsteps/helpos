@@ -1,6 +1,6 @@
 import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { recordAudit } from "../audit/audit.ts";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
@@ -133,6 +133,7 @@ const getTicketRoute = apiRoute({
 const closeTicketRoute = apiRoute({
   // tickets:read too: the answer is the ticket, with its customer.
   access: { allScopes: ["tickets:write", "tickets:read"] },
+  audit: { records: ["ticket.closed"] },
   method: "post",
   path: "/v1/tickets/{id}/close",
   summary: "Close a ticket",
@@ -276,6 +277,8 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
           target: { type: "ticket", id },
           requestId: c.get("requestId"),
         });
+      } else {
+        nothingToAudit("already closed, or not found");
       }
       const [row] = await ticketsWithCustomer(tx).where(eq(tickets.id, id));
       return row ?? null;

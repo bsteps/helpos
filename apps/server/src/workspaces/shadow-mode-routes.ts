@@ -1,6 +1,6 @@
 import { type Database, eq, schema } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { recordAudit } from "../audit/audit.ts";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 
@@ -45,6 +45,13 @@ const getRoute = apiRoute({
 
 const patchRoute = apiRoute({
   access: { allScopes: ["workspace:admin"] },
+  audit: {
+    records: [
+      "workspace.shadow_mode_enabled",
+      "workspace.shadow_mode_disabled",
+      "workspace.shadow_recipient_changed",
+    ],
+  },
   method: "patch",
   path,
   summary: "Change the workspace's shadow mode",
@@ -115,6 +122,7 @@ export function registerShadowModeRoutes(app: OpenAPIHono, deps: ShadowModeRoute
         ...(input.enabled === false ? (["workspace.shadow_mode_disabled"] as const) : []),
         ...(input.recipient !== undefined ? (["workspace.shadow_recipient_changed"] as const) : []),
       ];
+      if (actions.length === 0) nothingToAudit("no field given");
       for (const action of actions) {
         await recordAudit(tx, {
           tenantId: principal.tenantId,

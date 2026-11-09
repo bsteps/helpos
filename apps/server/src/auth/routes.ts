@@ -46,6 +46,7 @@ const meSchema = z
 
 const signInRoute = apiRoute({
   access: { noCaller: "The caller proves who they are with an email and password in the body." },
+  audit: { none: "Signing in changes no workspace data, and users live outside workspaces." },
   method: "post",
   path: "/v1/auth/sign-in",
   summary: "Sign in with email and password",
@@ -69,6 +70,7 @@ const signOutRoute = apiRoute({
     noCaller:
       "The session cookie, if any, is the only credential, and signing out without one is harmless.",
   },
+  audit: { none: "Ends the caller's own session; it changes no workspace data." },
   method: "post",
   path: "/v1/auth/sign-out",
   summary: "Sign out",
@@ -80,6 +82,7 @@ const setPasswordRoute = apiRoute({
   access: {
     noCaller: "The one-time token in the body proves the caller holds the password setup link.",
   },
+  audit: { none: "Users live outside workspaces, and the audit log belongs to one workspace." },
   method: "post",
   path: "/v1/auth/password",
   summary: "Set a password with a one-time link",

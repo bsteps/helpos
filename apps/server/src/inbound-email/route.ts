@@ -25,6 +25,9 @@ const resultSchema = z
 
 const inboundEmailRoute = apiRoute({
   access: { noCaller: "The email provider proves itself with the shared inbound secret." },
+  audit: {
+    none: "A customer's email, not an action by a member or agent: the stored message is its record.",
+  },
   method: "post",
   path: "/v1/inbound/email",
   summary: "Receive an inbound email",

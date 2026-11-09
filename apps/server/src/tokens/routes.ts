@@ -1,6 +1,6 @@
 import { and, asc, type Database, eq, isNull, schema } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { recordAudit } from "../audit/audit.ts";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
 import { type ApiTokenRow, createApiToken } from "./create-token.ts";
@@ -49,6 +49,7 @@ const adminErrors = {
 
 const createTokenRoute = apiRoute({
   access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["api_token.created"] },
   method: "post",
   path: "/v1/tokens",
   summary: "Create an agent token",
@@ -94,6 +95,7 @@ const revokeTokenRoute = apiRoute({
     anyCaller:
       "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler",
   },
+  audit: { records: ["api_token.revoked"] },
   method: "delete",
   path: "/v1/tokens/{id}",
   summary: "Revoke an agent token",
@@ -181,6 +183,7 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
           .select({ id: apiTokens.id })
           .from(apiTokens)
           .where(eq(apiTokens.id, id));
+        nothingToAudit("already revoked, or not found");
         return found ? "already_revoked" : "not_found";
       }
       await recordAudit(tx, {

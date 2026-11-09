@@ -12,7 +12,7 @@ import {
   uuidv7,
 } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AuditEvent, recordAudit } from "../audit/audit.ts";
+import { type AuditEvent, nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { ingestSourceJob } from "./jobs.ts";
@@ -147,6 +147,7 @@ const listRoute = apiRoute({
 
 const createSourceRoute = apiRoute({
   access: { allScopes: ["knowledge:write"] },
+  audit: { records: ["knowledge_source.created"] },
   method: "post",
   path: "/v1/knowledge/sources",
   summary: "Add a knowledge source",
@@ -176,6 +177,7 @@ const createSourceRoute = apiRoute({
 
 const deleteRoute = apiRoute({
   access: { allScopes: ["knowledge:write"] },
+  audit: { records: ["knowledge_source.deleted"] },
   method: "delete",
   path: "/v1/knowledge/sources/{id}",
   summary: "Delete a knowledge source",
@@ -198,6 +200,7 @@ const deleteRoute = apiRoute({
 
 const reingestRoute = apiRoute({
   access: { allScopes: ["knowledge:write"] },
+  audit: { records: ["knowledge_source.reingest_requested"] },
   method: "post",
   path: "/v1/knowledge/sources/{id}/reingest",
   summary: "Ingest a knowledge source again",
@@ -224,6 +227,13 @@ const reingestRoute = apiRoute({
 
 const updateRoute = apiRoute({
   access: { allScopes: ["knowledge:write"] },
+  audit: {
+    records: [
+      "knowledge_source.edited",
+      "knowledge_source.made_public",
+      "knowledge_source.made_internal",
+    ],
+  },
   method: "patch",
   path: "/v1/knowledge/sources/{id}",
   summary: "Edit a knowledge source",
@@ -461,7 +471,10 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       const title = input.title !== undefined && input.title !== found.title;
       const visibility = input.visibility !== undefined && input.visibility !== found.visibility;
       const content = input.content !== undefined && input.content !== found.content;
-      if (!title && !visibility && !content) return found;
+      if (!title && !visibility && !content) {
+        nothingToAudit("same title, visibility and content");
+        return found;
+      }
 
       const [row] = await tx
         .update(knowledgeSources)
