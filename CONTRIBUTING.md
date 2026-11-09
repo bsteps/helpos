@@ -44,12 +44,14 @@ Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
 - **Agent and API actions are scoped, policy-checked and audit-logged** ([ADR 0004](docs/adr/0004-security-baseline.md)).
 - Changing architecture? Write an ADR in `docs/adr/` first.
 
+What reviewers look for, as checklists: [docs/checks/](docs/checks/README.md) (tenant isolation, security baseline, test signal). Check your change against them before you open a PR.
+
 ## 4. Open a pull request
 
 - PR title in [Conventional Commits](https://www.conventionalcommits.org) form: `feat: …`, `fix: …`, `docs: …`.
 - Fill in the PR template: what, why, how you tested it.
 - **First PR?** The CLA Assistant bot will ask you to sign [CLA.md](CLA.md). It takes one click.
-- CI must be green, and a maintainer will review your PR. (An automated AI review is planned in #42.)
+- CI must be green, and a maintainer will review your PR. On maintainers' PRs, narrow AI checks also leave advisory inline comments ([how they work](docs/checks/README.md#how-the-checks-run)). PRs from forks don't get them, because forks get no secrets.
 - We **squash-merge**, so your PR becomes one clean commit on `main`.
 
 ## Using AI coding agents

@@ -159,4 +159,5 @@ The MVP (milestone **MVP**) is a demo to learn from, **not a release**. To stay 
 ## Where to read more
 
 - Decisions: [`docs/adr/`](../adr/)
+- What PR reviews check, as checklists for authors and the AI checks: [`docs/checks/`](../checks/README.md)
 - What we build, in which order: [`docs/roadmap.md`](../roadmap.md) (one GitHub milestone per set)
