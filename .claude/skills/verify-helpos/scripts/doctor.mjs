@@ -145,6 +145,8 @@ const checks = [
   {
     name: "owner can sign in",
     warn: true,
+    // A real sign-in makes a session: run it once at the end, not on every --wait poll.
+    once: true,
     run: async () => {
       const { status } = await get(`${inst.apiUrl}/v1/auth/sign-in`, {
         method: "POST",
@@ -155,16 +157,16 @@ const checks = [
         }),
       });
       return {
-        ok: status === 200 || status === 204,
+        ok: status === 204,
         detail: `${seed.northwind.owner} → ${status}; fix: owner-password.mjs`,
       };
     },
   },
 ];
 
-async function runAll() {
+async function runAll(which) {
   const results = [];
-  for (const check of checks) {
+  for (const check of checks.filter(which)) {
     const result = await check
       .run()
       .catch((error) => ({ ok: false, detail: String(error.cause ?? error) }));
@@ -174,11 +176,13 @@ async function runAll() {
 }
 
 const deadline = Date.now() + waitSeconds * 1000;
-let results = await runAll();
+const polled = (c) => !c.once;
+let results = await runAll(polled);
 while (results.some((r) => !r.ok && !r.warn) && Date.now() < deadline) {
   await new Promise((r) => setTimeout(r, 2000));
-  results = await runAll();
+  results = await runAll(polled);
 }
+results.push(...(await runAll((c) => c.once)));
 
 process.stdout.write(`instance ${inst.apiUrl} / ${inst.webUrl} / db ${inst.dbName}\n`);
 for (const r of results) {
