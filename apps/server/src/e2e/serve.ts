@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mockEmbeddingModel, mockModel, routedMockModel } from "@helpos/ai/testing";
-import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
+import { createAuthStore, createDatabase, createJobRunner, eq, schema } from "@helpos/db";
 import { startTestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
@@ -174,12 +174,33 @@ const setup = await auth.issueSetupToken(workspace.ownerId);
 // gets a password here, since the seed gives nobody one.
 const seeded = await seedDemoData({ db, auth, jobs: runner });
 if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
+async function setOwnerPassword(email: string, password: string): Promise<void> {
+  const setupToken = await auth.issueSetupToken((await auth.ensureUser(email)).id);
+  if (!(await auth.setPassword(setupToken.token, password)).ok) {
+    throw new Error(`e2e: password for ${email} failed`);
+  }
+}
 const seedOwner = "maya.okafor@northwind-cycles.test";
 const seedPassword = "northwind demo password";
-const seedSetup = await auth.issueSetupToken((await auth.ensureUser(seedOwner)).id);
-if (!(await auth.setPassword(seedSetup.token, seedPassword)).ok) {
-  throw new Error("e2e: seed owner password failed");
-}
+await setOwnerPassword(seedOwner, seedPassword);
+
+// A workspace whose daily AI budget is one draft: its first email uses it up, so the next
+// ticket gets no draft. The test for the paused state needs this, and no other test uses it.
+const budgetOwner = "owner@budget-bikes.test";
+const budgetMailbox = "support@budget-bikes.test";
+const budgetPassword = "budget bikes demo password";
+const budgetWorkspace = await initWorkspace(
+  { db, auth },
+  { workspace: "Budget Bikes", mailbox: budgetMailbox, owner: budgetOwner },
+);
+if (!budgetWorkspace.ok) throw new Error("e2e: budget workspace setup failed");
+await db.withTenant(budgetWorkspace.tenantId, (tx) =>
+  tx
+    .update(schema.tenants)
+    .set({ aiDailyTokenBudget: e2eDraftUsage.inputTokens + e2eDraftUsage.outputTokens })
+    .where(eq(schema.tenants.id, budgetWorkspace.tenantId)),
+);
+await setOwnerPassword(budgetOwner, budgetPassword);
 
 const app = createApp({
   db,
@@ -214,6 +235,9 @@ writeFileSync(
     smtpDownMarker: e2eSmtpDownMarker,
     seedOwner,
     seedPassword,
+    budgetOwner,
+    budgetMailbox,
+    budgetPassword,
   }),
 );
 // Listening last: Playwright starts the tests as soon as /health answers.

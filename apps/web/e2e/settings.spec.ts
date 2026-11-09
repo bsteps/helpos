@@ -88,3 +88,35 @@ test("AI usage shows today's tokens and budget, and grows after a draft", async 
   await expect.poll(() => tokens(page, "ai-usage-used")).toBeGreaterThan(before);
   await expect.poll(() => usedPlusLeft(page)).toBe(budget);
 });
+
+test("when drafting uses up the daily budget, Settings and the next ticket show drafting is paused", async ({
+  page,
+  request,
+}) => {
+  const { budgetOwner, budgetMailbox, budgetPassword } = state();
+  await signIn(page, { email: budgetOwner, password: budgetPassword });
+  await deliver(
+    request,
+    plainEmail(uniqueSubject("Spent budget"), "Hi, where is my bike?", budgetMailbox),
+  );
+
+  await openSettings(page);
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByText("Paused", { exact: true })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.getByTestId("ai-usage-remaining")).toHaveText("0");
+  await expect(page.getByText("Drafting is paused")).toBeVisible();
+
+  const subject = uniqueSubject("After the budget");
+  await deliver(request, plainEmail(subject, "Hi, can you help me?", budgetMailbox));
+  const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: subject }) });
+  await expect(async () => {
+    await page.goto("/");
+    await expect(row.getByText("AI paused")).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await row.getByRole("link", { name: subject }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Today's AI budget for this workspace is spent",
+  );
+});
