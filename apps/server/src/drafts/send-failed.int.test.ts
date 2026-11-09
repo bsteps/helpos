@@ -10,7 +10,7 @@ import {
   type JobRunner,
   schema,
 } from "@helpos/db";
-import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import { containerHost, startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -146,10 +146,10 @@ beforeAll(async () => {
     startTestDatabase(),
     new GenericContainer("axllent/mailpit:v1.27").withExposedPorts(1025, 8025).start(),
   ]);
-  mailpitApi = `http://${mailpit.getHost()}:${mailpit.getMappedPort(8025)}`;
+  mailpitApi = `http://${containerHost(mailpit)}:${mailpit.getMappedPort(8025)}`;
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
-  smtp = createSmtpTransport(`smtp://${mailpit.getHost()}:${mailpit.getMappedPort(1025)}`);
+  smtp = createSmtpTransport(`smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`);
   runner = createJobRunner({
     jobsUrl: testDb.jobsUrl,
     db,

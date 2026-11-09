@@ -71,13 +71,18 @@ async function startServer(): Promise<{ container: StartedPostgreSqlContainer; a
 }
 
 /**
- * The container's address as an IPv4 one. Testcontainers says `localhost`, which Node tries as
- * `::1` first, and Docker Desktop's IPv6 port forwarding stalls when many connections open at
- * once: half of 50 hit CONNECT_TIMEOUT, where 150 over 127.0.0.1 take 135 ms.
+ * A test container's host, as IPv4. Testcontainers says `localhost`, which Node tries as `::1`
+ * first, and Docker Desktop's IPv6 port forwarding stalls new connections while other
+ * containers are busy: half of 50 Postgres connections hit CONNECT_TIMEOUT, and SMTP
+ * connections to Mailpit waited 15 s, where 127.0.0.1 took under 150 ms for both.
  */
-function hostPortOf(container: StartedPostgreSqlContainer): string {
+export function containerHost(container: { getHost(): string }): string {
   const host = container.getHost();
-  return `${host === "localhost" ? "127.0.0.1" : host}:${container.getPort()}`;
+  return host === "localhost" ? "127.0.0.1" : host;
+}
+
+function hostPortOf(container: StartedPostgreSqlContainer): string {
+  return `${containerHost(container)}:${container.getPort()}`;
 }
 
 /**
