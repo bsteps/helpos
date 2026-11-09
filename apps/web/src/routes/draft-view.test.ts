@@ -37,6 +37,19 @@ function draft(id: string, status: Draft["status"], kind: Draft["kind"] = "reply
   };
 }
 
+function inbound(id: string): TicketDetail["messages"][number] {
+  return {
+    id,
+    direction: "inbound",
+    from: { address: "jane@customer.test", name: "Jane" },
+    to: ["support@acme.test"],
+    subject: "Late parcel",
+    text: "Where is it?",
+    html: null,
+    createdAt: "2026-11-09T09:00:00.000Z",
+  };
+}
+
 function failedThenDiscarded(id: string): Draft {
   return { ...draft(id, "discarded"), approvedAt: sentAt };
 }
@@ -115,6 +128,29 @@ describe("draftView", () => {
       kind: "compose",
       meanwhile: undefined,
     });
+  });
+
+  it("offers the choice when the AI paused on a follow-up to an answered message", () => {
+    const followUp: TicketDetail = {
+      ...ticket,
+      aiPausedReason: "daily_budget",
+      messages: [inbound("m1"), inbound("m2")],
+    };
+    const drafts = [{ ...draft("d1", "sent"), messageId: "m1" }];
+    expect(draftView(followUp, drafts, undefined, false)).toEqual({
+      kind: "choose",
+      after: "ai_paused",
+    });
+  });
+
+  it("still shows the sent reply when it answers the latest message", () => {
+    const answered: TicketDetail = {
+      ...ticket,
+      aiPausedReason: "daily_budget",
+      messages: [inbound("m1")],
+    };
+    const drafts = [{ ...draft("d1", "sent"), messageId: "m1" }];
+    expect(draftView(answered, drafts, undefined, false)).toMatchObject({ kind: "draft" });
   });
 
   it("shows nothing on a closed ticket with no draft", () => {

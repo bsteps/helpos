@@ -37,8 +37,12 @@ export function draftView(
   composing: boolean,
 ): DraftView {
   const newest = newestReply(drafts);
-  // Once the newest reply is discarded, an older sent reply isn't the one to show.
-  const live = newest?.status === "discarded" ? undefined : newest;
+  const latestMessage = ticket?.messages.filter((m) => m.direction === "inbound").at(-1);
+  // Once the newest reply is discarded, an older sent reply isn't the one to show. Nor is one
+  // sent to an earlier message when the AI paused before answering the latest.
+  const answeredEarlier =
+    ticket?.aiPausedReason && newest?.status === "sent" && newest.messageId !== latestMessage?.id;
+  const live = newest?.status === "discarded" || answeredEarlier ? undefined : newest;
   // A reply being written stays on screen whatever changes meanwhile, so typed text isn't lost.
   if (composing) {
     return { kind: "compose", meanwhile: live && meanwhileByStatus[live.status] };
@@ -46,7 +50,9 @@ export function draftView(
   if (live) return { kind: "draft", draft: live };
   if (ticket?.status !== "open" || ticket.automated) return { kind: "none" };
   if (ask && ask.replacing === (newest?.id ?? null)) return { kind: "writing" };
-  if (newest) return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
+  if (newest && !answeredEarlier) {
+    return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
+  }
   if (ticket.aiPausedReason) return { kind: "choose", after: "ai_paused" };
   return { kind: "writing" };
 }
