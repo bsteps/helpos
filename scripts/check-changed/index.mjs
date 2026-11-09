@@ -81,7 +81,10 @@ for (const [cmd, args] of steps) {
   process.stdout.write(`\n> ${cmd} ${args.join(" ")}\n`);
   // Never through a shell: changed paths come from the branch and may hold shell metacharacters.
   const [bin, binArgs] = cmd === "pnpm" ? pnpm(args) : [process.execPath, args];
-  const r = spawnSync(bin, binArgs, { stdio: "inherit", shell: false });
+  // Evals always use the mock model here: a live run (EVAL_LIVE=1, often set in .env) costs
+  // money on every iteration. Node's --env-file never overrides a variable already set.
+  const env = { ...process.env, EVAL_LIVE: "0" };
+  const r = spawnSync(bin, binArgs, { stdio: "inherit", shell: false, env });
   if (r.error) process.stderr.write(`check:changed: could not start ${bin}: ${r.error.message}\n`);
   if (r.signal)
     process.stderr.write(`check:changed: ${cmd} was stopped by ${r.signal}
