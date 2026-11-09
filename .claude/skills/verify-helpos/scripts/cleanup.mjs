@@ -4,7 +4,7 @@
 //   node .claude/skills/verify-helpos/scripts/cleanup.mjs
 import { rmSync } from "node:fs";
 import { instance, launchedPids, launchRecord } from "./instance.mjs";
-import { helposChain, listeners, stopChain } from "./processes.mjs";
+import { helposChain, listeners, stopTree } from "./processes.mjs";
 
 const inst = instance();
 const ours = launchedPids();
@@ -13,15 +13,16 @@ let ok = true;
 
 for (const port of ports) {
   for (const l of listeners(port)) {
-    const chain = helposChain(l.pid);
-    if (!l.helpos || !chain.some((pid) => ours.has(pid))) {
+    // Only the part of the chain launch.mjs recorded: never a parent above its own tree.
+    const recorded = helposChain(l.pid).filter((pid) => ours.has(pid));
+    if (!l.helpos || recorded.length === 0) {
       process.stdout.write(
         `port ${port}: pid ${l.pid} was not started by launch.mjs, left running: ${l.cmd.slice(0, 100)}\n`,
       );
       ok = false;
       continue;
     }
-    process.stdout.write(`port ${port}: stopping pid ${stopChain(chain)}\n`);
+    process.stdout.write(`port ${port}: stopping pid ${stopTree(recorded.at(-1))}\n`);
   }
 }
 

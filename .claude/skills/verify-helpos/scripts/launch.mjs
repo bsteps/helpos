@@ -4,10 +4,29 @@
 //   node .claude/skills/verify-helpos/scripts/launch.mjs
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { evidenceRoot, instance, launchRecord, ollamaEmbedding, repoRoot } from "./instance.mjs";
-import { helposChain, listeners } from "./processes.mjs";
+import {
+  evidenceRoot,
+  instance,
+  launchRecord,
+  ollamaEmbedding,
+  quit,
+  repoRoot,
+} from "./instance.mjs";
+import { descendsFrom, helposChain, listeners } from "./processes.mjs";
 
 const inst = instance();
+const ports = [inst.apiUrl, inst.webUrl].map((u) => Number(new URL(u).port));
+// pnpm dev would fail to bind, and this launch would then record someone else's processes.
+for (const port of ports) {
+  const [held] = listeners(port);
+  if (held) {
+    quit(
+      1,
+      `port ${port} is already held by pid ${held.pid}: ${held.cmd.slice(0, 100)}\n` +
+        "Is HelpOS already running? Check with pnpm app:doctor; stop it with pnpm app:stop.",
+    );
+  }
+}
 const env = { ...process.env };
 if (!inst.embeddingsInEnv) {
   const ollama = await fetch("http://localhost:11434/api/tags", {
@@ -34,19 +53,29 @@ process.stdout.write(
 const child = spawn("pnpm dev", { stdio: "inherit", shell: true, cwd: repoRoot, env });
 child.on("exit", (code) => process.exit(code ?? 1));
 
-// Record which processes this launch started, so cleanup.mjs stops only those.
-const ports = [inst.apiUrl, inst.webUrl].map((u) => Number(new URL(u).port));
+// Record which processes this launch started (those below its own child), so cleanup.mjs stops
+// only those.
 const deadline = Date.now() + 240_000;
+let recorded = false;
 while (Date.now() < deadline) {
   await new Promise((r) => setTimeout(r, 2000));
-  const found = ports.map((port) => listeners(port).filter((l) => l.helpos));
+  const found = ports.map((port) =>
+    listeners(port).filter((l) => l.helpos && descendsFrom(l.pid, child.pid)),
+  );
   if (found.some((f) => f.length === 0)) continue;
-  const pids = found.flat().flatMap((l) => helposChain(l.pid));
+  const pids = found.flat().flatMap((l) => helposChain(l.pid, { stopAt: child.pid }));
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(
     launchRecord,
     `${JSON.stringify({ launchPid: process.pid, startedAt: new Date().toISOString(), pids }, null, 2)}\n`,
   );
   process.stdout.write(`verify-helpos: recorded pids ${pids.join(",")} in ${launchRecord}\n`);
+  recorded = true;
   break;
+}
+if (!recorded) {
+  process.stdout.write(
+    "verify-helpos: the API and dashboard didn't both come up in 240s, so nothing was recorded " +
+      "and pnpm app:stop won't stop them. Check pnpm app:doctor.\n",
+  );
 }

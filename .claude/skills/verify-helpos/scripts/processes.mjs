@@ -1,9 +1,21 @@
 // Finds and stops the HelpOS processes on this checkout's ports, and nothing else. Stopping the
 // `pnpm dev` task alone is not enough on Windows: its server and Vite children keep running.
 import { execFileSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const helposCommand = /src[\\/]main\.ts|vite|@helpos[\\/]/;
 const windows = process.platform === "win32";
+const webDir = join(resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."), "apps", "web");
+
+/**
+ * Whether a command line is part of this checkout's HelpOS: the API (`src/main.ts`), the pnpm
+ * filters that start it, or this checkout's own Vite. Any other project's Vite is not.
+ */
+function isHelposCommand(cmd) {
+  if (/src[\\/]main\.ts|--filter @helpos[\\/]|\/c vite --port \d+$/.test(cmd)) return true;
+  const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
+  return /[\\/]vite[\\/]bin[\\/]vite\.js/.test(cmd) && sameCase(cmd).includes(sameCase(webDir));
+}
 
 function sh(file, args) {
   try {
@@ -47,7 +59,7 @@ export function listeners(port) {
   }
   return [...pids].map((pid) => {
     const info = processInfo(pid);
-    return { pid, cmd: info?.cmd ?? "", helpos: helposCommand.test(info?.cmd ?? "") };
+    return { pid, cmd: info?.cmd ?? "", helpos: isHelposCommand(info?.cmd ?? "") };
   });
 }
 
@@ -56,20 +68,32 @@ export function listeners(port) {
  * can tell its own processes from another checkout's or project's on the same port, even after
  * Windows orphans the server (its pnpm parent gone, the `node --watch` parent still running).
  */
-export function helposChain(pid) {
+export function helposChain(pid, { stopAt } = {}) {
   const chain = [pid];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 8 && chain.at(-1) !== stopAt; i++) {
     const info = processInfo(chain.at(-1));
     const parent = info && processInfo(info.parent);
-    if (!parent || !helposCommand.test(parent.cmd)) break;
+    if (!parent || !isHelposCommand(parent.cmd)) break;
     chain.push(parent.pid);
   }
   return chain;
 }
 
-/** Stops the top of the chain, so `node --watch` can't restart the child it watches. */
-export function stopChain(chain) {
-  const top = chain.at(-1);
+/** Whether `pid` is `ancestor` or runs somewhere below it. */
+export function descendsFrom(pid, ancestor) {
+  let current = pid;
+  for (let i = 0; i < 12 && current; i++) {
+    if (current === ancestor) return true;
+    current = processInfo(current)?.parent;
+  }
+  return false;
+}
+
+/**
+ * Stops `top` and everything below it. Pass the highest pid of a chain that launch.mjs recorded,
+ * so `node --watch` can't restart the child it watches and nothing above our own tree is touched.
+ */
+export function stopTree(top) {
   if (windows) sh("taskkill", ["/PID", String(top), "/T", "/F"]);
   else sh("kill", ["-TERM", String(top)]);
   return top;
