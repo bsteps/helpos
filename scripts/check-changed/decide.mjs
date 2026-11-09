@@ -43,5 +43,7 @@ export function decide(changed) {
 
   const evals = scope === "all" || code.some((f) => aiSource.test(f) && !testFile.test(f));
 
-  return { lintFiles: files, scope, evals };
+  // Biome can't check Markdown, so leave it out instead of passing it only to be skipped.
+  const lintFiles = files.filter((f) => !/\.md$/i.test(f));
+  return { lintFiles, scope, evals };
 }

@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decide } from "./decide.mjs";
 
-test("docs-only changes lint but skip typecheck, tests and evals", () => {
+test("docs-only changes skip lint, typecheck, tests and evals", () => {
   const d = decide(["README.md", "docs/adr/0001-x.md", "packages/ai/README.md"]);
   assert.equal(d.scope, "none");
   assert.equal(d.evals, false);
-  assert.deepEqual(d.lintFiles, ["README.md", "docs/adr/0001-x.md", "packages/ai/README.md"]);
+  assert.deepEqual(d.lintFiles, []);
+});
+
+test("Markdown is left out of the lint list, but other doc files stay", () => {
+  assert.deepEqual(decide(["README.md", "docs/openapi.json"]).lintFiles, ["docs/openapi.json"]);
 });
 
 test("one package checks that package and its dependents", () => {

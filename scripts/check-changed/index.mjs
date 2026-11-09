@@ -3,7 +3,7 @@
 // dependents (Turbo's `...[base]` filter), then runs evals if AI prompts changed.
 // CI and `pnpm verify` still run everything.
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { decide } from "./decide.mjs";
 
 const git = (/** @type {string[]} */ ...args) => {
@@ -41,7 +41,7 @@ const { lintFiles, scope, evals } = decide(changed);
 const present = lintFiles.filter((f) => existsSync(f));
 
 process.stdout.write(
-  `check:changed vs ${target} (${base.slice(0, 7)}): ${lintFiles.length} files, ` +
+  `check:changed vs ${target} (${base.slice(0, 7)}): ${changed.length} changed, ${lintFiles.length} to lint, ` +
     `typecheck+test: ${scope}, evals: ${evals ? "yes" : "no"}\n`,
 );
 
@@ -63,7 +63,11 @@ if (present.length > 0) {
 }
 if (scope === "all") {
   steps.push(["pnpm", ["exec", "turbo", "run", "typecheck", "test"]]);
-  steps.push(["node", ["--test", "scripts/**/*.test.mjs"]]);
+  // List the test files here: with no shell, nothing would expand a glob on older Node versions.
+  const scriptTests = readdirSync("scripts", { recursive: true, encoding: "utf8" })
+    .filter((f) => f.endsWith(".test.mjs"))
+    .map((f) => `scripts/${f.replaceAll("\\", "/")}`);
+  steps.push(["node", ["--test", ...scriptTests]]);
 } else if (scope === "affected") {
   steps.push(["pnpm", ["exec", "turbo", "run", "typecheck", "test", `--filter=...[${base}]`]]);
 }
@@ -75,6 +79,9 @@ for (const [cmd, args] of steps) {
   const [bin, binArgs] = cmd === "pnpm" ? pnpm(args) : [process.execPath, args];
   const r = spawnSync(bin, binArgs, { stdio: "inherit", shell: false });
   if (r.error) process.stderr.write(`check:changed: could not start ${bin}: ${r.error.message}\n`);
+  if (r.signal)
+    process.stderr.write(`check:changed: ${cmd} was stopped by ${r.signal}
+`);
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 process.stdout.write("\ncheck:changed passed. Run `pnpm verify` once before opening a PR.\n");
