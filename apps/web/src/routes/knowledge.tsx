@@ -433,7 +433,13 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   const changed = Object.keys(body).length > 0;
   const onlySpaces = content !== "" && content.trim() === "";
   // Not after this person's own save, which changes it too before the form closes.
-  const changedMeanwhile = (edit.isIdle || edit.isError) && source.updatedAt !== opened.updatedAt;
+  // Someone changed what this form edits, or its text is being read again. A source that only
+  // finished reading meanwhile doesn't count.
+  const changedMeanwhile =
+    (edit.isIdle || edit.isError) &&
+    (source.title !== opened.title ||
+      source.visibility !== opened.visibility ||
+      (source.status === "pending" && source.updatedAt !== opened.updatedAt));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
