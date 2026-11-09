@@ -67,12 +67,19 @@ export function isolatedEnv(env, isolation) {
   return { ok: true, env: out };
 }
 
-/** Parses the KEY=value lines of a .env file. Enough for our own files; no quoting rules. */
+/**
+ * Parses the KEY=value lines of a .env file the way Node's --env-file reads them for single-line
+ * values: an optional `export `, values in single, double or back quotes, and `# comments` after
+ * an unquoted value.
+ */
 export function parseEnv(text) {
   const out = {};
   for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (m) out[m[1]] = m[2].trim();
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const raw = m[2].trim();
+    const quoted = /^(["'`])(.*)\1/.exec(raw);
+    out[m[1]] = quoted ? quoted[2] : raw.replace(/\s+#.*$/, "").trim();
   }
   return out;
 }

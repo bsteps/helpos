@@ -81,3 +81,24 @@ test("per-database setup matches docker/postgres/init.sql", () => {
   const afterConnect = statements(init.split("connect helpos")[1]);
   assert.deepEqual(statements(databaseSetupSql()), afterConnect);
 });
+
+test("parseEnv reads quoted values, `export` and trailing comments like Node does", () => {
+  const env = parseEnv(
+    [
+      'HELPOS_DATABASE_URL="postgres://a:b@localhost:5432/helpos"',
+      "export HELPOS_DATABASE_OWNER_URL='postgres://o:o@localhost/helpos'",
+      "HELPOS_PORT=3000 # the API",
+      'HELPOS_SECRET="has # inside"',
+      "# a comment line",
+      "EMPTY=",
+    ].join("\n"),
+  );
+  assert.deepEqual(env, {
+    HELPOS_DATABASE_URL: "postgres://a:b@localhost:5432/helpos",
+    HELPOS_DATABASE_OWNER_URL: "postgres://o:o@localhost/helpos",
+    HELPOS_PORT: "3000",
+    HELPOS_SECRET: "has # inside",
+    EMPTY: "",
+  });
+  assert.ok(isolatedEnv(env, isolationFor("/wt/a", wt)).ok);
+});
