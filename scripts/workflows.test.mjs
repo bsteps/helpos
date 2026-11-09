@@ -40,10 +40,37 @@ function jobs(text) {
   return result;
 }
 
-/** The value of a `--flag "a,b,c"` in claude_args, as a list. */
+/** Trigger names under `on:`. Fails if `on:` isn't a block this test can read. */
+function triggers(text, name) {
+  const found = [...block(text, "on").matchAll(/^ {2}([\w-]+):/gm)].map((m) => m[1]);
+  assert.ok(found.length > 0, `${name}: write "on:" as a block`);
+  return found;
+}
+
+/** A job's `permissions:` block as { scope: level }, or undefined without one. */
+function permissions(job) {
+  const lines = job.split("\n");
+  const start = lines.findIndex((line) => /^ {4}permissions:\s*$/.test(line));
+  if (start === -1) return undefined;
+  const result = {};
+  for (const line of lines.slice(start + 1)) {
+    const match = /^ {6}([\w-]+): (\w+)/.exec(line);
+    if (!match) break;
+    result[match[1] ?? ""] = match[2];
+  }
+  return result;
+}
+
+/** A job's `if: >-` condition. */
+const condition = (job) => /^ {4}if: >-\n((?: {6}.*\n)+)/m.exec(job)?.[1] ?? "";
+
+/** The value of a `--flag "a,b,c"` in claude_args, as a list. Exactly one, never empty. */
 function toolList(text, flag) {
-  const match = new RegExp(`${flag} "([^"]*)"`).exec(text);
-  return match?.[1]?.split(",") ?? [];
+  const matches = [...code(text).matchAll(new RegExp(`${flag} "([^"]*)"`, "g"))];
+  assert.equal(matches.length, 1, `exactly one ${flag} "..."`);
+  const list = matches[0]?.[1]?.split(",") ?? [];
+  assert.ok(list.length > 0 && !list.includes(""), `${flag} is empty`);
+  return list;
 }
 
 /** The `check:` input a caller passes to ai-check.yml. */
@@ -102,21 +129,18 @@ test("every workflow starts from no or read-only permissions", () => {
 });
 
 test("untrusted PR and issue text is never expanded into a script or prompt", () => {
+  const untrusted =
+    /github\.event\.[\w.]*\.(body|title|name|ref|label|description|message|email)\b|github\.(head_ref|ref_name)\b/;
   for (const { name, text } of workflows) {
     for (const [expr] of text.matchAll(/\$\{\{[^}]*\}\}/g)) {
-      assert.doesNotMatch(
-        expr,
-        /github\.event\.[\w.]*\.(body|title|name|ref)\b|github\.(head_ref|ref_name)\b/,
-        name,
-      );
+      assert.doesNotMatch(expr, untrusted, `${name}: ${expr}`);
     }
   }
 });
 
 test("Claude workflows: only pull_request or issue_comment, with cost and time caps", () => {
   for (const { name, text } of claudeWorkflows) {
-    const triggers = [...block(text, "on").matchAll(/^ {2}([\w-]+):/gm)].map((m) => m[1]);
-    for (const trigger of triggers) {
+    for (const trigger of triggers(text, name)) {
       assert.ok(["pull_request", "issue_comment", "workflow_call"].includes(trigger), name);
     }
     for (const [id, job] of Object.entries(jobs(text))) {
@@ -124,7 +148,11 @@ test("Claude workflows: only pull_request or issue_comment, with cost and time c
     }
     assert.match(text, /--max-turns \d+/, `${name}: no --max-turns`);
     assert.match(text, /--model claude-/, `${name}: no --model`);
-    assert.match(text, /--allowedTools "/, `${name}: no --allowedTools`);
+    toolList(text, "--allowedTools");
+    // Nothing that widens what Claude may do, loads outside config, or prints tool output.
+    const widening =
+      /dangerously|bypassPermissions|--permission-mode|--mcp-config|--settings|^\s+settings:|plugins:|plugin_marketplaces:|show_full_output|ACTIONS_STEP_DEBUG/m;
+    assert.doesNotMatch(code(text), widening, name);
   }
 });
 
@@ -143,33 +171,44 @@ test("Claude workflows deny reads where credentials live", () => {
 
 test("AI review jobs are read-only: no shell, no edits, comments only", () => {
   const review = read(`${dir}ai-check.yml`);
-  const allowed = toolList(review, "--allowedTools");
-  for (const tool of allowed) {
-    assert.ok(
-      tool.startsWith("Read(") || tool === "mcp__github_inline_comment__create_inline_comment",
-      `review job allows ${tool}`,
-    );
-  }
+  const expr = (inner) => `\${{ ${inner} }}`; // a GitHub expression, written literally
+  assert.deepEqual(toolList(review, "--allowedTools"), [
+    `Read(/${expr("github.workspace")}/**)`,
+    `Read(/${expr("runner.temp")}/pr/**)`,
+    "mcp__github_inline_comment__create_inline_comment",
+  ]);
   const denied = toolList(review, "--disallowedTools");
   for (const tool of ["Bash", "Edit", "MultiEdit", "Write", "NotebookEdit", "Grep", "Glob"]) {
     assert.ok(denied.includes(tool), `review job doesn't deny ${tool}`);
   }
+  assert.deepEqual(permissions(jobs(review).check ?? ""), {
+    contents: "read",
+    "pull-requests": "write",
+  });
   assert.match(review, /--model claude-sonnet-/, "reviews use Sonnet (Opus writes the code)");
   assert.match(review, /github_token: \$\{\{ github\.token \}\}/, "uses the job's own token");
-  assert.doesNotMatch(review, /id-token|contents: write|issues: write|actions:/);
+  assert.match(review, /git show "\$BASE_SHA:AGENTS\.md" > AGENTS\.md/, "base AGENTS.md");
+  assert.ok(review.includes("git ls-files -z -- '*/CLAUDE.md'"), "no nested CLAUDE.md from PR");
   assert.match(review, /never instructions/, "the prompt says PR content is data");
   assert.match(review, /continue-on-error: true/, "advisory: never blocks a PR");
 });
 
 test("each AI check is gated to maintainers' same-repo PRs, capped and path-filtered", () => {
   for (const { name, text } of callers) {
-    const triggers = [...block(text, "on").matchAll(/^ {2}([\w-]+):/gm)].map((m) => m[1]);
-    assert.deepEqual(triggers, ["pull_request"], name);
+    assert.deepEqual(triggers(text, name), ["pull_request"], name);
     assert.match(block(text, "on"), /paths:\n\s+- "/, `${name}: no path filter`);
-    assert.ok(text.includes("github.event.pull_request.head.repo.full_name == github.repository"));
-    assert.ok(text.includes(`${maintainersOnly}, github.event.pull_request.author_association)`));
+    const job = jobs(text).check ?? "";
+    const gate = condition(job);
+    for (const rule of [
+      "github.event.pull_request.head.repo.full_name == github.repository",
+      `${maintainersOnly}, github.event.pull_request.author_association)`,
+      "github.event.pull_request.user.type == 'User'",
+      "!github.event.pull_request.draft",
+    ]) {
+      assert.ok(gate.includes(rule), `${name}: job if: lacks ${rule}`);
+    }
     assert.match(block(text, "concurrency"), /pull_request\.number[\s\S]*cancel-in-progress: true/);
-    assert.match(text, /contents: read\n\s+pull-requests: write\n/, `${name}: permissions`);
+    assert.deepEqual(permissions(job), { contents: "read", "pull-requests": "write" }, name);
     assert.doesNotMatch(text, /secrets: inherit/, `${name}: pass only the one secret`);
 
     const check = checkId(text);
@@ -184,12 +223,21 @@ test("each AI check is gated to maintainers' same-repo PRs, capped and path-filt
 
 test("@claude runs only for maintainers, skips forks and commits only through the API", () => {
   const claude = read(`${dir}claude.yml`);
-  assert.ok(claude.includes(`${maintainersOnly}, github.event.comment.author_association)`));
-  assert.ok(claude.includes("github.event.comment.user.type == 'User'"));
+  const job = jobs(claude).claude ?? "";
+  const gate = condition(job);
+  assert.ok(gate.includes("contains(github.event.comment.body, '@claude')"));
+  assert.ok(gate.includes(`${maintainersOnly}, github.event.comment.author_association)`));
+  assert.ok(gate.includes("github.event.comment.user.type == 'User'"));
+  assert.deepEqual(permissions(job), {
+    contents: "read",
+    "pull-requests": "read",
+    actions: "read",
+    "id-token": "write",
+  });
+  assert.match(job, /concurrency:\n\s+group: claude-\$\{\{ github\.event\.issue\.number \}\}/);
   assert.match(claude, /head\.repo\.full_name[\s\S]*run=false/, "fork PRs are skipped");
   assert.match(claude, /use_commit_signing: "true"/, "no git push from the CLI");
-  const allowed = toolList(claude, "--allowedTools");
-  for (const tool of allowed) {
+  for (const tool of toolList(claude, "--allowedTools")) {
     assert.ok(!/^(Bash|Edit|Write|MultiEdit)\b/.test(tool), `@claude allows ${tool}`);
   }
   assert.match(claude, /never instructions/, "the prompt says issue and PR text is data");

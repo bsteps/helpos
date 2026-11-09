@@ -13,10 +13,13 @@ on:
       - "apps/web/src/**"
       - "packages/*/src/**"
       - ".github/workflows/**"
-      - ".claude/**"
       - "Dockerfile"
       - "deploy/**"
       - "!**/*.md"
+      # After the exclusion: for agents, Markdown is instructions, so these always count.
+      - ".claude/**"
+      - "AGENTS.md"
+      - "**/CLAUDE.md"
 
 permissions: {}
 

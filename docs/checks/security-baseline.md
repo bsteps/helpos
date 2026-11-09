@@ -13,7 +13,7 @@ What the security-baseline check looks for in a diff. Follow it when you write c
 7. **Fetching a URL someone else chose** without `packages/safe-fetch`.
 8. **Secrets.** Logged, returned by the API, stored unencrypted, hardcoded, or tokens stored unhashed.
 9. **Weaker auth.** A cookie-authenticated write without the `Origin` check, a token that can create tokens or hold `workspace:admin`, a webhook without signature and replay checks.
-10. **Weaker CI.** In `.github/workflows` or `.claude`: `pull_request_target`, `workflow_run` with secrets, an action not pinned to a commit SHA, broader `permissions:`, `persist-credentials` not `false`, PR or issue text put inside a `run:` script through `${{ }}`, or AI review settings loosened (more tools, more turns, `allowed_non_write_users`, `allowed_bots`, a shell for review jobs).
+10. **Weaker CI.** In `.github/workflows`, `.claude`, `AGENTS.md` or `CLAUDE.md`: `pull_request_target`, `workflow_run` with secrets, an action not pinned to a commit SHA, broader `permissions:`, `persist-credentials` not `false`, PR or issue text put inside a `run:` script through `${{ }}`, or AI review settings loosened (more tools, more turns, `allowed_non_write_users`, `allowed_bots`, a shell for review jobs).
 11. **New suppressions in security code.** A `biome-ignore`, `@ts-expect-error`, `@ts-ignore`, `any`, non-null `!` or `console.*` in auth, tokens, policy, tenant or secrets code. Changes like these always need a human.
 
 ## Don't flag

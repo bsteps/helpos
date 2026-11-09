@@ -9,7 +9,8 @@ name: AI check (shared)
 # - Claude gets read-only tools and one way to write: inline comments on this PR. No shell,
 #   no edits, no web. Reads are denied where tokens live (/proc, Claude's config, .git).
 # - The GitHub token is this job's own: read code, write PR comments, nothing else.
-# - The skill and its rules come from the base branch, so a PR can't rewrite its own reviewer.
+# - The skill, its rules and Claude's instruction files (CLAUDE.md, AGENTS.md) come from the
+#   base branch, so a PR can't rewrite its own reviewer.
 # - Results are advisory: a finding or a failed run never fails the PR.
 
 on:
@@ -81,6 +82,17 @@ jobs:
           gh api "repos/$REPO/pulls/$PR/comments" --paginate --jq \
             '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("**" + env.TITLE + ":**"))) | {path, line, body}' \
             > "$dir/earlier-comments.jsonl"
+
+          # Claude loads instruction files from the checkout. The action restores CLAUDE.md and
+          # .claude/ from the base branch, but CLAUDE.md imports AGENTS.md, and nested CLAUDE.md
+          # files load too, from the PR head. Use base AGENTS.md and drop the nested ones, so PR
+          # text can't become the reviewer's instructions. Their changes are still in the diff.
+          if git cat-file -e "$BASE_SHA:AGENTS.md" 2>/dev/null; then
+            git show "$BASE_SHA:AGENTS.md" > AGENTS.md
+          else
+            rm -f AGENTS.md
+          fi
+          git ls-files -z -- '*/CLAUDE.md' '*/CLAUDE.local.md' '*/AGENTS.md' | xargs -0 -r rm -f
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
