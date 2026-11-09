@@ -32,8 +32,9 @@ test("an owner adds a Markdown source, sees it become ready, edits it and delete
   await card.getByRole("button", { name: "Delete" }).click();
   await card.getByRole("button", { name: "Delete" }).click();
   await expect(card).toBeHidden();
-  await page.reload();
-  await expect(page.getByText(title)).toBeHidden();
+  const res = await page.request.get("/v1/knowledge/sources");
+  const { sources } = (await res.json()) as { sources: { title: string }[] };
+  expect(sources.map((s) => s.title)).not.toContain(title);
 });
 
 test("a web page that can't be read says why, and can be read again", async ({ page }) => {
