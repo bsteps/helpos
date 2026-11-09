@@ -61,11 +61,15 @@ export function KnowledgePage() {
       {canWrite && adding ? <AddSource onDone={() => setAdding(false)} /> : null}
 
       {sources.isPending ? <Loader size={16} label="Loading" /> : null}
-      {sources.isError && !sources.data ? (
-        <Alert variant="destructive">
+      {sources.isError ? (
+        <Alert variant={sources.data ? "warning" : "destructive"}>
           <AlertIcon />
           <AlertContent>
-            <AlertDescription>Couldn't load the knowledge sources.</AlertDescription>
+            <AlertDescription>
+              {sources.data
+                ? "Couldn't refresh the knowledge sources, so this list may be out of date."
+                : "Couldn't load the knowledge sources."}
+            </AlertDescription>
           </AlertContent>
           <AlertAction>
             <Button
@@ -122,6 +126,7 @@ function problem(error: unknown, failed: string, invalid: string): string {
     case "not_found":
       return `${failed} It was deleted.`;
   }
+  if (error.status === 403) return `${failed} Your account can't change knowledge sources.`;
   if (error.status === 400) return invalid;
   return `${failed} Try again.`;
 }
@@ -382,13 +387,16 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
 
 function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () => void }) {
   const edit = useEditKnowledgeSource();
-  const [title, setTitle] = useState(source.title);
-  const [visibility, setVisibility] = useState<Visibility>(source.visibility);
+  // Compared with the source as it was when the form opened, so a change someone else makes
+  // meanwhile isn't overwritten by a field this person never touched.
+  const [opened] = useState(source);
+  const [title, setTitle] = useState(opened.title);
+  const [visibility, setVisibility] = useState<Visibility>(opened.visibility);
   const [content, setContent] = useState("");
 
   const body = {
-    ...(title.trim() !== source.title.trim() ? { title: title.trim() } : {}),
-    ...(visibility !== source.visibility ? { visibility } : {}),
+    ...(title.trim() !== opened.title.trim() ? { title: title.trim() } : {}),
+    ...(visibility !== opened.visibility ? { visibility } : {}),
     ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
   };
   const changed = Object.keys(body).length > 0;

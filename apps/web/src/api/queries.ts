@@ -1,5 +1,5 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { pollDelay } from "@/lib/knowledge.ts";
+import { notePending, pollDelay } from "@/lib/knowledge.ts";
 import {
   ApiError,
   api,
@@ -265,20 +265,27 @@ export const aiUsageQuery = queryOptions({
   refetchInterval: 30_000,
 });
 
+const pendingSince = new Map<string, number>();
+
 export const knowledgeSourcesQuery = queryOptions({
   queryKey: keys.knowledgeSources,
-  queryFn: async (): Promise<KnowledgeSource[]> =>
-    (await unwrap(api.GET("/v1/knowledge/sources"))).sources,
-  refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now()),
+  queryFn: async (): Promise<KnowledgeSource[]> => {
+    const { sources } = await unwrap(api.GET("/v1/knowledge/sources"));
+    notePending(pendingSince, sources, Date.now());
+    return sources;
+  },
+  refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now(), pendingSince),
 });
 
 /** Every change to a source shows up in the list, so each one refetches it when done. */
 function useKnowledgeMutation<TVariables, TData>(
   mutationFn: (variables: TVariables) => Promise<TData>,
+  onSuccess?: (queryClient: QueryClient, variables: TVariables) => void,
 ) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
+    onSuccess: (_data, variables) => onSuccess?.(queryClient, variables),
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
   });
 }
@@ -298,7 +305,18 @@ export const useReingestKnowledgeSource = () =>
     unwrap(api.POST("/v1/knowledge/sources/{id}/reingest", { params: { path: { id } } })),
   );
 
+/** Deleting a source that's already gone counts as done. It leaves the list at once. */
 export const useDeleteKnowledgeSource = () =>
-  useKnowledgeMutation((id: string) =>
-    unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } })),
+  useKnowledgeMutation(
+    async (id: string): Promise<void> => {
+      try {
+        await unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } }));
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    },
+    (queryClient, id) =>
+      queryClient.setQueryData<KnowledgeSource[]>(keys.knowledgeSources, (sources) =>
+        sources?.filter((s) => s.id !== id),
+      ),
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { KnowledgeSource } from "@/api/client.ts";
-import { knowledgeErrorMessage, pollDelay } from "./knowledge.ts";
+import { knowledgeErrorMessage, notePending, pollDelay } from "./knowledge.ts";
 
 const now = Date.parse("2026-11-09T12:00:00Z");
 const secondsAgo = (s: number) => new Date(now - s * 1000).toISOString();
@@ -30,29 +30,42 @@ function source(
 }
 
 describe("pollDelay", () => {
+  const seen = (entries: [KnowledgeSource, number][]) =>
+    new Map(entries.map(([s, secondsBefore]) => [s.id, now - secondsBefore * 1000]));
+
   it("looks again every 2 seconds while a source has just started being read", () => {
-    expect(pollDelay([source("ready"), source("pending")], now)).toBe(2_000);
+    const reading = source("pending");
+    expect(pollDelay([source("ready"), reading], now, seen([[reading, 5]]))).toBe(2_000);
   });
 
   it("slows to every 30 seconds once a source has been pending for minutes", () => {
-    expect(pollDelay([source("pending", null, secondsAgo(300))], now)).toBe(30_000);
+    const stuck = source("pending");
+    expect(pollDelay([stuck], now, seen([[stuck, 300]]))).toBe(30_000);
   });
 
-  it("treats a pending source with an unreadable time as just started", () => {
-    expect(pollDelay([source("pending", null, "not a date")], now)).toBe(2_000);
-  });
-
-  it("stays slow for a stuck source once a newer one has finished", () => {
-    const stuck = source("pending", null, secondsAgo(600));
-    expect(pollDelay([stuck, source("ready", null, secondsAgo(1))], now)).toBe(30_000);
+  it("goes by when this browser saw it pending, not by the server's clock", () => {
+    const stuck = source("pending", null, new Date(now + 3_600_000).toISOString());
+    expect(pollDelay([stuck], now, seen([[stuck, 300]]))).toBe(30_000);
   });
 
   it("stops once every source is ready or failed", () => {
-    expect(pollDelay([source("ready"), source("failed", "no_text")], now)).toBe(false);
+    expect(pollDelay([source("ready"), source("failed", "no_text")], now, new Map())).toBe(false);
   });
 
   it("stops for a source waiting hours for the daily AI budget", () => {
-    expect(pollDelay([source("pending", "daily_budget_reached")], now)).toBe(false);
+    expect(pollDelay([source("pending", "daily_budget_reached")], now, new Map())).toBe(false);
+  });
+});
+
+describe("notePending", () => {
+  it("keeps the first time a source was seen pending, and forgets it once it's done", () => {
+    const since = new Map<string, number>();
+    const s = source("pending");
+    notePending(since, [s], now);
+    notePending(since, [s], now + 10_000);
+    expect(since.get(s.id)).toBe(now);
+    notePending(since, [{ ...s, status: "ready" }], now + 20_000);
+    expect(since.has(s.id)).toBe(false);
   });
 });
 

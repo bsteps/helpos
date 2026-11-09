@@ -4,18 +4,37 @@ const fastPollMs = 2_000;
 const slowPollMs = 30_000;
 const slowAfterMs = 2 * 60_000;
 
+const beingRead = (s: KnowledgeSource) =>
+  s.status === "pending" && s.error !== "daily_budget_reached";
+
+/**
+ * Records when this browser first saw each source being read. Times come from this clock, not
+ * the server's, so a skewed server clock can't keep a stuck source on fast polling.
+ */
+export function notePending(
+  since: Map<string, number>,
+  sources: readonly KnowledgeSource[],
+  now: number,
+): void {
+  const reading = new Set(sources.filter(beingRead).map((s) => s.id));
+  for (const id of since.keys()) if (!reading.has(id)) since.delete(id);
+  for (const id of reading) if (!since.has(id)) since.set(id, now);
+}
+
 /**
  * How soon to look again while a source is being read: often at first, then rarely, so a
  * source stuck in `pending` doesn't keep every open tab asking every 2 seconds. A source
  * waiting for the daily AI budget can wait hours, so it isn't watched at all.
  */
-export function pollDelay(sources: readonly KnowledgeSource[], now: number): number | false {
-  const reading = sources.filter(
-    (s) => s.status === "pending" && s.error !== "daily_budget_reached",
-  );
+export function pollDelay(
+  sources: readonly KnowledgeSource[],
+  now: number,
+  since: ReadonlyMap<string, number>,
+): number | false {
+  const reading = sources.filter(beingRead);
   if (reading.length === 0) return false;
-  const newest = Math.max(...reading.map((s) => Date.parse(s.updatedAt)));
-  return Number.isNaN(newest) || now - newest < slowAfterMs ? fastPollMs : slowPollMs;
+  const newest = Math.max(...reading.map((s) => since.get(s.id) ?? now));
+  return now - newest < slowAfterMs ? fastPollMs : slowPollMs;
 }
 
 const aiUnavailable = "The AI service couldn't process it. It tries again by itself.";
