@@ -154,9 +154,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       env: { ...process.env, ...inst.env },
     });
     process.exitCode = result.status ?? 1;
+  } else {
+    const { inboundSecret, env, ...shown } = inst;
+    process.stdout.write(
+      `${JSON.stringify({ ...shown, inboundSecretSet: Boolean(inboundSecret) }, null, 2)}\n`,
+    );
   }
-  const { inboundSecret, env, ...shown } = inst;
-  process.stdout.write(
-    `${JSON.stringify({ ...shown, inboundSecretSet: Boolean(inboundSecret) }, null, 2)}\n`,
-  );
 }

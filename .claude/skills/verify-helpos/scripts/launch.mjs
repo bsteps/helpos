@@ -24,8 +24,12 @@ if (!inst.embeddingsInEnv) {
     process.stdout.write("verify-helpos: no embeddings (Ollama not running, none in .env)\n");
   }
 }
+// Hand tests and selftest runs write many drafts (a selftest run alone uses ~20,000 tokens), and
+// the shared .env's 200,000 cap ran out in one afternoon. Only this verification instance gets
+// the higher cap; the shell can still set its own.
+env.HELPOS_AI_DAILY_TOKEN_BUDGET = process.env.HELPOS_AI_DAILY_TOKEN_BUDGET ?? "1000000";
 process.stdout.write(
-  `verify-helpos: API ${inst.apiUrl}  dashboard ${inst.webUrl}  db ${inst.dbName}\n`,
+  `verify-helpos: API ${inst.apiUrl}  dashboard ${inst.webUrl}  db ${inst.dbName}  AI cap ${env.HELPOS_AI_DAILY_TOKEN_BUDGET} tokens/day\n`,
 );
 const child = spawn("pnpm dev", { stdio: "inherit", shell: true, cwd: repoRoot, env });
 child.on("exit", (code) => process.exit(code ?? 1));

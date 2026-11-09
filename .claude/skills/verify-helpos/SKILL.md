@@ -77,7 +77,7 @@ const { chromium } = await import("@playwright/test");
 
 ## Selftest
 
-`pnpm app:selftest [--with-browser]` runs every terminal step of the hand-test checklist through the real helpers and checks each result (61 steps with the browser). Run it after changing any helper or checklist step, before handing steps to a person. A step that fails here would have failed for them. A run writes about 15 AI drafts (roughly 20,000 of the workspace's 200,000 daily tokens), and it refuses to start below 30,000. Each run also leaves about a dozen tickets in the Inbox, so don't run it in the middle of someone's hand test. Scripts stop with `quit()` from `instance.mjs`, never `process.exit()`: exiting right after a fetch crashes Node on Windows (exit code 127).
+`pnpm app:selftest [--with-browser]` runs every terminal step of the hand-test checklist through the real helpers and checks each result (61 steps with the browser). Run it after changing any helper or checklist step, before handing steps to a person. A step that fails here would have failed for them. A run writes about 15 AI drafts (roughly 20,000 tokens; `pnpm app:start` raises this instance's daily cap to 1,000,000), and it refuses to start below 30,000. Each run also leaves about a dozen tickets in the Inbox, so don't run it in the middle of someone's hand test. Scripts stop with `quit()` from `instance.mjs`, never `process.exit()`: exiting right after a fetch crashes Node on Windows (exit code 127).
 
 ## Evidence
 
