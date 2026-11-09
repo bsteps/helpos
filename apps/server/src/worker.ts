@@ -1,13 +1,13 @@
 import type { EmbeddingModel, LanguageModel } from "@helpos/ai";
-import type { AuthStore, JobRunner } from "@helpos/db";
+import type { AuthStore, JobRunner, RetryPolicy } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { errorSummary } from "./app.ts";
 import { handleDraftReply } from "./drafts/draft-worker.ts";
-import { draftNoticeJob, draftReplyJob, sendReplyJob } from "./drafts/jobs.ts";
+import { draftNoticeJob, draftReplyJob, sendReplyJob, sendReplyRetry } from "./drafts/jobs.ts";
 import { handleDraftNotice } from "./drafts/notice-worker.ts";
-import { handleSendReply } from "./drafts/send-worker.ts";
+import { handleSendGaveUp, handleSendReply } from "./drafts/send-worker.ts";
 import type { GithubApiFactory } from "./github/github-api.ts";
 import { handleRecheckIssue, recheckIssueJob } from "./github/recheck.ts";
 import { type Fetcher, handleIngestSource } from "./knowledge/ingest-worker.ts";
@@ -31,6 +31,8 @@ export interface WorkerDeps {
   /** Server-wide ceiling on tokens per workspace per UTC day; a workspace may have less. */
   dailyTokenBudget: number;
   now?: () => Date;
+  /** For tests: how often a failed send is retried before the draft is `send_failed`. */
+  sendRetry?: RetryPolicy;
   /** Without a transport, approved drafts wait in the queue. */
   transport: EmailTransport | undefined;
   /** Reads owner emails for draft notices. Without it, notices wait in the queue. */
@@ -53,7 +55,7 @@ export interface WorkerDeps {
 export async function startWorker(deps: WorkerDeps): Promise<void> {
   const { runner, logger } = deps;
   await runner.ensureQueue(draftReplyJob);
-  await runner.ensureQueue(sendReplyJob);
+  await runner.ensureQueue(sendReplyJob, deps.sendRetry ?? sendReplyRetry);
   await runner.ensureQueue(ingestSourceJob);
   await runner.ensureQueue(draftNoticeJob);
   await runner.ensureQueue(recheckIssueJob);
@@ -71,6 +73,7 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
     await runner.work(
       sendReplyJob,
       logged("send-reply", handleSendReply({ ...deps, transport: deps.transport })),
+      { onGiveUp: handleSendGaveUp },
     );
   } else {
     logger.warn("HELPOS_SMTP_URL is not set: approved replies will wait in the queue");

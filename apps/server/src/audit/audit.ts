@@ -11,6 +11,8 @@ export interface AuditEvent {
     | "draft.approved"
     | "draft.discarded"
     | "draft.sent"
+    | "draft.send_failed"
+    | "draft.send_retried"
     | "draft.notice_sent"
     | "ticket.closed"
     | "ai.paused"

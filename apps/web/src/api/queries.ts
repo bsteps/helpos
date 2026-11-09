@@ -27,8 +27,14 @@ export const meQuery = queryOptions({
 export const openTicketsQuery = queryOptions({
   queryKey: keys.openTickets,
   queryFn: async () =>
-    (await unwrap(api.GET("/v1/tickets", { params: { query: { status: "open", limit: 100 } } })))
-      .tickets,
+    (
+      await unwrap(
+        // Closed tickets too, while their reply couldn't be sent: the customer still waits.
+        api.GET("/v1/tickets", {
+          params: { query: { status: "open", orReplyNotSent: "true", limit: 100 } },
+        }),
+      )
+    ).tickets,
 });
 
 export const ticketQuery = (id: string) =>
@@ -103,6 +109,51 @@ export function useApproveDraft(ticketId: string) {
     // The exact text the approver saw: if someone edited it since, the API refuses (409).
     mutationFn: ({ id, body }: { id: string; body: string }) =>
       unwrap(api.POST("/v1/drafts/{id}/approve", { params: { path: { id } }, body: { body } })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+  });
+}
+
+/** Queues a draft whose send failed for good to be sent again. Safe to repeat. */
+export function useRetryDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST("/v1/drafts/{id}/retry", { params: { path: { id } } })),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        // The inbox flags tickets whose reply couldn't be sent.
+        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+      ]),
+  });
+}
+
+export function useDiscardDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST("/v1/drafts/{id}/discard", { params: { path: { id } } })),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        // The inbox flags tickets whose reply couldn't be sent.
+        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+      ]),
+  });
+}
+
+/** Asks the AI for a fresh draft; it shows up in the drafts list when it's written. */
+export function useRegenerateDraft(ticketId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await unwrap(
+        api.POST("/v1/tickets/{id}/drafts", {
+          params: { path: { id: ticketId } },
+          body: { regenerate: true },
+        }),
+      );
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
   });
 }

@@ -14,7 +14,7 @@ import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
 import { cn } from "@/lib/utils.ts";
 
-/** Open tickets, most recent activity first. */
+/** Open tickets, and closed ones whose reply couldn't be sent, most recent activity first. */
 export function InboxPage() {
   const tickets = useQuery(openTicketsQuery);
 
@@ -26,7 +26,7 @@ export function InboxPage() {
         </h1>
         {tickets.data ? (
           <span className="text-muted-foreground text-sm tabular-nums">
-            {tickets.data.length} open
+            {tickets.data.filter((t) => t.status === "open").length} open
           </span>
         ) : null}
       </div>
@@ -75,6 +75,16 @@ export function InboxPage() {
                     <time dateTime={ticket.lastMessageAt}>
                       {formatDateTime(ticket.lastMessageAt)}
                     </time>
+                    {ticket.replyNotSent ? (
+                      <AnimatedBadge status="danger" size="sm">
+                        Reply not sent
+                      </AnimatedBadge>
+                    ) : null}
+                    {ticket.status === "closed" ? (
+                      <AnimatedBadge status="neutral" size="sm">
+                        Closed
+                      </AnimatedBadge>
+                    ) : null}
                     {ticket.aiPausedReason ? (
                       <AnimatedBadge status="warning" size="sm">
                         AI paused

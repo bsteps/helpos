@@ -175,16 +175,35 @@ const approveRoute = createRoute({
 const discardRoute = createRoute({
   method: "post",
   path: "/v1/drafts/{id}/discard",
-  summary: "Discard a pending draft",
+  summary: "Discard a pending or failed draft",
   description:
-    "Marks a `pending` draft `discarded`, so it can never be approved or sent. Use it for a " +
-    "draft that shouldn't go out. Needs `drafts:write`.",
+    "Marks a `pending` or `send_failed` draft `discarded`, so it can never be approved or " +
+    "sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.",
   security,
   request: { params: idParams },
   responses: {
     200: json(draftSchema, "The discarded draft"),
     ...authErrors,
-    409: json(errorSchema, "The draft is no longer pending"),
+    409: json(errorSchema, "The draft is not pending or `send_failed`"),
+  },
+});
+
+const retryRoute = createRoute({
+  method: "post",
+  path: "/v1/drafts/{id}/retry",
+  summary: "Retry sending a failed draft",
+  description:
+    "Queues a `send_failed` draft to be sent again and marks it `approved`, in one " +
+    "transaction. It goes out with the same Message-ID as the failed attempts, the same text, " +
+    "and to whoever shadow mode says at the time it is sent. Safe to repeat: a `sent` draft is " +
+    "returned as it is, and an `approved` one has its send queued again only if none is " +
+    "queued already, so it is never sent twice. Needs `drafts:approve`.",
+  security,
+  request: { params: idParams },
+  responses: {
+    200: json(draftSchema, "The draft, queued to send (or already sending or sent)"),
+    ...authErrors,
+    409: json(errorSchema, "The draft was never approved, or was discarded"),
   },
 });
 
@@ -403,6 +422,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
   });
 
   registerDiscardRoute(app, deps);
+  registerRetryRoute(app, deps);
   registerCreateRoute(app, deps);
 }
 
@@ -531,7 +551,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       const [discarded] = await tx
         .update(drafts)
         .set({ status: "discarded" })
-        .where(and(eq(drafts.id, id), eq(drafts.status, "pending")))
+        .where(and(eq(drafts.id, id), inArray(drafts.status, ["pending", "send_failed"])))
         .returning();
       if (!discarded) return (await draftExists(tx, id)) ? "conflict" : "not_found";
       await recordAudit(tx, {
@@ -545,6 +565,63 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     });
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    return c.json(result, 200);
+  });
+}
+
+function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
+  app.openapi(retryRoute, async (c) => {
+    const principal = principalWith(c, "drafts:approve");
+    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const { id } = c.req.valid("param");
+    const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
+      // Conditional on `send_failed`, so two retries at once queue one send between them. The
+      // Message-ID fixed at approval is kept: a server that got an earlier attempt drops this one.
+      const [retried] = await tx
+        .update(drafts)
+        .set({ status: "approved" })
+        .where(and(eq(drafts.id, id), eq(drafts.status, "send_failed")))
+        .returning();
+      if (!retried) {
+        const [current] = await tx.select().from(drafts).where(eq(drafts.id, id));
+        if (!current) return "not_found" as const;
+        if (current.status === "sent") return presentOne(tx, principal, current);
+        if (current.status !== "approved") return "conflict" as const;
+        // Already approved: queue the send again in case its job was lost (it expired, or the
+        // worker died, on the last attempt). The singleton key returns the live job if there
+        // is one, and the worker locks the draft and skips it once sent, so it can't go twice.
+        await recordAudit(tx, {
+          tenantId: principal.tenantId,
+          actor: principal.actor,
+          action: "draft.send_retried",
+          target: { type: "draft", id },
+          requestId: c.get("requestId"),
+        });
+        await enqueue(
+          tx,
+          sendReplyJob,
+          { tenantId: principal.tenantId, draftId: id },
+          { singletonKey: id },
+        );
+        return presentOne(tx, principal, current);
+      }
+      await recordAudit(tx, {
+        tenantId: principal.tenantId,
+        actor: principal.actor,
+        action: "draft.send_retried",
+        target: { type: "draft", id },
+        requestId: c.get("requestId"),
+      });
+      await enqueue(
+        tx,
+        sendReplyJob,
+        { tenantId: principal.tenantId, draftId: id },
+        { singletonKey: id },
+      );
+      return presentOne(tx, principal, retried);
+    });
+    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
     return c.json(result, 200);
   });
 }

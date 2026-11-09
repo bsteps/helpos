@@ -1,11 +1,14 @@
-import { and, asc, type Database, desc, eq, ne, schema, type TenantTx } from "@helpos/db";
+import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 
-const { customers, messages, ticketGithubIssues, tickets } = schema;
+const { customers, drafts, messages, ticketGithubIssues, tickets } = schema;
+
+/** Whether the ticket has a reply that was approved but couldn't be sent, for anyone to retry. */
+const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.ticketId} = ${tickets.id} and ${drafts.status} = 'send_failed')`;
 
 export interface TicketRoutesDeps {
   db: Pick<Database, "withTenant">;
@@ -28,6 +31,12 @@ const ticketSchema = z
      * budget for the day was spent; a human can still write a reply.
      */
     aiPausedReason: z.enum(["daily_budget"]).nullable(),
+    /**
+     * True while a reply on this ticket is `send_failed`: approved, but every attempt to send
+     * it failed. Retry or discard it (see the drafts routes); until then the customer has
+     * heard nothing, even if the ticket is closed.
+     */
+    replyNotSent: z.boolean(),
   })
   .openapi("Ticket");
 const messageSchema = z
@@ -87,12 +96,15 @@ const listTicketsRoute = createRoute({
   summary: "List tickets",
   description:
     `The workspace's tickets, most recent activity first, at most \`limit\` (default 50, max ` +
-    `${maxLimit}). \`status\` keeps only open or only closed ones. Needs \`tickets:read\`.`,
+    `${maxLimit}). \`status\` keeps only open or only closed ones. \`status=open\` with ` +
+    "`orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they " +
+    "aren't missed, listed first. Needs `tickets:read`.",
   security,
   request: {
     query: z.object({
       limit: z.coerce.number().int().min(1).max(maxLimit).default(50),
       status: z.enum(["open", "closed"]).optional(),
+      orReplyNotSent: z.enum(["true", "false"]).optional(),
     }),
   },
   responses: {
@@ -143,6 +155,7 @@ function ticketsWithCustomer(tx: TenantTx) {
       lastMessageAt: tickets.lastMessageAt,
       automated: tickets.automated,
       aiPausedReason: tickets.aiPausedReason,
+      replyNotSent: hasUnsentReply,
       customerEmail: customers.email,
       customerName: customers.name,
     })
@@ -162,6 +175,7 @@ function serialize(t: TicketRow): z.infer<typeof ticketSchema> {
     lastMessageAt: t.lastMessageAt.toISOString(),
     automated: t.automated,
     aiPausedReason: t.aiPausedReason,
+    replyNotSent: t.replyNotSent,
   };
 }
 
@@ -173,11 +187,21 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
   app.openapi(listTicketsRoute, async (c) => {
     const principal = c.get("principal");
     if (!principal.scopes.has("tickets:read")) return c.json({ error: "forbidden" }, 403);
-    const { limit, status } = c.req.valid("query");
+    const { limit, status, orReplyNotSent } = c.req.valid("query");
+    const statusFilter = status ? eq(tickets.status, status) : undefined;
     const rows = await deps.db.withTenant(principal.tenantId, (tx) =>
       ticketsWithCustomer(tx)
-        .where(status ? eq(tickets.status, status) : undefined)
-        .orderBy(desc(tickets.lastMessageAt), desc(tickets.id))
+        .where(
+          statusFilter && orReplyNotSent === "true"
+            ? or(statusFilter, hasUnsentReply)
+            : statusFilter,
+        )
+        // A failed reply first, so the limit can never push one out of the inbox.
+        .orderBy(
+          ...(orReplyNotSent === "true" ? [desc(hasUnsentReply)] : []),
+          desc(tickets.lastMessageAt),
+          desc(tickets.id),
+        )
         .limit(limit),
     );
     return c.json({ tickets: rows.map(serialize) }, 200);

@@ -27,12 +27,14 @@ export {
   installJobs,
   type JobRunner,
   type JobRunnerOptions,
+  type RetryPolicy,
   type SystemJob,
   type SystemJobHandler,
   type TenantJob,
   type TenantJobHandler,
   type TenantStepsHandler,
   type TenantTransaction,
+  type TenantWorkOptions,
   tenantTransactions,
 } from "./jobs.ts";
 export {

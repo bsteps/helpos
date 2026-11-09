@@ -17,6 +17,31 @@ export interface SendWorkerDeps {
 export const sendWorkerActor = { type: "system", id: "send-reply" } as const;
 
 /**
+ * Runs once every send attempt has failed: the draft is marked `send_failed`, so it shows up
+ * for someone to retry or discard instead of staying `approved` forever. A draft that was
+ * sent or changed meanwhile is left alone.
+ */
+export async function handleSendGaveUp(
+  payload: { tenantId: string; draftId: string },
+  tx: TenantTx,
+): Promise<void> {
+  const { tenantId, draftId } = payload;
+  const failed = await tx
+    .update(drafts)
+    .set({ status: "send_failed" })
+    .where(and(eq(drafts.id, draftId), eq(drafts.status, "approved")))
+    .returning({ id: drafts.id });
+  if (failed.length === 0) return;
+  await recordAudit(tx, {
+    tenantId,
+    actor: sendWorkerActor,
+    action: "draft.send_failed",
+    target: { type: "draft", id: draftId },
+    requestId: null,
+  });
+}
+
+/**
  * Sends one approved draft as a threaded reply, from the workspace mailbox to the customer, or
  * in shadow mode to the shadow recipient instead. The only code that sends replies. A draft
  * that isn't `approved` is never sent.
@@ -76,7 +101,8 @@ export function handleSendReply(deps: SendWorkerDeps) {
     );
     if (delivery.kind === "no_recipient") {
       // Thrown, not skipped: the draft stays approved and pg-boss retries, so it goes out once
-      // a shadow recipient is set. It must never fall through to the customer.
+      // a shadow recipient is set (or it ends up `send_failed`, to retry once one is). It must
+      // never fall through to the customer.
       throw new Error("send-reply: shadow mode is on but no shadow recipient is set");
     }
     const { email } = delivery;
