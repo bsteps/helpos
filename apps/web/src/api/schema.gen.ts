@@ -519,7 +519,7 @@ export interface paths {
         };
         /**
          * List tickets
-         * @description The workspace's tickets, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they aren't missed. Needs `tickets:read`.
+         * @description The workspace's tickets, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they aren't missed, listed first. Needs `tickets:read`.
          */
         get: {
             parameters: {

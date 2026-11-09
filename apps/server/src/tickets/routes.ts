@@ -98,7 +98,7 @@ const listTicketsRoute = createRoute({
     `The workspace's tickets, most recent activity first, at most \`limit\` (default 50, max ` +
     `${maxLimit}). \`status\` keeps only open or only closed ones. \`status=open\` with ` +
     "`orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they " +
-    "aren't missed. Needs `tickets:read`.",
+    "aren't missed, listed first. Needs `tickets:read`.",
   security,
   request: {
     query: z.object({
@@ -196,7 +196,12 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
             ? or(statusFilter, hasUnsentReply)
             : statusFilter,
         )
-        .orderBy(desc(tickets.lastMessageAt), desc(tickets.id))
+        // A failed reply first, so the limit can never push one out of the inbox.
+        .orderBy(
+          ...(orReplyNotSent === "true" ? [desc(hasUnsentReply)] : []),
+          desc(tickets.lastMessageAt),
+          desc(tickets.id),
+        )
         .limit(limit),
     );
     return c.json({ tickets: rows.map(serialize) }, 200);

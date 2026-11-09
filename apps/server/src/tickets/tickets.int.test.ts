@@ -252,6 +252,8 @@ describe("a reply that couldn't be sent", () => {
       replyNotSent: true,
     });
     expect(inbox.map((t) => t.id)).not.toContain(quiet);
+    // Listed first, so a short limit still shows it.
+    expect((await list("status=open&orReplyNotSent=true&limit=1"))[0]?.id).toBe(failed);
     expect(inbox.filter((t) => t.status === "closed").map((t) => t.id)).toEqual([failed]);
     // Without the flag, open means open.
     expect((await list("status=open&limit=100")).map((t) => t.id)).not.toContain(failed);
