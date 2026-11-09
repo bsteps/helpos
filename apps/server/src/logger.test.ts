@@ -57,6 +57,18 @@ describe("logger: errors", () => {
     expect(output()).toContain("messages_tenant_message_id");
     expect(output()).toContain("/v1/inbound/email");
   });
+
+  it("logs an error nested anywhere in the entry as its summary", () => {
+    const { logger, output } = capture();
+    logger.error({ job: { id: "j1", lastError: queryError() } }, "job failed");
+    logger.warn({ results: [{ ok: false, reason: queryError() }] }, "batch failed");
+    logger.info({ cause: queryError() }, "a key with no serializer");
+    logger.error("format argument: %o", queryError());
+    expect(output()).not.toContain("secret@customer.test");
+    expect(output()).not.toContain("private body");
+    expect(output()).toContain("23505");
+    expect(output()).toContain("j1");
+  });
 });
 
 describe("errorSummary", () => {

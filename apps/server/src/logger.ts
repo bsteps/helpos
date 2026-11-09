@@ -29,24 +29,59 @@ export function createLogger(
   const config: LoggerOptions = {
     ...options,
     redact: { paths: redactedPaths, censor: "[redacted]" },
-    // Every error under `err` or `error` is logged as its summary, never its message:
-    // `logger.error({ err }, …)` is safe wherever it's written. An error nested deeper is not.
+    // Every error is logged as its summary, never its message: `logger.error({ err }, …)` is
+    // safe wherever it's written. `err` and `error` go through these; the hook below covers an
+    // error anywhere else in the entry.
     serializers: { err: errorSummary, error: errorSummary },
     hooks: {
       // With no message given, pino uses the error's own message as the log line.
       logMethod(args, method) {
-        const [first, second] = args;
+        const [first, ...rest] = args;
         const carriesError =
           first instanceof Error ||
           (typeof first === "object" && first !== null && ("err" in first || "error" in first));
-        if (carriesError && typeof second !== "string") {
-          return method.apply(this, [first, "error", ...args.slice(1)]);
+        // Same shape as `args`: only errors are swapped for their summaries.
+        const safe = [
+          isPlainObject(first) ? summariseNestedErrors(first) : first,
+          ...rest.map((arg) => (arg instanceof Error ? errorSummary(arg) : arg)),
+        ] as typeof args;
+        if (carriesError && typeof rest[0] !== "string") {
+          return method.apply(this, [safe[0], "error", ...safe.slice(1)]);
         }
-        return method.apply(this, args);
+        return method.apply(this, safe);
       },
     },
   };
   return destination ? pino(config, destination) : pino(config);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** How deep to look for errors. Deep enough for any entry we write, and it stops cycles. */
+const errorSearchDepth = 6;
+
+/**
+ * A copy of a log entry with every error inside it replaced by its summary. `err` and
+ * `error` at the top are left to their serializers. Only plain objects and arrays are copied.
+ */
+function summariseNestedErrors(entry: Record<string, unknown>): Record<string, unknown> {
+  const walk = (value: unknown, depth: number): unknown => {
+    if (value instanceof Error) return errorSummary(value);
+    if (depth === 0) return value;
+    if (Array.isArray(value)) return value.map((v) => walk(v, depth - 1));
+    if (!isPlainObject(value)) return value;
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v, depth - 1)]));
+  };
+  return Object.fromEntries(
+    Object.entries(entry).map(([k, v]) => [
+      k,
+      k === "err" || k === "error" ? v : walk(v, errorSearchDepth),
+    ]),
+  );
 }
 
 /**
