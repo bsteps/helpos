@@ -23,6 +23,14 @@ export interface E2eState {
   /** The owner of the seeded Northwind Cycles workspace (demo data), and their password. */
   seedOwner: string;
   seedPassword: string;
+  /** The owner of a workspace whose daily AI budget is one draft, its mailbox and password. */
+  budgetOwner: string;
+  budgetMailbox: string;
+  budgetPassword: string;
+  /** The owner of a workspace whose shadow recipient a test changes, its mailbox and password. */
+  shadowOwner: string;
+  shadowMailbox: string;
+  shadowPassword: string;
 }
 
 export function state(): E2eState {
@@ -51,10 +59,10 @@ export async function deliver(request: APIRequestContext, raw: string): Promise<
   return body.ticketId;
 }
 
-export function plainEmail(subject: string, text: string): string {
+export function plainEmail(subject: string, text: string, to: string = state().mailbox): string {
   return [
     "From: Jane Customer <jane@customer.test>",
-    `To: ${state().mailbox}`,
+    `To: ${to}`,
     `Subject: ${subject}`,
     `Message-ID: <${crypto.randomUUID()}@customer.test>`,
     "Content-Type: text/plain; charset=utf-8",
@@ -63,10 +71,16 @@ export function plainEmail(subject: string, text: string): string {
   ].join("\n");
 }
 
-export async function signIn(page: Page): Promise<void> {
+export async function signIn(
+  page: Page,
+  credentials: { email: string; password: string } = {
+    email: state().owner,
+    password: ownerPassword,
+  },
+): Promise<void> {
   await page.goto("/login");
-  await page.getByLabel("Email").fill(state().owner);
-  await page.getByLabel("Password").fill(ownerPassword);
+  await page.getByLabel("Email").fill(credentials.email);
+  await page.getByLabel("Password").fill(credentials.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
 }

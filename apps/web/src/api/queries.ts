@@ -8,6 +8,8 @@ export const keys = {
   drafts: (id: string) => ["ticket", id, "drafts"] as const,
   github: ["integrations", "github"] as const,
   draftStats: ["stats", "drafts"] as const,
+  shadowMode: ["workspace", "shadow-mode"] as const,
+  aiUsage: ["ai-usage"] as const,
 };
 
 /** Who is signed in, or null when nobody is (the API answered 401). */
@@ -231,3 +233,23 @@ export function useCreateGithubIssue(ticketId: string) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
   });
 }
+
+export const shadowModeQuery = queryOptions({
+  queryKey: keys.shadowMode,
+  queryFn: () => unwrap(api.GET("/v1/workspace/shadow-mode")),
+});
+
+export function useUpdateShadowMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { enabled?: boolean; recipient?: string }) =>
+      unwrap(api.PATCH("/v1/workspace/shadow-mode", { body })),
+    onSuccess: (data) => queryClient.setQueryData(keys.shadowMode, data),
+  });
+}
+
+export const aiUsageQuery = queryOptions({
+  queryKey: keys.aiUsage,
+  queryFn: () => unwrap(api.GET("/v1/ai-usage")),
+  refetchInterval: 30_000,
+});

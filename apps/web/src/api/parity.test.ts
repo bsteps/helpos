@@ -27,9 +27,6 @@ const apiOnly: Partial<Record<Operation, ApiOnlyReason>> = {
   "GET /v1/tokens": { kind: "gap", issue: 12 },
   "POST /v1/tokens": { kind: "gap", issue: 12 },
   "DELETE /v1/tokens/{id}": { kind: "gap", issue: 12 },
-  "GET /v1/workspace/shadow-mode": { kind: "gap", issue: 133 },
-  "PATCH /v1/workspace/shadow-mode": { kind: "gap", issue: 133 },
-  "GET /v1/ai-usage": { kind: "gap", issue: 133 },
 };
 
 function specOperations(): string[] {
