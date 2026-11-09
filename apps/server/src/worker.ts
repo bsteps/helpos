@@ -3,7 +3,6 @@ import type { AuthStore, JobRunner, RetryPolicy } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
-import { errorSummary } from "./app.ts";
 import { handleDraftReply } from "./drafts/draft-worker.ts";
 import { draftNoticeJob, draftReplyJob, sendReplyJob, sendReplyRetry } from "./drafts/jobs.ts";
 import { handleDraftNotice } from "./drafts/notice-worker.ts";
@@ -136,7 +135,7 @@ export async function startWorker(deps: WorkerDeps): Promise<void> {
       try {
         await handler(payload, context);
       } catch (error) {
-        logger.error({ err: errorSummary(error), queue }, "job failed, will retry");
+        logger.error({ err: error, queue }, "job failed, will retry");
         throw error;
       }
     };

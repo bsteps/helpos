@@ -22,7 +22,6 @@ import {
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { dailyBudget, reserveUsage, settleUsage, utcDay } from "../ai-budget/budget.ts";
-import { errorSummary } from "../app.ts";
 import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
@@ -592,7 +591,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     try {
       draft = await draftGithubIssue(model, prepared.input);
     } catch (error) {
-      deps.logger.warn({ err: errorSummary(error) }, "github issue draft: AI call failed");
+      deps.logger.warn({ err: error }, "github issue draft: AI call failed");
       // Count what the failure cost: what the model reported when it answered, nothing when
       // the provider plainly refused, and when that can't be told, the reservation stays.
       const cost = failedDraftCost(error);
@@ -603,10 +602,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           );
         } catch (settleError) {
           // The reservation stays counted, so the budget may overcount, never undercount.
-          deps.logger.warn(
-            { err: errorSummary(settleError) },
-            "github issue draft: usage not settled",
-          );
+          deps.logger.warn({ err: settleError }, "github issue draft: usage not settled");
         }
       }
       return c.json({ error: "ai_unavailable" }, 502);
@@ -620,7 +616,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         settleUsage(tx, day, prepared.reserved, draft.usage),
       );
     } catch (error) {
-      deps.logger.warn({ err: errorSummary(error) }, "github issue draft: usage not settled");
+      deps.logger.warn({ err: error }, "github issue draft: usage not settled");
     }
     return c.json({ title: draft.title, body: draft.body }, 200);
   });
@@ -754,10 +750,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
               ),
           );
         } catch (error) {
-          deps.logger.warn(
-            { err: errorSummary(error), ticketId },
-            "github issue: claim kept fresh",
-          );
+          deps.logger.warn({ err: error, ticketId }, "github issue: claim kept fresh");
         }
         // What GitHub said: a revoked token should be fixed, not retried forever.
         return c.json({ error: earlier.ok ? "github_unavailable" : earlier.reason }, 502);
@@ -823,7 +816,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           }),
         );
       } catch (error) {
-        deps.logger.warn({ err: errorSummary(error), attempt }, "github issue: linking failed");
+        deps.logger.warn({ err: error, attempt }, "github issue: linking failed");
       }
     }
     if (link === undefined || link === "taken") {
@@ -847,10 +840,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
               ),
           );
         } catch (error) {
-          deps.logger.warn(
-            { err: errorSummary(error), ticketId },
-            "github issue: claim not released",
-          );
+          deps.logger.warn({ err: error, ticketId }, "github issue: claim not released");
         }
       }
       return c.json({ error: "issue_not_linked", url: made.url }, 500);
@@ -874,10 +864,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           ),
         );
       } catch (error) {
-        deps.logger.warn(
-          { err: errorSummary(error), ticketId },
-          "github issue: recheck not queued",
-        );
+        deps.logger.warn({ err: error, ticketId }, "github issue: recheck not queued");
       }
     };
     let state: "open" | "closed" = "open";
@@ -906,7 +893,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
           return row?.state === "closed" ? "closed" : "open";
         });
       } catch (error) {
-        deps.logger.warn({ err: errorSummary(error), ticketId }, "github issue: close not applied");
+        deps.logger.warn({ err: error, ticketId }, "github issue: close not applied");
         await recheckLater("close not applied");
       }
     } else if (now && !now.ok) {

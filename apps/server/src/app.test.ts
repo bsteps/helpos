@@ -2,7 +2,7 @@ import { createDatabase, type Database } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createApp, errorSummary } from "./app.ts";
+import { createApp } from "./app.ts";
 
 const files = createMemoryFileStore();
 const logger = () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() });
@@ -46,29 +46,5 @@ describe("GET /health", () => {
     } finally {
       await down.close();
     }
-  });
-});
-
-describe("errorSummary", () => {
-  it("never includes the message, where Drizzle puts query parameters", () => {
-    const pgError = Object.assign(new Error("duplicate key"), {
-      code: "23505",
-      constraint_name: "messages_tenant_message_id",
-    });
-    const err = new Error("Failed query: insert ...\n    at secret@customer.test,private body", {
-      cause: pgError,
-    });
-    const summary = errorSummary(err);
-    expect(summary).toMatchObject({
-      name: "Error",
-      code: "23505",
-      constraint: "messages_tenant_message_id",
-    });
-    expect(JSON.stringify(summary)).not.toContain("secret@customer.test");
-    expect(summary.stack).toMatch(/app\.test\.ts/);
-  });
-
-  it.each([null, undefined, "text"])("handles a thrown %j without crashing", (thrown) => {
-    expect(errorSummary(thrown)).toMatchObject({ name: typeof thrown });
   });
 });
