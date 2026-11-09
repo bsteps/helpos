@@ -1,0 +1,42 @@
+name: "AI check: Tenant isolation"
+
+# Flags tenant data reached outside withTenant(), queries without tenant scope, and new tables without RLS.
+# Narrow, advisory AI review (issue #111). The shared steps and the security notes are in
+# ai-check.yml; the skill is .claude/skills/tenant-isolation-check, the rules docs/checks/tenant-isolation.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Only code this check is about. Docs-only PRs never start it.
+    paths:
+      # Tenant data can be reached from any app, package or script, not only packages/db.
+      - "apps/**"
+      - "packages/**"
+      - "scripts/**"
+      - "!**/*.md"
+
+permissions: {}
+
+jobs:
+  check:
+    # Maintainers' non-draft PRs from branches in this repo only. Fork PRs get no secrets on
+    # pull_request anyway; this also keeps bots and outside authors from spending the budget.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) &&
+      github.event.pull_request.user.type == 'User' &&
+      !github.event.pull_request.draft
+    # One run per PR: a new push cancels the run for the old one. On the job, not the workflow,
+    # so a run whose job is skipped (a draft, a bot) never cancels a real one.
+    concurrency:
+      group: ai-check-tenant-isolation-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/ai-check.yml
+    with:
+      check: tenant-isolation
+      title: Tenant isolation
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -59,6 +59,10 @@
   },
   "overrides": [
     {
+      "includes": [".claude/skills/**/SKILL.md"],
+      "formatter": { "enabled": false }
+    },
+    {
       "includes": ["**", "!packages/db/**"],
       "linter": {
         "rules": {

@@ -1,0 +1,47 @@
+name: "AI check: Security baseline"
+
+# Flags new routes and actions without token scope, policy check or audit log, inbound content used as instructions, and CI changes that weaken security.
+# Narrow, advisory AI review (issue #111). The shared steps and the security notes are in
+# ai-check.yml; the skill is .claude/skills/security-baseline-check, the rules docs/checks/security-baseline.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Docs-only PRs never start it.
+    paths:
+      # Every file except Markdown: security problems hide in config, scripts and CI too.
+      - "**"
+      - "!**/*.md"
+      # After the exclusion: for agents, Markdown is instructions, so these always count.
+      - ".claude/**"
+      - ".github/**/*.md"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/CLAUDE.local.md"
+      - "docs/checks/**"
+
+permissions: {}
+
+jobs:
+  check:
+    # Maintainers' non-draft PRs from branches in this repo only. Fork PRs get no secrets on
+    # pull_request anyway; this also keeps bots and outside authors from spending the budget.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) &&
+      github.event.pull_request.user.type == 'User' &&
+      !github.event.pull_request.draft
+    # One run per PR: a new push cancels the run for the old one. On the job, not the workflow,
+    # so a run whose job is skipped (a draft, a bot) never cancels a real one.
+    concurrency:
+      group: ai-check-security-baseline-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/ai-check.yml
+    with:
+      check: security-baseline
+      title: Security baseline
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
