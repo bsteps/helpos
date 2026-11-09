@@ -1,5 +1,14 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, type Draft, type Me, unwrap } from "./client.ts";
+import { type ListedSource, pollDelay, withPendingSince } from "@/lib/knowledge.ts";
+import {
+  ApiError,
+  api,
+  type Draft,
+  type KnowledgeSourceUpdate,
+  type Me,
+  type NewKnowledgeSource,
+  unwrap,
+} from "./client.ts";
 
 export const keys = {
   me: ["me"] as const,
@@ -10,6 +19,7 @@ export const keys = {
   draftStats: ["stats", "drafts"] as const,
   shadowMode: ["workspace", "shadow-mode"] as const,
   aiUsage: ["ai-usage"] as const,
+  knowledgeSources: ["knowledge", "sources"] as const,
 };
 
 /** Who is signed in, or null when nobody is (the API answered 401). */
@@ -253,3 +263,61 @@ export const aiUsageQuery = queryOptions({
   queryFn: () => unwrap(api.GET("/v1/ai-usage")),
   refetchInterval: 30_000,
 });
+
+export const knowledgeSourcesQuery = queryOptions({
+  queryKey: keys.knowledgeSources,
+  queryFn: async ({ client }): Promise<ListedSource[]> => {
+    const { sources } = await unwrap(api.GET("/v1/knowledge/sources"));
+    const previous = client.getQueryData<ListedSource[]>(keys.knowledgeSources);
+    return withPendingSince(sources, previous, Date.now());
+  },
+  refetchInterval: (query) => pollDelay(query.state.data ?? [], Date.now()),
+});
+
+/** Every change to a source shows up in the list, so each one refetches it when done. */
+function useKnowledgeMutation<TVariables, TData>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+  onSuccess?: (queryClient: QueryClient, variables: TVariables) => void,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: async (_data, variables) => {
+      // A list fetched before this change finished would undo it, so drop that one first.
+      await queryClient.cancelQueries({ queryKey: keys.knowledgeSources });
+      onSuccess?.(queryClient, variables);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
+  });
+}
+
+export const useAddKnowledgeSource = () =>
+  useKnowledgeMutation((body: NewKnowledgeSource) =>
+    unwrap(api.POST("/v1/knowledge/sources", { body })),
+  );
+
+export const useEditKnowledgeSource = () =>
+  useKnowledgeMutation(({ id, body }: { id: string; body: KnowledgeSourceUpdate }) =>
+    unwrap(api.PATCH("/v1/knowledge/sources/{id}", { params: { path: { id } }, body })),
+  );
+
+export const useReingestKnowledgeSource = () =>
+  useKnowledgeMutation((id: string) =>
+    unwrap(api.POST("/v1/knowledge/sources/{id}/reingest", { params: { path: { id } } })),
+  );
+
+/** Deleting a source that's already gone counts as done. It leaves the list at once. */
+export const useDeleteKnowledgeSource = () =>
+  useKnowledgeMutation(
+    async (id: string): Promise<void> => {
+      try {
+        await unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } }));
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    },
+    (queryClient, id) =>
+      queryClient.setQueryData<ListedSource[]>(keys.knowledgeSources, (sources) =>
+        sources?.filter((s) => s.id !== id),
+      ),
+  );
