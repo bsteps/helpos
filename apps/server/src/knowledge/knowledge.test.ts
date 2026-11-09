@@ -1355,7 +1355,10 @@ describe("knowledge API", () => {
       components: { schemas: Record<string, unknown> };
     };
     expect(Object.keys(spec.paths["/v1/knowledge/sources"] ?? {})).toEqual(["get", "post"]);
-    expect(Object.keys(spec.paths["/v1/knowledge/sources/{id}"] ?? {})).toEqual(["delete"]);
+    expect(Object.keys(spec.paths["/v1/knowledge/sources/{id}"] ?? {})).toEqual([
+      "patch",
+      "delete",
+    ]);
     expect(Object.keys(spec.paths["/v1/knowledge/sources/{id}/reingest"] ?? {})).toEqual(["post"]);
     expect(Object.keys(spec.components.schemas)).toEqual(
       expect.arrayContaining(["KnowledgeSource", "DraftSource"]),
@@ -1537,5 +1540,226 @@ describe("drafting with knowledge", () => {
       { ...sources[0], sourceId: null },
       ...sources.slice(1),
     ]);
+  });
+});
+
+describe("editing sources", () => {
+  const edit = (id: string, body: object, as = "editor") =>
+    call("PATCH", `/v1/knowledge/sources/${id}`, as, body);
+  const auditOf = (tenantId: string, id: string) =>
+    db.withTenant(tenantId, (tx) =>
+      tx
+        .select({ action: auditEvents.action })
+        .from(auditEvents)
+        .where(eq(auditEvents.targetId, id))
+        .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id)),
+    );
+  const search = (tenantId: string, text: string, visibility?: ("public" | "internal")[]) =>
+    db.withTenant(tenantId, (tx) =>
+      createVectorSearch(embeddingModel).search(tx, { tenantId, text, limit: 20, visibility }),
+    );
+  const tokensToday = async () =>
+    totalTokens(await db.withTenant(acme, (tx) => usageOn(tx, utcDay(new Date()))));
+
+  it("a visibility change applies to the next public-only search at once, without re-ingesting", async () => {
+    const added = await addSource("editor", {
+      kind: "markdown",
+      title: "Gift cards",
+      content: "Gift cards never expire and can be used on any order.",
+    });
+    const ready = await ingested(acme, added.id);
+    const chunksBefore = (await chunksOf(acme, added.id)).map((c) => c.id);
+    const tokensBefore = await tokensToday();
+    const publicIds = async () =>
+      (await search(acme, "gift cards expire", ["public"])).hits.map((h) => h.sourceId);
+    expect(await publicIds()).not.toContain(added.id);
+
+    const res = await edit(added.id, { visibility: "public", title: "Gift card rules" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      id: added.id,
+      slug: added.slug,
+      title: "Gift card rules",
+      visibility: "public",
+      status: "ready",
+    });
+    const hits = (await search(acme, "gift cards expire", ["public"])).hits;
+    expect(hits.find((h) => h.sourceId === added.id)?.title).toBe("Gift card rules");
+
+    expect((await edit(added.id, { visibility: "internal" })).status).toBe(200);
+    expect(await publicIds()).not.toContain(added.id);
+
+    // Nothing re-ingested: the same passages, no new ingest, no embedding spend.
+    expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(chunksBefore);
+    expect((await sourceOf(acme, added.id))?.ingestedAt).toEqual(ready.ingestedAt);
+    expect(await tokensToday()).toBe(tokensBefore);
+    expect((await auditOf(acme, added.id)).map((e) => e.action)).toEqual([
+      "knowledge_source.created",
+      "knowledge_source.ingested",
+      "knowledge_source.edited",
+      "knowledge_source.made_public",
+      "knowledge_source.made_internal",
+    ]);
+  });
+
+  it("a content change re-embeds only that source, and the old text is never retrieved again", async () => {
+    const neighbour = await addSource("editor", {
+      kind: "markdown",
+      title: "Neighbour",
+      content: "Pickup lockers are open around the clock.",
+    });
+    const added = await addSource("editor", {
+      kind: "markdown",
+      title: "Warranty",
+      content: "Warranty lasts PLATYPUS-OLD twelve months.",
+      visibility: "public",
+    });
+    await ingested(acme, neighbour.id);
+    const before = (await ingested(acme, added.id)).ingestedAt;
+    const neighbourChunks = (await chunksOf(acme, neighbour.id)).map((c) => c.id);
+    const embedCalls = embeddingModel.doEmbedCalls.length;
+    const tokensBefore = await tokensToday();
+
+    const res = await edit(added.id, { content: "Warranty lasts KOALA-NEW twenty four months." });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "pending", chunkCount: 0 });
+    // Gone at once, before the new passages exist.
+    expect(await chunksOf(acme, added.id)).toEqual([]);
+    const during = await search(acme, "warranty PLATYPUS-OLD twelve months");
+    expect(during.hits.map((h) => h.content).join(" ")).not.toContain("PLATYPUS-OLD");
+
+    const done = await ingested(acme, added.id);
+    expect(done.status).toBe("ready");
+    expect(done.ingestedAt?.getTime()).toBeGreaterThan(before?.getTime() ?? 0);
+    expect((await chunksOf(acme, added.id)).map((c) => c.content).join(" ")).toContain("KOALA-NEW");
+    // Only this source's text was embedded again, and it counts toward the AI budget.
+    const embedded = embeddingModel.doEmbedCalls
+      .slice(embedCalls)
+      .flatMap((c) => c.values)
+      .join(" ");
+    expect(embedded).toContain("KOALA-NEW");
+    expect(embedded).not.toContain("Pickup lockers");
+    expect((await chunksOf(acme, neighbour.id)).map((c) => c.id)).toEqual(neighbourChunks);
+    expect(await tokensToday()).toBeGreaterThan(tokensBefore);
+
+    const text = (await search(acme, "warranty PLATYPUS-OLD KOALA-NEW", ["public"])).hits
+      .map((h) => h.content)
+      .join(" ");
+    expect(text).toContain("KOALA-NEW");
+    expect(text).not.toContain("PLATYPUS-OLD");
+    expect((await auditOf(acme, added.id)).map((e) => e.action)).toContain(
+      "knowledge_source.edited",
+    );
+  });
+
+  it("an edit during an ingest of the old text wins: the old text is never written", async () => {
+    const [row] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "edit-race",
+          kind: "markdown",
+          title: "Race",
+          content: "Returns go to WOMBAT-OLD depot.",
+        })
+        .returning({ id: knowledgeSources.id }),
+    );
+    const id = row?.id ?? "";
+    // An embedding call that waits, so the edit lands while the old text is being embedded.
+    const slow = mockEmbeddingModel();
+    const embed = slow.doEmbed.bind(slow);
+    let release = () => {};
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    let markStarted = () => {};
+    const started = new Promise<void>((done) => {
+      markStarted = done;
+    });
+    slow.doEmbed = async (options) => {
+      markStarted();
+      await gate;
+      return embed(options);
+    };
+    const run = handleIngestSource({
+      embeddingModel: slow,
+      fetch: testFetch,
+      logger,
+      dailyTokenBudget: 1_000_000,
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
+    await started;
+    expect((await edit(id, { content: "Returns go to EMU-NEW depot." })).status).toBe(200);
+    release();
+    await run;
+
+    expect((await ingested(acme, id)).status).toBe("ready");
+    const text = (await chunksOf(acme, id)).map((c) => c.content).join(" ");
+    expect(text).toContain("EMU-NEW");
+    expect(text).not.toContain("WOMBAT-OLD");
+  });
+
+  it("an edit that changes nothing re-ingests and logs nothing", async () => {
+    const added = await addSource("editor", { kind: "markdown", title: "Same", content: "Same." });
+    await ingested(acme, added.id);
+    const res = await edit(added.id, { title: "Same", content: "Same.", visibility: "internal" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "ready" });
+    expect((await auditOf(acme, added.id)).map((e) => e.action)).toEqual([
+      "knowledge_source.created",
+      "knowledge_source.ingested",
+    ]);
+  });
+
+  it("validates input, and a URL source's content can't be edited", async () => {
+    const added = await addSource("editor", { kind: "markdown", title: "V", content: "v" });
+    expect((await edit(added.id, {})).status).toBe(400);
+    expect((await edit(added.id, { title: " " })).status).toBe(400);
+    expect((await edit(added.id, { visibility: "secret" })).status).toBe(400);
+    expect((await edit(added.id, { slug: "new-slug" })).status).toBe(400);
+    expect((await edit(added.id, { content: `a${nul}b` })).status).toBe(400);
+
+    const url = await insertUrlSource("edit-url", "/refunds");
+    const res = await edit(url, { content: "Not a page." });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "content_not_editable" });
+    expect((await edit(url, { title: "Renamed page" })).status).toBe(200);
+  });
+
+  it("checks scope, workspace and git ownership", async () => {
+    const added = await addSource("editor", { kind: "markdown", title: "Locked", content: "x" });
+    expect((await edit(added.id, { title: "y" }, "reader")).status).toBe(403);
+    const anonymous = await call("PATCH", `/v1/knowledge/sources/${added.id}`, null, {
+      title: "y",
+    });
+    expect(anonymous.status).toBe(401);
+    expect((await edit("00000000-0000-7000-8000-000000000000", { title: "y" })).status).toBe(404);
+
+    // Another workspace can't tell the source exists, let alone change or publish it.
+    const outsider = await edit(added.id, { title: "Hijacked", visibility: "public" }, "outsider");
+    expect(outsider.status).toBe(404);
+    expect(await sourceOf(acme, added.id)).toMatchObject({
+      title: "Locked",
+      visibility: "internal",
+    });
+
+    const [git] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "git-edit",
+          kind: "markdown",
+          title: "From git",
+          content: "x",
+          managedBy: "git",
+          sourcePath: "knowledge/git-edit.md",
+        })
+        .returning({ id: knowledgeSources.id }),
+    );
+    const res = await edit(git?.id ?? "", { visibility: "public" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "managed_in_git" });
+    expect(await sourceOf(acme, git?.id ?? "")).toMatchObject({ visibility: "internal" });
   });
 });

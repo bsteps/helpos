@@ -12,11 +12,11 @@ import {
   uuidv7,
 } from "@helpos/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { recordAudit } from "../audit/audit.ts";
+import { type AuditEvent, recordAudit } from "../audit/audit.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { ingestSourceJob } from "./jobs.ts";
 
-const { knowledgeSources } = schema;
+const { knowledgeChunks, knowledgeSources } = schema;
 type SourceRow = typeof knowledgeSources.$inferSelect;
 
 export interface KnowledgeRoutesDeps {
@@ -59,6 +59,22 @@ const createBody = z.discriminatedUnion("kind", [
     visibility: visibilitySchema.optional(),
   }),
 ]);
+
+const updateBody = z
+  .strictObject({
+    title: titleSchema.optional(),
+    visibility: visibilitySchema.optional(),
+    content: z
+      .string()
+      .trim()
+      .min(1)
+      .max(maxMarkdownChars)
+      .refine(noNul, nulMessage)
+      .optional()
+      .openapi({ description: "Markdown sources only. A URL source's text comes from its page." }),
+  })
+  .refine((b) => Object.values(b).some((v) => v !== undefined), "nothing to change")
+  .openapi("KnowledgeSourceUpdate");
 
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const conflictSchema = z
@@ -197,6 +213,35 @@ const reingestRoute = createRoute({
     409: json(
       errorSchema,
       "The source is managed in the workspace's git repo (`managed_in_git`): it's re-ingested on sync",
+    ),
+  },
+});
+
+const updateRoute = createRoute({
+  method: "patch",
+  path: "/v1/knowledge/sources/{id}",
+  summary: "Edit a knowledge source",
+  description:
+    "Changes a source's `title`, `visibility` or, for a markdown source, `content`, keeping " +
+    "its id and slug so drafts' citations still point at it. A title or visibility change " +
+    "applies at once: the next search sees it. A content change removes the old passages " +
+    "straight away, so text taken out is never quoted again, and ingests the new text in the " +
+    "background (status `pending`, counted toward the daily AI budget). Until that is done the " +
+    "source has no passages. Sending what it already has changes nothing and logs nothing. " +
+    "Needs `knowledge:write`.",
+  security,
+  request: {
+    params: idParams,
+    body: { required: true, content: { "application/json": { schema: updateBody } } },
+  },
+  responses: {
+    200: json(sourceSchema, "The source as it is now"),
+    400: json(errorSchema, "`content` sent for a URL source (`content_not_editable`)"),
+    ...authErrors,
+    404: json(errorSchema, "Not found in this workspace"),
+    409: json(
+      errorSchema,
+      "The source is managed in the workspace's git repo (`managed_in_git`): edit the file there",
     ),
   },
 });
@@ -391,6 +436,81 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     if (result === "not_found") return c.json({ error: "not_found" }, 404);
     if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
     return c.json(serialize(result), 202);
+  });
+
+  app.openapi(updateRoute, async (c) => {
+    const principal = c.get("principal");
+    if (!principal.scopes.has("knowledge:write")) return c.json({ error: "forbidden" }, 403);
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const { tenantId, actor } = principal;
+    const result = await deps.db.withTenant(tenantId, async (tx) => {
+      const [found] = await tx
+        .select()
+        .from(knowledgeSources)
+        .where(eq(knowledgeSources.id, id))
+        .for("update");
+      // Another workspace's source looks exactly like one that doesn't exist.
+      if (!found) return "not_found" as const;
+      if (found.managedBy === "git") return "managed_in_git" as const;
+      if (input.content !== undefined && found.kind !== "markdown") {
+        return "content_not_editable" as const;
+      }
+      const title = input.title !== undefined && input.title !== found.title;
+      const visibility = input.visibility !== undefined && input.visibility !== found.visibility;
+      const content = input.content !== undefined && input.content !== found.content;
+      if (!title && !visibility && !content) return found;
+
+      const [row] = await tx
+        .update(knowledgeSources)
+        .set({
+          ...(title ? { title: input.title } : {}),
+          ...(visibility ? { visibility: input.visibility } : {}),
+          ...(content
+            ? {
+                content: input.content,
+                status: "pending" as const,
+                error: null,
+                chunkCount: 0,
+                embeddingModel: null,
+                // An ingest already fetching the old text sees this and doesn't write it.
+                ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
+              }
+            : {}),
+        })
+        .where(eq(knowledgeSources.id, id))
+        .returning();
+      if (!row) throw new Error("update knowledge source: update returned no row");
+      if (content) {
+        // The old passages go now, not when the new ones are ready: an edit often removes
+        // something wrong or private, and that must stop being quoted at once.
+        await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, id));
+        await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id });
+      }
+      const audit = (action: AuditEvent["action"]) =>
+        recordAudit(tx, {
+          tenantId,
+          actor,
+          action,
+          target: { type: "knowledge_source", id },
+          requestId: c.get("requestId"),
+        });
+      if (title || content) await audit("knowledge_source.edited");
+      // There are two visibilities, so the new one names the old one too: what customers may
+      // be shown is always traceable.
+      if (visibility) {
+        await audit(
+          row.visibility === "public"
+            ? "knowledge_source.made_public"
+            : "knowledge_source.made_internal",
+        );
+      }
+      return row;
+    });
+    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
+    if (result === "content_not_editable") return c.json({ error: "content_not_editable" }, 400);
+    return c.json(serialize(result), 200);
   });
 
   app.openapi(deleteRoute, async (c) => {

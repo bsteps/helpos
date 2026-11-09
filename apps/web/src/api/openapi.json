@@ -660,6 +660,31 @@
           "error"
         ]
       },
+      "KnowledgeSourceUpdate": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal"
+            ],
+            "description": "`public` may be shown or cited to customers. `internal` (the default) is the team's own notes: AI drafts may follow it, but are told never to reveal it."
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000,
+            "description": "Markdown sources only. A URL source's text comes from its page."
+          }
+        },
+        "additionalProperties": false
+      },
       "DraftStats": {
         "type": "object",
         "properties": {
@@ -2326,6 +2351,98 @@
       }
     },
     "/v1/knowledge/sources/{id}": {
+      "patch": {
+        "summary": "Edit a knowledge source",
+        "description": "Changes a source's `title`, `visibility` or, for a markdown source, `content`, keeping its id and slug so drafts' citations still point at it. A title or visibility change applies at once: the next search sees it. A content change removes the old passages straight away, so text taken out is never quoted again, and ingests the new text in the background (status `pending`, counted toward the daily AI budget). Until that is done the source has no passages. Sending what it already has changes nothing and logs nothing. Needs `knowledge:write`.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeSourceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The source as it is now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`content` sent for a URL source (`content_not_editable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The source is managed in the workspace's git repo (`managed_in_git`): edit the file there",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "summary": "Delete a knowledge source",
         "description": "Deletes the source and its passages. Drafts written with it keep their copy of the passages they saw, with `sourceId` null. Needs `knowledge:write`.",
