@@ -65,6 +65,11 @@ function processTable() {
   return byPid;
 }
 
+/** Forgets the snapshot, for a caller that just stopped processes and must see what's left. */
+export function refreshProcesses() {
+  snapshot = undefined;
+}
+
 function processInfo(pid) {
   return processTable().get(pid);
 }
