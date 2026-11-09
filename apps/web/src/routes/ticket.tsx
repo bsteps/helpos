@@ -2,15 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft, CircleCheck } from "lucide-react";
 import { useState } from "react";
-import { ApiError, type Draft, type Message, type TicketDetail } from "@/api/client.ts";
+import { ApiError, type Draft, type Message } from "@/api/client.ts";
 import {
   draftsQuery,
   ticketQuery,
   useApproveDraft,
   useCloseTicket,
+  useCreateDraft,
   useDiscardDraft,
   useEditDraft,
-  useRegenerateDraft,
   useRetryDraft,
 } from "@/api/queries.ts";
 import { EmailFrame } from "@/components/email-frame.tsx";
@@ -35,47 +35,34 @@ import {
 } from "@/components/ui/card.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
+import {
+  type Ask,
+  type DraftView,
+  draftView,
+  liveFixNotice,
+  type Meanwhile,
+  newDraftError,
+  newestReply,
+  waitingOn,
+} from "./draft-view.ts";
 import { GithubIssuePanel } from "./ticket-github.tsx";
 
 const isConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
 
-/**
- * The draft of a kind that matters now: the newest one that wasn't thrown away. A reply and a
- * "fixed" notice are separate: one doesn't hide or replace the other.
- */
-function liveDraft(drafts: Draft[], kind: Draft["kind"] = "reply"): Draft | undefined {
-  return drafts.filter((d) => d.kind === kind && d.status !== "discarded").at(-1);
-}
-
-/**
- * True when the ticket's newest reply is one that was approved, failed to send and was then
- * discarded: no draft is coming until someone asks for one.
- */
-function discardedAfterFailure(drafts: Draft[]): boolean {
-  const newest = drafts.filter((d) => d.kind === "reply").at(-1);
-  return newest?.status === "discarded" && newest.approvedAt !== null;
-}
-
-/** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
-function waitingOn(ticket: TicketDetail | undefined, redrafting: boolean) {
-  return (drafts: Draft[]): boolean => {
-    // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
-    if (drafts.some((d) => d.status === "approved")) return true;
-    // After a failed reply was discarded, only a requested new draft is worth waiting for (an
-    // older sent reply mustn't stop the polling).
-    if (discardedAfterFailure(drafts)) return redrafting;
-    const live = liveDraft(drafts);
-    if (live || ticket?.status !== "open") return false;
-    return !ticket.automated && !ticket.aiPausedReason;
-  };
-}
-
 export function TicketPage() {
   const { id } = useParams({ from: "/signed-in/tickets/$id" });
+  // Keyed, so a reply being written on one ticket doesn't follow you to the next.
+  return <Ticket key={id} id={id} />;
+}
+
+function Ticket({ id }: { id: string }) {
   const ticket = useQuery(ticketQuery(id));
-  // Up here, not in the card that asks: whether a new draft was asked for decides the polling.
-  const redraft = useRegenerateDraft(id);
-  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, redraft.isSuccess)));
+  // Up here, not in the cards: whether a new draft was asked for decides the polling, and a
+  // reply being written must survive a draft arriving meanwhile.
+  const redraft = useCreateDraft(id);
+  const [ask, setAsk] = useState<Ask>();
+  const [composing, setComposing] = useState(false);
+  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, ask)));
   const close = useCloseTicket(id);
 
   if (ticket.isPending) {
@@ -178,16 +165,19 @@ export function TicketPage() {
           </Alert>
         ) : (
           <DraftPanel
-            ticket={t}
-            // After a failed reply was discarded, an older sent reply isn't the one to show.
-            draft={discardedAfterFailure(drafts.data) ? undefined : liveDraft(drafts.data)}
-            discarded={discardedAfterFailure(drafts.data) && !redraft.isSuccess}
+            ticketId={t.id}
+            view={draftView(t, drafts.data, ask, composing)}
             redraft={redraft}
+            askAi={() => {
+              setAsk({ replacing: newestReply(drafts.data)?.id ?? null });
+              redraft.mutate({ regenerate: true }, { onError: () => setAsk(undefined) });
+            }}
+            setComposing={setComposing}
           />
         )}
       </section>
 
-      {drafts.data && liveDraft(drafts.data, "fixed") ? (
+      {drafts.data && liveFixNotice(drafts.data) ? (
         <section aria-label="Fix notice" className="flex flex-col gap-3">
           <FixNotice ticketId={t.id} drafts={drafts.data} />
         </section>
@@ -229,76 +219,159 @@ const statusBadge = {
   discarded: { status: "neutral", label: "Discarded" },
 } as const;
 
+const chooseNote = {
+  discarded: "The draft was discarded. Nothing has gone to the customer.",
+  send_failed: "The reply that couldn't be sent was discarded. Nothing has gone to the customer.",
+  ai_paused: "You can write the reply yourself.",
+} as const;
+
 function DraftPanel({
-  ticket,
-  draft,
-  discarded,
+  ticketId,
+  view,
   redraft,
+  askAi,
+  setComposing,
 }: {
-  ticket: TicketDetail;
-  draft: Draft | undefined;
-  discarded: boolean;
-  redraft: ReturnType<typeof useRegenerateDraft>;
+  ticketId: string;
+  view: DraftView;
+  redraft: ReturnType<typeof useCreateDraft>;
+  askAi: () => void;
+  setComposing: (composing: boolean) => void;
 }) {
-  if (!draft) {
-    if (ticket.status !== "open" || ticket.automated) return null;
-    if (discarded) return <Redraft regenerate={redraft} />;
-    if (ticket.aiPausedReason) {
+  switch (view.kind) {
+    case "none":
+      return null;
+    case "writing":
       return (
-        <Alert variant="warning">
-          <AlertIcon />
-          <AlertContent>
-            <AlertTitle>AI paused</AlertTitle>
-            <AlertDescription>
-              Today's AI budget for this workspace is spent, so this ticket has no draft. It resumes
-              at midnight UTC.
-            </AlertDescription>
-          </AlertContent>
-        </Alert>
+        <Card variant="muted" size="compact">
+          <CardContent className="flex flex-wrap items-center gap-3 text-muted-foreground">
+            <Loader size={16} label="Waiting for the draft" />
+            The AI is writing a draft…
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setComposing(true)}
+            >
+              Write my own instead
+            </Button>
+          </CardContent>
+        </Card>
       );
-    }
-    return (
-      <Card variant="muted" size="compact">
-        <CardContent className="flex items-center gap-3 text-muted-foreground">
-          <Loader size={16} label="Waiting for the draft" />
-          The AI is writing a draft…
-        </CardContent>
-      </Card>
-    );
+    case "compose":
+      return (
+        <Composer
+          ticketId={ticketId}
+          meanwhile={view.meanwhile}
+          done={() => {
+            setComposing(false);
+            // An old refusal shouldn't greet the person next time; a request in flight keeps its.
+            if (!redraft.isPending) redraft.reset();
+          }}
+        />
+      );
+    case "choose":
+      return (
+        <>
+          {view.after === "ai_paused" ? (
+            <Alert variant="warning">
+              <AlertIcon />
+              <AlertContent>
+                <AlertTitle>AI paused</AlertTitle>
+                <AlertDescription>
+                  Today's AI budget for this workspace is spent, so this ticket has no draft. It
+                  resumes at midnight UTC.
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
+          ) : null}
+          <Card variant="muted" size="compact">
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-muted-foreground">{chooseNote[view.after]}</p>
+              {redraft.isError ? <NewDraftError error={redraft.error} /> : null}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    redraft.reset();
+                    setComposing(true);
+                  }}
+                >
+                  Write my own
+                </Button>
+                <Button onClick={askAi}>Ask the AI for a draft</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      );
+    case "draft":
+      // Keyed by draft only: a refetched body must not remount the card, or an approval refused
+      // because the text changed would lose its "this draft changed" message (and any typed text).
+      return <DraftCard key={view.draft.id} ticketId={ticketId} draft={view.draft} />;
   }
-  // Keyed by draft only: a refetched body must not remount the card, or an approval refused
-  // because the text changed would lose its "this draft changed" message (and any typed text).
-  return <DraftCard key={draft.id} ticketId={ticket.id} draft={draft} />;
 }
 
-/** After a reply that couldn't be sent was discarded: ask the AI for a new one. */
-function Redraft({ regenerate }: { regenerate: ReturnType<typeof useRegenerateDraft> }) {
-  const budgetSpent =
-    regenerate.error instanceof ApiError && regenerate.error.code === "daily_budget_reached";
+function NewDraftError({ error }: { error: Error }) {
+  return (
+    <Alert variant="destructive">
+      <AlertIcon />
+      <AlertContent>
+        <AlertDescription>
+          {newDraftError(error instanceof ApiError ? error.code : undefined)}
+        </AlertDescription>
+      </AlertContent>
+    </Alert>
+  );
+}
+
+const meanwhileNote = {
+  drafted: "A draft arrived while you were writing. Saving yours replaces it. Cancel to see it.",
+  answered:
+    "A reply was approved while you were writing, so yours can't be saved. Cancel to see it.",
+  send_failed:
+    "A reply was approved but couldn't be sent, so yours can't be saved. Cancel, then retry or discard it.",
+} as const;
+
+function Composer({
+  ticketId,
+  meanwhile,
+  done,
+}: {
+  ticketId: string;
+  meanwhile: Meanwhile | undefined;
+  done: () => void;
+}) {
+  const write = useCreateDraft(ticketId);
+  const [body, setBody] = useState("");
   return (
     <Card variant="muted" size="compact">
       <CardContent className="flex flex-col gap-3">
-        <p className="text-muted-foreground">
-          The reply that couldn't be sent was discarded. Nothing has gone to the customer.
-        </p>
-        {regenerate.isError ? (
-          <Alert variant="destructive">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>
-                {budgetSpent
-                  ? "Today's AI budget is spent. Try again after midnight UTC."
-                  : "That didn't work. Try again."}
-              </AlertDescription>
-            </AlertContent>
-          </Alert>
+        {meanwhile && !write.isPending ? (
+          <p className="text-muted-foreground">{meanwhileNote[meanwhile]}</p>
         ) : null}
-        <div className="flex justify-end">
-          <Button disabled={regenerate.isPending} onClick={() => regenerate.mutate()}>
-            {regenerate.isPending ? (
-              <Loader size={16} label="Asking for a draft" className="text-current" />
-            ) : null}
-            Write a new draft
+        <Textarea
+          label="Your reply"
+          value={body}
+          onChange={setBody}
+          disabled={write.isPending}
+          rows={8}
+        />
+        {write.isError ? <NewDraftError error={write.error} /> : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" disabled={write.isPending} onClick={done}>
+            Cancel
+          </Button>
+          <Button
+            disabled={
+              write.isPending ||
+              body.trim() === "" ||
+              (meanwhile !== undefined && meanwhile !== "drafted")
+            }
+            onClick={() => write.mutate({ body }, { onSuccess: done })}
+          >
+            {write.isPending ? <Loader size={16} label="Saving" className="text-current" /> : null}
+            Save draft
           </Button>
         </div>
       </CardContent>
@@ -307,7 +380,7 @@ function Redraft({ regenerate }: { regenerate: ReturnType<typeof useRegenerateDr
 }
 
 function FixNotice({ ticketId, drafts }: { ticketId: string; drafts: Draft[] }) {
-  const draft = liveDraft(drafts, "fixed");
+  const draft = liveFixNotice(drafts);
   return draft ? <DraftCard key={draft.id} ticketId={ticketId} draft={draft} /> : null;
 }
 
@@ -325,12 +398,18 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
   const busy = edit.isPending || approve.isPending || retry.isPending || discard.isPending;
   const fixed = draft.kind === "fixed";
 
+  const discardButton = (variant: "outline" | "ghost") => (
+    <Button variant={variant} disabled={busy} onClick={() => discard.mutate(draft.id)}>
+      {discard.isPending ? <Loader size={16} label="Discarding" className="text-current" /> : null}
+      Discard
+    </Button>
+  );
   const save = () => edit.mutate({ id: draft.id, body }, { onSuccess: () => setEditing(false) });
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle as="h2">{fixed ? "Fix notice" : pending ? "AI draft" : "Reply"}</CardTitle>
+        <CardTitle as="h2">{fixed ? "Fix notice" : pending ? "Draft" : "Reply"}</CardTitle>
         <CardDescription>
           {draft.sentAt
             ? `Sent ${formatDateTime(draft.sentAt)}`
@@ -455,12 +534,7 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
 
       {failed ? (
         <CardFooter className="flex-wrap justify-end">
-          <Button variant="outline" disabled={busy} onClick={() => discard.mutate(draft.id)}>
-            {discard.isPending ? (
-              <Loader size={16} label="Discarding" className="text-current" />
-            ) : null}
-            Discard
-          </Button>
+          {discardButton("outline")}
           <Button disabled={busy} onClick={() => retry.mutate(draft.id)}>
             {retry.isPending ? (
               <Loader size={16} label="Retrying" className="text-current" />
@@ -490,6 +564,7 @@ function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
             </>
           ) : (
             <>
+              {discardButton("ghost")}
               <Button
                 variant="outline"
                 disabled={busy}

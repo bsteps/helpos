@@ -1,4 +1,4 @@
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, type Draft, type Me, unwrap } from "./client.ts";
 
 export const keys = {
@@ -137,27 +137,32 @@ export function useDiscardDraft(ticketId: string) {
       unwrap(api.POST("/v1/drafts/{id}/discard", { params: { path: { id } } })),
     onSettled: () =>
       Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        invalidateDraftState(queryClient, ticketId),
         // The inbox flags tickets whose reply couldn't be sent.
         queryClient.invalidateQueries({ queryKey: keys.openTickets }),
       ]),
   });
 }
 
-/** Asks the AI for a fresh draft; it shows up in the drafts list when it's written. */
-export function useRegenerateDraft(ticketId: string) {
+/** Saves a person's draft, or asks the AI for a fresh one (it shows up in the drafts list once written). */
+export function useCreateDraft(ticketId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<void> => {
+    mutationFn: async (input: { regenerate: true } | { body: string }): Promise<void> => {
       await unwrap(
-        api.POST("/v1/tickets/{id}/drafts", {
-          params: { path: { id: ticketId } },
-          body: { regenerate: true },
-        }),
+        api.POST("/v1/tickets/{id}/drafts", { params: { path: { id: ticketId } }, body: input }),
       );
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSettled: () => invalidateDraftState(queryClient, ticketId),
   });
+}
+
+/** A new draft can lift the ticket's "AI paused" state, so the ticket is fetched again too. */
+function invalidateDraftState(queryClient: QueryClient, ticketId: string) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
+  ]);
 }
 
 export function useCloseTicket(ticketId: string) {
