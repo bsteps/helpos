@@ -18,29 +18,45 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
     );
   }
   const stamp = new Date().toISOString().slice(11, 19);
-  let raw = readFileSync(file, "utf8")
-    .replaceAll("support@acme.test", seed.northwind.mailbox)
-    .replace(/^Message-ID:.*$/im, `Message-ID: <fresh-${crypto.randomUUID()}@customer.test>`)
-    .replace(/^Subject:(.*)$/im, (_, old) => `Subject: ${subject ?? `${old.trim()} ${stamp}`}`);
+  const original = readFileSync(file, "utf8").replaceAll(
+    "support@acme.test",
+    seed.northwind.mailbox,
+  );
+  const split = /\r?\n\r?\n/.exec(original);
+  if (!split) throw new Error(`"${fixture}" has no blank line between its headers and body`);
+  // One entry per header, continuation lines included, so a wrapped Subject is replaced whole.
+  const lines = original.slice(0, split.index).split(/\r?\n(?![ \t])/);
+  const oldSubject = lines.find((l) => /^Subject:/i.test(l)) ?? "Subject:";
+  const sent =
+    subject ?? `${oldSubject.slice("Subject:".length).replace(/\s+/g, " ").trim()} ${stamp}`.trim();
+  // Always a fresh Message-ID, even when the sample has none, so it is never a duplicate.
+  const headers = [
+    ...lines.filter((l) => !/^(Message-ID|Subject):/i.test(l)),
+    `Message-ID: <fresh-${crypto.randomUUID()}@customer.test>`,
+    `Subject: ${sent}`,
+  ].join("\r\n");
+  let bodyPart = original.slice(split.index + split[0].length);
   const text = body ?? (subject && fixture === "plain" ? subject : undefined);
   if (text !== undefined) {
-    const split = raw.search(/\r?\n\r?\n/);
-    const headers = raw.slice(0, split);
     if (!/^Content-Type:\s*text\/plain/im.test(headers) || /multipart/i.test(headers)) {
       throw new Error(`--body works only on a single-part text/plain sample, not "${fixture}"`);
     }
-    raw = `${headers}\r\n\r\n${text}\r\n`;
+    bodyPart = `${text}\r\n`;
   }
+  const raw = `${headers}\r\n\r\n${bodyPart}`;
   const res = await fetch(`${inst.apiUrl}/v1/inbound/email`, {
     method: "POST",
     headers: { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" },
     body: raw,
   });
-  return {
-    status: res.status,
-    json: await res.json(),
-    subject: /^Subject: (.*)$/im.exec(raw)?.[1],
-  };
+  const answer = await res.text();
+  let json;
+  try {
+    json = JSON.parse(answer);
+  } catch {
+    throw new Error(`inbound email answered ${res.status}, not JSON: ${answer.slice(0, 200)}`);
+  }
+  return { status: res.status, json, subject: sent };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
