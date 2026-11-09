@@ -2,11 +2,11 @@
 
 Short rule lists for the narrow AI review checks that run on pull requests. **Author agents follow the same lists before they open a PR**, so the writer and the reviewer work from one source.
 
-| Check             | Rules                                        | Skill                                    | Runs when a PR changes             |
-| ----------------- | -------------------------------------------- | ---------------------------------------- | ---------------------------------- |
-| Tenant isolation  | [tenant-isolation.md](tenant-isolation.md)   | `.claude/skills/tenant-isolation-check`  | `apps/server`, `packages/`         |
-| Security baseline | [security-baseline.md](security-baseline.md) | `.claude/skills/security-baseline-check` | anything but docs; agent files too |
-| Test signal       | [test-signal.md](test-signal.md)             | `.claude/skills/test-signal-check`       | tests, e2e, evals, fixtures        |
+| Check             | Rules                                        | Skill                                    | Runs when a PR changes                    |
+| ----------------- | -------------------------------------------- | ---------------------------------------- | ----------------------------------------- |
+| Tenant isolation  | [tenant-isolation.md](tenant-isolation.md)   | `.claude/skills/tenant-isolation-check`  | `apps/server`, `packages/`                |
+| Security baseline | [security-baseline.md](security-baseline.md) | `.claude/skills/security-baseline-check` | anything but docs; agent files too        |
+| Test signal       | [test-signal.md](test-signal.md)             | `.claude/skills/test-signal-check`       | tests, e2e, evals, fixtures, test helpers |
 
 The lists say what to look for in a diff. The reasons live in the ADRs they link to; change those first, then the list.
 

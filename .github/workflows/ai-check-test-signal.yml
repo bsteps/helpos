@@ -11,11 +11,13 @@ on:
     paths:
       - "**/*.test.*"
       - "**/*.spec.*"
-      - "apps/web/e2e/**"
-      - "apps/server/src/e2e/**"
-      - "packages/ai/evals/**"
-      - "packages/ai/src/evals/**"
-      - "fixtures/**"
+      - "**/*.setup.*"
+      - "**/e2e/**"
+      - "**/evals/**"
+      - "**/fixtures/**"
+      - "**/__fixtures__/**"
+      - "**/__tests__/**"
+      - "**/testing.ts"
       - "**/vitest.config.*"
       - "**/playwright.config.*"
 

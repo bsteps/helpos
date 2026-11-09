@@ -18,6 +18,7 @@ on:
       - "**/AGENTS.md"
       - "**/CLAUDE.md"
       - "**/CLAUDE.local.md"
+      - "docs/checks/**"
 
 permissions: {}
 

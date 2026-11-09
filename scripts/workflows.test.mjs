@@ -166,6 +166,9 @@ const credentialRules = [
   `Read(/${expr("runner.temp")}/**)`,
   "Read(//home/runner/runners/**)",
   "Read(//home/runner/actions-runner/**)",
+  "Read(//home/runner/work/_*/**)",
+  "Read(~/.cache/**)",
+  "Read(~/.bash_history)",
   "Read(~/.claude/**)",
   "Read(~/.claude.json)",
   "Read(~/.config/**)",
@@ -183,7 +186,7 @@ test("Claude workflows: no shell, no search, no web, and no reads where credenti
   for (const { name, text } of claudeWorkflows) {
     const denied = toolList(text, "--disallowedTools");
     // Denied by name, a tool is gone even if the action allowed it. Search could reach /proc.
-    for (const tool of ["Bash", "WebFetch", "WebSearch", "Grep", "Glob", "LS"]) {
+    for (const tool of ["Bash", "WebFetch", "WebSearch", "Grep", "Glob", "LS", "Task", "Agent"]) {
       assert.ok(denied.includes(tool), `${name}: ${tool} not denied`);
     }
     for (const rule of credentialRules) {
@@ -224,13 +227,15 @@ test("AI review jobs never take instructions from the PR's own files", () => {
   assert.match(review, /Read \$\{\{ github\.workspace \}\}-inputs\/skill\.md/);
   assert.doesNotMatch(review, /Read \.claude\/skills/, "never the PR head's skill");
   // Every instruction file, at any depth, is removed and put back from the base branch.
-  for (const file of ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"]) {
-    assert.ok(review.includes(`':(glob)**/${file}'`), `${file} from the PR stays loaded`);
-  }
+  // One pattern covers every instruction file at any depth, nested .claude/ folders included.
+  assert.ok(
+    review.includes("instructions='(^|/)((CLAUDE|CLAUDE\\.local|AGENTS)\\.md|\\.claude/.*)$'"),
+    "instruction-file pattern",
+  );
+  assert.ok(review.includes('git ls-files -z | { grep -zE "$instructions'), "removed at any depth");
+  assert.ok(review.includes('| { grep -zE "$instructions" || true; }'), "base copies restored");
   assert.ok(review.includes("rm -rf .claude .mcp.json .claude.json"));
-  assert.ok(review.includes('git checkout "$BASE_SHA" -- .claude'));
-  assert.ok(review.includes('git ls-tree -r -z --name-only "$BASE_SHA"'), "nested base copies");
-  assert.ok(review.includes("(CLAUDE|CLAUDE\\.local|AGENTS)\\.md$"), "every instruction file");
+  assert.ok(review.includes('git ls-tree -r -z --name-only "$BASE_SHA"'), "base copies, any depth");
 });
 
 test("AI review jobs judge against the current base branch, without the PR's symlinks", () => {
@@ -238,7 +243,7 @@ test("AI review jobs judge against the current base branch, without the PR's sym
   assert.ok(review.includes('"refs/remotes/origin/$GITHUB_BASE_REF^{commit}"'), "current base tip");
   assert.match(review, /if \[\[ \$entry == 120000\* \]\]; then rm -f -- /, "symlinks removed");
   assert.ok(
-    review.indexOf("120000*") < review.indexOf('git checkout "$BASE_SHA" -- .claude'),
+    review.indexOf("120000*") < review.indexOf('git ls-tree -r -z --name-only "$BASE_SHA"'),
     "remove PR symlinks before restoring base files",
   );
   assert.match(review, /read it in parts/, "long diffs are read to the end");
@@ -277,7 +282,9 @@ test("the AI check report counts only this run's comments and fails on a broken 
 
 test("the test-signal check covers every test file type", () => {
   const paths = block(read(`${dir}ai-check-test-signal.yml`), "on");
-  for (const path of ['"**/*.test.*"', '"**/*.spec.*"']) assert.ok(paths.includes(path), path);
+  for (const path of ['"**/*.test.*"', '"**/*.spec.*"', '"**/e2e/**"', '"**/fixtures/**"']) {
+    assert.ok(paths.includes(path), path);
+  }
 });
 
 test("the security check covers code, config, CI and agent instruction files", () => {
@@ -286,7 +293,13 @@ test("the security check covers code, config, CI and agent instruction files", (
   assert.deepEqual(paths.slice(0, 2), ["**", "!**/*.md"], "every file except Markdown");
   // Paths listed after "!**/*.md" count even though they are Markdown.
   const afterMd = paths.slice(paths.indexOf("!**/*.md") + 1);
-  for (const path of [".claude/**", "**/AGENTS.md", "**/CLAUDE.md", "**/CLAUDE.local.md"]) {
+  for (const path of [
+    ".claude/**",
+    "**/AGENTS.md",
+    "**/CLAUDE.md",
+    "**/CLAUDE.local.md",
+    "docs/checks/**",
+  ]) {
     assert.ok(afterMd.includes(path), `${path} must come after the Markdown exclusion`);
   }
 });
@@ -316,6 +329,8 @@ test("each AI check is gated to maintainers' same-repo PRs, capped and path-filt
 
     const check = checkId(text);
     assert.ok(check && name === `ai-check-${check}.yml`, `${name}: check id`);
+    // The title goes into a regex that finds the check's comments: plain words only.
+    assert.match(/^\s+title: (.+)$/m.exec(code(text))?.[1] ?? "", /^[A-Za-z]+( [A-Za-z]+)*$/);
     assert.ok(existsSync(new URL(`docs/checks/${check}.md`, root)), `${check}: rules doc`);
     assert.ok(
       existsSync(new URL(`.claude/skills/${check}-check/SKILL.md`, root)),

@@ -117,14 +117,13 @@ jobs:
           done
 
           # Every instruction file Claude loads comes from the base branch. Don't rely on the
-          # action's own restore: remove them all (at any depth), then put back base's.
-          git ls-files -z -- ':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' ':(glob)**/AGENTS.md' | xargs -0 -r rm -f
+          # action's own restore: remove them all, at any depth (nested .claude/ folders too), then
+          # put back base's. MCP config is removed and not restored: the review needs no servers.
+          instructions='(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*)$'
+          git ls-files -z | { grep -zE "$instructions|(^|/)\.(mcp|claude)\.json$" || true; } | xargs -0 -r rm -f --
           rm -rf .claude .mcp.json .claude.json
-          if git cat-file -e "$BASE_SHA:.claude" 2>/dev/null; then
-            git checkout "$BASE_SHA" -- .claude
-          fi
           git ls-tree -r -z --name-only "$BASE_SHA" \
-            | { grep -zE '(^|/)(CLAUDE|CLAUDE\.local|AGENTS)\.md$' || true; } \
+            | { grep -zE "$instructions" || true; } \
             | xargs -0 -r git --literal-pathspecs checkout "$BASE_SHA" --
 
           echo "run=true" >> "$GITHUB_OUTPUT"
@@ -162,7 +161,7 @@ jobs:
             --max-turns 15
             --add-dir ${{ github.workspace }}-inputs
             --allowedTools "Read(/${{ github.workspace }}/**),Read(/${{ github.workspace }}-inputs/**),mcp__github_inline_comment__create_inline_comment"
-            --disallowedTools "Bash,Edit,MultiEdit,Write,NotebookEdit,WebFetch,WebSearch,Grep,Glob,LS,Task,Agent,Read(//proc/**),Read(/${{ runner.temp }}/**),Read(//home/runner/runners/**),Read(//home/runner/actions-runner/**),Read(~/.claude/**),Read(~/.claude.json),Read(~/.config/**),Read(~/.ssh/**),Read(~/.docker/**),Read(~/.gitconfig),Read(~/.git-credentials),Read(~/.npmrc),Read(/${{ github.workspace }}/.git),Read(/${{ github.workspace }}/.git/**)"
+            --disallowedTools "Bash,Edit,MultiEdit,Write,NotebookEdit,WebFetch,WebSearch,Grep,Glob,LS,Task,Agent,Read(//proc/**),Read(/${{ runner.temp }}/**),Read(//home/runner/runners/**),Read(//home/runner/actions-runner/**),Read(//home/runner/work/_*/**),Read(~/.cache/**),Read(~/.bash_history),Read(~/.claude/**),Read(~/.claude.json),Read(~/.config/**),Read(~/.ssh/**),Read(~/.docker/**),Read(~/.gitconfig),Read(~/.git-credentials),Read(~/.npmrc),Read(/${{ github.workspace }}/.git),Read(/${{ github.workspace }}/.git/**)"
 
       - name: Report the result
         if: ${{ !cancelled() }}
@@ -201,7 +200,7 @@ jobs:
           elif [ "$new" -gt 0 ]; then
             status="$new finding(s) on \`$short\`, posted as inline comments. Advisory only."
           elif [ "$earlier" -gt 0 ]; then
-            status="All clear: nothing new on \`$short\`. $earlier earlier comment(s) from this check are still on the PR."
+            status="All clear: nothing new on \`$short\`. This check left $earlier comment(s) on earlier commits; some may be fixed or outdated."
           else
             status="All clear on \`$short\`."
           fi
