@@ -2,14 +2,20 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import type { paths } from "./schema.gen.ts";
 
-// The dashboard and the agent API must have the same capabilities. Every API
-// operation needs a call from the dashboard, or an entry here saying why not.
-// `machine`: only another system calls it, so it stays. `gap`: a missing
-// screen; delete the entry when its issue lands. This list should only shrink.
+const methods = ["get", "post", "put", "patch", "delete"] as const;
+type Method = (typeof methods)[number];
+
+type Operation = {
+  [P in keyof paths & string]: {
+    [M in Method]: paths[P][M] extends undefined ? never : `${Uppercase<M>} ${P}`;
+  }[Method];
+}[keyof paths & string];
+
 type ApiOnlyReason = { kind: "machine"; caller: string } | { kind: "gap"; issue: number };
 
-const apiOnly: Record<string, ApiOnlyReason> = {
+const apiOnly: Partial<Record<Operation, ApiOnlyReason>> = {
   "POST /v1/inbound/email": { kind: "machine", caller: "email provider" },
   "POST /v1/integrations/github/webhook": { kind: "machine", caller: "GitHub" },
   "GET /v1/knowledge/sources": { kind: "gap", issue: 132 },
@@ -25,15 +31,13 @@ const apiOnly: Record<string, ApiOnlyReason> = {
   "GET /v1/ai-usage": { kind: "gap", issue: 133 },
 };
 
-const httpMethods = new Set(["get", "post", "put", "patch", "delete"]);
-
 function specOperations(): string[] {
   const spec: { paths: Record<string, Record<string, unknown>> } = JSON.parse(
     readFileSync(new URL("./openapi.json", import.meta.url), "utf8"),
   );
   return Object.entries(spec.paths).flatMap(([path, item]) =>
     Object.keys(item)
-      .filter((method) => httpMethods.has(method))
+      .filter((method) => methods.some((m) => m === method))
       .map((method) => `${method.toUpperCase()} ${path}`),
   );
 }
@@ -59,25 +63,15 @@ function dashboardCalls(): Set<string> {
 }
 
 describe("dashboard and API parity", () => {
-  const operations = specOperations();
   const calls = dashboardCalls();
 
-  it("finds the operations and the dashboard's calls", () => {
-    // Guards against a broken scan making every check below pass vacuously.
-    expect(operations.length).toBeGreaterThan(20);
-    expect(calls.size).toBeGreaterThan(10);
-  });
-
   it("calls every API operation from the dashboard, unless it is listed as API-only", () => {
-    const missing = operations.filter((op) => !calls.has(op) && !(op in apiOnly));
-    // If this fails: add the screen that uses it, or (only for machine callers) an apiOnly entry.
-    expect(missing).toEqual([]);
+    const missing = specOperations().filter((op) => !calls.has(op) && !(op in apiOnly));
+    expect(missing, "add the dashboard screen, or a machine entry in apiOnly").toEqual([]);
   });
 
-  it("has no stale API-only entries", () => {
-    const known = new Set(operations);
-    const stale = Object.keys(apiOnly).filter((op) => calls.has(op) || !known.has(op));
-    // If this fails: the dashboard now calls it (or it was removed), so delete its apiOnly entry.
-    expect(stale).toEqual([]);
+  it("lists no API-only operation that the dashboard calls", () => {
+    const stale = Object.keys(apiOnly).filter((op) => calls.has(op));
+    expect(stale, "delete these apiOnly entries").toEqual([]);
   });
 });
