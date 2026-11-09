@@ -75,7 +75,8 @@ jobs:
             # (Only for same-repo PRs: a fork's commit isn't in this repo, so the compare would fail.)
             if [ "$run" = "true" ]; then
               compare=$(gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha")
-              files=$(jq -r '.files[].filename' <<<"$compare")
+              # A rename counts by its old name too (moving AGENTS.md away also changes what loads).
+              files=$(jq -r '.files[] | .filename, (.previous_filename // empty)' <<<"$compare")
               if [ "$(jq '.files | length' <<<"$compare")" -ge 300 ]; then
                 echo "::notice::PR #$NUMBER is too big to check for agent instruction changes. @claude doesn't run on it."
                 run=false

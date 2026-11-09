@@ -247,6 +247,7 @@ test("AI review jobs judge against the current base branch, without the PR's sym
     "remove PR symlinks before restoring base files",
   );
   assert.match(review, /read it in parts/, "long diffs are read to the end");
+  assert.match(review, /are the base branch's copies and symlinks are removed/, "Claude knows why");
   assert.match(
     review,
     /if \[ "\$RUN_STATE" = "true" \] && \[ "\$OUTCOME" = "success" \] && \[ "\$\{DIFF_LINES:-0\}" -gt \d+ \]/,
@@ -370,6 +371,10 @@ test("@claude runs only for maintainers, skips forks and commits only through th
   );
   // The branch's own instruction files would load, so PRs that change them are skipped.
   assert.ok(claude.includes('gh api "repos/$REPO/compare/$DEFAULT_BRANCH...$head_sha"'), "vs main");
+  assert.ok(
+    claude.includes(".filename, (.previous_filename // empty)"),
+    "renames count by old name",
+  );
   // A fork's commit isn't in this repo: only compare when the fork check passed.
   assert.ok(
     claude.indexOf('if [ "$run" = "true" ]; then') > claude.indexOf("comes from a fork") &&
