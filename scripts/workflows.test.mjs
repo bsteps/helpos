@@ -244,11 +244,25 @@ test("AI review jobs judge against the current base branch, without the PR's sym
   );
   assert.match(review, /read it in parts/, "long diffs are read to the end");
   assert.match(review, /DIFF_LINES:-0\}" -gt \d+/, "the status warns about long diffs");
+  assert.match(
+    review,
+    /else\n\s+echo "::warning::Couldn't find the current tip/,
+    "no silent stale base",
+  );
+  assert.match(
+    review,
+    /if \[ ! -s "\$INPUTS\/pr\.diff" \]; then\n\s+echo "run=empty"/,
+    "empty diff",
+  );
 });
 
 test("the AI check report counts only this run's comments and fails on a broken setup", () => {
   const review = read(`${dir}ai-check.yml`);
   assert.ok(review.includes('grep -cvxF -f "$INPUTS/earlier-ids.txt"'), "re-runs aren't new");
+  // Comments are found by their label even if the model drops the bold or changes the case.
+  const labelMatch = '(.body | test("^[*[:space:]]*" + env.TITLE + "[*[:space:]]*:"; "i"))';
+  assert.equal(review.split(labelMatch).length - 1, 2, "both lookups use the tolerant label match");
+  assert.ok(!review.includes('startswith("**" + env.TITLE'), "no exact-prefix lookup left");
   assert.doesNotMatch(code(review), /\|\s*head\b/, "head can break a pipe under pipefail");
   assert.match(review, /status="Didn't finish[^"]*\$new finding/, "a partial run still reports");
   assert.equal(code(review).match(/git -c core\.quotepath=off diff/g)?.length, 2, "file names");
