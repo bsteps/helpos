@@ -47,6 +47,9 @@ describe("logger: errors", () => {
     logger.error({ err: queryError(), path: "/v1/inbound/email" }, "unhandled error");
     logger.warn({ error: queryError() }, "a different key");
     logger.error(queryError(), "the error as the first argument");
+    // With no message, pino would use the error's own message as the line.
+    logger.error(queryError());
+    logger.error({ err: queryError() });
     expect(output()).not.toContain("secret@customer.test");
     expect(output()).not.toContain("private body");
     // What is kept is still enough to find the bug.

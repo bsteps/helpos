@@ -29,9 +29,22 @@ export function createLogger(
   const config: LoggerOptions = {
     ...options,
     redact: { paths: redactedPaths, censor: "[redacted]" },
-    // Every error is logged as its summary, never its message: `logger.error({ err }, …)` is
-    // safe wherever it's written.
+    // Every error under `err` or `error` is logged as its summary, never its message:
+    // `logger.error({ err }, …)` is safe wherever it's written. An error nested deeper is not.
     serializers: { err: errorSummary, error: errorSummary },
+    hooks: {
+      // With no message given, pino uses the error's own message as the log line.
+      logMethod(args, method) {
+        const [first, second] = args;
+        const carriesError =
+          first instanceof Error ||
+          (typeof first === "object" && first !== null && ("err" in first || "error" in first));
+        if (carriesError && typeof second !== "string") {
+          return method.apply(this, [first, "error", ...args.slice(1)]);
+        }
+        return method.apply(this, args);
+      },
+    },
   };
   return destination ? pino(config, destination) : pino(config);
 }
