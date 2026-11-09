@@ -17,7 +17,7 @@ Draft states: `pending` → `approved` → `sent`, or `discarded`, or `send_fail
 
 ## How to get to it (user POV)
 
-- Dashboard ticket page: the card `AI draft` with buttons `Edit` (then textbox `Reply` and `Save`/`Cancel`), `Approve & send` and `Discard`. When sending failed for good: `send-failed-alert` with `Retry send` / `Discard`, then `Write a new draft`.
+- Dashboard ticket page: the card `AI draft` with buttons `Edit` (then textbox `Reply` and `Save`/`Cancel`) and `Approve & send`. No `Discard` on a pending draft. When sending failed for good: `send-failed-alert` with `Retry send` / `Discard`, then `Write a new draft`.
 - API: `GET v1/tickets/{id}/drafts`, `PATCH v1/drafts/{id}` `{"body"}`, `POST v1/drafts/{id}/approve` `{"body": <the text you reviewed>}`, `POST v1/drafts/{id}/discard`, `POST v1/drafts/{id}/retry`, `POST v1/tickets/{id}/drafts` `{"body"}` or `{"regenerate": true}`.
 
 ## Driving it with Playwright and api.mjs
@@ -29,7 +29,7 @@ Preconditions: baseline. AI configured. Embeddings on, for `sources`.
 - **Edit.** Click `Edit`, fill textbox `Reply`, and click `Save`. `draft-body` shows the new text. API: `$A northwind:triage-bot PATCH v1/drafts/<draftId> '{"body":"New text"}'` returns `200`, and a second GET shows it.
 - **Stale approve.** Open the ticket page, then change the draft over the API, then click `Approve & send`. The page says `This draft changed since you opened it`, shows the new text, and nothing is sent. API: approving with an old `body` returns `409 not_pending`, the same answer as for a draft that is no longer pending.
 - **Approve and send.** One command: `node $V/approve-draft.mjs new` (or a ticket ID). By hand: `$A northwind:approver-bot POST v1/drafts/<draftId>/approve '{"body":"<current body>"}'` returns `200` with `status: "approved"`. The draft is `sent` within seconds. Mailpit has `Re: <subject>` addressed to the owner (shadow recipient) and not to the customer. In the dashboard, the badge reads `Sent`.
-- **Discard.** Click `Discard` on a pending draft, or `$A northwind:triage-bot POST v1/drafts/<draftId>/discard`. The status is `discarded` and nothing is sent.
+- **Discard.** A pending draft is discarded through the API only: `$A northwind:triage-bot POST v1/drafts/<draftId>/discard` returns `200` with `discarded`, and nothing is sent. The dashboard's `Discard` button exists only on a `send_failed` draft, next to `Retry send`.
 - **New draft.** `$A northwind:triage-bot POST v1/tickets/<id>/drafts '{"regenerate":true}'` returns `202 queued`, and a new `pending` draft appears. `'{"body":"My own reply"}'` creates one with that text.
 - **Internal note.** Deliver an email whose text matches the seeded internal source "Refund exceptions (internal)". The draft has `internalKnowledge: true`. When it repeats the note word for word, `quotesInternalNote: true` and the page shows `This draft quotes an internal note`.
 - **Scopes.** `$A northwind:triage-bot POST v1/drafts/<id>/approve ...` returns `403`, because writing a draft isn't approving it. `$A northwind:approver-bot PATCH v1/drafts/<id> ...` also returns `403`.
