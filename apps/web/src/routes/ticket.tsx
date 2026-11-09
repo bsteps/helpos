@@ -177,7 +177,8 @@ export function TicketPage() {
         ) : (
           <DraftPanel
             ticket={t}
-            draft={liveDraft(drafts.data)}
+            // After a failed reply was discarded, an older sent reply isn't the one to show.
+            draft={discardedAfterFailure(drafts.data) ? undefined : liveDraft(drafts.data)}
             discarded={discardedAfterFailure(drafts.data) && !redraft.isSuccess}
             redraft={redraft}
           />

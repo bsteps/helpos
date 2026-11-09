@@ -277,10 +277,13 @@ describe("a send that fails for good", () => {
       draft.outboundMessageIdHeader,
     );
 
+    // Both concurrent requests are logged (the second one found it approved already); the
+    // later one, after it was sent, changed nothing and logs nothing.
     expect(await auditOf(draft.id)).toEqual([
       ["draft.created", "system"],
       ["draft.approved", "agent"],
       ["draft.send_failed", "system"],
+      ["draft.send_retried", "agent"],
       ["draft.send_retried", "agent"],
       ["draft.sent", "system"],
     ]);
@@ -363,5 +366,11 @@ describe("a send that fails for good", () => {
     await waitFor("the reply in Mailpit", async () => (await mailFor(subject))[0]);
     await new Promise((r) => setTimeout(r, 2_000));
     expect(await mailFor(subject)).toHaveLength(1);
+    // Each recovery request is on the audit log, with who asked.
+    const retried = (await auditOf(pending.id)).filter(([a]) => a === "draft.send_retried");
+    expect(retried).toEqual([
+      ["draft.send_retried", "agent"],
+      ["draft.send_retried", "agent"],
+    ]);
   });
 });

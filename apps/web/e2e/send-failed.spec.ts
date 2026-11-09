@@ -65,3 +65,48 @@ test("a reply that failed to send can be discarded, and a new draft asked for", 
   await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
 });
+
+test("discarding a failed follow-up reply doesn't bring back the earlier sent one", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject("Shipping question");
+  const firstId = `<${crypto.randomUUID()}@customer.test>`;
+  await deliver(
+    request,
+    plainEmail(subject, "Hi, when does my order ship?").replace(
+      /^Message-ID: .*$/m,
+      `Message-ID: ${firstId}`,
+    ),
+  );
+  await signIn(page);
+  await page.getByRole("link", { name: subject }).click();
+  await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
+  await page.getByRole("button", { name: "Approve & send" }).click();
+  await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // The customer writes again on the same thread; this reply fails to send.
+  const followUp = [
+    "From: Jane Customer <jane@customer.test>",
+    `To: ${state().mailbox}`,
+    `Subject: Re: ${subject} ${state().smtpDownMarker}`,
+    `Message-ID: <${crypto.randomUUID()}@customer.test>`,
+    `In-Reply-To: ${firstId}`,
+    `References: ${firstId}`,
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    "Any news?",
+  ].join("\n");
+  await deliver(request, followUp);
+  // The page doesn't poll while its newest reply is sent, so reload until the new draft is in.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Approve & send" }).click();
+  await expect(page.getByText("Not sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByText("The reply that couldn't be sent was discarded.")).toBeVisible();
+  await expect(page.getByText("Sent", { exact: true })).toBeHidden();
+});

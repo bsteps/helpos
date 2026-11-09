@@ -590,6 +590,13 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         // Already approved: queue the send again in case its job was lost (it expired, or the
         // worker died, on the last attempt). The singleton key returns the live job if there
         // is one, and the worker locks the draft and skips it once sent, so it can't go twice.
+        await recordAudit(tx, {
+          tenantId: principal.tenantId,
+          actor: principal.actor,
+          action: "draft.send_retried",
+          target: { type: "draft", id },
+          requestId: c.get("requestId"),
+        });
         await enqueue(
           tx,
           sendReplyJob,
