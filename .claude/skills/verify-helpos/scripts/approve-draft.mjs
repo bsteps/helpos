@@ -21,7 +21,10 @@ const inst = instance();
 await requireRunning(inst);
 if (ticketId === "new") {
   const subject = `API approve ${new Date().toISOString().slice(11, 19)}`;
-  const { status, json } = await sendFreshEmail(inst, "plain", subject);
+  const { status, json } = await sendFreshEmail(inst, "plain", {
+    subject,
+    body: "Hi, I cannot log in since this morning.",
+  });
   if (status !== 201) {
     process.stderr.write(`sending the customer email failed: ${status} ${JSON.stringify(json)}\n`);
     process.exit(1);

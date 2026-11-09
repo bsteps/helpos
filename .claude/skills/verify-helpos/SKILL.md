@@ -65,7 +65,7 @@ const { chromium } = await import("@playwright/test");
 
 `$V/journey-reply.mjs` is a complete example of both surfaces. Copy its shape for a new journey.
 
-**New customer email.** `pnpm new-email [fixture] [--subject "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. The last line it prints is the ticket ID.
+**New customer email.** `pnpm new-email [fixture] [--subject "text"] [--body "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. With the default sample, `--subject` alone is also the body. `--body` works only on single-part plain-text samples. The last line it prints is the ticket ID.
 
 **GitHub webhook.** `pnpm github-webhook <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]` signs and sends an `issues` event for the connected repo, since GitHub can't reach localhost.
 
