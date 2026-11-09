@@ -146,9 +146,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const inst = instance();
   if (process.argv[2] === "run") {
     // The command runs through a shell (Windows needs one to find pnpm.cmd), so each argument is
-    // quoted again: `--workspace "Northwind Cycles"` must stay one argument.
+    // quoted again: `--workspace "Northwind Cycles"` must stay one argument. On Windows that
+    // shell is cmd.exe, which keeps `$` and `\` as they are and escapes a quote by doubling it.
     const quote = (arg) =>
-      /^[\w@%+=:,./-]+$/.test(arg) ? arg : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
+      /^[\w@%+=:,./-]+$/.test(arg)
+        ? arg
+        : process.platform === "win32"
+          ? `"${arg.replaceAll('"', '""')}"`
+          : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
     const command = process.argv
       .slice(process.argv.includes("--") ? process.argv.indexOf("--") + 1 : 3)
       .map(quote)
