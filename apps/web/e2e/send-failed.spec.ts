@@ -61,7 +61,7 @@ test("a reply that failed to send can be discarded, and a new draft asked for", 
   await expect(page.getByText("The reply that couldn't be sent was discarded.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry send" })).toBeHidden();
 
-  await page.getByRole("button", { name: "Write a new draft" }).click();
+  await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
 });
@@ -111,6 +111,6 @@ test("discarding a failed follow-up reply doesn't bring back the earlier sent on
   await expect(page.getByText("Sent", { exact: true })).toBeHidden();
 
   // The new draft shows up by itself: the older sent reply doesn't stop the page checking.
-  await page.getByRole("button", { name: "Write a new draft" }).click();
+  await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
 });
