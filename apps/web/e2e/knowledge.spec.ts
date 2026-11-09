@@ -17,7 +17,7 @@ test("an owner adds a Markdown source, sees it become ready, edits it and delete
   await page.getByRole("button", { name: "Add source", exact: true }).click();
 
   const card = page.getByTestId("knowledge-source").filter({ hasText: title });
-  await expect(card.getByText("Ready", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   await expect(card).toContainText("Internal");
   await expect(card).toContainText("1 passage");
 
@@ -47,13 +47,13 @@ test("a web page that can't be read says why, and can be read again", async ({ p
   await page.getByRole("button", { name: "Add source", exact: true }).click();
 
   const card = page.getByTestId("knowledge-source").filter({ hasText: title });
-  await expect(card.getByText("Failed", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText("Failed", { exact: true })).toBeVisible();
   await expect(card).toContainText("This address is private or local");
 
   const reingested = page.waitForResponse((r) => r.url().endsWith("/reingest"));
   await card.getByRole("button", { name: "Read again" }).click();
   expect((await reingested).status()).toBe(202);
-  await expect(card.getByText("Failed", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText("Failed", { exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Read again" })).toBeEnabled();
 });
 
