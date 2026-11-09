@@ -27,10 +27,22 @@
     "setup:worktree": "node scripts/setup-worktree.mjs",
     "demo:check": "node scripts/check-demo-compose.mjs",
     "test:e2e": "pnpm --filter @helpos/web build && pnpm --filter @helpos/web test:e2e",
-    "knip": "knip"
+    "knip": "knip",
+    "api": "node .claude/skills/verify-helpos/scripts/api.mjs",
+    "new-email": "node .claude/skills/verify-helpos/scripts/new-email.mjs",
+    "approve-draft": "node .claude/skills/verify-helpos/scripts/approve-draft.mjs",
+    "github-webhook": "node .claude/skills/verify-helpos/scripts/github-webhook.mjs",
+    "app:start": "node .claude/skills/verify-helpos/scripts/launch.mjs",
+    "app:doctor": "node .claude/skills/verify-helpos/scripts/doctor.mjs",
+    "app:stop": "node .claude/skills/verify-helpos/scripts/cleanup.mjs",
+    "app:password": "node .claude/skills/verify-helpos/scripts/owner-password.mjs",
+    "app:info": "node .claude/skills/verify-helpos/scripts/instance.mjs",
+    "app:journey": "node .claude/skills/verify-helpos/scripts/journey-reply.mjs",
+    "app:run": "node .claude/skills/verify-helpos/scripts/instance.mjs run"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
+    "@playwright/test": "1.64.1",
     "@types/node": "24.19.2",
     "knip": "6.44.1",
     "turbo": "2.11.10",

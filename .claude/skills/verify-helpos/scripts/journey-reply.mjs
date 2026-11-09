@@ -4,7 +4,6 @@
 // .helpos/verify/<timestamp>-reply-<via>/.
 //   node .claude/skills/verify-helpos/scripts/journey-reply.mjs --via api|web [--headed]
 import { mkdirSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { evidenceRoot, instance, repoRoot, requireRunning, seed, seedToken } from "./instance.mjs";
 
@@ -102,8 +101,7 @@ if (via === "api") {
     status: approved.body.status,
   });
 } else {
-  const require = createRequire(join(repoRoot, "apps/web/package.json"));
-  const { chromium } = require("@playwright/test");
+  const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch({ headless: !process.argv.includes("--headed") });
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   try {

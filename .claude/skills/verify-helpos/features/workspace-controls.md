@@ -13,17 +13,17 @@ Settings that keep a workspace safe and visible. Shadow mode sends every reply t
 
 - API: `GET`/`PATCH v1/workspace/shadow-mode`, `GET v1/stats/drafts?from=&to=`, `GET v1/ai-usage`.
 - Dashboard: the inbox stats line, and `AI paused` badges and alerts when the budget is spent.
-- Operator CLI: `node $V/instance.mjs run -- pnpm helpos:ai-budget`.
+- Operator CLI: `pnpm app:run pnpm helpos:ai-budget`.
 
 ## Driving it with Playwright and api.mjs
 
 Preconditions: baseline.
 
-- **Shadow read.** `$A northwind:triage-bot GET v1/workspace/shadow-mode` returns `{"enabled": true, "recipient": "maya.okafor@northwind-cycles.test"}`.
-- **Shadow locked.** `$A owner PATCH v1/workspace/shadow-mode '{"enabled":false}'` returns `409 shadow_mode_locked`. As `northwind:triage-bot` the same call returns `403`.
-- **Shadow recipient.** `$A owner PATCH v1/workspace/shadow-mode '{"recipient":"leo.brandt@northwind-cycles.test"}'` returns `200`. The next approved reply arrives in Mailpit to Leo. Set it back to Maya afterwards.
-- **Stats.** `$A northwind:stats-reader GET v1/stats/drafts` returns counts for the last 14 days and `unchangedRate`. After `journey-reply.mjs`, `approvedUnchanged` goes up by one.
-- **AI usage.** `$A northwind:triage-bot GET v1/ai-usage` shows `calls` and `totalTokens` growing after each AI draft, and `paused: false`.
+- **Shadow read.** `pnpm api northwind:triage-bot GET v1/workspace/shadow-mode` returns `{"enabled": true, "recipient": "maya.okafor@northwind-cycles.test"}`.
+- **Shadow locked.** `pnpm api owner PATCH v1/workspace/shadow-mode '{"enabled":false}'` returns `409 shadow_mode_locked`. As `northwind:triage-bot` the same call returns `403`.
+- **Shadow recipient.** `pnpm api owner PATCH v1/workspace/shadow-mode '{"recipient":"leo.brandt@northwind-cycles.test"}'` returns `200`. The next approved reply arrives in Mailpit to Leo. Set it back to Maya afterwards.
+- **Stats.** `pnpm api northwind:stats-reader GET v1/stats/drafts` returns counts for the last 14 days and `unchangedRate`. After `journey-reply.mjs`, `approvedUnchanged` goes up by one.
+- **AI usage.** `pnpm api northwind:triage-bot GET v1/ai-usage` shows `calls` and `totalTokens` growing after each AI draft, and `paused: false`.
 
 ## Gotchas
 

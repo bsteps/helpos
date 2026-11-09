@@ -20,11 +20,11 @@ The inbox lists open tickets, newest activity first, with flags for anything tha
 
 Preconditions: baseline, signed in as owner.
 
-- **List.** The `Inbox` heading shows a link per open ticket. `$A northwind:triage-bot GET "v1/tickets?status=open"` returns the same subjects.
-- **Open.** Click a subject link. The heading is the subject, and the conversation lists each message with sender and time. `$A northwind:triage-bot GET v1/tickets/<id>` returns `messages[]`.
-- **Close.** Deliver a fresh email (see inbound-email), open it, and click `Close ticket`. The status reads `Closed`, the button disappears, and back in the inbox the subject is gone. API: `$A owner POST v1/tickets/<id>/close` returns `200`, and `GET v1/tickets/<id>` shows `status: "closed"`.
-- **Scope.** `$A northwind:approver-bot POST v1/tickets/<id>/close` returns `403 forbidden`, because closing needs `tickets:write`.
-- **Isolation.** `$A lumen:support-agent GET v1/tickets/<northwind ticket id>` returns `404 not_found`, not `403`, so another workspace can't even tell the ticket exists.
+- **List.** The `Inbox` heading shows a link per open ticket. `pnpm api northwind:triage-bot GET "v1/tickets?status=open"` returns the same subjects.
+- **Open.** Click a subject link. The heading is the subject, and the conversation lists each message with sender and time. `pnpm api northwind:triage-bot GET v1/tickets/<id>` returns `messages[]`.
+- **Close.** Deliver a fresh email (see inbound-email), open it, and click `Close ticket`. The status reads `Closed`, the button disappears, and back in the inbox the subject is gone. API: `pnpm api owner POST v1/tickets/<id>/close` returns `200`, and `GET v1/tickets/<id>` shows `status: "closed"`.
+- **Scope.** `pnpm api northwind:approver-bot POST v1/tickets/<id>/close` returns `403 forbidden`, because closing needs `tickets:write`.
+- **Isolation.** `pnpm api lumen:support-agent GET v1/tickets/<northwind ticket id>` returns `404 not_found`, not `403`, so another workspace can't even tell the ticket exists.
 - **Stats line.** Seed drafts are dated January 2026, so the line counts only recent drafts. Freeze the browser clock at `2026-01-20T12:00:00Z` (`page.clock.setFixedTime`) to see `Last 14 days: 67% of drafts approved unchanged (2 of 3)`.
 
 ## Gotchas

@@ -18,15 +18,15 @@ Knowledge sources are the pages and notes the AI drafts from. A source is a URL 
 
 ## Driving it with Playwright and api.mjs
 
-Preconditions: baseline. Embeddings on (`doctor.mjs` shows `embeddings ok`). A token with `knowledge:write`: Northwind has none active, so mint one with `$A owner POST v1/tokens '{"name":"verify-kb","scopes":["knowledge:read","knowledge:write"]}'` and use the returned `hos_…` as `<as>`.
+Preconditions: baseline. Embeddings on (`doctor.mjs` shows `embeddings ok`). A token with `knowledge:write`: Northwind has none active, so mint one with `pnpm api owner POST v1/tokens '{"name":"verify-kb","scopes":["knowledge:read","knowledge:write"]}'` and use the returned `hos_…` as `<as>`.
 
-- **List.** `$A northwind:triage-bot GET v1/knowledge/sources` lists the seeded sources, all `ready` with `chunkCount` 1 or more.
-- **Create.** `$A <hos_token> POST v1/knowledge/sources '{"kind":"markdown","title":"Verify gift wrap","content":"# Gift wrap\n\nGift wrap costs 4 EUR per order.","visibility":"public"}'` returns `201` with `status: "pending"`, then `ready` within about 10 seconds (local Ollama).
+- **List.** `pnpm api northwind:triage-bot GET v1/knowledge/sources` lists the seeded sources, all `ready` with `chunkCount` 1 or more.
+- **Create.** `pnpm api <hos_token> POST v1/knowledge/sources '{"kind":"markdown","title":"Verify gift wrap","content":"# Gift wrap\n\nGift wrap costs 4 EUR per order.","visibility":"public"}'` returns `201` with `status: "pending"`, then `ready` within about 10 seconds (local Ollama).
 - **Used in a draft.** Deliver an email asking about gift wrap. Its draft's `sources[]` include `Verify gift wrap`, and the dashboard shows it under `Written from`.
 - **Edit.** `PATCH v1/knowledge/sources/<id> '{"visibility":"internal"}'` returns `200` at once. `'{"content":"..."}'` returns the source to `pending`, then `ready`.
 - **Re-ingest.** `POST v1/knowledge/sources/<id>/reingest` returns `202`.
 - **Delete.** `DELETE v1/knowledge/sources/<id>` returns `204`, and the source is gone from the list.
-- **Scopes.** `$A northwind:triage-bot POST v1/knowledge/sources ...` returns `403`, because it can only read.
+- **Scopes.** `pnpm api northwind:triage-bot POST v1/knowledge/sources ...` returns `403`, because it can only read.
 
 ## Gotchas
 

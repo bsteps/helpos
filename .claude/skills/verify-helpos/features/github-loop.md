@@ -22,8 +22,8 @@ A workspace owner connects one GitHub repo with a fine-grained token. From a tic
 
 Preconditions: baseline, **plus a real throwaway GitHub repo and a fine-grained token with Issues read/write on it**. Connecting checks the token with GitHub, so without one, only the read and refusal steps can run. Report the rest as unreachable.
 
-- **Status.** `$A owner GET v1/integrations/github` returns `{"connected": false, ...}` on fresh seed data.
-- **Refusals (no token needed).** `$A owner PUT v1/integrations/github '{"repo":"a/b","token":"ghp_classic"}'` returns `400` (fine-grained tokens only). As `northwind:triage-bot` the same call returns `403`. The `Settings` page signed in as Leo (member) shows `Only workspace owners can change this.`
+- **Status.** `pnpm api owner GET v1/integrations/github` returns `{"connected": false, ...}` on fresh seed data.
+- **Refusals (no token needed).** `pnpm api owner PUT v1/integrations/github '{"repo":"a/b","token":"ghp_classic"}'` returns `400` (fine-grained tokens only). As `northwind:triage-bot` the same call returns `403`. The `Settings` page signed in as Leo (member) shows `Only workspace owners can change this.`
 - **Connect.** In `Settings`, fill `Repository` and `Personal access token`, then click `Connect`. `webhook-url` and `webhook-secret` appear once. `GET v1/integrations/github` shows `connected: true` and the repo.
 - **Issue.** On a ticket, click `Create GitHub issue`. `Title` and `Description` fill in from the AI. Click `Create issue`. A link `<repo>#N` appears, and the issue exists on GitHub with only a title and body (no labels or assignees). An agent can do the same with a token holding `tickets:read` and `github:write`: `POST v1/tickets/<id>/github-issue/draft`, then `POST v1/tickets/<id>/github-issue '{"title","body"}'`.
 - **Webhook.** GitHub can't reach localhost. Sign the event yourself: compute the HMAC-SHA256 of the exact body with the webhook secret, then `POST v1/integrations/github/webhook?workspace=<workspace id>` with `X-GitHub-Event: issues`, `X-Hub-Signature-256: sha256=<hex>`, and a body with `action: "closed"`, `issue.state_reason: "completed"`, the issue number and `repository.full_name`. The ticket gets a `kind: "fixed"` pending draft, and the page shows `Fix notice`. A wrong signature returns `401`.
@@ -34,5 +34,5 @@ Preconditions: baseline, **plus a real throwaway GitHub repo and a fine-grained 
 - The e2e suite runs this whole flow against a fake GitHub (`apps/web/e2e/github.spec.ts`). Locally it needs a real one.
 - Connecting needs `HELPOS_ENCRYPTION_KEY`. `pnpm dev` adds a random one to `.env` the first time.
 - Only an issue closed as `completed` makes a fixed draft. `not_planned` and `duplicate` make none.
-- The workspace id is in `$A owner GET v1/me` (`workspace.id`).
+- The workspace id is in `pnpm api owner GET v1/me` (`workspace.id`).
 - Use a throwaway repo: issues you create are real.

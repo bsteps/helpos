@@ -17,15 +17,15 @@ V=.claude/skills/verify-helpos/scripts
 
 1. Wait for worktree setup: `.helpos/setup-done` must exist (`.helpos/setup-running` means wait, `.helpos/setup-failed` means read it and rerun `pnpm setup:worktree`). A worktree without `node_modules` never ran setup: run `node scripts/setup-worktree.mjs` (about a minute).
 2. Docker must be running. `pnpm dev` starts the shared Postgres and Mailpit containers.
-3. Start the app as a **background task**: `node $V/launch.mjs`. It runs `pnpm dev`, which migrates and (first time only) seeds this checkout's own database, then serves the API and the dashboard on ports derived from the checkout path. When `.env` has no embedding settings and Ollama answers on `:11434`, it turns on local embeddings (`qwen3-embedding:0.6b`, 1024 dimensions) so knowledge search works.
-4. Ready means usable, not just "port open": `node $V/doctor.mjs --wait 120` exits 0.
-5. Once per database: `node $V/owner-password.mjs`. It gives the Northwind owner the demo password through the real one-time link flow. Safe to rerun.
+3. Start the app as a **background task**: `pnpm app:start`. It runs `pnpm dev`, which migrates and (first time only) seeds this checkout's own database, then serves the API and the dashboard on ports derived from the checkout path. When `.env` has no embedding settings and Ollama answers on `:11434`, it turns on local embeddings (`qwen3-embedding:0.6b`, 1024 dimensions) so knowledge search works.
+4. Ready means usable, not just "port open": `pnpm app:doctor --wait 120` exits 0.
+5. Once per database: `pnpm app:password`. It gives the Northwind owner the demo password through the real one-time link flow. Safe to rerun.
 
-`node $V/instance.mjs` prints the URLs and database for this checkout. To run a repo CLI against this checkout's database (not the shared one in `.env`), wrap it: `node $V/instance.mjs run -- pnpm helpos:token ...`.
+`pnpm app:info` prints the URLs and database for this checkout. To run a repo CLI against this checkout's database (not the shared one in `.env`), wrap it: `pnpm app:run pnpm helpos:token ...`.
 
 ## Doctor
 
-`node $V/doctor.mjs` is read-only. Run it first, and again whenever anything looks off. It checks:
+`pnpm app:doctor` is read-only. Run it first, and again whenever anything looks off. It checks:
 
 - API and dashboard ports are held by HelpOS processes (not a stranger).
 - `/health` reports the database ok.
@@ -38,7 +38,7 @@ Warnings (`warn`) name features that will not work: knowledge sources still `pen
 
 ## Drive
 
-**Agent API.** `node $V/api.mjs <as> <METHOD> v1/<path> [json | @file]` prints the status and JSON and exits 0 on 2xx. Write the path **without** a leading slash: Git Bash rewrites `/v1/...` into a Windows path. `<as>` is one of these callers:
+**Agent API.** `pnpm api <as> <METHOD> v1/<path> [json | @file]` prints the status and JSON and exits 0 on 2xx. Write the path **without** a leading slash: Git Bash rewrites `/v1/...` into a Windows path. `<as>` is one of these callers:
 
 | `<as>` | Who | Scopes |
 | --- | --- | --- |
@@ -58,28 +58,27 @@ No seed token has `tickets:write`, `knowledge:write` or `github:write` in Northw
 **Dashboard.** Playwright from `apps/web` (browsers are already installed for it). Use roles and labels. They are stable, and the e2e suite in `apps/web/e2e/` uses the same ones:
 
 ```js
-import { createRequire } from "node:module";
-const { chromium } = createRequire(process.cwd() + "/apps/web/package.json")("@playwright/test");
+const { chromium } = await import("@playwright/test");
 // page.getByLabel("Email") / ("Password"), getByRole("button", { name: "Sign in" }),
 // getByRole("heading", { name: "Inbox" }), getByTestId("draft-body"), "Approve & send"
 ```
 
 `$V/journey-reply.mjs` is a complete example of both surfaces. Copy its shape for a new journey.
 
-**New customer email.** `node $V/new-email.mjs [fixture] [--subject "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. The last line it prints is the ticket ID.
+**New customer email.** `pnpm new-email [fixture] [--subject "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. The last line it prints is the ticket ID.
 
-**GitHub webhook.** `node $V/github-webhook.mjs <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]` signs and sends an `issues` event for the connected repo, since GitHub can't reach localhost.
+**GitHub webhook.** `pnpm github-webhook <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]` signs and sends an `issues` event for the connected repo, since GitHub can't reach localhost.
 
-**Agent approval.** `node $V/approve-draft.mjs <ticketId | new>` reads the pending draft as `triage-bot`, approves that exact text as `approver-bot`, and waits for `sent`. `new` sends a fresh customer email first. Use it instead of piping `api.mjs` into other commands: Git Bash runs `node` through `winpty`, which breaks pipes into `node`.
+**Agent approval.** `pnpm approve-draft <ticketId | new>` reads the pending draft as `triage-bot`, approves that exact text as `approver-bot`, and waits for `sent`. `new` sends a fresh customer email first. Use it instead of piping `api.mjs` into other commands: Git Bash runs `node` through `winpty`, which breaks pipes into `node`.
 
-**Main journey.** `node $V/journey-reply.mjs --via web` or `--via api`. It sends a customer email, waits for the ticket and the real AI draft, approves it (owner in the browser, or `approver-bot` over the API), waits for `sent`, then checks Mailpit: the reply went to the shadow recipient only, with the approved text.
+**Main journey.** `pnpm app:journey --via web` or `--via api`. It sends a customer email, waits for the ticket and the real AI draft, approves it (owner in the browser, or `approver-bot` over the API), waits for `sent`, then checks Mailpit: the reply went to the shadow recipient only, with the approved text.
 
 **Feature map.** `features/README.md` lists every screen and endpoint with a recipe. Read the feature file before driving that feature, and cover every entry point it lists.
 
 ## Evidence
 
 - Journeys write to `.helpos/verify/<timestamp>-<journey>/`: `steps.json` (each action and what was observed), screenshots for browser steps, and `mail.json` (the caught email). `FAILED.txt` and `failure.png` appear on failure. `.helpos/` is git-ignored.
-- For an ad hoc check, save the `api.mjs` output there yourself: `node $V/api.mjs ... > .helpos/verify/<name>.txt`.
+- For an ad hoc check, save the `api.mjs` output there yourself: `pnpm api ... > .helpos/verify/<name>.txt`.
 - Proof standards:
   - Drive the real user path. Use the public API or the dashboard, never the database or internal functions.
   - Capture the action and the resulting state.
@@ -89,9 +88,9 @@ const { chromium } = createRequire(process.cwd() + "/apps/web/package.json")("@p
 
 ## Cleanup
 
-`node $V/cleanup.mjs` stops only the processes `launch.mjs` started. Once the app is up, `launch.mjs` records their process IDs in `.helpos/verify/instance.json`. Any other process on this checkout's ports is left running and reported, and cleanup exits 1. That covers a `pnpm dev` someone started by hand, another worktree that hashed to the same ports, or another project. Cleanup also exits 1 if a port is still held afterwards. Stopping the background `launch.mjs` task alone is **not enough on Windows**: the server and Vite keep running and hold the ports. Run cleanup after every run, including failed ones. The background `launch.mjs` task then ends with exit code 1. That is expected, since cleanup stopped it.
+`pnpm app:stop` stops only the processes `launch.mjs` started. Once the app is up, `launch.mjs` records their process IDs in `.helpos/verify/instance.json`. Any other process on this checkout's ports is left running and reported, and cleanup exits 1. That covers a `pnpm dev` someone started by hand, another worktree that hashed to the same ports, or another project. Cleanup also exits 1 if a port is still held afterwards. Stopping the background `launch.mjs` task alone is **not enough on Windows**: the server and Vite keep running and hold the ports. Run cleanup after every run, including failed ones. The background `launch.mjs` task then ends with exit code 1. That is expected, since cleanup stopped it.
 
-Cleanup never removes `.helpos/verify/` (the evidence) or the database. To start over with fresh demo data, drop this checkout's database (`node $V/instance.mjs` names it) and delete `.helpos/seeded`. Then launch again.
+Cleanup never removes `.helpos/verify/` (the evidence) or the database. To start over with fresh demo data, drop this checkout's database (`pnpm app:info` names it) and delete `.helpos/seeded`. Then launch again.
 
 ## Isolation
 

@@ -13,20 +13,20 @@ Agents call the API with a `hos_` token. A token belongs to one workspace, holds
 ## How to get to it (user POV)
 
 - API only, as a signed-in owner: `POST v1/tokens` `{"name","scopes"}`, `GET v1/tokens`, `DELETE v1/tokens/{id}`.
-- Operator CLI: `node $V/instance.mjs run -- pnpm helpos:token ...`.
+- Operator CLI: `pnpm app:run pnpm helpos:token ...`.
 
 ## Driving it with Playwright and api.mjs
 
 Preconditions: baseline.
 
-- **Create.** `$A owner POST v1/tokens '{"name":"verify-kb","scopes":["knowledge:read","knowledge:write"]}'` returns `201` with `token: "hos_…"`. Save it to a file in `.helpos/verify/`. Never print it into a PR.
-- **List.** `$A owner GET v1/tokens` shows `verify-kb` with `revokedAt: null` and no secret.
-- **Use.** `$A <hos_token> GET v1/knowledge/sources` returns `200`.
-- **Revoke.** `$A owner DELETE v1/tokens/<id>` returns `204`. Then `$A <hos_token> GET v1/knowledge/sources` returns `401 unauthorized`, and `GET v1/tokens` shows `revokedAt` set.
-- **Token can't mint.** `$A northwind:triage-bot POST v1/tokens '{"name":"x","scopes":["tickets:read"]}'` returns `403 session_required`.
-- **No admin tokens.** `$A owner POST v1/tokens '{"name":"x","scopes":["workspace:admin"]}'` is refused.
-- **Scopes.** `$A northwind:stats-reader GET v1/tickets` returns `403 forbidden`.
-- **Tenant.** `$A lumen:support-agent GET v1/tickets/<northwind ticket id>` returns `404`.
+- **Create.** `pnpm api owner POST v1/tokens '{"name":"verify-kb","scopes":["knowledge:read","knowledge:write"]}'` returns `201` with `token: "hos_…"`. Save it to a file in `.helpos/verify/`. Never print it into a PR.
+- **List.** `pnpm api owner GET v1/tokens` shows `verify-kb` with `revokedAt: null` and no secret.
+- **Use.** `pnpm api <hos_token> GET v1/knowledge/sources` returns `200`.
+- **Revoke.** `pnpm api owner DELETE v1/tokens/<id>` returns `204`. Then `pnpm api <hos_token> GET v1/knowledge/sources` returns `401 unauthorized`, and `GET v1/tokens` shows `revokedAt` set.
+- **Token can't mint.** `pnpm api northwind:triage-bot POST v1/tokens '{"name":"x","scopes":["tickets:read"]}'` returns `403 session_required`.
+- **No admin tokens.** `pnpm api owner POST v1/tokens '{"name":"x","scopes":["workspace:admin"]}'` is refused.
+- **Scopes.** `pnpm api northwind:stats-reader GET v1/tickets` returns `403 forbidden`.
+- **Tenant.** `pnpm api lumen:support-agent GET v1/tickets/<northwind ticket id>` returns `404`.
 
 ## Gotchas
 

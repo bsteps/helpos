@@ -24,15 +24,15 @@ Draft states: `pending` → `approved` → `sent`, or `discarded`, or `send_fail
 
 Preconditions: baseline. AI configured. Embeddings on, for `sources`.
 
-- **Whole loop, scripted.** `node $V/journey-reply.mjs --via web` and `--via api`. Both must print `PASS`. Evidence is in `.helpos/verify/<ts>-reply-<via>/`.
-- **AI draft.** After delivering an email, `$A northwind:triage-bot GET v1/tickets/<id>/drafts` shows one `pending` `reply` with a non-empty `sources[]`. The ticket page shows it in `draft-body` with `Waiting for approval` and `Written from <source title>`.
-- **Edit.** Click `Edit`, fill textbox `Reply`, and click `Save`. `draft-body` shows the new text. API: `$A northwind:triage-bot PATCH v1/drafts/<draftId> '{"body":"New text"}'` returns `200`, and a second GET shows it.
+- **Whole loop, scripted.** `pnpm app:journey --via web` and `--via api`. Both must print `PASS`. Evidence is in `.helpos/verify/<ts>-reply-<via>/`.
+- **AI draft.** After delivering an email, `pnpm api northwind:triage-bot GET v1/tickets/<id>/drafts` shows one `pending` `reply` with a non-empty `sources[]`. The ticket page shows it in `draft-body` with `Waiting for approval` and `Written from <source title>`.
+- **Edit.** Click `Edit`, fill textbox `Reply`, and click `Save`. `draft-body` shows the new text. API: `pnpm api northwind:triage-bot PATCH v1/drafts/<draftId> '{"body":"New text"}'` returns `200`, and a second GET shows it.
 - **Stale approve.** Open the ticket page, then change the draft over the API, then click `Approve & send`. The page says `This draft changed since you opened it`, shows the new text, and nothing is sent. API: approving with an old `body` returns `409 not_pending`, the same answer as for a draft that is no longer pending.
-- **Approve and send.** One command: `node $V/approve-draft.mjs new` (or a ticket ID). By hand: `$A northwind:approver-bot POST v1/drafts/<draftId>/approve '{"body":"<current body>"}'` returns `200` with `status: "approved"`. The draft is `sent` within seconds. Mailpit has `Re: <subject>` addressed to the owner (shadow recipient) and not to the customer. In the dashboard, the badge reads `Sent`.
-- **Discard.** A pending draft is discarded through the API only: `$A northwind:triage-bot POST v1/drafts/<draftId>/discard` returns `200` with `discarded`, and nothing is sent. The dashboard's `Discard` button exists only on a `send_failed` draft, next to `Retry send`.
-- **New draft.** `$A northwind:triage-bot POST v1/tickets/<id>/drafts '{"regenerate":true}'` returns `202 queued`, and a new `pending` draft appears. `'{"body":"My own reply"}'` creates one with that text.
+- **Approve and send.** One command: `pnpm approve-draft new` (or a ticket ID). By hand: `pnpm api northwind:approver-bot POST v1/drafts/<draftId>/approve '{"body":"<current body>"}'` returns `200` with `status: "approved"`. The draft is `sent` within seconds. Mailpit has `Re: <subject>` addressed to the owner (shadow recipient) and not to the customer. In the dashboard, the badge reads `Sent`.
+- **Discard.** A pending draft is discarded through the API only: `pnpm api northwind:triage-bot POST v1/drafts/<draftId>/discard` returns `200` with `discarded`, and nothing is sent. The dashboard's `Discard` button exists only on a `send_failed` draft, next to `Retry send`.
+- **New draft.** `pnpm api northwind:triage-bot POST v1/tickets/<id>/drafts '{"regenerate":true}'` returns `202 queued`, and a new `pending` draft appears. `'{"body":"My own reply"}'` creates one with that text.
 - **Internal note.** Deliver an email whose text matches the seeded internal source "Refund exceptions (internal)". The draft has `internalKnowledge: true`. When it repeats the note word for word, `quotesInternalNote: true` and the page shows `This draft quotes an internal note`.
-- **Scopes.** `$A northwind:triage-bot POST v1/drafts/<id>/approve ...` returns `403`, because writing a draft isn't approving it. `$A northwind:approver-bot PATCH v1/drafts/<id> ...` also returns `403`.
+- **Scopes.** `pnpm api northwind:triage-bot POST v1/drafts/<id>/approve ...` returns `403`, because writing a draft isn't approving it. `pnpm api northwind:approver-bot PATCH v1/drafts/<id> ...` also returns `403`.
 
 ## Gotchas
 

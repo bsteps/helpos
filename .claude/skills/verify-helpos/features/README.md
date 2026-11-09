@@ -4,10 +4,10 @@ The maintained source for verifying what HelpOS users can see and do. Read this 
 
 ## Baseline preconditions
 
-- Launched with `node .claude/skills/verify-helpos/scripts/launch.mjs`, and `doctor.mjs` exits 0.
-- `owner-password.mjs` has run, so `owner` (Maya Okafor, `maya.okafor@northwind-cycles.test`, password `northwind demo password`) can sign in.
+- Launched with `pnpm app:start`, and `pnpm app:doctor` exits 0.
+- `pnpm app:password` has run, so `owner` (Maya Okafor, `maya.okafor@northwind-cycles.test`, password `northwind demo password`) can sign in.
 - Seed data: workspace **Northwind Cycles** (mailbox `support@northwind-cycles.test`, owner Maya, member Leo) and **Lumen Analytics** (mailbox `help@lumen-analytics.test`). Both have tickets, drafts, knowledge sources and agent tokens.
-- `V=.claude/skills/verify-helpos/scripts` and `A="node $V/api.mjs"` in the shell.
+- `V=.claude/skills/verify-helpos/scripts` and `A="pnpm api"` in the shell.
 
 ## Driving conventions
 

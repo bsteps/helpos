@@ -90,8 +90,8 @@ export async function requireRunning(inst) {
   if (up) return;
   process.stderr.write(
     `HelpOS isn't running at ${inst.apiUrl}.\n` +
-      "Start it in its own terminal: node .claude/skills/verify-helpos/scripts/launch.mjs\n" +
-      "then wait for:                node .claude/skills/verify-helpos/scripts/doctor.mjs --wait 120\n",
+      "Start it in its own terminal: pnpm app:start\n" +
+      "then wait for:                pnpm app:doctor --wait 120\n",
   );
   process.exit(1);
 }
@@ -104,7 +104,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const quote = (arg) =>
       /^[\w@%+=:,./-]+$/.test(arg) ? arg : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
     const command = process.argv
-      .slice(process.argv.indexOf("--") + 1)
+      .slice(process.argv.includes("--") ? process.argv.indexOf("--") + 1 : 3)
       .map(quote)
       .join(" ");
     if (!command) {
