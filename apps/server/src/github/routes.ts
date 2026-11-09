@@ -19,10 +19,11 @@ import {
   sql,
   type TenantTx,
 } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { dailyBudget, reserveUsage, settleUsage, utcDay } from "../ai-budget/budget.ts";
-import { type AuditActor, recordAudit } from "../audit/audit.ts";
+import { type AuditActor, nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
@@ -129,7 +130,9 @@ const notConfigured = json(
   "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
 );
 
-const getRoute = createRoute({
+const getRoute = apiRoute({
+  // An admin may read it too: they connect and disconnect, so they must see what is there.
+  access: { anyScope: ["github:write", "workspace:admin"] },
   method: "get",
   path: integrationPath,
   summary: "Read the workspace's GitHub connection",
@@ -140,7 +143,10 @@ const getRoute = createRoute({
   responses: { 200: json(integrationSchema, "The connection"), ...authErrors },
 });
 
-const connectRoute = createRoute({
+const connectRoute = apiRoute({
+  // A token is a credential to the customer's code host: only a human admin stores one.
+  access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["github.connected"] },
   method: "put",
   path: integrationPath,
   summary: "Connect a GitHub repo",
@@ -188,7 +194,9 @@ const connectRoute = createRoute({
   },
 });
 
-const disconnectRoute = createRoute({
+const disconnectRoute = apiRoute({
+  access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["github.disconnected"] },
   method: "delete",
   path: integrationPath,
   summary: "Disconnect the GitHub repo",
@@ -200,7 +208,9 @@ const disconnectRoute = createRoute({
 });
 
 const rotatePath = `${integrationPath}/webhook-secret`;
-const rotateRoute = createRoute({
+const rotateRoute = apiRoute({
+  access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["github.webhook_secret_rotated"] },
   method: "post",
   path: rotatePath,
   summary: "Give the GitHub webhook a new secret",
@@ -221,7 +231,9 @@ const rotateRoute = createRoute({
   },
 });
 
-const draftIssueRoute = createRoute({
+const draftIssueRoute = apiRoute({
+  access: { allScopes: ["github:write", "tickets:read"] },
+  audit: { records: ["github_issue.drafted"] },
   method: "post",
   path: "/v1/tickets/{id}/github-issue/draft",
   summary: "Ask the AI to draft a GitHub issue from a ticket",
@@ -246,7 +258,12 @@ const draftIssueRoute = createRoute({
   },
 });
 
-const createIssueRoute = createRoute({
+const createIssueRoute = apiRoute({
+  // tickets:read too: the issue is made from the ticket, and the ticket's customer is who is
+  // told when it is fixed, so a caller that cannot read the ticket cannot pick it either.
+  access: { allScopes: ["github:write", "tickets:read"] },
+  // A close found on linking writes the "fixed" notice draft too.
+  audit: { records: ["github_issue.created", "github_issue.closed", "draft.created"] },
   method: "post",
   path: "/v1/tickets/{id}/github-issue",
   summary: "Create a GitHub issue from a ticket",
@@ -348,10 +365,6 @@ function registerConnectionRoutes(
 ): void {
   app.openapi(getRoute, async (c) => {
     const principal = c.get("principal");
-    // An admin may read it too: they connect and disconnect, so they must see what's there.
-    if (!principal.scopes.has("github:write") && !principal.scopes.has("workspace:admin")) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     const [row] = await deps.db.withTenant(principal.tenantId, (tx) =>
       tx
         .select({ repo: integrations.repo })
@@ -370,10 +383,6 @@ function registerConnectionRoutes(
 
   app.openapi(connectRoute, async (c) => {
     const principal = c.get("principal");
-    // A token is a credential to the customer's code host: only a human admin stores one.
-    if (principal.actor.type !== "user" || !principal.scopes.has("workspace:admin")) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const input = c.req.valid("json");
@@ -466,9 +475,6 @@ function registerConnectionRoutes(
 
   app.openapi(rotateRoute, async (c) => {
     const principal = c.get("principal");
-    if (principal.actor.type !== "user" || !principal.scopes.has("workspace:admin")) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const { tenantId } = principal;
@@ -500,9 +506,6 @@ function registerConnectionRoutes(
 
   app.openapi(disconnectRoute, async (c) => {
     const principal = c.get("principal");
-    if (principal.actor.type !== "user" || !principal.scopes.has("workspace:admin")) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     await deps.db.withTenant(principal.tenantId, async (tx) => {
       const removed = await tx
         .delete(integrations)
@@ -517,6 +520,7 @@ function registerConnectionRoutes(
           requestId: c.get("requestId"),
         });
       }
+      if (removed.length === 0) nothingToAudit("not connected");
     });
     secrets.forget(principal.tenantId);
     return c.body(null, 204);
@@ -526,9 +530,6 @@ function registerConnectionRoutes(
 function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
   app.openapi(draftIssueRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("github:write") || !principal.scopes.has("tickets:read")) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     const model = deps.model;
     if (!model) return c.json({ error: "ai_not_configured" }, 503);
     const { id } = c.req.valid("param");
@@ -623,11 +624,6 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
 
   app.openapi(createIssueRoute, async (c) => {
     const principal = c.get("principal");
-    // tickets:read too: the issue is made from the ticket, and the ticket's customer is who is
-    // told when it's fixed, so a caller that can't read the ticket can't pick it either.
-    if (!principal.scopes.has("github:write") || !principal.scopes.has("tickets:read")) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const { id: ticketId } = c.req.valid("param");
@@ -967,6 +963,7 @@ async function recordIssue(
       .where(eq(ticketGithubIssues.ticketId, input.ticketId));
     const sameIssue = existing?.repo === input.repo && existing.issueNumber === input.issue.number;
     // Already linked and audited by the attempt that committed: nothing more to write.
+    if (sameIssue) nothingToAudit("linked and audited by an earlier attempt");
     return sameIssue ? { id: existing.id, repo: existing.repo } : "taken";
   }
   await recordAudit(tx, {

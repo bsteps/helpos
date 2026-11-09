@@ -6,8 +6,9 @@ import {
   type SessionAuth,
   schema,
 } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import { apiRoute } from "./access.ts";
 import { type Authenticate, requirePrincipal, scopes } from "./principal.ts";
 import { fromForeignOrigin } from "./session.ts";
 
@@ -43,7 +44,9 @@ const meSchema = z
   })
   .openapi("Me");
 
-const signInRoute = createRoute({
+const signInRoute = apiRoute({
+  access: { noCaller: "The caller proves who they are with an email and password in the body." },
+  audit: { none: "Signing in changes no workspace data, and users live outside workspaces." },
   method: "post",
   path: "/v1/auth/sign-in",
   summary: "Sign in with email and password",
@@ -62,7 +65,12 @@ const signInRoute = createRoute({
   },
 });
 
-const signOutRoute = createRoute({
+const signOutRoute = apiRoute({
+  access: {
+    noCaller:
+      "The session cookie, if any, is the only credential, and signing out without one is harmless.",
+  },
+  audit: { none: "Ends the caller's own session; it changes no workspace data." },
   method: "post",
   path: "/v1/auth/sign-out",
   summary: "Sign out",
@@ -70,7 +78,11 @@ const signOutRoute = createRoute({
   responses: { 204: { description: "Signed out" }, ...foreignOrigin, ...disabled },
 });
 
-const setPasswordRoute = createRoute({
+const setPasswordRoute = apiRoute({
+  access: {
+    noCaller: "The one-time token in the body proves the caller holds the password setup link.",
+  },
+  audit: { none: "Users live outside workspaces, and the audit log belongs to one workspace." },
   method: "post",
   path: "/v1/auth/password",
   summary: "Set a password with a one-time link",
@@ -89,7 +101,10 @@ const setPasswordRoute = createRoute({
   },
 });
 
-const meRoute = createRoute({
+const meRoute = apiRoute({
+  access: {
+    anyCaller: "Every caller may ask who it is; the answer is its own identity and scopes.",
+  },
   method: "get",
   path: "/v1/me",
   summary: "Who is calling",

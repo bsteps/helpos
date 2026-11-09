@@ -907,6 +907,12 @@
             "inboundSecret": []
           }
         ],
+        "x-access": {
+          "noCaller": "The email provider proves itself with the shared inbound secret."
+        },
+        "x-audit": {
+          "none": "A customer's email, not an action by a member or agent: the stored message is its record."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -986,6 +992,12 @@
       "post": {
         "summary": "Sign in with email and password",
         "description": "Starts a human session and sets it as an HttpOnly cookie. A wrong email and a wrong password get the same answer. There is no sign-up: users are created by the operator. Agents use tokens instead (`POST /v1/tokens`).",
+        "x-access": {
+          "noCaller": "The caller proves who they are with an email and password in the body."
+        },
+        "x-audit": {
+          "none": "Signing in changes no workspace data, and users live outside workspaces."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1053,6 +1065,12 @@
       "post": {
         "summary": "Sign out",
         "description": "Ends the current session and clears its cookie. Safe to call without one.",
+        "x-access": {
+          "noCaller": "The session cookie, if any, is the only credential, and signing out without one is harmless."
+        },
+        "x-audit": {
+          "none": "Ends the caller's own session; it changes no workspace data."
+        },
         "responses": {
           "204": {
             "description": "Signed out"
@@ -1084,6 +1102,12 @@
       "post": {
         "summary": "Set a password with a one-time link",
         "description": "Uses the token from a password setup link (printed by `helpos:init`) to set the user's password, 12 to 128 characters. The token works once. Every existing session of that user is signed out.",
+        "x-access": {
+          "noCaller": "The one-time token in the body proves the caller holds the password setup link."
+        },
+        "x-audit": {
+          "none": "Users live outside workspaces, and the audit log belongs to one workspace."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1157,6 +1181,9 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "anyCaller": "Every caller may ask who it is; the answer is its own identity and scopes."
+        },
         "responses": {
           "200": {
             "description": "The caller",
@@ -1190,6 +1217,17 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "api_token.created"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1261,6 +1299,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
         "responses": {
           "200": {
             "description": "The tokens",
@@ -1315,6 +1359,14 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "anyCaller": "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler"
+        },
+        "x-audit": {
+          "records": [
+            "api_token.revoked"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1372,6 +1424,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1463,6 +1520,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1521,12 +1583,23 @@
     "/v1/tickets/{id}/close": {
       "post": {
         "summary": "Close a ticket",
-        "description": "Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. Pending drafts are left as they are. Needs `tickets:write`.",
+        "description": "Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.",
         "security": [
           {
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:write",
+            "tickets:read"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "ticket.closed"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1560,7 +1633,7 @@
             }
           },
           "403": {
-            "description": "The credentials lack `tickets:write`",
+            "description": "The credentials lack `tickets:write` or `tickets:read`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1591,6 +1664,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1658,12 +1736,24 @@
       },
       "post": {
         "summary": "Write a draft, or ask the AI for a new one",
-        "description": "Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write`.",
+        "description": "Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `tickets:read`.",
         "security": [
           {
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:write",
+            "tickets:read"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "draft.created",
+            "draft.discarded"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1799,6 +1889,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "draft.edited"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1894,6 +1994,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:approve"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "draft.approved"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1987,6 +2097,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "draft.discarded"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2061,6 +2181,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:approve"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "draft.send_retried"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2135,6 +2265,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "Usage",
@@ -2178,6 +2313,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "The sources",
@@ -2230,6 +2370,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "knowledge_source.created"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2376,6 +2526,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "knowledge_source.reingest_requested"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2450,6 +2610,18 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "knowledge_source.edited",
+            "knowledge_source.made_public",
+            "knowledge_source.made_internal"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2542,6 +2714,16 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "knowledge_source.deleted"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2609,6 +2791,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "stats:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2686,6 +2873,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "Shadow mode",
@@ -2727,6 +2919,18 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "workspace.shadow_mode_enabled",
+            "workspace.shadow_mode_disabled",
+            "workspace.shadow_recipient_changed"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2800,6 +3004,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "anyScope": [
+            "github:write",
+            "workspace:admin"
+          ]
+        },
         "responses": {
           "200": {
             "description": "The connection",
@@ -2841,6 +3051,17 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "github.connected"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2940,6 +3161,17 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "github.disconnected"
+          ]
+        },
         "responses": {
           "204": {
             "description": "Disconnected, or nothing was connected"
@@ -2976,6 +3208,17 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "github.webhook_secret_rotated"
+          ]
+        },
         "responses": {
           "200": {
             "description": "The new secret",
@@ -3039,6 +3282,17 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "github:write",
+            "tickets:read"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "github_issue.drafted"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -3133,6 +3387,19 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "github:write",
+            "tickets:read"
+          ]
+        },
+        "x-audit": {
+          "records": [
+            "github_issue.created",
+            "github_issue.closed",
+            "draft.created"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -3275,6 +3542,12 @@
             "githubSignature": []
           }
         ],
+        "x-access": {
+          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
+        },
+        "x-audit": {
+          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
+        },
         "parameters": [
           {
             "schema": {

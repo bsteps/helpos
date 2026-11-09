@@ -35,7 +35,9 @@ const principals: Record<string, () => Principal> = {
   drafter: () => principal(acme, ["drafts:write"]),
   outsider: () => principal(other, ["tickets:read"]),
   closer: () => principal(acme, ["tickets:read", "tickets:write"]),
-  outsiderCloser: () => principal(other, ["tickets:write"]),
+  outsiderCloser: () => principal(other, ["tickets:read", "tickets:write"]),
+  // Can close but not read: the closed ticket it would get back shows the customer.
+  blindCloser: () => principal(acme, ["tickets:write"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -297,9 +299,10 @@ describe("POST /v1/tickets/{id}/close", () => {
     ]);
   });
 
-  it("needs tickets:write, and can't close another workspace's ticket", async () => {
+  it("needs tickets:write and tickets:read, and can't close another workspace's ticket", async () => {
     const id = await receiveEmail();
     expect((await post(`/v1/tickets/${id}/close`, "reader")).status).toBe(403);
+    expect((await post(`/v1/tickets/${id}/close`, "blindCloser")).status).toBe(403);
     expect((await post(`/v1/tickets/${id}/close`, null)).status).toBe(401);
     expect((await post(`/v1/tickets/${id}/close`, "outsiderCloser")).status).toBe(404);
     const ticket = (await (await get(`/v1/tickets/${id}`, "reader")).json()) as TicketJson;

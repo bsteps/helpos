@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { schema, type TenantTx } from "@helpos/db";
 
 export type AuditActor = { type: "user" | "agent" | "system"; id: string };
@@ -45,6 +46,26 @@ export interface AuditEvent {
   requestId: string | null;
 }
 
+export type AuditAction = AuditEvent["action"];
+
+/** What one request has audited so far. Set by the route's middleware; see `apiRoute()`. */
+export interface AuditTrail {
+  readonly recorded: Set<AuditAction>;
+  nothingChanged: boolean;
+}
+
+export const auditTrail = new AsyncLocalStorage<AuditTrail>();
+
+/**
+ * Says a write request succeeded without changing anything (closing a closed ticket, say),
+ * so it has no audit event to record. Without it, such a success fails the request's audit
+ * check. The reason is for the reader.
+ */
+export function nothingToAudit(_reason: string): void {
+  const trail = auditTrail.getStore();
+  if (trail) trail.nothingChanged = true;
+}
+
 /**
  * Appends one audit event. Takes the action's own transaction, so the event and the action
  * commit together or not at all. The table is append-only for the app role.
@@ -59,4 +80,5 @@ export async function recordAudit(tx: TenantTx, event: AuditEvent): Promise<void
     targetId: event.target.id,
     requestId: event.requestId,
   });
+  auditTrail.getStore()?.recorded.add(event.action);
 }

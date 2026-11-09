@@ -1,6 +1,7 @@
 import { type Database, eq, schema } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { recordAudit } from "../audit/audit.ts";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 
 const { tenants } = schema;
@@ -31,7 +32,8 @@ const authErrors = {
 };
 const path = "/v1/workspace/shadow-mode";
 
-const getRoute = createRoute({
+const getRoute = apiRoute({
+  access: { allScopes: ["tickets:read"] },
   method: "get",
   path,
   summary: "Read the workspace's shadow mode",
@@ -41,7 +43,15 @@ const getRoute = createRoute({
   responses: { 200: json(shadowModeSchema, "Shadow mode"), ...authErrors },
 });
 
-const patchRoute = createRoute({
+const patchRoute = apiRoute({
+  access: { allScopes: ["workspace:admin"] },
+  audit: {
+    records: [
+      "workspace.shadow_mode_enabled",
+      "workspace.shadow_mode_disabled",
+      "workspace.shadow_recipient_changed",
+    ],
+  },
   method: "patch",
   path,
   summary: "Change the workspace's shadow mode",
@@ -79,7 +89,6 @@ export function registerShadowModeRoutes(app: OpenAPIHono, deps: ShadowModeRoute
 
   app.openapi(getRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("tickets:read")) return c.json({ error: "forbidden" }, 403);
     const [row] = await deps.db.withTenant(principal.tenantId, (tx) =>
       tx
         .select({ enabled: tenants.shadowMode, recipient: tenants.shadowRecipient })
@@ -92,7 +101,6 @@ export function registerShadowModeRoutes(app: OpenAPIHono, deps: ShadowModeRoute
 
   app.openapi(patchRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("workspace:admin")) return c.json({ error: "forbidden" }, 403);
     const input = c.req.valid("json");
     if (input.enabled === false && !deps.allowShadowModeOff) {
       return c.json({ error: "shadow_mode_locked" }, 409);
@@ -114,6 +122,7 @@ export function registerShadowModeRoutes(app: OpenAPIHono, deps: ShadowModeRoute
         ...(input.enabled === false ? (["workspace.shadow_mode_disabled"] as const) : []),
         ...(input.recipient !== undefined ? (["workspace.shadow_recipient_changed"] as const) : []),
       ];
+      if (actions.length === 0) nothingToAudit("no field given");
       for (const action of actions) {
         await recordAudit(tx, {
           tenantId: principal.tenantId,

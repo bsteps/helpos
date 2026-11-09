@@ -652,7 +652,7 @@ export interface paths {
         put?: never;
         /**
          * Close a ticket
-         * @description Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. Pending drafts are left as they are. Needs `tickets:write`.
+         * @description Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.
          */
         post: {
             parameters: {
@@ -683,7 +683,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description The credentials lack `tickets:write` */
+                /** @description The credentials lack `tickets:write` or `tickets:read` */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -774,7 +774,7 @@ export interface paths {
         put?: never;
         /**
          * Write a draft, or ask the AI for a new one
-         * @description Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write`.
+         * @description Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `tickets:read`.
          */
         post: {
             parameters: {

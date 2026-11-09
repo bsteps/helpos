@@ -1,5 +1,6 @@
 import type { Database } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "./budget.ts";
 
@@ -27,7 +28,8 @@ const usageSchema = z
   .openapi("AiUsage");
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
-const usageRoute = createRoute({
+const usageRoute = apiRoute({
+  access: { allScopes: ["tickets:read"] },
   method: "get",
   path: "/v1/ai-usage",
   summary: "Today's AI usage for this workspace",
@@ -50,7 +52,6 @@ export function registerAiUsageRoute(app: OpenAPIHono, deps: AiUsageRouteDeps): 
   app.use(usageRoute.path, requirePrincipal(deps.authenticate));
   app.openapi(usageRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("tickets:read")) return c.json({ error: "forbidden" }, 403);
     const day = utcDay((deps.now ?? (() => new Date()))());
     const [usage, budget] = await deps.db.withTenant(principal.tenantId, async (tx) => [
       await usageOn(tx, day),

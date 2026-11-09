@@ -1,6 +1,7 @@
 import { and, asc, type Database, eq, isNull, schema } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { recordAudit } from "../audit/audit.ts";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
 import { type ApiTokenRow, createApiToken } from "./create-token.ts";
 import { tokenScopes } from "./token.ts";
@@ -44,9 +45,11 @@ const adminErrors = {
     errorSchema,
     "Called with an agent token (`session_required`), or without `workspace:admin`",
   ),
-};
+} as const;
 
-const createTokenRoute = createRoute({
+const createTokenRoute = apiRoute({
+  access: { allScopes: ["workspace:admin"], humansOnly: true },
+  audit: { records: ["api_token.created"] },
   method: "post",
   path: "/v1/tokens",
   summary: "Create an agent token",
@@ -72,7 +75,8 @@ const createTokenRoute = createRoute({
   responses: { 201: json(createdTokenSchema, "The new token"), ...adminErrors },
 });
 
-const listTokensRoute = createRoute({
+const listTokensRoute = apiRoute({
+  access: { allScopes: ["workspace:admin"], humansOnly: true },
   method: "get",
   path: "/v1/tokens",
   summary: "List the workspace's agent tokens",
@@ -86,7 +90,12 @@ const listTokensRoute = createRoute({
   },
 });
 
-const revokeTokenRoute = createRoute({
+const revokeTokenRoute = apiRoute({
+  access: {
+    anyCaller:
+      "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler",
+  },
+  audit: { records: ["api_token.revoked"] },
   method: "delete",
   path: "/v1/tokens/{id}",
   summary: "Revoke an agent token",
@@ -129,8 +138,6 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
 
   app.openapi(createTokenRoute, async (c) => {
     const principal = c.get("principal");
-    const refusal = adminRefusal(principal);
-    if (refusal) return c.json({ error: refusal }, 403);
     const { name, scopes } = c.req.valid("json");
     // No one can hand an agent more than they hold themselves.
     if (scopes.some((s) => !principal.scopes.has(s))) {
@@ -152,8 +159,6 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
 
   app.openapi(listTokensRoute, async (c) => {
     const principal = c.get("principal");
-    const refusal = adminRefusal(principal);
-    if (refusal) return c.json({ error: refusal }, 403);
     const rows = await deps.db.withTenant(principal.tenantId, (tx) =>
       tx.select().from(apiTokens).orderBy(asc(apiTokens.createdAt), asc(apiTokens.id)),
     );
@@ -178,6 +183,7 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
           .select({ id: apiTokens.id })
           .from(apiTokens)
           .where(eq(apiTokens.id, id));
+        nothingToAudit("already revoked, or not found");
         return found ? "already_revoked" : "not_found";
       }
       await recordAudit(tx, {

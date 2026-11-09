@@ -1,7 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
+import { apiRoute } from "../auth/access.ts";
 import { type IngestDeps, ingestEmail } from "./ingest.ts";
 
 /** Larger messages are rejected (and logged) before they are parsed or stored. */
@@ -22,7 +23,11 @@ const resultSchema = z
   })
   .openapi("InboundEmailResult");
 
-const inboundEmailRoute = createRoute({
+const inboundEmailRoute = apiRoute({
+  access: { noCaller: "The email provider proves itself with the shared inbound secret." },
+  audit: {
+    none: "A customer's email, not an action by a member or agent: the stored message is its record.",
+  },
   method: "post",
   path: "/v1/inbound/email",
   summary: "Receive an inbound email",

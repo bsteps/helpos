@@ -11,8 +11,9 @@ import {
   sql,
   uuidv7,
 } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AuditEvent, recordAudit } from "../audit/audit.ts";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type AuditEvent, nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { ingestSourceJob } from "./jobs.ts";
 
@@ -129,7 +130,8 @@ const authErrors = {
 };
 const security = [{ apiAuth: [] }];
 
-const listRoute = createRoute({
+const listRoute = apiRoute({
+  access: { allScopes: ["knowledge:read"] },
   method: "get",
   path: "/v1/knowledge/sources",
   summary: "List knowledge sources",
@@ -143,7 +145,9 @@ const listRoute = createRoute({
   },
 });
 
-const createSourceRoute = createRoute({
+const createSourceRoute = apiRoute({
+  access: { allScopes: ["knowledge:write"] },
+  audit: { records: ["knowledge_source.created"] },
   method: "post",
   path: "/v1/knowledge/sources",
   summary: "Add a knowledge source",
@@ -171,7 +175,9 @@ const createSourceRoute = createRoute({
   },
 });
 
-const deleteRoute = createRoute({
+const deleteRoute = apiRoute({
+  access: { allScopes: ["knowledge:write"] },
+  audit: { records: ["knowledge_source.deleted"] },
   method: "delete",
   path: "/v1/knowledge/sources/{id}",
   summary: "Delete a knowledge source",
@@ -192,7 +198,9 @@ const deleteRoute = createRoute({
   },
 });
 
-const reingestRoute = createRoute({
+const reingestRoute = apiRoute({
+  access: { allScopes: ["knowledge:write"] },
+  audit: { records: ["knowledge_source.reingest_requested"] },
   method: "post",
   path: "/v1/knowledge/sources/{id}/reingest",
   summary: "Ingest a knowledge source again",
@@ -217,7 +225,15 @@ const reingestRoute = createRoute({
   },
 });
 
-const updateRoute = createRoute({
+const updateRoute = apiRoute({
+  access: { allScopes: ["knowledge:write"] },
+  audit: {
+    records: [
+      "knowledge_source.edited",
+      "knowledge_source.made_public",
+      "knowledge_source.made_internal",
+    ],
+  },
   method: "patch",
   path: "/v1/knowledge/sources/{id}",
   summary: "Edit a knowledge source",
@@ -286,7 +302,6 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
 
   app.openapi(listRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("knowledge:read")) return c.json({ error: "forbidden" }, 403);
     const rows = await deps.db.withTenant(principal.tenantId, (tx) =>
       tx
         .select()
@@ -298,7 +313,6 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
 
   app.openapi(createSourceRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("knowledge:write")) return c.json({ error: "forbidden" }, 403);
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
     const id = uuidv7();
@@ -382,7 +396,6 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
 
   app.openapi(reingestRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("knowledge:write")) return c.json({ error: "forbidden" }, 403);
     const { id } = c.req.valid("param");
     const { tenantId } = principal;
     const result = await deps.db.withTenant(tenantId, async (tx) => {
@@ -440,7 +453,6 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
 
   app.openapi(updateRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("knowledge:write")) return c.json({ error: "forbidden" }, 403);
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
@@ -459,7 +471,10 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       const title = input.title !== undefined && input.title !== found.title;
       const visibility = input.visibility !== undefined && input.visibility !== found.visibility;
       const content = input.content !== undefined && input.content !== found.content;
-      if (!title && !visibility && !content) return found;
+      if (!title && !visibility && !content) {
+        nothingToAudit("same title, visibility and content");
+        return found;
+      }
 
       const [row] = await tx
         .update(knowledgeSources)
@@ -515,7 +530,6 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
 
   app.openapi(deleteRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("knowledge:write")) return c.json({ error: "forbidden" }, 403);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [found] = await tx

@@ -195,7 +195,7 @@ describe("daily AI budget", () => {
       authenticate: async () => ({
         tenantId: acme,
         actor: { type: "agent", id: "t" },
-        scopes: new Set(["drafts:write"] as const),
+        scopes: new Set(["tickets:read", "drafts:write"] as const),
       }),
     });
     const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
@@ -225,7 +225,7 @@ describe("daily AI budget", () => {
       authenticate: async () => ({
         tenantId: acme,
         actor: { type: "agent", id: "t" },
-        scopes: new Set(["drafts:write"] as const),
+        scopes: new Set(["tickets:read", "drafts:write"] as const),
       }),
     });
     const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {

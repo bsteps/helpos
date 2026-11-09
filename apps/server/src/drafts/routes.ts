@@ -14,16 +14,11 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context } from "hono";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
-import { recordAudit } from "../audit/audit.ts";
-import {
-  type Authenticate,
-  type Principal,
-  requirePrincipal,
-  type Scope,
-} from "../auth/principal.ts";
+import { nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { apiRoute, Grant } from "../auth/access.ts";
+import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -107,10 +102,11 @@ const authErrors = {
   401: json(errorSchema, "No valid credentials"),
   403: json(errorSchema, "The credentials lack the required scope"),
   404: json(errorSchema, "Not found in this workspace"),
-};
+} as const;
 const security = [{ apiAuth: [] }];
 
-const listRoute = createRoute({
+const listRoute = apiRoute({
+  access: { allScopes: ["tickets:read"] },
   method: "get",
   path: "/v1/tickets/{id}/drafts",
   summary: "List a ticket's drafts",
@@ -123,7 +119,9 @@ const listRoute = createRoute({
   },
 });
 
-const editRoute = createRoute({
+const editRoute = apiRoute({
+  access: { allScopes: ["drafts:write"] },
+  audit: { records: ["draft.edited"] },
   method: "patch",
   path: "/v1/drafts/{id}",
   summary: "Edit a pending draft",
@@ -147,7 +145,9 @@ const editRoute = createRoute({
   },
 });
 
-const approveRoute = createRoute({
+const approveRoute = apiRoute({
+  access: { allScopes: ["drafts:approve"] },
+  audit: { records: ["draft.approved"] },
   method: "post",
   path: "/v1/drafts/{id}/approve",
   summary: "Approve a draft and send it",
@@ -172,7 +172,9 @@ const approveRoute = createRoute({
   },
 });
 
-const discardRoute = createRoute({
+const discardRoute = apiRoute({
+  access: { allScopes: ["drafts:write"] },
+  audit: { records: ["draft.discarded"] },
   method: "post",
   path: "/v1/drafts/{id}/discard",
   summary: "Discard a pending or failed draft",
@@ -188,7 +190,9 @@ const discardRoute = createRoute({
   },
 });
 
-const retryRoute = createRoute({
+const retryRoute = apiRoute({
+  access: { allScopes: ["drafts:approve"] },
+  audit: { records: ["draft.send_retried"] },
   method: "post",
   path: "/v1/drafts/{id}/retry",
   summary: "Retry sending a failed draft",
@@ -207,7 +211,10 @@ const retryRoute = createRoute({
   },
 });
 
-const createRoute_ = createRoute({
+const createDraftRoute = apiRoute({
+  // tickets:read too: the draft answers the ticket, so it shows what the customer wrote.
+  access: { allScopes: ["drafts:write", "tickets:read"] },
+  audit: { records: ["draft.created", "draft.discarded"] },
   method: "post",
   path: "/v1/tickets/{id}/drafts",
   summary: "Write a draft, or ask the AI for a new one",
@@ -216,7 +223,7 @@ const createRoute_ = createRoute({
     "`pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it " +
     "appears in the list when ready. Either way, older pending replies on the ticket are " +
     "discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is " +
-    "approved. Needs `drafts:write`.",
+    "approved. Needs `drafts:write` and `tickets:read`.",
   security,
   request: {
     params: idParams,
@@ -245,11 +252,24 @@ const createRoute_ = createRoute({
   },
 });
 
+/**
+ * What a draft shows about the knowledge it was written from. Only a caller with
+ * `knowledge:read` may see it, so building one needs that grant.
+ */
+interface DraftKnowledge {
+  grant: Grant<"knowledge:read">;
+  sources: DraftSourceJson[];
+  /**
+   * Whether the body quotes an internal note. With the flag alone, someone who can edit
+   * drafts could guess text, save it, and watch the flag to piece the note together.
+   */
+  quotesInternalNote: boolean;
+}
+
 function serialize(
   d: DraftRow,
-  sources: DraftSourceJson[],
   internalKnowledge: boolean,
-  quotesInternalNote: boolean,
+  knowledge: DraftKnowledge | null,
 ): DraftJson {
   return {
     id: d.id,
@@ -262,9 +282,9 @@ function serialize(
     updatedAt: d.updatedAt.toISOString(),
     approvedAt: d.approvedAt?.toISOString() ?? null,
     sentAt: d.sentAt?.toISOString() ?? null,
-    sources,
+    sources: knowledge?.sources ?? [],
     internalKnowledge,
-    quotesInternalNote,
+    quotesInternalNote: knowledge?.quotesInternalNote ?? false,
   };
 }
 
@@ -275,7 +295,7 @@ function serialize(
  */
 async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
   if (rows.length === 0) return [];
-  const canRead = principal.scopes.has("knowledge:read");
+  const grant = Grant.check(principal, "knowledge:read");
   // Every passage the model was shown, cited or not (the `cited` column tells them apart).
   const shown = await tx
     .select({
@@ -301,11 +321,12 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
     const internal = seen.filter((c) => c.visibility === "internal").map((c) => c.excerpt);
     return serialize(
       row,
-      canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
       internal.length > 0,
-      // Only with knowledge:read: otherwise someone who can edit drafts could guess text, save
-      // it, and watch the flag to piece the note together.
-      canRead && quotesInternalPassage(row.body, internal),
+      grant && {
+        grant,
+        sources: seen.map(({ draftId: _, ...source }) => source),
+        quotesInternalNote: quotesInternalPassage(row.body, internal),
+      },
     );
   });
 }
@@ -316,20 +337,13 @@ async function presentOne(tx: TenantTx, principal: Principal, row: DraftRow): Pr
   return json;
 }
 
-/** The principal set by requirePrincipal(), if it holds `scope`. */
-function principalWith(c: Context, scope: Scope) {
-  const principal = c.get("principal");
-  return principal.scopes.has(scope) ? principal : null;
-}
-
 export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   const auth = requirePrincipal(deps.authenticate);
   app.use("/v1/tickets/*", auth);
   app.use("/v1/drafts/*", auth);
 
   app.openapi(listRoute, async (c) => {
-    const principal = principalWith(c, "tickets:read");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
@@ -347,8 +361,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
   });
 
   app.openapi(editRoute, async (c) => {
-    const principal = principalWith(c, "drafts:write");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const { body } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
@@ -374,8 +387,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
   });
 
   app.openapi(approveRoute, async (c) => {
-    const principal = principalWith(c, "drafts:approve");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const { body: reviewed } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
@@ -427,9 +439,8 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
 }
 
 function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
-  app.openapi(createRoute_, async (c) => {
-    const principal = principalWith(c, "drafts:write");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+  app.openapi(createDraftRoute, async (c) => {
+    const principal = c.get("principal");
     const { id: ticketId } = c.req.valid("param");
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
@@ -509,6 +520,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
           { tenantId, messageId: latest.id },
           { singletonKey: latest.id },
         );
+        // The AI's draft is audited when the worker writes it.
+        if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");
         return "queued" as const;
       }
       const [draft] = await tx
@@ -544,8 +557,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 
 function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(discardRoute, async (c) => {
-    const principal = principalWith(c, "drafts:write");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [discarded] = await tx
@@ -571,8 +583,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 
 function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(retryRoute, async (c) => {
-    const principal = principalWith(c, "drafts:approve");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       // Conditional on `send_failed`, so two retries at once queue one send between them. The
@@ -585,7 +596,10 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       if (!retried) {
         const [current] = await tx.select().from(drafts).where(eq(drafts.id, id));
         if (!current) return "not_found" as const;
-        if (current.status === "sent") return presentOne(tx, principal, current);
+        if (current.status === "sent") {
+          nothingToAudit("already sent");
+          return presentOne(tx, principal, current);
+        }
         if (current.status !== "approved") return "conflict" as const;
         // Already approved: queue the send again in case its job was lost (it expired, or the
         // worker died, on the last attempt). The singleton key returns the live job if there
