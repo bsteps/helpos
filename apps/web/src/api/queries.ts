@@ -246,4 +246,5 @@ export function useUpdateShadowMode() {
 export const aiUsageQuery = queryOptions({
   queryKey: keys.aiUsage,
   queryFn: () => unwrap(api.GET("/v1/ai-usage")),
+  refetchInterval: 30_000,
 });
