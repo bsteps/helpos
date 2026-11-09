@@ -29,7 +29,7 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
   await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
 
   await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
-  await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Waiting for approval")).toBeVisible();
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
   expect(await repliesInMailpit(request, subject)).toBe(0);
 
@@ -52,7 +52,7 @@ test("after a discard, a hand-written draft is saved and approved", async ({ pag
   await expect(page.getByTestId("draft-body")).toHaveText(mine);
   await expect(page.getByText("Waiting for approval")).toBeVisible();
   await page.getByRole("button", { name: "Approve & send" }).click();
-  await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Sent", { exact: true })).toBeVisible();
 
   const mail = await waitForMail(request, `Re: ${subject}`);
   expect(mail.to).toEqual([state().owner]);
