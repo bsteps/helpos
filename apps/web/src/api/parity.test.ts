@@ -19,11 +19,6 @@ type ApiOnlyReason = { kind: "machine"; caller: string } | { kind: "gap"; issue:
 const apiOnly: Partial<Record<Operation, ApiOnlyReason>> = {
   "POST /v1/inbound/email": { kind: "machine", caller: "email provider" },
   "POST /v1/integrations/github/webhook": { kind: "machine", caller: "GitHub" },
-  "GET /v1/knowledge/sources": { kind: "gap", issue: 132 },
-  "POST /v1/knowledge/sources": { kind: "gap", issue: 132 },
-  "PATCH /v1/knowledge/sources/{id}": { kind: "gap", issue: 132 },
-  "DELETE /v1/knowledge/sources/{id}": { kind: "gap", issue: 132 },
-  "POST /v1/knowledge/sources/{id}/reingest": { kind: "gap", issue: 132 },
   "GET /v1/tokens": { kind: "gap", issue: 12 },
   "POST /v1/tokens": { kind: "gap", issue: 12 },
   "DELETE /v1/tokens/{id}": { kind: "gap", issue: 12 },

@@ -1,5 +1,14 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, type Draft, type Me, unwrap } from "./client.ts";
+import {
+  ApiError,
+  api,
+  type Draft,
+  type KnowledgeSource,
+  type KnowledgeSourceUpdate,
+  type Me,
+  type NewKnowledgeSource,
+  unwrap,
+} from "./client.ts";
 
 export const keys = {
   me: ["me"] as const,
@@ -10,6 +19,7 @@ export const keys = {
   draftStats: ["stats", "drafts"] as const,
   shadowMode: ["workspace", "shadow-mode"] as const,
   aiUsage: ["ai-usage"] as const,
+  knowledgeSources: ["knowledge", "sources"] as const,
 };
 
 /** Who is signed in, or null when nobody is (the API answered 401). */
@@ -253,3 +263,46 @@ export const aiUsageQuery = queryOptions({
   queryFn: () => unwrap(api.GET("/v1/ai-usage")),
   refetchInterval: 30_000,
 });
+
+export const knowledgeSourcesQuery = queryOptions({
+  queryKey: keys.knowledgeSources,
+  queryFn: async (): Promise<KnowledgeSource[]> =>
+    (await unwrap(api.GET("/v1/knowledge/sources"))).sources,
+  refetchInterval: (query) =>
+    (query.state.data ?? []).some((s) => s.status === "pending") ? 2_000 : false,
+});
+
+export function useAddKnowledgeSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: NewKnowledgeSource) => unwrap(api.POST("/v1/knowledge/sources", { body })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
+  });
+}
+
+export function useEditKnowledgeSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: KnowledgeSourceUpdate }) =>
+      unwrap(api.PATCH("/v1/knowledge/sources/{id}", { params: { path: { id } }, body })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
+  });
+}
+
+export function useReingestKnowledgeSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST("/v1/knowledge/sources/{id}/reingest", { params: { path: { id } } })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
+  });
+}
+
+export function useDeleteKnowledgeSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.DELETE("/v1/knowledge/sources/{id}", { params: { path: { id } } })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.knowledgeSources }),
+  });
+}
