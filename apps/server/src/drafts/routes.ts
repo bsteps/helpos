@@ -14,16 +14,11 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context } from "hono";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
-import {
-  type Authenticate,
-  type Principal,
-  requirePrincipal,
-  type Scope,
-} from "../auth/principal.ts";
+import { apiRoute } from "../auth/access.ts";
+import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -107,10 +102,11 @@ const authErrors = {
   401: json(errorSchema, "No valid credentials"),
   403: json(errorSchema, "The credentials lack the required scope"),
   404: json(errorSchema, "Not found in this workspace"),
-};
+} as const;
 const security = [{ apiAuth: [] }];
 
-const listRoute = createRoute({
+const listRoute = apiRoute({
+  access: { allScopes: ["tickets:read"] },
   method: "get",
   path: "/v1/tickets/{id}/drafts",
   summary: "List a ticket's drafts",
@@ -123,7 +119,8 @@ const listRoute = createRoute({
   },
 });
 
-const editRoute = createRoute({
+const editRoute = apiRoute({
+  access: { allScopes: ["drafts:write"] },
   method: "patch",
   path: "/v1/drafts/{id}",
   summary: "Edit a pending draft",
@@ -147,7 +144,8 @@ const editRoute = createRoute({
   },
 });
 
-const approveRoute = createRoute({
+const approveRoute = apiRoute({
+  access: { allScopes: ["drafts:approve"] },
   method: "post",
   path: "/v1/drafts/{id}/approve",
   summary: "Approve a draft and send it",
@@ -172,7 +170,8 @@ const approveRoute = createRoute({
   },
 });
 
-const discardRoute = createRoute({
+const discardRoute = apiRoute({
+  access: { allScopes: ["drafts:write"] },
   method: "post",
   path: "/v1/drafts/{id}/discard",
   summary: "Discard a pending or failed draft",
@@ -188,7 +187,8 @@ const discardRoute = createRoute({
   },
 });
 
-const retryRoute = createRoute({
+const retryRoute = apiRoute({
+  access: { allScopes: ["drafts:approve"] },
   method: "post",
   path: "/v1/drafts/{id}/retry",
   summary: "Retry sending a failed draft",
@@ -207,7 +207,8 @@ const retryRoute = createRoute({
   },
 });
 
-const createRoute_ = createRoute({
+const createRoute_ = apiRoute({
+  access: { allScopes: ["drafts:write"] },
   method: "post",
   path: "/v1/tickets/{id}/drafts",
   summary: "Write a draft, or ask the AI for a new one",
@@ -316,20 +317,13 @@ async function presentOne(tx: TenantTx, principal: Principal, row: DraftRow): Pr
   return json;
 }
 
-/** The principal set by requirePrincipal(), if it holds `scope`. */
-function principalWith(c: Context, scope: Scope) {
-  const principal = c.get("principal");
-  return principal.scopes.has(scope) ? principal : null;
-}
-
 export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   const auth = requirePrincipal(deps.authenticate);
   app.use("/v1/tickets/*", auth);
   app.use("/v1/drafts/*", auth);
 
   app.openapi(listRoute, async (c) => {
-    const principal = principalWith(c, "tickets:read");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
@@ -347,8 +341,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
   });
 
   app.openapi(editRoute, async (c) => {
-    const principal = principalWith(c, "drafts:write");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const { body } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
@@ -374,8 +367,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
   });
 
   app.openapi(approveRoute, async (c) => {
-    const principal = principalWith(c, "drafts:approve");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const { body: reviewed } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
@@ -428,8 +420,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
 
 function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(createRoute_, async (c) => {
-    const principal = principalWith(c, "drafts:write");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id: ticketId } = c.req.valid("param");
     const input = c.req.valid("json");
     const { tenantId, actor } = principal;
@@ -544,8 +535,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 
 function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(discardRoute, async (c) => {
-    const principal = principalWith(c, "drafts:write");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [discarded] = await tx
@@ -571,8 +561,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 
 function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(retryRoute, async (c) => {
-    const principal = principalWith(c, "drafts:approve");
-    if (!principal) return c.json({ error: "forbidden" }, 403);
+    const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       // Conditional on `send_failed`, so two retries at once queue one send between them. The

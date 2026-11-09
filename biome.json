@@ -41,7 +41,9 @@
     }
   },
   "css": {
-    "parser": { "tailwindDirectives": true }
+    "parser": {
+      "tailwindDirectives": true
+    }
   },
   "javascript": {
     "formatter": {
@@ -60,7 +62,9 @@
   "overrides": [
     {
       "includes": [".claude/skills/**/SKILL.md"],
-      "formatter": { "enabled": false }
+      "formatter": {
+        "enabled": false
+      }
     },
     {
       "includes": ["**", "!packages/db/**"],
@@ -74,7 +78,63 @@
                   "postgres": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
                   "drizzle-orm/postgres-js": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
                   "drizzle-orm": "Import query helpers (eq, sql, ...) from @helpos/db. A second drizzle-orm copy breaks its types.",
-                  "pg-boss": "Use enqueue() and createJobRunner() from @helpos/db, so jobs stay tenant-scoped."
+                  "pg-boss": "Use enqueue() and createJobRunner() from @helpos/db, so jobs stay tenant-scoped.",
+                  "@hono/zod-openapi": {
+                    "importNames": ["createRoute"],
+                    "message": "Define API routes with apiRoute() from apps/server/src/auth/access.ts: it requires `access` (the scopes a caller needs) and enforces it before the handler runs."
+                  },
+                  "pino": {
+                    "importNames": ["default", "pino"],
+                    "message": "Create loggers with createLogger() from apps/server/src/logger.ts: it redacts secrets and logs errors as their summary, never their message. Import only the Logger type from pino."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/server/src/auth/access.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "postgres": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
+                  "drizzle-orm/postgres-js": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
+                  "drizzle-orm": "Import query helpers (eq, sql, ...) from @helpos/db. A second drizzle-orm copy breaks its types.",
+                  "pg-boss": "Use enqueue() and createJobRunner() from @helpos/db, so jobs stay tenant-scoped.",
+                  "pino": {
+                    "importNames": ["default", "pino"],
+                    "message": "Create loggers with createLogger() from apps/server/src/logger.ts: it redacts secrets and logs errors as their summary, never their message. Import only the Logger type from pino."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/server/src/logger.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "postgres": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
+                  "drizzle-orm/postgres-js": "ADR 0003: only packages/db may use the raw database client. Use withTenant() from @helpos/db.",
+                  "drizzle-orm": "Import query helpers (eq, sql, ...) from @helpos/db. A second drizzle-orm copy breaks its types.",
+                  "pg-boss": "Use enqueue() and createJobRunner() from @helpos/db, so jobs stay tenant-scoped.",
+                  "@hono/zod-openapi": {
+                    "importNames": ["createRoute"],
+                    "message": "Define API routes with apiRoute() from apps/server/src/auth/access.ts: it requires `access` (the scopes a caller needs) and enforces it before the handler runs."
+                  }
                 }
               }
             }

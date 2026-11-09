@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { type Database, enqueue, eq, schema, type TenantTx } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
+import { apiRoute } from "../auth/access.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { markIssueClosed, markIssueReopened, tiedLinks } from "./issue-state.ts";
@@ -63,7 +64,11 @@ const webhookPayload = z
   })
   .openapi("GithubWebhookPayload");
 
-const webhookRoute = createRoute({
+const webhookRoute = apiRoute({
+  access: {
+    noCaller:
+      "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret.",
+  },
   method: "post",
   path: webhookPath,
   summary: "Receive a GitHub webhook",

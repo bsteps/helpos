@@ -907,6 +907,9 @@
             "inboundSecret": []
           }
         ],
+        "x-access": {
+          "noCaller": "The email provider proves itself with the shared inbound secret."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -986,6 +989,9 @@
       "post": {
         "summary": "Sign in with email and password",
         "description": "Starts a human session and sets it as an HttpOnly cookie. A wrong email and a wrong password get the same answer. There is no sign-up: users are created by the operator. Agents use tokens instead (`POST /v1/tokens`).",
+        "x-access": {
+          "noCaller": "The caller proves who they are with an email and password in the body."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1053,6 +1059,9 @@
       "post": {
         "summary": "Sign out",
         "description": "Ends the current session and clears its cookie. Safe to call without one.",
+        "x-access": {
+          "noCaller": "The session cookie, if any, is the only credential, and signing out without one is harmless."
+        },
         "responses": {
           "204": {
             "description": "Signed out"
@@ -1084,6 +1093,9 @@
       "post": {
         "summary": "Set a password with a one-time link",
         "description": "Uses the token from a password setup link (printed by `helpos:init`) to set the user's password, 12 to 128 characters. The token works once. Every existing session of that user is signed out.",
+        "x-access": {
+          "noCaller": "The one-time token in the body proves the caller holds the password setup link."
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1157,6 +1169,9 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "anyCaller": "Every caller may ask who it is; the answer is its own identity and scopes."
+        },
         "responses": {
           "200": {
             "description": "The caller",
@@ -1190,6 +1205,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -1261,6 +1282,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
         "responses": {
           "200": {
             "description": "The tokens",
@@ -1315,6 +1342,9 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "anyCaller": "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler"
+        },
         "parameters": [
           {
             "schema": {
@@ -1372,6 +1402,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1463,6 +1498,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1527,6 +1567,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1591,6 +1636,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1664,6 +1714,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1799,6 +1854,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1894,6 +1954,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:approve"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -1987,6 +2052,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2061,6 +2131,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "drafts:approve"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2135,6 +2210,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "Usage",
@@ -2178,6 +2258,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "The sources",
@@ -2230,6 +2315,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2376,6 +2466,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2450,6 +2545,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2542,6 +2642,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "knowledge:write"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2609,6 +2714,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "stats:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -2686,6 +2796,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "tickets:read"
+          ]
+        },
         "responses": {
           "200": {
             "description": "Shadow mode",
@@ -2727,6 +2842,11 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2800,6 +2920,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "anyScope": [
+            "github:write",
+            "workspace:admin"
+          ]
+        },
         "responses": {
           "200": {
             "description": "The connection",
@@ -2841,6 +2967,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -2940,6 +3072,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
         "responses": {
           "204": {
             "description": "Disconnected, or nothing was connected"
@@ -2976,6 +3114,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "workspace:admin"
+          ],
+          "humansOnly": true
+        },
         "responses": {
           "200": {
             "description": "The new secret",
@@ -3039,6 +3183,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "github:write",
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -3133,6 +3283,12 @@
             "apiAuth": []
           }
         ],
+        "x-access": {
+          "allScopes": [
+            "github:write",
+            "tickets:read"
+          ]
+        },
         "parameters": [
           {
             "schema": {
@@ -3275,6 +3431,9 @@
             "githubSignature": []
           }
         ],
+        "x-access": {
+          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
+        },
         "parameters": [
           {
             "schema": {

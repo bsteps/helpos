@@ -1,6 +1,7 @@
 import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { recordAudit } from "../audit/audit.ts";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
@@ -90,7 +91,8 @@ const authErrors = {
 const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
 const maxLimit = 100;
 
-const listTicketsRoute = createRoute({
+const listTicketsRoute = apiRoute({
+  access: { allScopes: ["tickets:read"] },
   method: "get",
   path: "/v1/tickets",
   summary: "List tickets",
@@ -113,7 +115,8 @@ const listTicketsRoute = createRoute({
   },
 });
 
-const getTicketRoute = createRoute({
+const getTicketRoute = apiRoute({
+  access: { allScopes: ["tickets:read"] },
   method: "get",
   path: "/v1/tickets/{id}",
   summary: "Read a ticket and its messages",
@@ -127,7 +130,8 @@ const getTicketRoute = createRoute({
   },
 });
 
-const closeTicketRoute = createRoute({
+const closeTicketRoute = apiRoute({
+  access: { allScopes: ["tickets:write"] },
   method: "post",
   path: "/v1/tickets/{id}/close",
   summary: "Close a ticket",
@@ -186,7 +190,6 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
 
   app.openapi(listTicketsRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("tickets:read")) return c.json({ error: "forbidden" }, 403);
     const { limit, status, orReplyNotSent } = c.req.valid("query");
     const statusFilter = status ? eq(tickets.status, status) : undefined;
     const rows = await deps.db.withTenant(principal.tenantId, (tx) =>
@@ -209,7 +212,6 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
 
   app.openapi(getTicketRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("tickets:read")) return c.json({ error: "forbidden" }, 403);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [ticket] = await ticketsWithCustomer(tx).where(eq(tickets.id, id));
@@ -257,7 +259,6 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
 
   app.openapi(closeTicketRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("tickets:write")) return c.json({ error: "forbidden" }, 403);
     const { id } = c.req.valid("param");
     const ticket = await deps.db.withTenant(principal.tenantId, async (tx) => {
       // Conditional on `open`, so closing twice writes one audit event, not two.

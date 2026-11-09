@@ -1,5 +1,6 @@
 import { and, type Database, eq, gte, inArray, lt, schema, sql, type TenantTx } from "@helpos/db";
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
+import { apiRoute } from "../auth/access.ts";
 import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { countDraftOutcomes, type DraftOutcomes } from "./draft-outcomes.ts";
 
@@ -51,7 +52,8 @@ const json = <T extends z.ZodType>(s: T, description: string) => ({
   content: { "application/json": { schema: s } },
 });
 
-const draftStatsRoute = createRoute({
+const draftStatsRoute = apiRoute({
+  access: { allScopes: ["stats:read"] },
   method: "get",
   path: "/v1/stats/drafts",
   summary: "How many drafts were approved unchanged",
@@ -101,7 +103,6 @@ export function registerStatsRoutes(app: OpenAPIHono, deps: StatsRoutesDeps): vo
   app.use(draftStatsRoute.path, requirePrincipal(deps.authenticate));
   app.openapi(draftStatsRoute, async (c) => {
     const principal = c.get("principal");
-    if (!principal.scopes.has("stats:read")) return c.json({ error: "forbidden" }, 403);
     const params = c.req.valid("query");
     const to = params.to ? new Date(params.to) : (deps.now ?? (() => new Date()))();
     const from = params.from ? new Date(params.from) : new Date(to.getTime() - 14 * day);
