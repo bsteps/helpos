@@ -17,6 +17,9 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
       `no email "${fixture}": use a name from fixtures/email/ or a path to a .eml file`,
     );
   }
+  // A line break would end the Subject header and start another one.
+  if (subject !== undefined && /[\r\n]/.test(subject))
+    throw new Error("--subject must be one line");
   const stamp = new Date().toISOString().slice(11, 19);
   const original = readFileSync(file, "utf8").replaceAll(
     "support@acme.test",

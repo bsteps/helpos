@@ -143,10 +143,16 @@ const checks = [
         headers: { authorization: `Bearer ${token}` },
       });
       const sources = body.sources ?? [];
-      const pending = sources.filter((s) => s.status === "pending").length;
+      if (sources.length === 0) return { ok: true, detail: "no knowledge sources yet" };
+      const count = (status) => sources.filter((s) => s.status === status).length;
+      const ready = count("ready");
+      const failed = count("failed");
       return {
-        ok: sources.length > 0 && pending === 0,
-        detail: `${sources.length - pending}/${sources.length} sources ready`,
+        ok: ready === sources.length,
+        detail:
+          `${ready}/${sources.length} sources ready` +
+          (count("pending") ? `, ${count("pending")} waiting for embeddings` : "") +
+          (failed ? `, ${failed} failed` : ""),
       };
     },
   },

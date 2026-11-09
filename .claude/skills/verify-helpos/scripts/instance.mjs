@@ -28,6 +28,18 @@ const { isLocalDatabaseUrl, isolationFor, isolatedEnv, parseEnv } = await import
   pathToFileURL(join(repoRoot, "scripts/worktree-env.mjs")).href
 );
 
+// Every helper imports this file, so this one place gives all their requests a time limit:
+// a server that accepts a connection and never answers must fail the step, not hang it.
+const plainFetch = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  try {
+    return await plainFetch(url, { signal: AbortSignal.timeout(30_000), ...init });
+  } catch (error) {
+    if (error?.name !== "TimeoutError") throw error;
+    throw new Error(`${init.method ?? "GET"} ${url} didn't answer within 30 seconds`);
+  }
+};
+
 /** Demo tokens from apps/server/src/seed/demo-data.ts. They are public by design: local DBs only. */
 export const seed = {
   northwind: {
@@ -226,6 +238,36 @@ export function flagArg(args, flag) {
   return value;
 }
 
+/**
+ * Runs a command (an array: program, then its arguments) with this checkout's database and
+ * ports. No shell, so every argument reaches the program exactly as given: quoting for cmd.exe
+ * kept changing `%`, `\` and `"` on Windows. There, node and pnpm (pnpm's own .exe, from
+ * npm_execpath) are run directly; anything else isn't supported.
+ */
+export function runCommand([program, ...args], inst, options = {}) {
+  let file = program;
+  let prefix = [];
+  // Set by pnpm for the scripts it runs: the pnpm that started this one.
+  const { npm_execpath: pnpm } = process.env;
+  if (program === "node") file = process.execPath;
+  else if (program === "pnpm" && pnpm) {
+    // pnpm installed with npm is a script for node; pnpm's standalone install is an .exe.
+    if (/\.[cm]?js$/.test(pnpm)) [file, prefix] = [process.execPath, [pnpm]];
+    else file = pnpm;
+  } else if (process.platform === "win32") {
+    quit(
+      2,
+      `app:run runs node or pnpm on Windows, not "${program}", and pnpm only when started ` +
+        "through pnpm (pnpm app:run ...).",
+    );
+  }
+  return spawnSync(file, [...prefix, ...args], {
+    cwd: repoRoot,
+    env: { ...process.env, ...inst.env },
+    ...options,
+  });
+}
+
 /** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */
 export async function requireRunning(inst) {
   const up = await fetch(`${inst.apiUrl}/health`, { signal: AbortSignal.timeout(3000) })
@@ -243,35 +285,10 @@ export async function requireRunning(inst) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const inst = instance();
   if (process.argv[2] === "run") {
-    // The command runs through a shell (Windows needs one to find pnpm.cmd), so each argument is
-    // quoted again: `--workspace "Northwind Cycles"` must stay one argument. On Windows that
-    // shell is cmd.exe, which keeps `$` and `\` as they are and escapes a quote by doubling it.
-    const quote = (arg) =>
-      /^[\w@+=:,./-]+$/.test(arg)
-        ? arg
-        : process.platform === "win32"
-          ? `"${arg.replaceAll('"', '""')}"`
-          : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
-    const args = process.argv.slice(process.argv[3] === "--" ? 4 : 3);
     // An optional `--` right after `run`; one later on belongs to the command itself.
-    // cmd.exe expands %NAME% even inside quotes, and no quoting stops it: refuse instead of
-    // running something other than what was typed.
-    const percent = process.platform === "win32" && args.find((a) => /%[^%\s]+%/.test(a));
-    if (percent) {
-      quit(
-        2,
-        `app:run can't pass ${percent} on Windows: cmd.exe would expand the %…%. Run it yourself.`,
-      );
-    }
-    const command = args.map(quote).join(" ");
-    if (!command) quit(2, "Usage: instance.mjs run <command>");
-    const result = spawnSync(command, {
-      stdio: "inherit",
-      shell: true,
-      cwd: repoRoot,
-      env: { ...process.env, ...inst.env },
-    });
-    process.exitCode = result.status ?? 1;
+    const args = process.argv.slice(process.argv[3] === "--" ? 4 : 3);
+    if (args.length === 0) quit(2, "Usage: instance.mjs run <command>");
+    process.exitCode = runCommand(args, inst, { stdio: "inherit" }).status ?? 1;
   } else {
     const { inboundSecret, env, ...shown } = inst;
     process.stdout.write(

@@ -2,8 +2,8 @@
 // `pnpm helpos:init` prints the link, then the link's token is posted to /v1/auth/password.
 // Safe to rerun: once a password is set, it only checks that sign-in works.
 //   node .claude/skills/verify-helpos/scripts/owner-password.mjs
-import { spawnSync } from "node:child_process";
-import { instance, quit, repoRoot, requireRunning, seed } from "./instance.mjs";
+
+import { instance, quit, requireRunning, runCommand, seed } from "./instance.mjs";
 
 const inst = instance();
 await requireRunning(inst);
@@ -17,9 +17,21 @@ async function post(path, body) {
   });
 }
 
-const init = spawnSync(
-  `pnpm --silent helpos:init --workspace "Northwind Cycles" --mailbox ${mailbox} --owner ${owner}`,
-  { shell: true, cwd: repoRoot, encoding: "utf8", env: { ...process.env, ...inst.env } },
+// An argument list, not a shell string: no value can split or run anything.
+const init = runCommand(
+  [
+    "pnpm",
+    "--silent",
+    "helpos:init",
+    "--workspace",
+    "Northwind Cycles",
+    "--mailbox",
+    mailbox,
+    "--owner",
+    owner,
+  ],
+  inst,
+  { encoding: "utf8" },
 );
 if (init.status !== 0) {
   process.stderr.write(`helpos:init failed:\n${init.stderr}${init.stdout}`);

@@ -153,8 +153,7 @@ async function waitForDraft(ticket) {
     });
     const live = drafts.filter((d) => d.status !== "discarded");
     const pending = live.filter((d) => d.status === "pending");
-    const draft =
-      pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1) ?? drafts.at(-1);
+    const draft = pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1);
     if (draft) return draft;
     const why = await whyNoDraft(inst, ticket, reader);
     if (why) quit(1, `No draft on ticket ${ticket}: ${why}.`);

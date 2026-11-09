@@ -29,7 +29,12 @@ function isHelposCommand(cmd) {
 
 function sh(file, args) {
   try {
-    return execFileSync(file, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    // Node's 1 MB default would drop a busy machine's process list without a word.
+    return execFileSync(file, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 64 * 1024 * 1024,
+    });
   } catch {
     return "";
   }
