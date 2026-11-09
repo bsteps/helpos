@@ -11,7 +11,7 @@ name: Claude
 # - On a PR, the action puts .claude/, .mcp.json and CLAUDE.md back from the base branch before
 #   Claude starts, so a branch can't add hooks or MCP servers. Other instruction files
 #   (AGENTS.md, nested CLAUDE.md) would load from the branch, so @claude doesn't run on a PR
-#   that changes any of them.
+#   that changes any of them, or on one that contains a symlink (its commit tool follows links).
 # - PRs from forks are skipped, so their code never runs next to the secret.
 # - No shell and no web. Claude reads and edits files in the checkout and commits through the
 #   GitHub API (use_commit_signing). The action pins the target branch: the PR's branch, or a
@@ -82,6 +82,14 @@ jobs:
                 run=false
               elif grep -qE '(^|/)((CLAUDE|CLAUDE\.local|AGENTS)\.md|\.claude/.*|\.(mcp|claude)\.json)$' <<<"$files"; then
                 echo "::notice::PR #$NUMBER changes agent instruction files. @claude doesn't run on it until they're on main."
+                run=false
+              fi
+              # The commit tool follows a symlink inside the checkout and commits what it points
+              # to, so a link to .git/config would publish the action's token. Claude's read rules
+              # don't cover that tool. The repo has no symlinks: refuse any, and a cut-off tree.
+              tree=$(gh api "repos/$REPO/git/trees/$head_sha?recursive=1")
+              if [ "$(jq '.truncated' <<<"$tree")" != "false" ] || [ "$(jq '[.tree[] | select(.mode == "120000")] | length' <<<"$tree")" != "0" ]; then
+                echo "::notice::PR #$NUMBER contains symlinks (or is too big to check). @claude doesn't run on it."
                 run=false
               fi
             fi

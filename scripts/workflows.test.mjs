@@ -375,6 +375,10 @@ test("@claude runs only for maintainers, skips forks and commits only through th
     claude.includes(".filename, (.previous_filename // empty)"),
     "renames count by old name",
   );
+  // The commit tool follows symlinks, so PRs with any symlink (or a cut-off tree) are skipped.
+  assert.ok(claude.includes('gh api "repos/$REPO/git/trees/$head_sha?recursive=1"'), "tree check");
+  assert.ok(claude.includes(`[ "$(jq '.truncated' <<<"$tree")" != "false" ]`), "fails closed");
+  assert.ok(claude.includes('select(.mode == "120000")'), "symlinks refused");
   // A fork's commit isn't in this repo: only compare when the fork check passed.
   assert.ok(
     claude.indexOf('if [ "$run" = "true" ]; then') > claude.indexOf("comes from a fork") &&
