@@ -1,10 +1,14 @@
 name: Claude
 
-# On-demand help: a maintainer writes "@claude ..." in an issue or PR comment (issue #111).
+# On-demand help: a maintainer starts an issue or PR comment with "@claude" (issue #111).
+# Only a comment that starts with it counts, so quoting or mentioning @claude costs nothing.
 #
 # Security (the repo is public and runs use the owner's Claude subscription):
 # - Only `issue_comment`, only from OWNER/MEMBER/COLLABORATOR humans (job `if:`), on top of
 #   the action's own write-access and human-actor checks. No other trigger can start it.
+# - On a PR, the action puts .claude/, .mcp.json and CLAUDE.md back from the base branch before
+#   Claude starts, so a branch can't add hooks or MCP servers. The branch's AGENTS.md and nested
+#   CLAUDE.md files still load; only people with write access can push such a branch.
 # - PRs from forks are skipped, so their code never runs next to the secret.
 # - No shell and no web. Claude reads and edits files in the checkout and commits through the
 #   GitHub API (use_commit_signing). The action pins the target branch: the PR's branch, or a
@@ -23,7 +27,7 @@ permissions: {}
 jobs:
   claude:
     if: >-
-      contains(github.event.comment.body, '@claude') &&
+      startsWith(github.event.comment.body, '@claude') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       github.event.comment.user.type == 'User'
     runs-on: ubuntu-latest

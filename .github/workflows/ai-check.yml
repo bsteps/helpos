@@ -11,8 +11,10 @@ name: AI check (shared)
 #   denied wherever tokens can sit on the runner (same list as claude.yml).
 # - The GitHub token is this job's own: read code, write PR comments, nothing else.
 # - The skill, its rules and every instruction file Claude loads (.claude/, CLAUDE.md,
-#   CLAUDE.local.md, AGENTS.md, at any depth) come from the base branch, so a PR can't
-#   rewrite its own reviewer. The PR's versions are still reviewed in the diff.
+#   CLAUDE.local.md, AGENTS.md, at any depth) come from the base branch, so nothing in the PR's
+#   files can steer its reviewer. The PR's versions are still reviewed in the diff.
+# - The workflow files themselves run from the PR, as for any `pull_request` workflow. Only
+#   people with write access can push such a branch, and the change shows in the diff.
 # - Results are advisory: a finding or a failed Claude run never fails the PR. A broken
 #   setup (the prepare step) does, so a check can't silently stop working.
 
@@ -81,8 +83,9 @@ jobs:
           # Lockfiles and generated files only cost tokens.
           # --no-ext-diff/--no-textconv: never run diff helpers on PR content.
           exclude=(':(exclude)pnpm-lock.yaml' ':(exclude)**/*.gen.ts' ':(exclude)apps/web/src/api/openapi.json' ':(exclude)packages/db/migrations/meta/**')
-          git diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" -- . "${exclude[@]}" > "$INPUTS/pr.diff"
-          git diff --name-only "$BASE_SHA...$HEAD_SHA" -- . "${exclude[@]}" > "$INPUTS/files.txt"
+          # core.quotepath=off: non-ASCII file names stay readable, so Claude can open them.
+          git -c core.quotepath=off diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" -- . "${exclude[@]}" > "$INPUTS/pr.diff"
+          git -c core.quotepath=off diff --name-only "$BASE_SHA...$HEAD_SHA" -- . "${exclude[@]}" > "$INPUTS/files.txt"
 
           # What this check already said, so it doesn't repeat itself, and so the report
           # counts only what this run adds (a re-run on the same commit isn't "new findings").
@@ -94,12 +97,13 @@ jobs:
           # Every instruction file Claude loads comes from the base branch. Don't rely on the
           # action's own restore: remove them all (at any depth), then put back base's.
           git ls-files -z -- ':(glob)**/CLAUDE.md' ':(glob)**/CLAUDE.local.md' ':(glob)**/AGENTS.md' | xargs -0 -r rm -f
-          rm -rf .claude .mcp.json .claude.json CLAUDE.local.md
-          for path in .claude CLAUDE.md AGENTS.md; do
-            if git cat-file -e "$BASE_SHA:$path" 2>/dev/null; then
-              git checkout "$BASE_SHA" -- "$path"
-            fi
-          done
+          rm -rf .claude .mcp.json .claude.json
+          if git cat-file -e "$BASE_SHA:.claude" 2>/dev/null; then
+            git checkout "$BASE_SHA" -- .claude
+          fi
+          git ls-tree -r -z --name-only "$BASE_SHA" \
+            | { grep -zE '(^|/)(CLAUDE|CLAUDE\.local|AGENTS)\.md$' || true; } \
+            | xargs -0 -r git checkout "$BASE_SHA" --
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 
@@ -183,7 +187,7 @@ jobs:
           # commit, so it's never ambiguous.
           id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
             '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- ai-check:" + env.CHECK + " -->")) | .id' \
-            | head -n1)
+            | sed -n 1p) # not head: it can end the pipe early and fail it under pipefail
           if [ -n "$id" ]; then
             gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" >/dev/null
           else

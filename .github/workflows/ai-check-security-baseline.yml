@@ -7,22 +7,10 @@ name: "AI check: Security baseline"
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    # Only code this check is about. Docs-only PRs never start it.
+    # Docs-only PRs never start it.
     paths:
-      # Any code, config or deploy file: security problems hide in more than src/ folders.
-      - "apps/**"
-      - "packages/**"
-      - "scripts/**"
-      - "deploy/**"
-      - "docker/**"
-      - "Dockerfile"
-      - "docker-compose.yml"
-      - "*.json"
-      - "*.jsonc"
-      - "*.yaml"
-      - "*.ts"
-      - "*.mjs"
-      - ".github/**"
+      # Every file except Markdown: security problems hide in config, scripts and CI too.
+      - "**"
       - "!**/*.md"
       # After the exclusion: for agents, Markdown is instructions, so these always count.
       - ".claude/**"

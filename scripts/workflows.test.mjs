@@ -28,7 +28,7 @@ function block(text, key) {
   return lines.slice(start + 1, end === -1 ? undefined : end).join("\n");
 }
 
-/** Each job's text, keyed by job id. */
+/** Each job's text, keyed by job id. Fails if it finds none, so loops can't pass vacuously. */
 function jobs(text) {
   const result = {};
   let current;
@@ -37,6 +37,7 @@ function jobs(text) {
     if (id) current = id;
     if (current) result[current] = `${result[current] ?? ""}${line}\n`;
   }
+  assert.ok(Object.keys(result).length > 0, "no jobs found: write jobs as a block");
   return result;
 }
 
@@ -226,14 +227,18 @@ test("AI review jobs never take instructions from the PR's own files", () => {
   for (const file of ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"]) {
     assert.ok(review.includes(`':(glob)**/${file}'`), `${file} from the PR stays loaded`);
   }
-  assert.ok(review.includes("rm -rf .claude .mcp.json .claude.json CLAUDE.local.md"));
-  assert.ok(review.includes("for path in .claude CLAUDE.md AGENTS.md; do"));
-  assert.ok(review.includes('git checkout "$BASE_SHA" -- "$path"'));
+  assert.ok(review.includes("rm -rf .claude .mcp.json .claude.json"));
+  assert.ok(review.includes('git checkout "$BASE_SHA" -- .claude'));
+  assert.ok(review.includes('git ls-tree -r -z --name-only "$BASE_SHA"'), "nested base copies");
+  assert.ok(review.includes("(CLAUDE|CLAUDE\\.local|AGENTS)\\.md$"), "every instruction file");
+  assert.ok(review.includes('xargs -0 -r git checkout "$BASE_SHA" --'));
 });
 
 test("the AI check report counts only this run's comments and fails on a broken setup", () => {
   const review = read(`${dir}ai-check.yml`);
   assert.ok(review.includes('grep -cvxF -f "$INPUTS/earlier-ids.txt"'), "re-runs aren't new");
+  assert.doesNotMatch(code(review), /\|\s*head\b/, "head can break a pipe under pipefail");
+  assert.equal(code(review).match(/git -c core\.quotepath=off diff/g)?.length, 2, "file names");
   assert.ok(review.includes(`PREP: ${expr("steps.prep.outcome")}`));
   assert.match(review, /if \[ "\$PREP" != "success" \]; then\n\s+status="Couldn't prepare/);
   assert.match(review, /\[ "\$PREP" = "success" \]\n$/, "the report step fails when prep failed");
@@ -242,9 +247,7 @@ test("the AI check report counts only this run's comments and fails on a broken 
 test("the security check covers code, config, CI and agent instruction files", () => {
   const security = block(read(`${dir}ai-check-security-baseline.yml`), "on");
   const paths = [...security.matchAll(/^\s+- "([^"]+)"$/gm)].map((m) => m[1] ?? "");
-  for (const path of ["apps/**", "packages/**", "*.json", ".github/**", "scripts/**"]) {
-    assert.ok(paths.includes(path), `security check skips ${path}`);
-  }
+  assert.deepEqual(paths.slice(0, 2), ["**", "!**/*.md"], "every file except Markdown");
   // Paths listed after "!**/*.md" count even though they are Markdown.
   const afterMd = paths.slice(paths.indexOf("!**/*.md") + 1);
   for (const path of [".claude/**", "AGENTS.md", "**/CLAUDE.md"]) {
@@ -284,7 +287,7 @@ test("@claude runs only for maintainers, skips forks and commits only through th
   const claude = read(`${dir}claude.yml`);
   const job = jobs(claude).claude ?? "";
   const gate = condition(job);
-  assert.ok(gate.includes("contains(github.event.comment.body, '@claude')"));
+  assert.ok(gate.includes("startsWith(github.event.comment.body, '@claude')"), "quotes don't run");
   assert.ok(gate.includes(`${maintainersOnly}, github.event.comment.author_association)`));
   assert.ok(gate.includes("github.event.comment.user.type == 'User'"));
   assert.deepEqual(permissions(job), {
