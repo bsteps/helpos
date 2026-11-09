@@ -118,14 +118,71 @@ export function quit(code, message) {
  */
 export async function whyNoDraft(inst, ticketId, token) {
   const headers = { authorization: `Bearer ${token}` };
-  const ticket = await (await fetch(`${inst.apiUrl}/v1/tickets/${ticketId}`, { headers })).json();
+  const ticket = await getJson(inst, `/v1/tickets/${ticketId}`, headers);
   if (ticket.automated)
     return "the ticket is an automated email (bounce, auto-reply): the AI never drafts for those";
-  const usage = await (await fetch(`${inst.apiUrl}/v1/ai-usage`, { headers })).json();
+  const usage = await getJson(inst, "/v1/ai-usage", headers);
   if (ticket.aiPausedReason === "daily_budget" || usage.paused) {
     return `today's AI budget is spent (${usage.totalTokens} of ${usage.dailyTokenBudget} tokens), so no draft will be written until midnight UTC`;
   }
   return undefined;
+}
+
+/**
+ * GETs an API path and returns its JSON. A refusal (401, 404) or a body that isn't JSON stops
+ * the script with the status, instead of looking like "nothing yet" or a stack trace.
+ */
+export async function getJson(inst, path, headers) {
+  const res = await fetch(`${inst.apiUrl}${path}`, { headers });
+  const text = await res.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    quit(1, `GET ${path} answered ${res.status}, not JSON: ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) quit(1, `GET ${path} answered ${res.status}: ${JSON.stringify(json)}`);
+  return json;
+}
+
+/**
+ * The Northwind owner's session cookie, or null when the owner can't sign in. Reused while it
+ * still works (checked with GET /v1/me), so each helper call doesn't add another session.
+ */
+export async function ownerCookie(inst) {
+  const file = join(evidenceRoot, "owner-session.txt");
+  if (existsSync(file)) {
+    const cookie = readFileSync(file, "utf8").trim();
+    const me = await fetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } });
+    await me.body?.cancel();
+    if (me.status === 200) return cookie;
+  }
+  const res = await fetch(`${inst.apiUrl}/v1/auth/sign-in`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: inst.webUrl },
+    body: JSON.stringify({ email: seed.northwind.owner, password: seed.northwind.ownerPassword }),
+  });
+  await res.body?.cancel();
+  if (res.status !== 204) return null;
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
+  mkdirSync(evidenceRoot, { recursive: true });
+  writeFileSync(file, `${cookie}\n`);
+  return cookie;
+}
+
+/**
+ * The value after `flag` in `args`, or undefined when the flag isn't there. A flag with no value
+ * after it, or with another flag there instead, stops the script rather than send "--body".
+ */
+export function flagArg(args, flag) {
+  const i = args.indexOf(flag);
+  if (i < 0) return undefined;
+  const value = args[i + 1];
+  if (value === undefined || value.startsWith("--")) quit(2, `${flag} needs a value after it`);
+  return value;
 }
 
 /** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */
@@ -158,10 +215,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       .slice(process.argv.includes("--") ? process.argv.indexOf("--") + 1 : 3)
       .map(quote)
       .join(" ");
-    if (!command) {
-      process.stderr.write("Usage: instance.mjs run -- <command>\n");
-      process.exit(2);
-    }
+    if (!command) quit(2, "Usage: instance.mjs run <command>");
     const result = spawnSync(command, {
       stdio: "inherit",
       shell: true,

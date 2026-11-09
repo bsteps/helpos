@@ -1,12 +1,12 @@
 // Read-only: is this checkout's HelpOS instance worth driving? Exit 0 when every required check
 // passes. Warnings name features that will not work (no embeddings, no owner password).
 //   node .claude/skills/verify-helpos/scripts/doctor.mjs [--wait <seconds>]
-import { instance, launchedPids, seed, seedToken } from "./instance.mjs";
+import { flagArg, instance, launchedPids, quit, seed, seedToken } from "./instance.mjs";
 import { helposChain, listeners } from "./processes.mjs";
 
 const inst = instance();
-const waitArg = process.argv.indexOf("--wait");
-const waitSeconds = waitArg > 0 ? Number(process.argv[waitArg + 1]) : 0;
+const waitSeconds = Number(flagArg(process.argv, "--wait") ?? 0);
+if (!Number.isFinite(waitSeconds) || waitSeconds < 0) quit(2, "--wait takes a number of seconds");
 
 async function get(url, init = {}) {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(5000) });

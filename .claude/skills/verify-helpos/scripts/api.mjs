@@ -17,8 +17,10 @@
 // Exit code 0 for a 2xx answer, 1 otherwise.
 import { readFileSync } from "node:fs";
 import {
+  getJson,
   instance,
   lastCreated,
+  ownerCookie,
   quit,
   remember,
   requireRunning,
@@ -97,19 +99,9 @@ if (as === "inbound") {
 } else {
   if (body !== undefined) headers["content-type"] = "application/json";
   if (as === "owner") {
-    const res = await fetch(`${inst.apiUrl}/v1/auth/sign-in`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: inst.webUrl },
-      body: JSON.stringify({ email: seed.northwind.owner, password: seed.northwind.ownerPassword }),
-    });
-    if (res.status !== 204) {
-      process.stderr.write(`owner sign-in failed (${res.status}): run owner-password.mjs\n`);
-      quit(1);
-    }
-    headers.cookie = res.headers
-      .getSetCookie()
-      .map((c) => c.split(";")[0])
-      .join("; ");
+    const cookie = await ownerCookie(inst);
+    if (!cookie) quit(1, "The owner can't sign in: run pnpm app:password first.");
+    headers.cookie = cookie;
   } else if (as !== "none") {
     headers.authorization = `Bearer ${as.startsWith("hos_") ? as : await seedToken(as)}`;
   }
@@ -147,10 +139,9 @@ async function waitForDraft(ticket) {
   }
   const reader = await seedToken("northwind:triage-bot");
   for (let i = 0; i < 60; i++) {
-    const res = await fetch(`${inst.apiUrl}/v1/tickets/${ticket}/drafts`, {
-      headers: { authorization: `Bearer ${reader}` },
+    const { drafts } = await getJson(inst, `/v1/tickets/${ticket}/drafts`, {
+      authorization: `Bearer ${reader}`,
     });
-    const drafts = (await res.json()).drafts ?? [];
     const live = drafts.filter((d) => d.status !== "discarded");
     const pending = live.filter((d) => d.status === "pending");
     const draft =

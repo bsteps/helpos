@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { instance, quit, remember, repoRoot, requireRunning, seed } from "./instance.mjs";
+import { flagArg, instance, quit, remember, repoRoot, requireRunning, seed } from "./instance.mjs";
 
 export async function sendFreshEmail(inst, fixture = "plain", { subject, body } = {}) {
   const named = join(repoRoot, "fixtures", "email", `${fixture.replace(/\.eml$/, "")}.eml`);
@@ -61,7 +61,7 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const flagValue = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+  const flagValue = (flag) => flagArg(args, flag);
   const flagValues = new Set(
     ["--subject", "--body"].map((f) => args.indexOf(f) + 1).filter((i) => i > 0),
   );

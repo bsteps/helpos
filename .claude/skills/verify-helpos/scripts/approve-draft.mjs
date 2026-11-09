@@ -2,15 +2,20 @@
 // token, then approves the exact text it read as another, and waits until the reply is sent.
 //   node .claude/skills/verify-helpos/scripts/approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]
 // `new` first sends a fresh customer email and uses its ticket. Defaults: reader northwind:triage-bot, approver northwind:approver-bot.
-import { instance, quit, remember, requireRunning, seedToken, whyNoDraft } from "./instance.mjs";
+import {
+  flagArg,
+  instance,
+  quit,
+  remember,
+  requireRunning,
+  seedToken,
+  whyNoDraft,
+} from "./instance.mjs";
 import { sendFreshEmail } from "./new-email.mjs";
 
 const args = process.argv.slice(2);
 let ticketId = args[0];
-const opt = (name, fallback) => {
-  const i = args.indexOf(name);
-  return i > 0 ? args[i + 1] : fallback;
-};
+const opt = (name, fallback) => flagArg(args, name) ?? fallback;
 if (!ticketId || ticketId.startsWith("--")) {
   process.stderr.write(
     "Usage: approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]\n",

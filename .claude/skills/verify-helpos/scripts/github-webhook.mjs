@@ -4,13 +4,10 @@
 //        [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]
 // The secret is the one shown once by Settings → GitHub → Connect (or New webhook secret).
 import { createHmac } from "node:crypto";
-import { instance, quit, requireRunning, seed } from "./instance.mjs";
+import { flagArg, getJson, instance, ownerCookie, quit, requireRunning } from "./instance.mjs";
 
 const args = process.argv.slice(2);
-const opt = (name, fallback) => {
-  const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : fallback;
-};
+const opt = (name, fallback) => flagArg(args, name) ?? fallback;
 const number = Number(args[0]);
 const secret = opt("--secret");
 if (!Number.isInteger(number) || number < 1 || !secret) {
@@ -22,27 +19,14 @@ if (!Number.isInteger(number) || number < 1 || !secret) {
 const inst = instance();
 await requireRunning(inst);
 
-const signIn = await fetch(`${inst.apiUrl}/v1/auth/sign-in`, {
-  method: "POST",
-  headers: { "content-type": "application/json", origin: inst.webUrl },
-  body: JSON.stringify({ email: seed.northwind.owner, password: seed.northwind.ownerPassword }),
-});
-const cookie = signIn.headers
-  .getSetCookie()
-  .map((c) => c.split(";")[0])
-  .join("; ");
-await signIn.body?.cancel();
+const cookie = await ownerCookie(inst);
 // exitCode, not exit(): exiting while fetch's socket closes crashes libuv on Windows.
-if (signIn.status !== 204) {
-  process.stderr.write(
-    `The owner can't sign in (${signIn.status}): run pnpm app:password first.\n`,
-  );
+if (!cookie) {
+  process.stderr.write("The owner can't sign in: run pnpm app:password first.\n");
   process.exitCode = 1;
 } else {
-  const me = await (await fetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } })).json();
-  const github = await (
-    await fetch(`${inst.apiUrl}/v1/integrations/github`, { headers: { cookie } })
-  ).json();
+  const me = await getJson(inst, "/v1/me", { cookie });
+  const github = await getJson(inst, "/v1/integrations/github", { cookie });
   if (github.connected) await send(github.repo, me.workspace.id);
   else {
     process.stderr.write("No repo is connected: connect one in Settings → GitHub first.\n");
