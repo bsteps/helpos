@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { evidenceRoot, instance, repoRoot, seed, seedToken } from "./instance.mjs";
+import { evidenceRoot, instance, repoRoot, requireRunning, seed, seedToken } from "./instance.mjs";
 
 const via = process.argv[process.argv.indexOf("--via") + 1];
 if (via !== "api" && via !== "web") {
@@ -14,6 +14,7 @@ if (via !== "api" && via !== "web") {
   process.exit(2);
 }
 const inst = instance();
+await requireRunning(inst);
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const dir = join(evidenceRoot, `${stamp}-reply-${via}`);
 mkdirSync(dir, { recursive: true });

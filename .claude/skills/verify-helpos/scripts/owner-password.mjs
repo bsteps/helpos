@@ -3,9 +3,10 @@
 // Safe to rerun: once a password is set, it only checks that sign-in works.
 //   node .claude/skills/verify-helpos/scripts/owner-password.mjs
 import { spawnSync } from "node:child_process";
-import { instance, repoRoot, seed } from "./instance.mjs";
+import { instance, repoRoot, requireRunning, seed } from "./instance.mjs";
 
 const inst = instance();
+await requireRunning(inst);
 const { mailbox, owner, ownerPassword } = seed.northwind;
 
 async function post(path, body) {

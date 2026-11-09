@@ -66,6 +66,20 @@ export function instance() {
   };
 }
 
+/** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */
+export async function requireRunning(inst) {
+  const up = await fetch(`${inst.apiUrl}/health`, { signal: AbortSignal.timeout(3000) })
+    .then((r) => r.ok)
+    .catch(() => false);
+  if (up) return;
+  process.stderr.write(
+    `HelpOS isn't running at ${inst.apiUrl}.\n` +
+      "Start it in its own terminal: node .claude/skills/verify-helpos/scripts/launch.mjs\n" +
+      "then wait for:                node .claude/skills/verify-helpos/scripts/doctor.mjs --wait 120\n",
+  );
+  process.exit(1);
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const inst = instance();
   if (process.argv[2] === "run") {

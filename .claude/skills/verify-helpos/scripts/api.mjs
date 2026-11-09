@@ -10,7 +10,7 @@
 // [body]: JSON text, or @file to read it from a file.
 // Exit code 0 for a 2xx answer, 1 otherwise.
 import { readFileSync } from "node:fs";
-import { instance, seed, seedToken } from "./instance.mjs";
+import { instance, requireRunning, seed, seedToken } from "./instance.mjs";
 
 const [as, method, rawPath, rawBody] = process.argv.slice(2);
 const path = rawPath && `/${rawPath.replace(/^\/+/, "")}`;
@@ -19,6 +19,7 @@ if (!as || !method || !path?.startsWith("/v1/")) {
   process.exit(2);
 }
 const inst = instance();
+await requireRunning(inst);
 const headers = { origin: inst.webUrl };
 let body = rawBody?.startsWith("@") ? readFileSync(rawBody.slice(1)) : rawBody;
 
