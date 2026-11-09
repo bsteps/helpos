@@ -191,7 +191,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await db?.close();
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 const tables = {

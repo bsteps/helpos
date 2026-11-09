@@ -19,7 +19,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await owner?.end();
   await app?.end();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 describe("migrations", () => {

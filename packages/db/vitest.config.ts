@@ -1,8 +1,13 @@
 import { defineConfig } from "vitest/config";
 
-// Tests start a real Postgres container (ADR 0005), which takes a few seconds the first time.
-// Each test file starts its own, so `maxWorkers` caps how many run at once: without it, a
-// many-core machine starts one per file in parallel, and Docker slows to a crawl.
+// Tests use a real Postgres (ADR 0005). The global setup starts one container for the run,
+// and each test file copies its own migrated database from it. `maxWorkers` keeps the
+// machine responsive: the app tests are heavy, and Docker shares the same CPUs.
 export default defineConfig({
-  test: { testTimeout: 30_000, hookTimeout: 180_000, maxWorkers: 3 },
+  test: {
+    globalSetup: ["./src/testing.ts"],
+    testTimeout: 30_000,
+    hookTimeout: 180_000,
+    maxWorkers: 3,
+  },
 });

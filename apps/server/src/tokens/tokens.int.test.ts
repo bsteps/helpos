@@ -156,7 +156,7 @@ afterAll(async () => {
   await runner?.stop();
   await db?.close();
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 describe("an agent token works the inbox", () => {

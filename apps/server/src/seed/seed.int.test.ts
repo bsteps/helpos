@@ -34,7 +34,7 @@ afterAll(async () => {
   await jobs?.stop();
   await db?.close();
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 /** Everything the seed wrote, read back one workspace at a time, as the app role sees it. */

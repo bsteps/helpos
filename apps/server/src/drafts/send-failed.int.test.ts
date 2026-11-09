@@ -202,7 +202,7 @@ afterAll(async () => {
   smtp?.close();
   await db?.close();
   await auth?.close();
-  await Promise.all([testDb?.container.stop(), mailpit?.stop()]);
+  await Promise.all([testDb?.stop(), mailpit?.stop()]);
 });
 
 function setShadowMode(on: boolean) {

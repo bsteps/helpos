@@ -20,7 +20,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await owner?.end({ timeout: 5 });
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 describe("migration 0011", () => {

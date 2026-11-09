@@ -18,7 +18,7 @@ describe("GET /health", () => {
 
   afterAll(async () => {
     await db?.close();
-    await testDb?.container.stop();
+    await testDb?.stop();
   });
 
   it("returns 200 OK when the database is reachable", async () => {

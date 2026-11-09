@@ -367,7 +367,7 @@ afterAll(async () => {
   await auth?.close();
   server?.closeAllConnections();
   server?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 describe("adding and ingesting sources", () => {

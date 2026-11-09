@@ -255,7 +255,7 @@ logger.warn({ baseUrl }, "e2e server ready");
 async function stop(): Promise<void> {
   await runner.stop();
   await Promise.all([db.close(), auth.close()]);
-  await Promise.all([testDb.container.stop(), mailpit.stop()]);
+  await Promise.all([testDb.stop(), mailpit.stop()]);
   process.exit(0);
 }
 process.on("SIGINT", () => void stop());

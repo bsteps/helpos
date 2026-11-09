@@ -68,7 +68,7 @@ afterAll(async () => {
   await runner?.stop();
   await db?.close();
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 beforeEach(() => vi.clearAllMocks());

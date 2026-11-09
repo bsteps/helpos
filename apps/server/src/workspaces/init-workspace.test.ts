@@ -16,7 +16,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await db?.close();
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 const input = { workspace: "Acme", mailbox: "Support@Acme.test", owner: "you@acme.test" };

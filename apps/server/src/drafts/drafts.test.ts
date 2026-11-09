@@ -214,7 +214,7 @@ afterAll(async () => {
   transport?.close();
   await db?.close();
   await auth?.close();
-  await Promise.all([testDb?.container.stop(), mailpit?.stop()]);
+  await Promise.all([testDb?.stop(), mailpit?.stop()]);
 });
 
 describe("draft → approve → send", () => {

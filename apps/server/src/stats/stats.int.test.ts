@@ -43,7 +43,7 @@ afterAll(async () => {
   await jobs?.stop();
   await db?.close();
   await auth?.close();
-  await testDb?.container.stop();
+  await testDb?.stop();
 });
 
 const stats = (token: string, query = range) =>
