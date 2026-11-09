@@ -100,7 +100,10 @@ const fill = (text) =>
     }
     return values[key];
   });
-const [as, method, rawPath, rawBody] = argv.map(fill);
+// Not inside an @file name: that is where the body comes from, not part of the request.
+const [as, method, rawPath, rawBody] = argv.map((a, i) =>
+  i === 3 && a.startsWith("@") ? a : fill(a),
+);
 const path = `/${rawPath.replace(/^\/+/, "")}`;
 if (!path.startsWith("/v1/")) {
   process.stderr.write("Usage: api.mjs <as> <METHOD> v1/<path> [json | @file]\n");

@@ -28,7 +28,12 @@ for (let pass = 0; pass < 2; pass++) {
         ok = false;
         continue;
       }
-      process.stdout.write(`port ${port}: stopping pid ${stopTree(recorded.at(-1))}\n`);
+      const top = recorded.at(-1);
+      process.stdout.write(
+        stopTree(top)
+          ? `port ${port}: stopping pid ${top}\n`
+          : `port ${port}: couldn't stop pid ${top} (gone already, or not allowed)\n`,
+      );
     }
   }
   await new Promise((r) => setTimeout(r, 1500));

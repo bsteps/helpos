@@ -33,6 +33,11 @@ const { isLocalDatabaseUrl, isolationFor, isolatedEnv, parseEnv } = await import
   pathToFileURL(join(repoRoot, "scripts/worktree-env.mjs")).href
 );
 
+/** The product's name for messages, from @helpos/brand like the app's own. */
+export const { brand } = await import(
+  pathToFileURL(join(repoRoot, "packages/brand/src/index.ts")).href
+);
+
 // Every helper imports this file, so this one place gives all their requests a time limit:
 // a server that accepts a connection and never answers must fail the step, not hang it.
 const plainFetch = globalThis.fetch;
@@ -277,11 +282,14 @@ export function runCommand([program, ...args], inst, options = {}) {
         "through pnpm (pnpm app:run ...).",
     );
   }
-  return spawnSync(file, [...prefix, ...args], {
+  const result = spawnSync(file, [...prefix, ...args], {
     cwd: repoRoot,
     env: { ...process.env, ...inst.env },
     ...options,
   });
+  // Not found or not runnable: there is no exit code and nothing on stderr to show.
+  if (result.error) quit(1, `Couldn't start ${program}: ${result.error.message}`);
+  return result;
 }
 
 /** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */
@@ -291,7 +299,7 @@ export async function requireRunning(inst) {
     .catch(() => false);
   if (up) return;
   process.stderr.write(
-    `HelpOS isn't running at ${inst.apiUrl}.\n` +
+    `${brand.name} isn't running at ${inst.apiUrl}.\n` +
       "Start it in its own terminal: pnpm app:start\n" +
       "then wait for:                pnpm app:doctor --wait 120\n",
   );

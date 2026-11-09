@@ -4,6 +4,7 @@
 // is saved for the other helpers, as theirs would be.
 //   node .claude/skills/verify-helpos/scripts/doctor.mjs [--wait <seconds>]
 import {
+  brand,
   flagArg,
   instance,
   launchedPids,
@@ -35,7 +36,10 @@ function ownedByHelpos(url) {
   if (found.length === 0) return { ok: false, detail: "nothing listening" };
   const stranger = found.find((l) => !l.helpos);
   if (stranger) {
-    return { ok: false, detail: `pid ${stranger.pid} is not HelpOS: ${stranger.cmd.slice(0, 80)}` };
+    return {
+      ok: false,
+      detail: `pid ${stranger.pid} is not ${brand.name}: ${stranger.cmd.slice(0, 80)}`,
+    };
   }
   const ours = launchedPids();
   const launched = found.every((l) => helposChain(l.pid).some((pid) => ours.has(pid)));
@@ -49,7 +53,7 @@ function ownedByHelpos(url) {
 }
 
 const checks = [
-  { name: "api port is HelpOS", run: async () => ownedByHelpos(inst.apiUrl) },
+  { name: `api port is ${brand.name}`, run: async () => ownedByHelpos(inst.apiUrl) },
   {
     name: "api health",
     run: async () => {
@@ -57,7 +61,7 @@ const checks = [
       return { ok: status === 200 && body.database === "ok", detail: JSON.stringify(body) };
     },
   },
-  { name: "dashboard port is HelpOS", run: async () => ownedByHelpos(inst.webUrl) },
+  { name: `dashboard port is ${brand.name}`, run: async () => ownedByHelpos(inst.webUrl) },
   {
     name: "dashboard proxies the API",
     run: async () => {

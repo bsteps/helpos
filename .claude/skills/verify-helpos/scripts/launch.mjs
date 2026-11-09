@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import {
+  brand,
   evidenceRoot,
   instance,
   launchRecord,
@@ -23,7 +24,7 @@ for (const port of ports) {
     quit(
       1,
       `port ${port} is already held by pid ${held.pid}: ${held.cmd.slice(0, 100)}\n` +
-        "Is HelpOS already running? Check with pnpm app:doctor; stop it with pnpm app:stop.",
+        `Is ${brand.name} already running? Check with pnpm app:doctor; stop it with pnpm app:stop.`,
     );
   }
 }

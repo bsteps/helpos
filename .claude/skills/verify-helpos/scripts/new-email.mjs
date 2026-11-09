@@ -33,29 +33,32 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
   const sent =
     subject ?? `${oldSubject.slice("Subject:".length).replace(/\s+/g, " ").trim()} ${stamp}`.trim();
   // Always a fresh Message-ID, even when the sample has none, so it is never a duplicate.
-  let headers = [
+  // Each entry of `lines` is one whole header, continuation lines included, so dropping one
+  // never leaves its folded tail behind to stick to the next header.
+  let headerLines = [
     ...lines.filter((l) => !/^(Message-ID|Subject):/i.test(l)),
     `Message-ID: <fresh-${crypto.randomUUID()}@customer.test>`,
     `Subject: ${sent}`,
-  ].join("\r\n");
+  ];
   let bodyPart = original.slice(split.index + split[0].length);
   // "plain" and "plain.eml" name the same default sample.
   const isPlain = fixture.replace(/\.eml$/, "") === "plain";
   const text = body ?? (subject && isPlain ? subject : undefined);
   if (text !== undefined) {
+    const headers = headerLines.join("\r\n");
     if (!/^Content-Type:\s*text\/plain/im.test(headers) || /multipart/i.test(headers)) {
       throw new Error(`--body works only on a single-part text/plain sample, not "${fixture}"`);
     }
     bodyPart = `${text}\r\n`;
     // The new text is UTF-8 and unencoded: the sample's own charset or encoding (iso-8859-1,
     // base64, quoted-printable) would garble it.
-    headers = [
-      ...headers.split("\r\n").filter((l) => !/^Content-(Transfer-Encoding|Type):/i.test(l)),
+    headerLines = [
+      ...headerLines.filter((l) => !/^Content-(Transfer-Encoding|Type):/i.test(l)),
       "Content-Type: text/plain; charset=utf-8",
       "Content-Transfer-Encoding: 8bit",
-    ].join("\r\n");
+    ];
   }
-  const raw = `${headers}\r\n\r\n${bodyPart}`;
+  const raw = `${headerLines.join("\r\n")}\r\n\r\n${bodyPart}`;
   const res = await fetch(`${inst.apiUrl}/v1/inbound/email`, {
     method: "POST",
     headers: { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" },

@@ -190,7 +190,9 @@ const detail = await jsonOf(
 writeFileSync(join(dir, "mail.json"), `${JSON.stringify(detail, null, 2)}\n`);
 const to = detail.To.map((t) => t.Address.toLowerCase());
 // Whoever the workspace names now, not the seed's default: a hand test may have changed it.
-const { body: shadow } = await api("/v1/workspace/shadow-mode");
+const { status: shadowStatus, body: shadow } = await api("/v1/workspace/shadow-mode");
+if (shadowStatus !== 200)
+  fail(`GET /v1/workspace/shadow-mode → ${shadowStatus} ${JSON.stringify(shadow)}`);
 if (!shadow.enabled || !shadow.recipient) fail("shadow mode is off: this journey needs it on");
 if (to.length !== 1 || to[0] !== shadow.recipient.toLowerCase())
   fail(`reply went to ${to.join(", ")}, not only the shadow recipient ${shadow.recipient}`);

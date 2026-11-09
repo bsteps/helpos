@@ -54,8 +54,10 @@ function sh(file, args) {
       stdio: ["ignore", "pipe", "ignore"],
       maxBuffer: 64 * 1024 * 1024,
     });
-  } catch {
-    return "";
+  } catch (error) {
+    // A non-zero exit can still have done the work (taskkill stops the tree, then fails on a
+    // child that was already gone): keep what it printed.
+    return typeof error?.stdout === "string" ? error.stdout : "";
   }
 }
 
@@ -150,13 +152,13 @@ export function descendsFrom(pid, ancestor) {
 }
 
 /**
- * Stops `top` and everything below it. Pass the highest pid of a chain that launch.mjs recorded,
+ * Stops `top` and everything below it, and says whether that worked. Pass the highest pid of a chain that launch.mjs recorded,
  * so `node --watch` can't restart the child it watches and nothing above our own tree is touched.
  */
 export function stopTree(top) {
   if (windows) {
-    sh("taskkill", ["/PID", String(top), "/T", "/F"]);
-    return top;
+    // taskkill prints SUCCESS for each process it stops; nothing means it couldn't.
+    return /SUCCESS/i.test(sh("taskkill", ["/PID", String(top), "/T", "/F"]));
   }
   // kill signals one process, so the tree is listed first, then signalled top down: a parent
   // that restarts its child (`node --watch`) is gone before the child is.
@@ -165,6 +167,12 @@ export function stopTree(top) {
   for (let i = 0; i < tree.length; i++) {
     for (const p of all) if (p.parent === tree[i]) tree.push(p.pid);
   }
-  for (const pid of tree) sh("kill", ["-TERM", String(pid)]);
-  return top;
+  let stopped = false;
+  for (const pid of tree) {
+    try {
+      process.kill(pid, "SIGTERM");
+      stopped = true;
+    } catch {}
+  }
+  return stopped;
 }
