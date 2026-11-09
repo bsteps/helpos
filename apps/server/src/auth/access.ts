@@ -81,6 +81,8 @@ function enforce(name: string, access: Access, audit: Audit | undefined): Middle
 
     const trail = { recorded: new Set<AuditAction>(), nothingChanged: false };
     await auditTrail.run(trail, next);
+    // A failed request already has its error; another here would only hide it.
+    if (c.res.status >= 500) return;
     const declared: readonly AuditAction[] = audit.records;
     const undeclared = [...trail.recorded].filter((a) => !declared.includes(a));
     if (undeclared.length > 0) {
