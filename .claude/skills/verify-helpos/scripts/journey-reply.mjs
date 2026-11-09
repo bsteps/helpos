@@ -63,6 +63,11 @@ async function api(path, token = reader, init = {}) {
 }
 
 /** The response's JSON; anything else (a proxy's error page) fails the journey with its start. */
+/** Text without its line breaks and spacing, which the dashboard and the mailer may change. */
+function flat(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 async function jsonOf(res, what) {
   const text = await res.text();
   try {
@@ -147,7 +152,7 @@ if (via === "api") {
     await page.getByText("Waiting for approval").waitFor();
     const shown = await page.getByTestId("draft-body").textContent();
     await page.screenshot({ path: join(dir, "2-ticket-draft.png"), fullPage: true });
-    if (shown.trim() !== draft.body.trim()) fail("dashboard draft differs from the API draft");
+    if (flat(shown ?? "") !== flat(draft.body)) fail("dashboard draft differs from the API draft");
     record("ticket page shows the AI draft, waiting for approval", { url: page.url() });
 
     await page.getByRole("button", { name: "Approve & send" }).click();
@@ -188,8 +193,6 @@ const { body: shadow } = await api("/v1/workspace/shadow-mode");
 if (!shadow.enabled || !shadow.recipient) fail("shadow mode is off: this journey needs it on");
 if (to.length !== 1 || to[0] !== shadow.recipient.toLowerCase())
   fail(`reply went to ${to.join(", ")}, not only the shadow recipient ${shadow.recipient}`);
-// Compared without line breaks and spacing, which the mailer may rewrap.
-const flat = (s) => s.replace(/\s+/g, " ").trim();
 if (!flat(detail.Text).includes(flat(draft.body))) fail("the sent text is not the approved draft");
 record("Mailpit caught the reply, sent to the shadow recipient only", {
   to,

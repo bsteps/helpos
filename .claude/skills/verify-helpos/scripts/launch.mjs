@@ -3,7 +3,7 @@
 // sources get embedded instead of waiting in the queue.
 //   node .claude/skills/verify-helpos/scripts/launch.mjs
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import {
   evidenceRoot,
   instance,
@@ -50,6 +50,8 @@ env.HELPOS_AI_DAILY_TOKEN_BUDGET = process.env.HELPOS_AI_DAILY_TOKEN_BUDGET ?? "
 process.stdout.write(
   `verify-helpos: API ${inst.apiUrl}  dashboard ${inst.webUrl}  db ${inst.dbName}  AI cap ${env.HELPOS_AI_DAILY_TOKEN_BUDGET} tokens/day\n`,
 );
+// The previous run's record: its pids may be reused by now, and this launch makes its own.
+rmSync(launchRecord, { force: true });
 const child = spawn("pnpm dev", { stdio: "inherit", shell: true, cwd: repoRoot, env });
 let running = true;
 // exitCode, not exit(): exiting while a fetch's socket closes crashes libuv on Windows.

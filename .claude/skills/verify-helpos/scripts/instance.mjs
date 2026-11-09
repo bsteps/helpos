@@ -15,7 +15,12 @@ export const launchRecord = join(evidenceRoot, "instance.json");
 
 export function launchedPids() {
   if (!existsSync(launchRecord)) return new Set();
-  return new Set(JSON.parse(readFileSync(launchRecord, "utf8")).pids);
+  // Cut short (launch killed while writing): treat it as no record, so nothing is stopped by it.
+  try {
+    return new Set(JSON.parse(readFileSync(launchRecord, "utf8")).pids);
+  } catch {
+    return new Set();
+  }
 }
 
 const { isWorktree } = await import(pathToFileURL(join(repoRoot, "scripts/worktree.mjs")).href);

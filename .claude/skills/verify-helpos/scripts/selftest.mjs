@@ -3,10 +3,11 @@
 // helper or checklist step: a step that fails here would have failed for the person testing.
 //   node .claude/skills/verify-helpos/scripts/selftest.mjs [--with-browser]
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   evidenceRoot,
+  getJson,
   instance,
   lastCreated,
   quit,
@@ -22,11 +23,12 @@ await requireRunning(inst);
 // A run writes about 15 AI drafts, roughly 20,000 tokens. Without that much left, the draft
 // steps can't pass, and running anyway would also leave the person testing with none.
 const neededTokens = 30_000;
-const usage = await (
-  await fetch(`${inst.apiUrl}/v1/ai-usage`, {
-    headers: { authorization: `Bearer ${await seedToken("northwind:triage-bot")}` },
-  })
-).json();
+const usage = await getJson(inst, "/v1/ai-usage", {
+  authorization: `Bearer ${await seedToken("northwind:triage-bot")}`,
+});
+if (typeof usage.remainingTokens !== "number") {
+  quit(1, `GET /v1/ai-usage has no remainingTokens: ${JSON.stringify(usage)}`);
+}
 if (usage.paused || usage.remainingTokens < neededTokens) {
   quit(
     1,
@@ -38,9 +40,26 @@ if (usage.paused || usage.remainingTokens < neededTokens) {
 // The person's {ticket}, {token}… survive a selftest run in the middle of their checklist.
 const lastFile = join(evidenceRoot, "last.json");
 const saved = existsSync(lastFile) ? readFileSync(lastFile, "utf8") : undefined;
+// Its time too: lastCreated() compares it with the seed marker to spot IDs from before a reset.
+const savedAt = saved === undefined ? undefined : statSync(lastFile).mtime;
+/** The shadow recipient before the selftest changed it, and whether it was put back. */
+let shadowRecipient;
+let shadowRestored = false;
 function restoreSaved() {
   if (saved === undefined) rmSync(lastFile, { force: true });
-  else writeFileSync(lastFile, saved);
+  else {
+    writeFileSync(lastFile, saved);
+    utimesSync(lastFile, savedAt, savedAt);
+  }
+  // The shadow recipient too, if a step changed it and the run stopped before putting it back.
+  if (shadowRecipient && !shadowRestored) {
+    run("api.mjs", [
+      "owner",
+      "PATCH",
+      "v1/workspace/shadow-mode",
+      JSON.stringify({ recipient: shadowRecipient }),
+    ]);
+  }
 }
 process.on("exit", restoreSaved);
 // Ctrl+C skips "exit": restore first, then stop. A hard kill can't be caught.
@@ -63,9 +82,6 @@ function typed(command) {
   });
   return { code: r.status ?? 1, out: r.stdout, all: `${r.stdout}${r.stderr}` };
 }
-
-/** The shadow recipient before the selftest changed it. */
-let shadowRecipient;
 
 /** `out` is what the script printed; `all` adds its notes on stderr, such as `(saved {token} …)`. */
 function run(script, args) {
@@ -386,9 +402,9 @@ const steps = [
     "shadow recipient → Leo",
     () => {
       // Put back afterwards whoever it was: a person's hand test may rely on it.
-      shadowRecipient = json(
-        api("northwind:triage-bot", "GET", "v1/workspace/shadow-mode"),
-      ).recipient;
+      const before = api("northwind:triage-bot", "GET", "v1/workspace/shadow-mode");
+      if (status(before) !== 200) return before;
+      shadowRecipient = json(before).recipient;
       return api(
         "owner",
         "PATCH",
@@ -407,7 +423,10 @@ const steps = [
         "v1/workspace/shadow-mode",
         JSON.stringify({ recipient: shadowRecipient }),
       ),
-    (r) => status(r) === 200 && json(r).recipient === shadowRecipient,
+    (r) => {
+      shadowRestored = status(r) === 200 && json(r).recipient === shadowRecipient;
+      return shadowRestored;
+    },
   ],
   [
     "triage-bot can't change shadow → 403",
@@ -465,7 +484,9 @@ const steps = [
   [
     "app:run uses this worktree",
     () => run("instance.mjs", ["run", "node", "-e", "console.log(process.env.HELPOS_PORT)"]),
-    (r) => r.code === 0 && r.out.trim() === new URL(inst.apiUrl).port,
+    // Only a worktree gets its own port; the main checkout runs with .env as it is, so there
+    // the command only has to run.
+    (r) => r.code === 0 && (!inst.env.HELPOS_PORT || r.out.trim() === inst.env.HELPOS_PORT),
   ],
 ];
 if (process.argv.includes("--with-browser")) {

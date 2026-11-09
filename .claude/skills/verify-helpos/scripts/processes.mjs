@@ -71,6 +71,8 @@ export function refreshProcesses() {
 }
 
 function processInfo(pid) {
+  // A process that started after the snapshot (a server just coming up) isn't in it yet.
+  if (!processTable().has(pid)) refreshProcesses();
   return processTable().get(pid);
 }
 

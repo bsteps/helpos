@@ -16,6 +16,14 @@ if (!Number.isInteger(number) || number < 1 || !secret) {
   );
   quit(2);
 }
+const action = opt("--action", "closed");
+const reason = opt("--reason", "completed");
+// Checked before anything is sent: a typo must not reach the server as some other event.
+if (!["closed", "reopened"].includes(action))
+  quit(2, `--action is closed or reopened, not "${action}"`);
+if (!["completed", "not_planned", "duplicate"].includes(reason)) {
+  quit(2, `--reason is completed, not_planned or duplicate, not "${reason}"`);
+}
 const inst = instance();
 await requireRunning(inst);
 
@@ -35,13 +43,12 @@ if (!cookie) {
 }
 
 async function send(repo, workspaceId) {
-  const action = opt("--action", "closed");
   const body = JSON.stringify({
     action,
     issue: {
       number,
       state: action === "closed" ? "closed" : "open",
-      state_reason: action === "closed" ? opt("--reason", "completed") : null,
+      state_reason: action === "closed" ? reason : null,
       updated_at: new Date().toISOString(),
     },
     repository: { full_name: repo },
