@@ -27,6 +27,12 @@ pnpm test             # tests, all packages
 pnpm verify           # everything CI runs. Run once before you open a PR (iterate with check:changed)
 ```
 
+## Worktrees (parallel agent threads)
+
+- T3 Code runs `node scripts/setup-worktree.mjs` when it creates a worktree (`t3.json`): `pnpm install` and a link to the main checkout's `.env`. **Wait for it:** while `.helpos/setup-running` exists, setup is still going; start work once `.helpos/setup-done` appears. If `.helpos/setup-failed` appears, read it, fix the cause and rerun `pnpm setup:worktree`.
+- In a worktree, `pnpm dev` uses its own database (`helpos_wt_<hash>`) and ports (API 20001–20999, dashboard 21001–21999), derived from the worktree path, and seeds demo data on the first run. It prints the URLs.
+- Never point a worktree at another worktree's database or at a production database. `pnpm dev` refuses a non-local database in a worktree.
+
 ## Non-negotiable rules
 
 - **Tenant data only through `withTenant()`** (ADR 0003). Never import the raw DB client outside `packages/db`.
