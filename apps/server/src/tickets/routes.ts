@@ -131,19 +131,20 @@ const getTicketRoute = apiRoute({
 });
 
 const closeTicketRoute = apiRoute({
-  access: { allScopes: ["tickets:write"] },
+  // tickets:read too: the answer is the ticket, with its customer.
+  access: { allScopes: ["tickets:write", "tickets:read"] },
   method: "post",
   path: "/v1/tickets/{id}/close",
   summary: "Close a ticket",
   description:
     "Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. " +
-    "Pending drafts are left as they are. Needs `tickets:write`.",
+    "Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.",
   security,
   request: { params: idParams },
   responses: {
     200: json(ticketSchema, "The closed ticket"),
     401: json(errorSchema, "No valid credentials"),
-    403: json(errorSchema, "The credentials lack `tickets:write`"),
+    403: json(errorSchema, "The credentials lack `tickets:write` or `tickets:read`"),
     404: json(errorSchema, "Not found in this workspace"),
   },
 });

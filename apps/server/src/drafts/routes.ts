@@ -207,8 +207,9 @@ const retryRoute = apiRoute({
   },
 });
 
-const createRoute_ = apiRoute({
-  access: { allScopes: ["drafts:write"] },
+const createDraftRoute = apiRoute({
+  // tickets:read too: the draft answers the ticket, so it shows what the customer wrote.
+  access: { allScopes: ["drafts:write", "tickets:read"] },
   method: "post",
   path: "/v1/tickets/{id}/drafts",
   summary: "Write a draft, or ask the AI for a new one",
@@ -217,7 +218,7 @@ const createRoute_ = apiRoute({
     "`pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it " +
     "appears in the list when ready. Either way, older pending replies on the ticket are " +
     "discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is " +
-    "approved. Needs `drafts:write`.",
+    "approved. Needs `drafts:write` and `tickets:read`.",
   security,
   request: {
     params: idParams,
@@ -419,7 +420,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
 }
 
 function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
-  app.openapi(createRoute_, async (c) => {
+  app.openapi(createDraftRoute, async (c) => {
     const principal = c.get("principal");
     const { id: ticketId } = c.req.valid("param");
     const input = c.req.valid("json");

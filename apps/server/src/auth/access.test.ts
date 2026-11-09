@@ -133,3 +133,22 @@ describe("the declared access is enforced, before the body is read", () => {
     },
   );
 });
+
+describe("routes on a ticket need tickets:read", () => {
+  // #108: creating a GitHub issue from a ticket checked only github:write, so a caller that
+  // couldn't read the ticket could still pick its customer to be told. Anything under
+  // /v1/tickets/{id} acts on that ticket and returns or uses its content.
+  const onTicket = scoped.filter((op) => op.path.startsWith("/v1/tickets/{id}"));
+
+  it("found them", () => {
+    expect(onTicket.length).toBeGreaterThan(3);
+  });
+
+  it.each(onTicket)("$method $path requires tickets:read", (op) => {
+    const required = "allScopes" in op.access ? op.access.allScopes : [];
+    expect(
+      required,
+      `${op.method} ${op.path}: add "tickets:read" to its access.allScopes`,
+    ).toContain("tickets:read");
+  });
+});
