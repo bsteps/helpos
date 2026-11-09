@@ -1,0 +1,58 @@
+[
+  {
+    "name": "needs-triage",
+    "color": "FBCA04",
+    "description": "Issue state 1: not yet reviewed by a maintainer"
+  },
+  {
+    "name": "ready",
+    "color": "0E8A16",
+    "description": "Issue state 2: ready to be worked on (adds a T3 Code link)"
+  },
+  {
+    "name": "in-progress",
+    "color": "1D76DB",
+    "description": "Issue state 3: an agent or human is working on it"
+  },
+  {
+    "name": "pr:in-progress",
+    "color": "C2E0C6",
+    "description": "PR state 1: still being worked on, not ready for review"
+  },
+  {
+    "name": "pr:ready",
+    "color": "0E8A16",
+    "description": "PR state 2: pnpm verify passes and review findings are resolved"
+  },
+  {
+    "name": "land",
+    "color": "5319E7",
+    "description": "PR state 3: checks green, no human needed; merge it"
+  },
+  {
+    "name": "needs-human",
+    "color": "D93F0B",
+    "description": "The human queue: a person must review or decide before this moves on"
+  },
+  {
+    "name": "human-only",
+    "color": "C5DEF5",
+    "description": "Needs a human (interviews, legal, marketing); not for agents"
+  },
+  { "name": "security", "color": "B60205", "description": "Security-related" },
+  { "name": "area:db", "color": "0E8A16", "description": "Area: db" },
+  { "name": "area:api", "color": "0E8A16", "description": "Area: api" },
+  { "name": "area:agents", "color": "0E8A16", "description": "Area: agents" },
+  { "name": "area:auth", "color": "0E8A16", "description": "Area: auth" },
+  { "name": "area:ai", "color": "0E8A16", "description": "Area: ai" },
+  { "name": "area:email", "color": "0E8A16", "description": "Area: email" },
+  { "name": "area:inbox", "color": "0E8A16", "description": "Area: inbox" },
+  { "name": "area:infra", "color": "0E8A16", "description": "Area: infra" },
+  { "name": "area:ci", "color": "0E8A16", "description": "Area: ci" },
+  { "name": "area:docs", "color": "0E8A16", "description": "Area: docs" },
+  {
+    "name": "area:gtm",
+    "color": "1D76DB",
+    "description": "Go-to-market: customers, distribution, positioning"
+  }
+]
