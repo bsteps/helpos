@@ -231,7 +231,6 @@ test("AI review jobs never take instructions from the PR's own files", () => {
   assert.ok(review.includes('git checkout "$BASE_SHA" -- .claude'));
   assert.ok(review.includes('git ls-tree -r -z --name-only "$BASE_SHA"'), "nested base copies");
   assert.ok(review.includes("(CLAUDE|CLAUDE\\.local|AGENTS)\\.md$"), "every instruction file");
-  assert.ok(review.includes('xargs -0 -r git checkout "$BASE_SHA" --'));
 });
 
 test("AI review jobs judge against the current base branch, without the PR's symlinks", () => {
@@ -264,6 +263,11 @@ test("the AI check report counts only this run's comments and fails on a broken 
   assert.equal(review.split(labelMatch).length - 1, 2, "both lookups use the tolerant label match");
   assert.ok(!review.includes('startswith("**" + env.TITLE'), "no exact-prefix lookup left");
   assert.doesNotMatch(code(review), /\|\s*head\b/, "head can break a pipe under pipefail");
+  // Without glob magic, "**/x" needs a slash, so root-level files slip through.
+  for (const [, spec] of review.matchAll(/':\(exclude([^)]*)\)/g)) {
+    assert.equal(spec, ",glob", "diff exclusions use glob pathspecs");
+  }
+  assert.ok(review.includes("xargs -0 -r git --literal-pathspecs checkout"), "literal file names");
   assert.match(review, /status="Didn't finish[^"]*\$new finding/, "a partial run still reports");
   assert.equal(code(review).match(/git -c core\.quotepath=off diff/g)?.length, 2, "file names");
   assert.ok(review.includes(`PREP: ${expr("steps.prep.outcome")}`));

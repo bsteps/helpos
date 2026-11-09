@@ -81,7 +81,7 @@ jobs:
           skill=".claude/skills/$CHECK-check/SKILL.md"
           rules="docs/checks/$CHECK.md"
           if ! git cat-file -e "$BASE_SHA:$skill" 2>/dev/null || ! git cat-file -e "$BASE_SHA:$rules" 2>/dev/null; then
-            echo "::notice::$skill or $rules isn't on the base branch yet. Skipping."
+            echo "::warning::$skill or $rules isn't on the base branch, so this check didn't run."
             echo "run=missing" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -90,7 +90,7 @@ jobs:
 
           # Lockfiles and generated files only cost tokens.
           # --no-ext-diff/--no-textconv: never run diff helpers on PR content.
-          exclude=(':(exclude)pnpm-lock.yaml' ':(exclude)**/*.gen.ts' ':(exclude)apps/web/src/api/openapi.json' ':(exclude)packages/db/migrations/meta/**')
+          exclude=(':(exclude,glob)**/pnpm-lock.yaml' ':(exclude,glob)**/*.gen.ts' ':(exclude,glob)apps/web/src/api/openapi.json' ':(exclude,glob)packages/db/migrations/meta/**')
           # core.quotepath=off: non-ASCII file names stay readable, so Claude can open them.
           git -c core.quotepath=off diff --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" -- . "${exclude[@]}" > "$INPUTS/pr.diff"
           git -c core.quotepath=off diff --name-only "$BASE_SHA...$HEAD_SHA" -- . "${exclude[@]}" > "$INPUTS/files.txt"
@@ -125,7 +125,7 @@ jobs:
           fi
           git ls-tree -r -z --name-only "$BASE_SHA" \
             | { grep -zE '(^|/)(CLAUDE|CLAUDE\.local|AGENTS)\.md$' || true; } \
-            | xargs -0 -r git checkout "$BASE_SHA" --
+            | xargs -0 -r git --literal-pathspecs checkout "$BASE_SHA" --
 
           echo "run=true" >> "$GITHUB_OUTPUT"
 

@@ -1,7 +1,9 @@
 name: Claude
 
 # On-demand help: a maintainer starts an issue or PR comment with "@claude" (issue #111).
-# Only a comment that starts with it counts, so quoting or mentioning @claude costs nothing.
+# The job only starts for comments that begin with "@claude", so quoting it costs nothing. The
+# action then needs "@claude" as a whole word (followed by a space, punctuation or the end), so a
+# comment like "@claudette" stops before Claude starts: a few seconds of runner, no model call.
 #
 # Security (the repo is public and runs use the owner's Claude subscription):
 # - Only `issue_comment`, only from OWNER/MEMBER/COLLABORATOR humans (job `if:`), on top of
