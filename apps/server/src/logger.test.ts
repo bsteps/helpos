@@ -31,15 +31,19 @@ describe("logger", () => {
 });
 
 describe("logger: errors", () => {
-  // A Drizzle query error: the SQL parameters (an email address, a message body) are in its
-  // message, and the Postgres error is its cause.
+  // Shaped like drizzle-orm's DrizzleQueryError: the SQL parameters (an email address, a
+  // message body) are in its message and its own enumerable `params`, and the Postgres error
+  // is its cause.
   const queryError = () =>
-    new Error("Failed query: insert into messages\nparams: secret@customer.test,private body", {
-      cause: Object.assign(new Error("duplicate key"), {
-        code: "23505",
-        constraint_name: "messages_tenant_message_id",
+    Object.assign(
+      new Error("Failed query: insert into messages\nparams: secret@customer.test,private body", {
+        cause: Object.assign(new Error("duplicate key"), {
+          code: "23505",
+          constraint_name: "messages_tenant_message_id",
+        }),
       }),
-    });
+      { query: "insert into messages", params: ["secret@customer.test", "private body"] },
+    );
 
   it("logs a raw error as its summary, whichever way it's passed", () => {
     const { logger, output } = capture();
@@ -64,6 +68,8 @@ describe("logger: errors", () => {
     logger.warn({ results: [{ ok: false, reason: queryError() }] }, "batch failed");
     logger.info({ cause: queryError() }, "a key with no serializer");
     logger.error("format argument: %o", queryError());
+    logger.error("an object as a format argument: %o", { job: { lastError: queryError() } });
+    logger.error([queryError()]);
     expect(output()).not.toContain("secret@customer.test");
     expect(output()).not.toContain("private body");
     expect(output()).toContain("23505");
