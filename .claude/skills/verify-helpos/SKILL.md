@@ -51,6 +51,8 @@ Warnings (`warn`) name features that will not work: knowledge sources still `pen
 | `inbound` | the email provider | body `@fixtures/email/<name>.eml`; `support@acme.test` is swapped for the Northwind mailbox |
 | `none` | nobody | proves auth is required |
 
+**Placeholders instead of copied IDs.** `api.mjs` and `new-email.mjs` remember what they last created in `.helpos/verify/last.json`. Write `{ticket}`, `{draft}` (that ticket's draft, waiting for the AI if needed), `{draftBody}` (its exact text as a JSON string, for `'{"body":{draftBody}}'`), `{token}`, `{tokenId}` or `{source}` in the path, body or `<as>`. Never pipe `api.mjs` output into another `node` command: Git Bash runs `node` through `winpty`, which breaks pipes into it.
+
 No seed token has `tickets:write`, `knowledge:write` or `github:write` in Northwind. Use `owner`, or mint a token.
 
 **Dashboard.** Playwright from `apps/web` (browsers are already installed for it). Use roles and labels. They are stable, and the e2e suite in `apps/web/e2e/` uses the same ones:
@@ -65,6 +67,8 @@ const { chromium } = createRequire(process.cwd() + "/apps/web/package.json")("@p
 `$V/journey-reply.mjs` is a complete example of both surfaces. Copy its shape for a new journey.
 
 **New customer email.** `node $V/new-email.mjs [fixture] [--subject "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. The last line it prints is the ticket ID.
+
+**GitHub webhook.** `node $V/github-webhook.mjs <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]` signs and sends an `issues` event for the connected repo, since GitHub can't reach localhost.
 
 **Agent approval.** `node $V/approve-draft.mjs <ticketId | new>` reads the pending draft as `triage-bot`, approves that exact text as `approver-bot`, and waits for `sent`. `new` sends a fresh customer email first. Use it instead of piping `api.mjs` into other commands: Git Bash runs `node` through `winpty`, which breaks pipes into `node`.
 

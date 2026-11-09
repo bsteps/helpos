@@ -4,7 +4,7 @@
 //   node .claude/skills/verify-helpos/scripts/instance.mjs run -- <command…>
 //                                         run a command against this checkout's database and ports
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -64,6 +64,22 @@ export function instance() {
     embeddingsInEnv: Boolean(config.AI_EMBEDDING_PROVIDER),
     env: overrides.env,
   };
+}
+
+/**
+ * The last ticket, token and knowledge source the scripts created, so a person testing by hand
+ * writes `{ticket}` instead of copying IDs between commands.
+ */
+const lastFile = join(evidenceRoot, "last.json");
+export function lastCreated() {
+  return existsSync(lastFile) ? JSON.parse(readFileSync(lastFile, "utf8")) : {};
+}
+export function remember(values) {
+  mkdirSync(evidenceRoot, { recursive: true });
+  writeFileSync(lastFile, `${JSON.stringify({ ...lastCreated(), ...values }, null, 2)}\n`);
+  for (const [k, v] of Object.entries(values)) {
+    process.stderr.write(`(saved {${k}} = ${k === "token" ? `${v.slice(0, 8)}…` : v})\n`);
+  }
 }
 
 /** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */

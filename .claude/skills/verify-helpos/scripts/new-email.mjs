@@ -2,11 +2,11 @@
 // default) with a fresh Message-ID and a unique subject, so it is never a duplicate.
 //   node .claude/skills/verify-helpos/scripts/new-email.mjs [fixture] [--subject "text"]
 // fixture: a name in fixtures/email/ (attachment, xss, html…) or a path to any .eml file.
-// Prints the result, then the ticket id on the last line.
+// Prints the result, then the ticket id on the last line, and saves it as {ticket} for api.mjs.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { instance, repoRoot, requireRunning, seed } from "./instance.mjs";
+import { instance, remember, repoRoot, requireRunning, seed } from "./instance.mjs";
 
 export async function sendFreshEmail(inst, fixture = "plain", subject) {
   const named = join(repoRoot, "fixtures", "email", `${fixture.replace(/\.eml$/, "")}.eml`);
@@ -51,4 +51,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   process.stdout.write(`${status} ${json.status ?? json.error}: "${sent}"\n`);
   if (!json.ticketId) process.exit(1);
   process.stdout.write(`${json.ticketId}\n`);
+  remember({ ticket: json.ticketId });
 }
