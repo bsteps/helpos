@@ -25,8 +25,10 @@ test("a pending draft is discarded, and the AI writes a new one", async ({ page,
   ).toBeVisible();
   await expect(page.getByTestId("draft-body")).toBeHidden();
   await expect(page.getByRole("button", { name: "Approve & send" })).toBeHidden();
+  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
   await page.reload();
   await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeVisible();
+  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
 
   await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByText("Waiting for approval")).toBeVisible();
