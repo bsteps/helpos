@@ -9,9 +9,13 @@ const webDir = join(resolve(dirname(fileURLToPath(import.meta.url)), "../../../.
 const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
 
 /**
- * Whether a listening process is this checkout's HelpOS: the API (`src/main.ts`, whose command
- * line carries no path; the ports are this checkout's own, derived from its path), or this
+ * Whether a listening process is this checkout's HelpOS: the API (`src/main.ts`), or this
  * checkout's own Vite. Another project's Vite is not.
+ *
+ * The API's command line carries no path, and neither Windows nor ps shows a process's working
+ * directory, so another project's `src/main.ts` on the same port would pass. That only labels it
+ * in doctor, whose health and proxy checks then fail on it: launch refuses any held port, and
+ * cleanup stops only pids that launch recorded below its own child.
  */
 function isHelposListener(cmd) {
   if (/src[\\/]main\.ts/.test(cmd)) return true;
@@ -119,7 +123,17 @@ export function descendsFrom(pid, ancestor) {
  * so `node --watch` can't restart the child it watches and nothing above our own tree is touched.
  */
 export function stopTree(top) {
-  if (windows) sh("taskkill", ["/PID", String(top), "/T", "/F"]);
-  else sh("kill", ["-TERM", String(top)]);
+  if (windows) {
+    sh("taskkill", ["/PID", String(top), "/T", "/F"]);
+    return top;
+  }
+  // kill signals one process, so the tree is listed first, then signalled top down: a parent
+  // that restarts its child (`node --watch`) is gone before the child is.
+  const all = [...processTable().values()];
+  const tree = [top];
+  for (let i = 0; i < tree.length; i++) {
+    for (const p of all) if (p.parent === tree[i]) tree.push(p.pid);
+  }
+  for (const pid of tree) sh("kill", ["-TERM", String(pid)]);
   return top;
 }
