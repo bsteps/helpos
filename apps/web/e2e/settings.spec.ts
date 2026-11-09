@@ -35,7 +35,7 @@ test("an owner changes the shadow recipient, and the next approved reply goes th
     await page.getByRole("link", { name: subject }).click();
     await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
     await page.getByRole("button", { name: "Approve & send" }).click();
-    await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Sent", { exact: true })).toBeVisible();
 
     const mail = await waitForMail(request, `Re: ${subject}`);
     expect(mail.to).toEqual([reviewer]);
@@ -64,6 +64,9 @@ test("turning shadow mode off asks first, and while the server locks it shows wh
   await expect(page.getByText("Turn off shadow mode?")).toBeVisible();
   await expect(page.getByText("doesn't allow turning shadow mode off")).toBeHidden();
 });
+
+type Paused = { paused: boolean };
+type PausedTicket = { aiPausedReason: string | null };
 
 const tokens = async (page: Page, testId: string): Promise<number> =>
   Number(((await page.getByTestId(testId).textContent()) ?? "").replace(/\D/g, ""));
@@ -111,21 +114,29 @@ test("when drafting uses up the daily budget, Settings and the next ticket show 
     plainEmail(uniqueSubject("Spent budget"), "Hi, where is my bike?", budgetMailbox),
   );
 
+  await expect
+    .poll(async () => ((await (await page.request.get("/v1/ai-usage")).json()) as Paused).paused)
+    .toBe(true);
   await openSettings(page);
-  await expect(async () => {
-    await page.reload();
-    await expect(page.getByText("Paused", { exact: true })).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
+  await expect(page.getByText("Paused", { exact: true })).toBeVisible();
   await expect(page.getByTestId("ai-usage-remaining")).toHaveText("0");
   await expect(page.getByText("Drafting is paused")).toBeVisible();
 
   const subject = uniqueSubject("After the budget");
-  await deliver(request, plainEmail(subject, "Hi, can you help me?", budgetMailbox));
+  const ticketId = await deliver(
+    request,
+    plainEmail(subject, "Hi, can you help me?", budgetMailbox),
+  );
+  await expect
+    .poll(
+      async () =>
+        ((await (await page.request.get(`/v1/tickets/${ticketId}`)).json()) as PausedTicket)
+          .aiPausedReason,
+    )
+    .toBe("daily_budget");
+  await page.goto("/");
   const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: subject }) });
-  await expect(async () => {
-    await page.goto("/");
-    await expect(row.getByText("AI paused")).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
+  await expect(row.getByText("AI paused")).toBeVisible();
   await row.getByRole("link", { name: subject }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Today's AI budget for this workspace is spent",
