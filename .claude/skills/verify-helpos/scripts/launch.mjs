@@ -51,18 +51,32 @@ process.stdout.write(
   `verify-helpos: API ${inst.apiUrl}  dashboard ${inst.webUrl}  db ${inst.dbName}  AI cap ${env.HELPOS_AI_DAILY_TOKEN_BUDGET} tokens/day\n`,
 );
 const child = spawn("pnpm dev", { stdio: "inherit", shell: true, cwd: repoRoot, env });
-child.on("exit", (code) => process.exit(code ?? 1));
+let running = true;
+// exitCode, not exit(): exiting while a fetch's socket closes crashes libuv on Windows.
+child.on("exit", (code) => {
+  running = false;
+  process.exitCode = code ?? 1;
+});
 
 // Record which processes this launch started (those below its own child), so cleanup.mjs stops
-// only those.
-const deadline = Date.now() + 240_000;
-let recorded = false;
-while (Date.now() < deadline) {
+// only those. Polls for as long as pnpm dev runs: a slow first start is still recorded.
+const startedAt = Date.now();
+let warned = false;
+while (running) {
   await new Promise((r) => setTimeout(r, 2000));
   const found = ports.map((port) =>
     listeners(port).filter((l) => l.helpos && descendsFrom(l.pid, child.pid)),
   );
-  if (found.some((f) => f.length === 0)) continue;
+  if (found.some((f) => f.length === 0)) {
+    if (!warned && Date.now() - startedAt > 240_000) {
+      warned = true;
+      process.stdout.write(
+        "verify-helpos: still waiting for the API and dashboard after 240s; " +
+          "until both are up, pnpm app:stop has nothing recorded to stop.\n",
+      );
+    }
+    continue;
+  }
   const pids = found.flat().flatMap((l) => helposChain(l.pid, { stopAt: child.pid }));
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(
@@ -70,12 +84,5 @@ while (Date.now() < deadline) {
     `${JSON.stringify({ launchPid: process.pid, startedAt: new Date().toISOString(), pids }, null, 2)}\n`,
   );
   process.stdout.write(`verify-helpos: recorded pids ${pids.join(",")} in ${launchRecord}\n`);
-  recorded = true;
   break;
-}
-if (!recorded) {
-  process.stdout.write(
-    "verify-helpos: the API and dashboard didn't both come up in 240s, so nothing was recorded " +
-      "and pnpm app:stop won't stop them. Check pnpm app:doctor.\n",
-  );
 }

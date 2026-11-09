@@ -6,15 +6,21 @@ import { fileURLToPath } from "node:url";
 
 const windows = process.platform === "win32";
 const webDir = join(resolve(dirname(fileURLToPath(import.meta.url)), "../../../.."), "apps", "web");
+const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
 
 /**
- * Whether a command line is part of this checkout's HelpOS: the API (`src/main.ts`), the pnpm
- * filters that start it, or this checkout's own Vite. Any other project's Vite is not.
+ * Whether a listening process is this checkout's HelpOS: the API (`src/main.ts`, whose command
+ * line carries no path; the ports are this checkout's own, derived from its path), or this
+ * checkout's own Vite. Another project's Vite is not.
  */
-function isHelposCommand(cmd) {
-  if (/src[\\/]main\.ts|--filter @helpos[\\/]|\/c vite --port \d+$/.test(cmd)) return true;
-  const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
+function isHelposListener(cmd) {
+  if (/src[\\/]main\.ts/.test(cmd)) return true;
   return /[\\/]vite[\\/]bin[\\/]vite\.js/.test(cmd) && sameCase(cmd).includes(sameCase(webDir));
+}
+
+/** A listener, or one of the wrappers that start it: the @helpos pnpm filters and Vite's shim. */
+function isHelposCommand(cmd) {
+  return isHelposListener(cmd) || /--filter @helpos[\\/]|\/c vite --port \d+$/.test(cmd);
 }
 
 function sh(file, args) {
@@ -25,19 +31,38 @@ function sh(file, args) {
   }
 }
 
-function processInfo(pid) {
+/**
+ * Every process at once (pid, parent, command line), kept for a second. One PowerShell call per
+ * process took about a second each on Windows, and a chain walk needs a dozen.
+ */
+let snapshot;
+function processTable() {
+  if (snapshot && Date.now() - snapshot.at < 1000) return snapshot.byPid;
+  const byPid = new Map();
+  const add = (pid, parent, cmd) => byPid.set(pid, { pid, parent, cmd: (cmd ?? "").trim() });
   if (windows) {
     const out = sh("powershell", [
       "-NoProfile",
       "-Command",
-      `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p) { "$($p.ParentProcessId)"; $p.CommandLine }`,
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress",
     ]);
-    const [parent, ...cmd] = out.split(/\r?\n/);
-    return parent ? { pid, parent: Number(parent), cmd: cmd.join(" ").trim() } : undefined;
+    let rows = [];
+    try {
+      rows = [JSON.parse(out || "[]")].flat();
+    } catch {}
+    for (const p of rows) add(p.ProcessId, p.ParentProcessId, p.CommandLine);
+  } else {
+    for (const line of sh("ps", ["-A", "-o", "pid=,ppid=,command="]).split("\n")) {
+      const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+      if (match) add(Number(match[1]), Number(match[2]), match[3]);
+    }
   }
-  const out = sh("ps", ["-o", "ppid=,command=", "-p", String(pid)]).trim();
-  const match = /^(\d+)\s+(.*)$/.exec(out);
-  return match ? { pid, parent: Number(match[1]), cmd: match[2] } : undefined;
+  snapshot = { at: Date.now(), byPid };
+  return byPid;
+}
+
+function processInfo(pid) {
+  return processTable().get(pid);
 }
 
 export function listeners(port) {
@@ -59,7 +84,7 @@ export function listeners(port) {
   }
   return [...pids].map((pid) => {
     const info = processInfo(pid);
-    return { pid, cmd: info?.cmd ?? "", helpos: isHelposCommand(info?.cmd ?? "") };
+    return { pid, cmd: info?.cmd ?? "", helpos: isHelposListener(info?.cmd ?? "") };
   });
 }
 
