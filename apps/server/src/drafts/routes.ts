@@ -17,7 +17,7 @@ import {
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
-import { apiRoute } from "../auth/access.ts";
+import { apiRoute, Grant } from "../auth/access.ts";
 import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
@@ -247,11 +247,24 @@ const createDraftRoute = apiRoute({
   },
 });
 
+/**
+ * What a draft shows about the knowledge it was written from. Only a caller with
+ * `knowledge:read` may see it, so building one needs that grant.
+ */
+interface DraftKnowledge {
+  grant: Grant<"knowledge:read">;
+  sources: DraftSourceJson[];
+  /**
+   * Whether the body quotes an internal note. With the flag alone, someone who can edit
+   * drafts could guess text, save it, and watch the flag to piece the note together.
+   */
+  quotesInternalNote: boolean;
+}
+
 function serialize(
   d: DraftRow,
-  sources: DraftSourceJson[],
   internalKnowledge: boolean,
-  quotesInternalNote: boolean,
+  knowledge: DraftKnowledge | null,
 ): DraftJson {
   return {
     id: d.id,
@@ -264,9 +277,9 @@ function serialize(
     updatedAt: d.updatedAt.toISOString(),
     approvedAt: d.approvedAt?.toISOString() ?? null,
     sentAt: d.sentAt?.toISOString() ?? null,
-    sources,
+    sources: knowledge?.sources ?? [],
     internalKnowledge,
-    quotesInternalNote,
+    quotesInternalNote: knowledge?.quotesInternalNote ?? false,
   };
 }
 
@@ -277,7 +290,7 @@ function serialize(
  */
 async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Promise<DraftJson[]> {
   if (rows.length === 0) return [];
-  const canRead = principal.scopes.has("knowledge:read");
+  const grant = Grant.check(principal, "knowledge:read");
   // Every passage the model was shown, cited or not (the `cited` column tells them apart).
   const shown = await tx
     .select({
@@ -303,11 +316,12 @@ async function present(tx: TenantTx, principal: Principal, rows: DraftRow[]): Pr
     const internal = seen.filter((c) => c.visibility === "internal").map((c) => c.excerpt);
     return serialize(
       row,
-      canRead ? seen.map(({ draftId: _, ...source }) => source) : [],
       internal.length > 0,
-      // Only with knowledge:read: otherwise someone who can edit drafts could guess text, save
-      // it, and watch the flag to piece the note together.
-      canRead && quotesInternalPassage(row.body, internal),
+      grant && {
+        grant,
+        sources: seen.map(({ draftId: _, ...source }) => source),
+        quotesInternalNote: quotesInternalPassage(row.body, internal),
+      },
     );
   });
 }

@@ -20,6 +20,28 @@ export type Access =
   | { readonly anyCaller: string }
   | { readonly noCaller: string };
 
+/**
+ * Proof that a caller holds `scope`. Only `Grant.check()` makes one, so a function that takes a
+ * Grant can't be reached without checking. Use it for data that a route shows only to some of
+ * its callers (a draft's knowledge sources need `knowledge:read`).
+ */
+export class Grant<S extends Scope> {
+  // A true private field makes the type nominal: an object literal can't pass for a Grant.
+  readonly #scope: S;
+
+  private constructor(scope: S) {
+    this.#scope = scope;
+  }
+
+  get scope(): S {
+    return this.#scope;
+  }
+
+  static check<S extends Scope>(principal: Principal, scope: S): Grant<S> | null {
+    return principal.scopes.has(scope) ? new Grant(scope) : null;
+  }
+}
+
 /** Why `principal` may not call a route with `access`, or null when it may. */
 export function accessRefusal(
   access: Access,
