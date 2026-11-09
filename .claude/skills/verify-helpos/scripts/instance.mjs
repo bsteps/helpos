@@ -91,6 +91,8 @@ export function remember(values) {
  * The thrown Quit is swallowed below and Node then exits normally with the code.
  */
 class Quit extends Error {}
+/** Whether `error` is quit() stopping the script: rethrow it, never report it as a failure. */
+export const isQuit = (error) => error instanceof Quit;
 process.on("uncaughtException", (error) => {
   if (error instanceof Quit) return;
   process.stderr.write(`${error?.stack ?? error}\n`);

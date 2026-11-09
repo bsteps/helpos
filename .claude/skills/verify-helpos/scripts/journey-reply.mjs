@@ -5,7 +5,15 @@
 //   node .claude/skills/verify-helpos/scripts/journey-reply.mjs --via api|web [--headed]
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { evidenceRoot, instance, quit, requireRunning, seed, seedToken } from "./instance.mjs";
+import {
+  evidenceRoot,
+  instance,
+  isQuit,
+  quit,
+  requireRunning,
+  seed,
+  seedToken,
+} from "./instance.mjs";
 
 const via = process.argv[process.argv.indexOf("--via") + 1];
 if (via !== "api" && via !== "web") {
@@ -127,6 +135,8 @@ if (via === "api") {
     record("clicked Approve & send; the page says Sent", {});
   } catch (error) {
     await page.screenshot({ path: join(dir, "failure.png"), fullPage: true }).catch(() => {});
+    // A fail() inside the try already wrote its own reason to FAILED.txt: keep it.
+    if (isQuit(error)) throw error;
     fail(`dashboard step failed: ${error.message.split("\n")[0]}`);
   } finally {
     await browser.close();
