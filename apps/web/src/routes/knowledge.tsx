@@ -130,6 +130,14 @@ function problem(error: unknown, failed: string, invalid: string): string {
   return `${failed} Try again.`;
 }
 
+/** A form's error is about what was sent, so it goes once any field changes. */
+function afterReset<T>(reset: () => void, set: (value: T) => void) {
+  return (value: T) => {
+    reset();
+    set(value);
+  };
+}
+
 function AddSource({ onDone }: { onDone: () => void }) {
   const add = useAddKnowledgeSource();
   const [kind, setKind] = useState<KnowledgeSource["kind"]>("markdown");
@@ -138,13 +146,6 @@ function AddSource({ onDone }: { onDone: () => void }) {
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("internal");
 
-  // An error is about what was sent, so it goes once any field changes.
-  const edited =
-    <T,>(set: (value: T) => void) =>
-    (value: T) => {
-      add.reset();
-      set(value);
-    };
   const ready = title.trim() !== "" && (kind === "url" ? url.trim() !== "" : content.trim() !== "");
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -190,7 +191,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
           <Input
             label="Title"
             value={title}
-            onChange={edited(setTitle)}
+            onChange={afterReset(add.reset, setTitle)}
             required
             disabled={add.isPending}
           />
@@ -200,7 +201,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
               type="url"
               placeholder="https://…"
               value={url}
-              onChange={edited(setUrl)}
+              onChange={afterReset(add.reset, setUrl)}
               required
               disabled={add.isPending}
             />
@@ -208,7 +209,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
             <Textarea
               label="Content"
               value={content}
-              onChange={edited(setContent)}
+              onChange={afterReset(add.reset, setContent)}
               rows={6}
               required
               disabled={add.isPending}
@@ -218,7 +219,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
             label="Visibility"
             value={visibility}
             options={visibilityOptions}
-            onChange={edited(setVisibility)}
+            onChange={afterReset(add.reset, setVisibility)}
             disabled={add.isPending}
           />
           {add.isError ? (
@@ -326,14 +327,22 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             </AlertContent>
           </Alert>
         ) : null}
-        {reingest.isError || remove.isError ? (
+        {reingest.isError ? (
           <Alert variant="destructive">
             <AlertIcon />
             <AlertContent>
               <AlertDescription>
-                {reingest.isError
-                  ? problem(reingest.error, "Couldn't read it again.", "Try again.")
-                  : problem(remove.error, "Couldn't delete it.", "Try again.")}
+                {problem(reingest.error, "Couldn't read it again.", "Try again.")}
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : null}
+        {remove.isError ? (
+          <Alert variant="destructive">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>
+                {problem(remove.error, "Couldn't delete it.", "Try again.")}
               </AlertDescription>
             </AlertContent>
           </Alert>
@@ -416,7 +425,9 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   const changed = Object.keys(body).length > 0;
   const onlySpaces = content !== "" && content.trim() === "";
   // Not after this person's own save, which changes it too before the form closes.
-  const changedMeanwhile = (edit.isIdle || edit.isError) && source.updatedAt !== opened.updatedAt;
+  const changedMeanwhile =
+    (edit.isIdle || edit.isError) &&
+    (source.title !== opened.title || source.visibility !== opened.visibility);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -435,12 +446,18 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           </AlertContent>
         </Alert>
       ) : null}
-      <Input label="Title" value={title} onChange={setTitle} required disabled={edit.isPending} />
+      <Input
+        label="Title"
+        value={title}
+        onChange={afterReset(edit.reset, setTitle)}
+        required
+        disabled={edit.isPending}
+      />
       <Select
         label="Visibility"
         value={visibility}
         options={visibilityOptions}
-        onChange={setVisibility}
+        onChange={afterReset(edit.reset, setVisibility)}
         disabled={edit.isPending}
       />
       {source.kind === "markdown" ? (
@@ -448,7 +465,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           label="Replace content"
           placeholder="Leave empty to keep the current text"
           value={content}
-          onChange={setContent}
+          onChange={afterReset(edit.reset, setContent)}
           rows={6}
           error={
             onlySpaces
