@@ -49,7 +49,11 @@ const triageScopes = await seedTokenScopes("northwind:triage-bot");
 /** The shadow recipient before the selftest changed it, and whether it was put back. */
 let shadowRecipient;
 let shadowRestored = false;
+let restored = false;
 function restoreSaved() {
+  // Once: Ctrl+C restores, then the exit that follows must not do it again.
+  if (restored) return;
+  restored = true;
   if (saved === undefined) rmSync(lastFile, { force: true });
   else {
     writeFileSync(lastFile, saved);

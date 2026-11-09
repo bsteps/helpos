@@ -18,16 +18,26 @@ export const launchRecord = join(evidenceRoot, "instance.json");
  */
 export const stateRoot = join(repoRoot, ".helpos", "verify-state");
 
+/**
+ * The pids launch.mjs recorded that still run the command they were recorded with. Windows
+ * reuses pids, so a pid alone could name some later, unrelated process.
+ */
 export function launchedPids() {
   if (!existsSync(launchRecord)) return new Set();
+  let record;
   // Cut short (launch killed while writing): treat it as no record, so nothing is stopped by it.
   try {
-    return new Set(JSON.parse(readFileSync(launchRecord, "utf8")).pids);
+    record = JSON.parse(readFileSync(launchRecord, "utf8"));
   } catch {
     return new Set();
   }
+  const still = (record.processes ?? []).filter((p) => commandOf(p.pid) === p.cmd);
+  return new Set(still.map((p) => p.pid));
 }
 
+const { commandOf } = await import(
+  pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "processes.mjs")).href
+);
 const { isWorktree } = await import(pathToFileURL(join(repoRoot, "scripts/worktree.mjs")).href);
 const { isLocalDatabaseUrl, isolationFor, isolatedEnv, parseEnv } = await import(
   pathToFileURL(join(repoRoot, "scripts/worktree-env.mjs")).href
@@ -38,19 +48,27 @@ export const { brand } = await import(
   pathToFileURL(join(repoRoot, "packages/brand/src/index.ts")).href
 );
 
-// Every helper imports this file, so this one place gives all their requests a time limit:
-// a server that accepts a connection and never answers must fail the step, not hang it.
-const plainFetch = globalThis.fetch;
-globalThis.fetch = async (url, init = {}) => {
-  // A caller with its own signal (a 2s probe) keeps it, and its own TimeoutError.
-  if (init.signal) return plainFetch(url, init);
+/**
+ * fetch() with a 30s limit, for every helper request: a server that accepts a connection and
+ * never answers must fail the step, not hang it. A caller's own signal (a 2s probe) wins.
+ */
+export async function apiFetch(url, init = {}) {
+  if (init.signal) return fetch(url, init);
   try {
-    return await plainFetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
   } catch (error) {
     if (error?.name !== "TimeoutError") throw error;
-    throw new Error(`${init.method ?? "GET"} ${url} didn't answer within 30 seconds`);
+    throw new Error(`${init.method ?? "GET"} ${String(url)} didn't answer within 30 seconds`);
   }
-};
+}
+
+/** The inbound provider's credentials, or a plain stop when .env has no inbound secret. */
+export function inboundHeaders(inst) {
+  if (!inst.inboundSecret) {
+    quit(1, "HELPOS_INBOUND_SECRET isn't set in .env, so no email can be delivered.");
+  }
+  return { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" };
+}
 
 /** Demo tokens from apps/server/src/seed/demo-data.ts. They are public by design: local DBs only. */
 export const seed = {
@@ -111,8 +129,13 @@ export function instance() {
   // In a worktree, isolatedEnv() checked these. The main checkout uses .env as written, and the
   // helpers set a known demo password and seed tokens, so it must be a local database too, and
   // named: unset, the server would fall back to whatever its driver defaults to.
-  if (!config.HELPOS_DATABASE_URL) {
-    throw new Error("Refusing to drive this checkout: HELPOS_DATABASE_URL is not set");
+  // AUTH_URL alone is optional, as in a worktree.
+  for (const name of [
+    "HELPOS_DATABASE_URL",
+    "HELPOS_DATABASE_OWNER_URL",
+    "HELPOS_DATABASE_JOBS_URL",
+  ]) {
+    if (!config[name]) throw new Error(`Refusing to drive this checkout: ${name} is not set`);
   }
   const remote = Object.entries(config).find(
     ([name, value]) => /^HELPOS_DATABASE_\w*URL$/.test(name) && value && !isLocalDatabaseUrl(value),
@@ -124,8 +147,14 @@ export function instance() {
     repoRoot,
     // A worktree's own database; in the main checkout, whichever one .env or the shell names.
     dbName: isolation.dbName ?? new URL(config.HELPOS_DATABASE_URL).pathname.slice(1),
-    apiUrl: `http://localhost:${isolation.serverPort}`,
-    webUrl: `http://localhost:${isolation.webPort}`,
+    // A worktree's ports are its own; the main checkout's come from .env or the shell, as the
+    // server's and the dashboard's do.
+    apiUrl: isolation.isolated
+      ? `http://localhost:${isolation.serverPort}`
+      : `http://localhost:${config.HELPOS_PORT ?? isolation.serverPort}`,
+    webUrl: isolation.isolated
+      ? `http://localhost:${isolation.webPort}`
+      : (config.HELPOS_PUBLIC_URL ?? `http://localhost:${isolation.webPort}`).replace(/\/+$/, ""),
     mailpitUrl: "http://localhost:8025",
     inboundSecret: config.HELPOS_INBOUND_SECRET,
     embeddingsInEnv: Boolean(config.AI_EMBEDDING_PROVIDER),
@@ -156,7 +185,11 @@ export function lastCreated() {
     return {};
   }
 }
-export function remember(values) {
+export function remember(given) {
+  // An answer without the field (a token with no id) saves nothing, rather than "undefined".
+  const values = Object.fromEntries(
+    Object.entries(given).filter(([, v]) => typeof v === "string" && v !== ""),
+  );
   mkdirSync(stateRoot, { recursive: true });
   writeFileSync(lastFile, `${JSON.stringify({ ...lastCreated(), ...values }, null, 2)}\n`);
   for (const [k, v] of Object.entries(values)) {
@@ -204,7 +237,7 @@ export async function whyNoDraft(inst, ticketId, token) {
  * the script with the status, instead of looking like "nothing yet" or a stack trace.
  */
 export async function getJson(inst, path, headers) {
-  const res = await fetch(`${inst.apiUrl}${path}`, { headers });
+  const res = await apiFetch(`${inst.apiUrl}${path}`, { headers });
   const text = await res.text();
   let json;
   try {
@@ -224,11 +257,11 @@ export async function ownerCookie(inst) {
   const file = join(stateRoot, "owner-session.txt");
   if (existsSync(file)) {
     const cookie = readFileSync(file, "utf8").trim();
-    const me = await fetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } });
+    const me = await apiFetch(`${inst.apiUrl}/v1/me`, { headers: { cookie } });
     await me.body?.cancel();
     if (me.status === 200) return cookie;
   }
-  const res = await fetch(`${inst.apiUrl}/v1/auth/sign-in`, {
+  const res = await apiFetch(`${inst.apiUrl}/v1/auth/sign-in`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: inst.webUrl },
     body: JSON.stringify({ email: seed.northwind.owner, password: seed.northwind.ownerPassword }),
@@ -294,7 +327,7 @@ export function runCommand([program, ...args], inst, options = {}) {
 
 /** Stops a script with a plain answer, not a fetch stack trace, when the app isn't up. */
 export async function requireRunning(inst) {
-  const up = await fetch(`${inst.apiUrl}/health`, { signal: AbortSignal.timeout(3000) })
+  const up = await apiFetch(`${inst.apiUrl}/health`, { signal: AbortSignal.timeout(3000) })
     .then((r) => r.ok)
     .catch(() => false);
   if (up) return;

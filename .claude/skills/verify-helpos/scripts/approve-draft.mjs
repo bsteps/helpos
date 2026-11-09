@@ -3,6 +3,7 @@
 //   node .claude/skills/verify-helpos/scripts/approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]
 // `new` first sends a fresh customer email and uses its ticket. Defaults: reader northwind:triage-bot, approver northwind:approver-bot.
 import {
+  apiFetch,
   flagArg,
   instance,
   quit,
@@ -48,7 +49,7 @@ const reader = await token(opt("--reader", "northwind:triage-bot"));
 const approver = await token(opt("--approver", "northwind:approver-bot"));
 
 async function call(method, path, bearer, body) {
-  const res = await fetch(`${inst.apiUrl}${path}`, {
+  const res = await apiFetch(`${inst.apiUrl}${path}`, {
     method,
     headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
     body: body && JSON.stringify(body),

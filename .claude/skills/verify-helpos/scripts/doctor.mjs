@@ -4,6 +4,7 @@
 // is saved for the other helpers, as theirs would be.
 //   node .claude/skills/verify-helpos/scripts/doctor.mjs [--wait <seconds>]
 import {
+  apiFetch,
   brand,
   flagArg,
   instance,
@@ -20,7 +21,7 @@ const waitSeconds = Number(flagArg(process.argv, "--wait") ?? 0);
 if (!Number.isFinite(waitSeconds) || waitSeconds < 0) quit(2, "--wait takes a number of seconds");
 
 async function get(url, init = {}) {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(5000) });
+  const res = await apiFetch(url, { ...init, signal: AbortSignal.timeout(5000) });
   const text = await res.text();
   let body;
   try {
@@ -110,9 +111,12 @@ const checks = [
     warn: true,
     run: async () => {
       const token = await seedToken("northwind:triage-bot");
-      const { body } = await get(`${inst.apiUrl}/v1/ai-usage`, {
+      const { status, body } = await get(`${inst.apiUrl}/v1/ai-usage`, {
         headers: { authorization: `Bearer ${token}` },
       });
+      if (status !== 200 || typeof body.remainingTokens !== "number") {
+        return { ok: false, detail: `GET /v1/ai-usage → ${status} ${JSON.stringify(body)}` };
+      }
       return {
         ok: !body.paused && body.remainingTokens >= 30_000,
         detail: body.paused

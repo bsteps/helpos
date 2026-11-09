@@ -7,8 +7,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
+  apiFetch,
   evidenceRoot,
   flagArg,
+  inboundHeaders,
   instance,
   isQuit,
   quit,
@@ -52,7 +54,7 @@ async function until(what, seconds, probe) {
 
 const reader = await seedToken("northwind:triage-bot");
 async function api(path, token = reader, init = {}) {
-  const res = await fetch(`${inst.apiUrl}${path}`, {
+  const res = await apiFetch(`${inst.apiUrl}${path}`, {
     ...init,
     headers: {
       authorization: `Bearer ${token}`,
@@ -89,9 +91,9 @@ const raw = [
   "Hi, how long does standard delivery take to Germany?",
   "",
 ].join("\r\n");
-const inbound = await fetch(`${inst.apiUrl}/v1/inbound/email`, {
+const inbound = await apiFetch(`${inst.apiUrl}/v1/inbound/email`, {
   method: "POST",
-  headers: { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" },
+  headers: inboundHeaders(inst),
   body: raw,
 });
 const delivered = await jsonOf(inbound, "POST /v1/inbound/email");
@@ -177,14 +179,14 @@ const sent = await until("the draft to be sent", 60, async () => {
 record("draft is sent", { status: sent.status, sentAt: sent.sentAt });
 
 const mail = await until("Mailpit to catch the reply", 30, async () => {
-  const res = await fetch(
+  const res = await apiFetch(
     `${inst.mailpitUrl}/api/v1/search?query=${encodeURIComponent(`subject:"Re: ${subject}"`)}`,
   );
   const { messages } = await jsonOf(res, "Mailpit search");
   return messages?.[0];
 });
 const detail = await jsonOf(
-  await fetch(`${inst.mailpitUrl}/api/v1/message/${mail.ID}`),
+  await apiFetch(`${inst.mailpitUrl}/api/v1/message/${mail.ID}`),
   "Mailpit message",
 );
 writeFileSync(join(dir, "mail.json"), `${JSON.stringify(detail, null, 2)}\n`);

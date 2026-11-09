@@ -17,7 +17,9 @@
 // Exit code 0 for a 2xx answer, 1 otherwise.
 import { readFileSync } from "node:fs";
 import {
+  apiFetch,
   getJson,
+  inboundHeaders,
   instance,
   lastCreated,
   ownerCookie,
@@ -49,14 +51,16 @@ const last = lastCreated();
 const placeholder = /\{(ticket|draft|draftBody|token|tokenId|source)\}/g;
 // A JSON body file may use them too (`@body.json` with {"body":{draftBody}}); an .eml is sent as is.
 const bodyFile = argv[3]?.startsWith("@") ? argv[3].slice(1) : undefined;
-if (bodyFile?.endsWith(".eml") && argv[0] !== "inbound") {
+// An email body: anything sent as inbound, or any .eml (`none` sends one to prove the inbound
+// endpoint wants its secret). Sent as its bytes, with no placeholders, and only to that endpoint.
+const emailBody = bodyFile && (argv[0] === "inbound" || bodyFile.endsWith(".eml"));
+if (emailBody && argv[2]?.replace(/^\/+/, "") !== "v1/inbound/email") {
   quit(
     2,
-    "An .eml body is an email: send it as inbound (api.mjs inbound POST v1/inbound/email @file).",
+    "An email body goes to the inbound endpoint: api.mjs inbound POST v1/inbound/email @file",
   );
 }
-// For inbound the file is an email, whatever its name: sent as its bytes, with no placeholders.
-const fileText = bodyFile && argv[0] !== "inbound" ? readFileSync(bodyFile, "utf8") : undefined;
+const fileText = bodyFile && !emailBody ? readFileSync(bodyFile, "utf8") : undefined;
 const placeholders = `${argv.join(" ")} ${fileText ?? ""}`.match(placeholder) ?? [];
 // A saved value is an ID or a token; anything else in it (a hand-edited last.json) is refused,
 // since it would be pasted into a path or JSON as it is.
@@ -74,7 +78,7 @@ for (const key of new Set(placeholders.map((p) => p.slice(1, -1)))) {
 const values = { ...last };
 // A body that can't be JSON fails now, not after two minutes of waiting for the AI's draft.
 const jsonBody = fileText ?? (argv[3]?.startsWith("@") ? undefined : argv[3]);
-if (jsonBody !== undefined && argv[0] !== "inbound") {
+if (jsonBody !== undefined && !emailBody && argv[0] !== "inbound") {
   const sample = jsonBody.replace(placeholder, (_, key) => (key === "draftBody" ? '"x"' : "x"));
   try {
     JSON.parse(sample);
@@ -140,7 +144,7 @@ if (as === "inbound") {
   if (Buffer.isBuffer(body)) {
     body = body.toString("utf8").replaceAll("support@acme.test", seed.northwind.mailbox);
   }
-  headers.authorization = `Bearer ${inst.inboundSecret}`;
+  headers.authorization = inboundHeaders(inst).authorization;
   headers["content-type"] = "message/rfc822";
 } else {
   if (body !== undefined) headers["content-type"] = "application/json";
@@ -155,7 +159,11 @@ if (as === "inbound") {
 if (Buffer.isBuffer(body) && headers["content-type"] === "application/json")
   body = body.toString("utf8");
 
-const res = await fetch(`${inst.apiUrl}${path}`, { method: method.toUpperCase(), headers, body });
+const res = await apiFetch(`${inst.apiUrl}${path}`, {
+  method: method.toUpperCase(),
+  headers,
+  body,
+});
 const text = await res.text();
 let shown = text;
 try {
@@ -190,7 +198,10 @@ async function waitForDraft(ticket) {
     });
     const live = drafts.filter((d) => d.status !== "discarded");
     const pending = live.filter((d) => d.status === "pending");
-    const draft = pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1);
+    // A live draft first; with only discarded ones left, the newest of those, so a step can
+    // still act on it (retrying a discarded draft must answer 409, not wait for a new one).
+    const draft =
+      pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1) ?? drafts.at(-1);
     if (draft) return draft;
     const why = await whyNoDraft(inst, ticket, reader);
     if (why) quit(1, `No draft on ticket ${ticket}: ${why}.`);

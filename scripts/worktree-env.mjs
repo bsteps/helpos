@@ -40,6 +40,8 @@ export function isLocalDatabaseUrl(raw) {
 }
 
 function isLocalUrl(url) {
+  // hostaddr wins over the host name in libpq-style clients, so any value is a way around this.
+  if (url.searchParams.has("hostaddr")) return false;
   const host = url.searchParams.get("host");
   // postgres:///db?host=/var/run/postgresql is a Unix socket on this machine: local too.
   if (url.hostname === "" && host?.startsWith("/")) return true;

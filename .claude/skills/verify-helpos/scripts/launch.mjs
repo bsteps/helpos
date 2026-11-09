@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import {
+  apiFetch,
   brand,
   evidenceRoot,
   instance,
@@ -13,7 +14,7 @@ import {
   quit,
   repoRoot,
 } from "./instance.mjs";
-import { descendsFrom, helposChain, listeners } from "./processes.mjs";
+import { commandOf, descendsFrom, helposChain, listeners } from "./processes.mjs";
 
 const inst = instance();
 const ports = [inst.apiUrl, inst.webUrl].map((u) => Number(new URL(u).port));
@@ -30,7 +31,7 @@ for (const port of ports) {
 }
 const env = { ...process.env };
 if (!inst.embeddingsInEnv) {
-  const ollama = await fetch("http://localhost:11434/api/tags", {
+  const ollama = await apiFetch("http://localhost:11434/api/tags", {
     signal: AbortSignal.timeout(2000),
   })
     .then((r) => r.ok)
@@ -72,15 +73,17 @@ child.on("exit", (code) => {
 
 /** Whether something answers HTTP on the port: a fetch, far cheaper than listing processes. */
 const answers = (url) =>
-  fetch(url, { signal: AbortSignal.timeout(1500) })
+  apiFetch(url, { signal: AbortSignal.timeout(1500) })
     .then(() => true)
     .catch(() => false);
 
 function writeRecord(pids) {
+  // Each pid with its command line, so a pid Windows later hands to another process isn't ours.
+  const processes = pids.map((pid) => ({ pid, cmd: commandOf(pid) }));
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(
     launchRecord,
-    `${JSON.stringify({ launchPid: process.pid, startedAt: new Date().toISOString(), pids }, null, 2)}\n`,
+    `${JSON.stringify({ launchPid: process.pid, startedAt: new Date().toISOString(), processes }, null, 2)}\n`,
   );
 }
 

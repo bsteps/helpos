@@ -4,7 +4,15 @@
 //        [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]
 // The secret is the one shown once by Settings → GitHub → Connect (or New webhook secret).
 import { createHmac } from "node:crypto";
-import { flagArg, getJson, instance, ownerCookie, quit, requireRunning } from "./instance.mjs";
+import {
+  apiFetch,
+  flagArg,
+  getJson,
+  instance,
+  ownerCookie,
+  quit,
+  requireRunning,
+} from "./instance.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => flagArg(args, name) ?? fallback;
@@ -61,7 +69,7 @@ async function send(repo, workspaceId) {
   const key = args.includes("--bad-signature") ? `${secret}-wrong` : secret;
   const signature = `sha256=${createHmac("sha256", key).update(body).digest("hex")}`;
 
-  const res = await fetch(
+  const res = await apiFetch(
     `${inst.apiUrl}/v1/integrations/github/webhook?workspace=${workspaceId}`,
     {
       method: "POST",

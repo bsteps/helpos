@@ -36,7 +36,7 @@ const serverMarks = [
  * labels it in doctor, whose health and proxy checks then fail on it: launch refuses any held
  * port, and cleanup stops only pids that launch recorded below its own child.
  */
-function isHelposListener(cmd) {
+export function isHelposListener(cmd) {
   if (serverMarks.every((mark) => mark.test(cmd))) return true;
   return /[\\/]vite[\\/]bin[\\/]vite\.js/.test(cmd) && sameCase(cmd).includes(sameCase(webDir));
 }
@@ -94,6 +94,11 @@ function processTable() {
 /** Forgets the snapshot, for a caller that just stopped processes and must see what's left. */
 export function refreshProcesses() {
   snapshot = undefined;
+}
+
+/** A process's command line, or undefined when it isn't running. */
+export function commandOf(pid) {
+  return processInfo(pid)?.cmd;
 }
 
 function processInfo(pid) {

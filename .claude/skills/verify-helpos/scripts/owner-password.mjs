@@ -3,14 +3,14 @@
 // Safe to rerun: once a password is set, it only checks that sign-in works.
 //   node .claude/skills/verify-helpos/scripts/owner-password.mjs
 
-import { instance, quit, requireRunning, runCommand, seed } from "./instance.mjs";
+import { apiFetch, instance, quit, requireRunning, runCommand, seed } from "./instance.mjs";
 
 const inst = instance();
 await requireRunning(inst);
 const { mailbox, owner, ownerPassword } = seed.northwind;
 
 async function post(path, body) {
-  return fetch(`${inst.apiUrl}${path}`, {
+  return apiFetch(`${inst.apiUrl}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: inst.webUrl },
     body: JSON.stringify(body),

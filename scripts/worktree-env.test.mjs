@@ -85,6 +85,7 @@ test("isLocalDatabaseUrl: this machine only", () => {
     "postgres://u:p@db.example.com/helpos",
     "postgres://u:p@localhost/helpos?host=db.example.com",
     "postgres:///helpos?host=db.example.com",
+    "postgres://u:p@localhost/helpos?hostaddr=10.0.0.5",
     "postgres:///helpos",
     "not a url",
     "",

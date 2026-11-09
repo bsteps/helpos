@@ -7,7 +7,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { flagArg, instance, quit, remember, repoRoot, requireRunning, seed } from "./instance.mjs";
+import {
+  apiFetch,
+  flagArg,
+  inboundHeaders,
+  instance,
+  quit,
+  remember,
+  repoRoot,
+  requireRunning,
+  seed,
+} from "./instance.mjs";
 
 export async function sendFreshEmail(inst, fixture = "plain", { subject, body } = {}) {
   const named = join(repoRoot, "fixtures", "email", `${fixture.replace(/\.eml$/, "")}.eml`);
@@ -17,14 +27,38 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
       `no email "${fixture}": use a name from fixtures/email/ or a path to a .eml file`,
     );
   }
+  const { raw, sent } = freshEmail(readFileSync(file, "utf8"), {
+    fixture,
+    subject,
+    body,
+    mailbox: seed.northwind.mailbox,
+    stamp: new Date().toISOString().slice(11, 19),
+    messageId: `fresh-${crypto.randomUUID()}@customer.test`,
+  });
+  const res = await apiFetch(`${inst.apiUrl}/v1/inbound/email`, {
+    method: "POST",
+    headers: inboundHeaders(inst),
+    body: raw,
+  });
+  const answer = await res.text();
+  let json;
+  try {
+    json = JSON.parse(answer);
+  } catch {
+    throw new Error(`inbound email answered ${res.status}, not JSON: ${answer.slice(0, 200)}`);
+  }
+  return { status: res.status, json, subject: sent };
+}
+
+/**
+ * The sample as a new email: addressed to `mailbox`, with a fresh Message-ID and a unique subject,
+ * and `body` (or, for the plain sample, the subject) as its text. No I/O, so it is unit-tested.
+ */
+export function freshEmail(sample, { fixture, subject, body, mailbox, stamp, messageId }) {
   // A line break would end the Subject header and start another one.
   if (subject !== undefined && /[\r\n]/.test(subject))
     throw new Error("--subject must be one line");
-  const stamp = new Date().toISOString().slice(11, 19);
-  const original = readFileSync(file, "utf8").replaceAll(
-    "support@acme.test",
-    seed.northwind.mailbox,
-  );
+  const original = sample.replaceAll("support@acme.test", mailbox);
   const split = /\r?\n\r?\n/.exec(original);
   if (!split) throw new Error(`"${fixture}" has no blank line between its headers and body`);
   // One entry per header, continuation lines included, so a wrapped Subject is replaced whole.
@@ -37,7 +71,7 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
   // never leaves its folded tail behind to stick to the next header.
   let headerLines = [
     ...lines.filter((l) => !/^(Message-ID|Subject):/i.test(l)),
-    `Message-ID: <fresh-${crypto.randomUUID()}@customer.test>`,
+    `Message-ID: <${messageId}>`,
     `Subject: ${sent}`,
   ];
   let bodyPart = original.slice(split.index + split[0].length);
@@ -58,20 +92,7 @@ export async function sendFreshEmail(inst, fixture = "plain", { subject, body } 
       "Content-Transfer-Encoding: 8bit",
     ];
   }
-  const raw = `${headerLines.join("\r\n")}\r\n\r\n${bodyPart}`;
-  const res = await fetch(`${inst.apiUrl}/v1/inbound/email`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${inst.inboundSecret}`, "content-type": "message/rfc822" },
-    body: raw,
-  });
-  const answer = await res.text();
-  let json;
-  try {
-    json = JSON.parse(answer);
-  } catch {
-    throw new Error(`inbound email answered ${res.status}, not JSON: ${answer.slice(0, 200)}`);
-  }
-  return { status: res.status, json, subject: sent };
+  return { raw: `${headerLines.join("\r\n")}\r\n\r\n${bodyPart}`, sent };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
