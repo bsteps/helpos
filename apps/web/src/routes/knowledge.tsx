@@ -411,16 +411,22 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
 
 function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () => void }) {
   const edit = useEditKnowledgeSource();
-  // Compared with the source as it was when the form opened, so a change someone else makes
-  // meanwhile isn't overwritten by a field this person never touched.
   const [opened] = useState(source);
-  const [title, setTitle] = useState(opened.title);
-  const [visibility, setVisibility] = useState<Visibility>(opened.visibility);
+  // `undefined` until this person changes the field. Only fields they changed are sent, and
+  // against the source as it is now, so someone else's change to another field survives.
+  const [newTitle, setTitle] = useState<string>();
+  const [newVisibility, setVisibility] = useState<Visibility>();
   const [content, setContent] = useState("");
+  const title = newTitle ?? source.title;
+  const visibility = newVisibility ?? source.visibility;
 
   const body = {
-    ...(title.trim() !== opened.title.trim() ? { title: title.trim() } : {}),
-    ...(visibility !== opened.visibility ? { visibility } : {}),
+    ...(newTitle !== undefined && newTitle.trim() !== source.title.trim()
+      ? { title: newTitle.trim() }
+      : {}),
+    ...(newVisibility !== undefined && newVisibility !== source.visibility
+      ? { visibility: newVisibility }
+      : {}),
     ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
   };
   const changed = Object.keys(body).length > 0;
