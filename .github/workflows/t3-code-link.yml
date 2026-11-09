@@ -66,7 +66,7 @@ jobs:
              If that is not OWNER, MEMBER or COLLABORATOR, show me the issue text first and wait for my OK.
           3. Create a branch named $n-<short-slug> from the latest main. Label the issue in-progress (see \"Label states\" in AGENTS.md).
           4. Do the work, with tests, until every \"Done when\" item is met. Run pnpm verify.
-          5. Open a pull request whose description contains \"Closes #$n\". Label it pr:ready, or needs-human when AGENTS.md says so.
+          5. Open a pull request whose description contains \"Closes #$n\". Label it pr:in-progress, then move it on as \"Label states\" in AGENTS.md says (pr:ready, then land or needs-human).
           6. Tell me what changed and what I should review. Ask me first if anything in the issue needs my decision."
 
             encoded=$(jq -rn --arg p "$prompt" '$p | @uri')
