@@ -45,22 +45,22 @@ export function pollDelay(sources: readonly ListedSource[], now: number): number
 
 const aiUnavailable = "The AI service couldn't process it. It tries again by itself.";
 
-const messages: Record<string, string> = {
-  blocked_address: "This address is private or local, so it isn't fetched.",
-  no_url: "This source has no address to fetch.",
-  timeout: "The site took too long to answer.",
-  network: "Couldn't reach the site.",
-  no_text: "The page has no text to use.",
-  too_large: "The page is too large to fetch.",
-  too_long: "It's too long for one source. Split it into smaller ones.",
-  unsupported_content_type: "This address isn't a web page or text.",
-  embedding_unavailable: aiUnavailable,
-  embedding_failed: aiUnavailable,
-  daily_budget_reached: "Waiting for today's AI budget to reset at midnight UTC.",
-};
+const messages = new Map<string, string>([
+  ["blocked_address", "This address is private or local, so it isn't fetched."],
+  ["no_url", "This source has no address to fetch."],
+  ["timeout", "The site took too long to answer."],
+  ["network", "Couldn't reach the site."],
+  ["no_text", "The page has no text to use."],
+  ["too_large", "The page is too large to fetch."],
+  ["too_long", "It's too long for one source. Split it into smaller ones."],
+  ["unsupported_content_type", "This address isn't a web page or text."],
+  ["embedding_unavailable", aiUnavailable],
+  ["embedding_failed", aiUnavailable],
+  ["daily_budget_reached", "Waiting for today's AI budget to reset at midnight UTC."],
+]);
 
 export function knowledgeErrorMessage(code: string): string {
-  const known = messages[code];
+  const known = messages.get(code);
   if (known) return known;
   const status = /^http_(\d{3})$/.exec(code)?.[1];
   if (status === "404" || status === "410") return `The page wasn't found (HTTP ${status}).`;

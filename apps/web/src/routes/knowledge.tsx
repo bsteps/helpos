@@ -265,7 +265,9 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
   const reingest = useReingestKnowledgeSource();
   const remove = useDeleteKnowledgeSource();
   const inGit = source.managedBy === "git";
-  const shown = inGit ? "view" : mode;
+  // A source that moves to git can't be edited or deleted here, so its open form or confirm
+  // closes for good rather than coming back if it ever moves out again.
+  if (inGit && mode !== "view") setMode("view");
   const badge = statusBadge[source.status];
   const busy = reingest.isPending || remove.isPending;
   const switchMode = (next: typeof mode) => {
@@ -321,9 +323,11 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             </AlertContent>
           </Alert>
         ) : null}
-        {shown === "edit" ? <EditSource source={source} onDone={() => switchMode("view")} /> : null}
+        {mode === "edit" && !inGit ? (
+          <EditSource source={source} onDone={() => switchMode("view")} />
+        ) : null}
       </CardContent>
-      {canWrite && !inGit && shown === "confirmDelete" ? (
+      {canWrite && !inGit && mode === "confirmDelete" ? (
         <CardFooter className="flex-wrap justify-end gap-2">
           <p className="mr-auto text-sm">Delete it? Drafts stop using it.</p>
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("view")}>
@@ -350,7 +354,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           </p>
         </CardFooter>
       ) : null}
-      {canWrite && !inGit && shown === "view" ? (
+      {canWrite && !inGit && mode === "view" ? (
         <CardFooter className="justify-end gap-2">
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("edit")}>
             Edit
@@ -396,6 +400,8 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   };
   const changed = Object.keys(body).length > 0;
   const onlySpaces = content !== "" && content.trim() === "";
+  // Not after this person's own save, which changes it too before the form closes.
+  const changedMeanwhile = (edit.isIdle || edit.isError) && source.updatedAt !== opened.updatedAt;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -404,6 +410,16 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
+      {changedMeanwhile ? (
+        <Alert variant="info">
+          <AlertIcon />
+          <AlertContent>
+            <AlertDescription>
+              This source changed while you were editing. Saving sends only the fields you changed.
+            </AlertDescription>
+          </AlertContent>
+        </Alert>
+      ) : null}
       <Input label="Title" value={title} onChange={setTitle} required disabled={edit.isPending} />
       <Select
         label="Visibility"

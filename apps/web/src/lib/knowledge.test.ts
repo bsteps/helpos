@@ -98,6 +98,10 @@ describe("knowledgeErrorMessage", () => {
     );
   });
 
+  it("treats a code named like a built-in object property as unknown", () => {
+    expect(knowledgeErrorMessage("constructor")).toBe("Reading it failed (constructor).");
+  });
+
   it("keeps a code it doesn't know, so the owner can still report it", () => {
     expect(knowledgeErrorMessage("ingest_error")).toBe("Reading it failed (ingest_error).");
   });
