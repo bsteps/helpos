@@ -65,10 +65,15 @@ describe("withPendingSince", () => {
     expect(later[0]?.pendingSince).toBe(now);
   });
 
+  it("starts the clock when the server says it went pending", () => {
+    const stuck = source("pending", null, secondsAgo(3600));
+    expect(withPendingSince([stuck], undefined, now)[0]?.pendingSince).toBe(now - 3_600_000);
+  });
+
   it("restarts the clock when the source was asked again between two looks", () => {
     const first = withPendingSince([source("pending", null, secondsAgo(300))], undefined, now);
     const again = { ...source("pending", null, secondsAgo(1)), id: first[0]?.id ?? "" };
-    expect(withPendingSince([again], first, now + 10_000)[0]?.pendingSince).toBe(now + 10_000);
+    expect(withPendingSince([again], first, now)[0]?.pendingSince).toBe(now - 1000);
   });
 
   it("forgets the time once the source is done", () => {

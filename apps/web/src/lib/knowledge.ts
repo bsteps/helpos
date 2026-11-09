@@ -9,9 +9,10 @@ const slowAfterMs = 2 * 60_000;
 export type ListedSource = KnowledgeSource & { pendingSince?: number };
 
 /**
- * Carries each pending source's first-seen time over from the previous list, as long as it is
- * the same stretch of pending: a new `updatedAt` means it was asked again, so the clock
- * restarts. Times come from this browser's clock, so a skewed server clock can't change pace.
+ * When each pending source started its current stretch of pending: the server's `updatedAt`,
+ * but never later than now, so a server clock running ahead can't keep a stuck source on fast
+ * polling. A source first seen long after it got stuck starts slow. The time carries over
+ * between lists until `updatedAt` changes, which means it was asked again.
  */
 export function withPendingSince(
   sources: readonly KnowledgeSource[],
@@ -23,7 +24,8 @@ export function withPendingSince(
     if (s.status !== "pending") return s;
     const before = seen.get(s.id);
     const same = before?.status === "pending" && before.updatedAt === s.updatedAt;
-    return { ...s, pendingSince: same ? (before.pendingSince ?? now) : now };
+    const started = Math.min(now, Date.parse(s.updatedAt) || now);
+    return { ...s, pendingSince: same ? (before.pendingSince ?? started) : started };
   });
 }
 
