@@ -38,10 +38,21 @@ if (usage.paused || usage.remainingTokens < neededTokens) {
 // The person's {ticket}, {token}… survive a selftest run in the middle of their checklist.
 const lastFile = join(evidenceRoot, "last.json");
 const saved = existsSync(lastFile) ? readFileSync(lastFile, "utf8") : undefined;
-process.on("exit", () => {
+function restoreSaved() {
   if (saved === undefined) rmSync(lastFile, { force: true });
   else writeFileSync(lastFile, saved);
+}
+process.on("exit", restoreSaved);
+// Ctrl+C skips "exit": restore first, then stop. A hard kill can't be caught.
+process.on("SIGINT", () => {
+  restoreSaved();
+  process.kill(process.pid, "SIGTERM");
 });
+
+// The typed steps run in Git Bash, the shell the checklist is written for.
+if (spawnSync("bash", ["-c", "true"]).status !== 0) {
+  quit(2, "selftest types its steps into Git Bash: put bash on PATH (Git for Windows has it).");
+}
 
 /** A command typed into Git Bash, through pnpm, so the person's quoting is what gets tested. */
 function typed(command) {
