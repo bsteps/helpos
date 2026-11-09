@@ -18,4 +18,5 @@
 - [ ] Touches tenant data? It goes through `withTenant()`, and a cross-tenant test covers it
 - [ ] New agent or API action? It's scoped by token permissions, checked by the policy layer, and written to the audit log
 - [ ] Labelled `security` or `area:db`? I ran `/security-review` locally and fixed or answered every finding
+- [ ] State label set (see "Label states" in AGENTS.md): `pr:in-progress` until `pnpm verify` passes and review findings are resolved, then `pr:ready`. `needs-human` instead of `land` if this touches security, auth, tenant isolation or product defaults, or adds a lint/type suppression
 - [ ] Docs updated if behaviour changed

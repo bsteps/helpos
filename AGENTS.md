@@ -60,6 +60,17 @@ pnpm verify           # everything CI runs. Run once before you open a PR (itera
 - PR description: what, why, how it was tested, and `Closes #<issue-number>`, which closes the issue automatically on merge.
 - Fill in the PR template checklist honestly.
 
+## Label states
+
+Labels show where work is. Agents move them; humans only check `needs-human`. The list lives in `.github/labels.json` (a workflow syncs it to GitHub), so change labels there, not in the GitHub UI.
+
+- **Issues:** `needs-triage` (not reviewed yet) → `ready` (can be picked up) → `in-progress`. Set `in-progress` when you start an issue, and remove `ready`.
+- **PRs:** `pr:in-progress` → `pr:ready` → `land`. Open the PR with `pr:in-progress`. Move it to `pr:ready` once `pnpm verify` passes and your review findings are resolved. Move it to `land` once checks are green, unless it needs a human.
+- **`needs-human` is required** (instead of `land`) when a PR changes security, auth, tenant isolation or product defaults, or adds a lint or type suppression. Also use it whenever you are blocked on a decision only a person can make.
+- `human-only`, `security` and `area:*` stay as they are: what kind of work it is, not its state. Never pick up a `human-only` issue.
+
+What's happening, by filter: `is:open label:needs-human` (the human queue), `is:open label:in-progress`, `is:pr is:open label:pr:ready`, `is:pr is:open label:land`.
+
 ## Repo map
 
 ```
