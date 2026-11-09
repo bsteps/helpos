@@ -51,11 +51,26 @@ test("a web page that can't be read says why, and can be read again", async ({ p
   await expect(card.getByText("Failed", { exact: true })).toBeVisible();
   await expect(card).toContainText("This address is private or local");
 
-  const reingested = page.waitForResponse((r) => r.url().endsWith("/reingest"));
+  const stored = async () => {
+    const res = await page.request.get("/v1/knowledge/sources");
+    const { sources } = (await res.json()) as {
+      sources: { title: string; status: string; updatedAt: string }[];
+    };
+    const found = sources.find((s) => s.title === title);
+    if (!found) throw new Error(`no source titled ${title}`);
+    return found;
+  };
+  const before = await stored();
+
   await card.getByRole("button", { name: "Read again" }).click();
-  expect((await reingested).status()).toBe(202);
+  await expect
+    .poll(async () => {
+      const now = await stored();
+      return now.updatedAt !== before.updatedAt && now.status === "failed";
+    })
+    .toBe(true);
   await expect(card.getByText("Failed", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Read again" })).toBeEnabled();
+  await expect(card).toContainText("This address is private or local");
 });
 
 test("someone without knowledge:write sees the sources but no edit controls", async ({ page }) => {
