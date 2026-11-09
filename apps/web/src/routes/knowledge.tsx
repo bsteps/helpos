@@ -114,7 +114,7 @@ const visibilityOptions = [
 /** Why a change didn't happen, in words that say whether trying again can help. */
 function problem(error: unknown, failed: string, invalid: string): string {
   if (!(error instanceof ApiError)) {
-    return `${failed} The server didn't answer; check your connection and try again.`;
+    return `${failed} Something went wrong. Check your connection, then try again or reload the page.`;
   }
   switch (error.code) {
     case "url_taken":
@@ -138,6 +138,13 @@ function AddSource({ onDone }: { onDone: () => void }) {
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("internal");
 
+  // An error is about what was sent, so it goes once any field changes.
+  const edited =
+    <T,>(set: (value: T) => void) =>
+    (value: T) => {
+      add.reset();
+      set(value);
+    };
   const ready = title.trim() !== "" && (kind === "url" ? url.trim() !== "" : content.trim() !== "");
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -183,7 +190,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
           <Input
             label="Title"
             value={title}
-            onChange={setTitle}
+            onChange={edited(setTitle)}
             required
             disabled={add.isPending}
           />
@@ -193,7 +200,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
               type="url"
               placeholder="https://…"
               value={url}
-              onChange={setUrl}
+              onChange={edited(setUrl)}
               required
               disabled={add.isPending}
             />
@@ -201,7 +208,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
             <Textarea
               label="Content"
               value={content}
-              onChange={setContent}
+              onChange={edited(setContent)}
               rows={6}
               required
               disabled={add.isPending}
@@ -211,7 +218,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
             label="Visibility"
             value={visibility}
             options={visibilityOptions}
-            onChange={setVisibility}
+            onChange={edited(setVisibility)}
             disabled={add.isPending}
           />
           {add.isError ? (
@@ -265,6 +272,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
   const reingest = useReingestKnowledgeSource();
   const remove = useDeleteKnowledgeSource();
   const inGit = source.managedBy === "git";
+  const canChange = canWrite && !inGit;
   const badge = statusBadge[source.status];
   const busy = reingest.isPending || remove.isPending;
   const switchMode = (next: typeof mode) => {
@@ -330,11 +338,11 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             </AlertContent>
           </Alert>
         ) : null}
-        {mode === "edit" && !inGit ? (
+        {canChange && mode === "edit" ? (
           <EditSource source={source} onDone={() => switchMode("view")} />
         ) : null}
       </CardContent>
-      {canWrite && !inGit && mode === "confirmDelete" ? (
+      {canChange && mode === "confirmDelete" ? (
         <CardFooter className="flex-wrap justify-end gap-2">
           <p className="mr-auto text-sm">Delete it? Drafts stop using it.</p>
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("view")}>
@@ -361,7 +369,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           </p>
         </CardFooter>
       ) : null}
-      {canWrite && !inGit && mode === "view" ? (
+      {canChange && mode === "view" ? (
         <CardFooter className="justify-end gap-2">
           <Button variant="ghost" size="sm" disabled={busy} onClick={() => switchMode("edit")}>
             Edit
