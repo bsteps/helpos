@@ -4,7 +4,7 @@
 //   node .claude/skills/verify-helpos/scripts/instance.mjs run -- <command…>
 //                                         run a command against this checkout's database and ports
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -82,8 +82,15 @@ export function instance() {
  * writes `{ticket}` instead of copying IDs between commands.
  */
 const lastFile = join(evidenceRoot, "last.json");
+const seededMarker = join(repoRoot, ".helpos", "seeded");
 export function lastCreated() {
-  return existsSync(lastFile) ? JSON.parse(readFileSync(lastFile, "utf8")) : {};
+  if (!existsSync(lastFile)) return {};
+  // Saved before the database was last seeded (a reset drops it and seeds again): those IDs
+  // are gone, so a stale {ticket} must not turn every call into a 404.
+  if (existsSync(seededMarker) && statSync(lastFile).mtimeMs < statSync(seededMarker).mtimeMs) {
+    return {};
+  }
+  return JSON.parse(readFileSync(lastFile, "utf8"));
 }
 export function remember(values) {
   mkdirSync(evidenceRoot, { recursive: true });
@@ -212,7 +219,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           ? `"${arg.replaceAll('"', '""')}"`
           : `"${arg.replace(/(["\\$`])/g, "\\$1")}"`;
     const command = process.argv
-      .slice(process.argv.includes("--") ? process.argv.indexOf("--") + 1 : 3)
+      // An optional `--` right after `run`; one later on belongs to the command itself.
+      .slice(process.argv[3] === "--" ? 4 : 3)
       .map(quote)
       .join(" ");
     if (!command) quit(2, "Usage: instance.mjs run <command>");

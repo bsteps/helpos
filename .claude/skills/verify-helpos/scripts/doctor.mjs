@@ -1,7 +1,15 @@
 // Read-only: is this checkout's HelpOS instance worth driving? Exit 0 when every required check
 // passes. Warnings name features that will not work (no embeddings, no owner password).
 //   node .claude/skills/verify-helpos/scripts/doctor.mjs [--wait <seconds>]
-import { flagArg, instance, launchedPids, quit, seed, seedToken } from "./instance.mjs";
+import {
+  flagArg,
+  instance,
+  launchedPids,
+  ownerCookie,
+  quit,
+  seed,
+  seedToken,
+} from "./instance.mjs";
 import { helposChain, listeners } from "./processes.mjs";
 
 const inst = instance();
@@ -145,20 +153,16 @@ const checks = [
   {
     name: "owner can sign in",
     warn: true,
-    // A real sign-in makes a session: run it once at the end, not on every --wait poll.
+    // Once at the end, not on every --wait poll, and through the saved session the other helpers
+    // use: it signs in only when that session no longer works, so runs don't pile up sessions.
     once: true,
     run: async () => {
-      const { status } = await get(`${inst.apiUrl}/v1/auth/sign-in`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: inst.webUrl },
-        body: JSON.stringify({
-          email: seed.northwind.owner,
-          password: seed.northwind.ownerPassword,
-        }),
-      });
+      const cookie = await ownerCookie(inst);
       return {
-        ok: status === 204,
-        detail: `${seed.northwind.owner} → ${status}; fix: owner-password.mjs`,
+        ok: cookie !== null,
+        detail: cookie
+          ? `${seed.northwind.owner} has a working session`
+          : `${seed.northwind.owner} can't sign in; fix: pnpm app:password`,
       };
     },
   },

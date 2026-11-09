@@ -47,7 +47,11 @@ await requireRunning(inst);
 const last = lastCreated();
 // Only these names are placeholders; any other {word} is the person's own text.
 const placeholder = /\{(ticket|draft|draftBody|token|tokenId|source)\}/g;
-const placeholders = argv.join(" ").match(placeholder) ?? [];
+// A JSON body file may use them too (`@body.json` with {"body":{draftBody}}); an .eml is sent as is.
+const bodyFile = argv[3]?.startsWith("@") ? argv[3].slice(1) : undefined;
+const fileText =
+  bodyFile && !bodyFile.endsWith(".eml") ? readFileSync(bodyFile, "utf8") : undefined;
+const placeholders = `${argv.join(" ")} ${fileText ?? ""}`.match(placeholder) ?? [];
 const values = { ...last };
 if (placeholders.some((p) => p === "{draft}" || p === "{draftBody}")) {
   const draft = await waitForDraft(last.ticket);
@@ -69,7 +73,12 @@ if (!path.startsWith("/v1/")) {
   quit(2);
 }
 const headers = { origin: inst.webUrl };
-let body = rawBody?.startsWith("@") ? readFileSync(rawBody.slice(1)) : rawBody;
+let body =
+  fileText !== undefined
+    ? fill(fileText)
+    : rawBody?.startsWith("@")
+      ? readFileSync(rawBody.slice(1))
+      : rawBody;
 if (body !== undefined && ["GET", "HEAD"].includes(method.toUpperCase())) {
   process.stderr.write(
     `A ${method.toUpperCase()} request can't have a body. Drop the last argument.\n`,

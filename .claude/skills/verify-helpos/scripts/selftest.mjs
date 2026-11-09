@@ -64,9 +64,14 @@ function typed(command) {
   return { code: r.status ?? 1, out: r.stdout, all: `${r.stdout}${r.stderr}` };
 }
 
+/** The shadow recipient before the selftest changed it. */
+let shadowRecipient;
+
 /** `out` is what the script printed; `all` adds its notes on stderr, such as `(saved {token} …)`. */
 function run(script, args) {
   const r = spawnSync(process.execPath, [join(scripts, script), ...args], {
+    // From the repo root, like a person: steps pass paths such as @fixtures/email/plain.eml.
+    cwd: repoRoot,
     encoding: "utf8",
     timeout: 180_000,
   });
@@ -379,25 +384,30 @@ const steps = [
   ],
   [
     "shadow recipient → Leo",
-    () =>
-      api(
+    () => {
+      // Put back afterwards whoever it was: a person's hand test may rely on it.
+      shadowRecipient = json(
+        api("northwind:triage-bot", "GET", "v1/workspace/shadow-mode"),
+      ).recipient;
+      return api(
         "owner",
         "PATCH",
         "v1/workspace/shadow-mode",
         '{"recipient":"leo.brandt@northwind-cycles.test"}',
-      ),
+      );
+    },
     (r) => status(r) === 200,
   ],
   [
-    "shadow recipient → Maya",
+    "shadow recipient back to how it was",
     () =>
       api(
         "owner",
         "PATCH",
         "v1/workspace/shadow-mode",
-        '{"recipient":"maya.okafor@northwind-cycles.test"}',
+        JSON.stringify({ recipient: shadowRecipient }),
       ),
-    (r) => status(r) === 200 && json(r).recipient.startsWith("maya"),
+    (r) => status(r) === 200 && json(r).recipient === shadowRecipient,
   ],
   [
     "triage-bot can't change shadow → 403",
