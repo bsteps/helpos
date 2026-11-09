@@ -176,7 +176,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="flex flex-col gap-4">
-          <fieldset className="flex gap-2">
+          <fieldset className="flex gap-2" disabled={add.isPending}>
             <legend className="sr-only">Kind</legend>
             {(["markdown", "url"] as const).map((k) => (
               <Button

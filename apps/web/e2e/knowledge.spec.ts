@@ -214,3 +214,26 @@ test("a save the API refuses says why instead of asking to try again", async ({ 
     "Couldn't save. Nothing changed. It's managed in the workspace's git repo now.",
   );
 });
+
+test("while a source is being added, its kind can't be switched", async ({ page }) => {
+  await signIn(page);
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/v1/knowledge/sources", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await held;
+    await route.fallback();
+  });
+  await page.getByRole("link", { name: "Knowledge" }).click();
+  await page.getByRole("button", { name: "Add a source" }).click();
+  await page.getByLabel("Title").fill(uniqueSubject("Held add"));
+  await page.getByLabel("Content").fill("Sent once.");
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
+
+  await expect(page.getByRole("button", { name: "Web page" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Markdown" })).toBeDisabled();
+  release();
+  await expect(page.getByRole("button", { name: "Add a source" })).toBeVisible();
+});
