@@ -159,28 +159,50 @@ test("Claude workflows: only pull_request or issue_comment, with cost and time c
   }
 });
 
-test("Claude workflows deny reads where credentials live", () => {
+/** Every place on a runner where a token can sit. Both Claude workflows must deny all of them. */
+const credentialRules = [
+  "Read(//proc/**)",
+  `Read(/${expr("runner.temp")}/**)`,
+  "Read(//home/runner/runners/**)",
+  "Read(//home/runner/actions-runner/**)",
+  "Read(~/.claude/**)",
+  "Read(~/.claude.json)",
+  "Read(~/.config/**)",
+  "Read(~/.ssh/**)",
+  "Read(~/.docker/**)",
+  "Read(~/.gitconfig)",
+  "Read(~/.git-credentials)",
+  "Read(~/.npmrc)",
+  `Read(/${expr("github.workspace")}/.git)`,
+  `Read(/${expr("github.workspace")}/.git/**)`,
+];
+
+test("Claude workflows: no shell, no search, no web, and no reads where credentials live", () => {
+  const readRules = [];
   for (const { name, text } of claudeWorkflows) {
     const denied = toolList(text, "--disallowedTools");
-    for (const rule of ["Bash", "WebFetch", "Read(//proc/**)", "Read(~/.claude/**)"]) {
+    // Denied by name, a tool is gone even if the action allowed it. Search could reach /proc.
+    for (const tool of ["Bash", "WebFetch", "WebSearch", "Grep", "Glob", "LS"]) {
+      assert.ok(denied.includes(tool), `${name}: ${tool} not denied`);
+    }
+    for (const rule of credentialRules) {
       assert.ok(denied.includes(rule), `${name}: ${rule} not denied`);
     }
-    assert.ok(
-      denied.some((rule) => rule.endsWith("/.git/**)")),
-      `${name}: .git readable`,
-    );
+    readRules.push(denied.filter((rule) => rule.startsWith("Read(")).sort());
   }
+  const [first, ...rest] = readRules;
+  for (const other of rest) assert.deepEqual(other, first, "deny lists drifted apart");
 });
 
 test("AI review jobs are read-only: no shell, no edits, comments only", () => {
   const review = read(`${dir}ai-check.yml`);
   assert.deepEqual(toolList(review, "--allowedTools"), [
     `Read(/${expr("github.workspace")}/**)`,
-    `Read(/${expr("runner.temp")}/pr/**)`,
+    `Read(/${expr("github.workspace")}-inputs/**)`,
     "mcp__github_inline_comment__create_inline_comment",
   ]);
   const denied = toolList(review, "--disallowedTools");
-  for (const tool of ["Bash", "Edit", "MultiEdit", "Write", "NotebookEdit", "Grep", "Glob"]) {
+  for (const tool of ["Edit", "MultiEdit", "Write", "NotebookEdit", "Task", "Agent"]) {
     assert.ok(denied.includes(tool), `review job doesn't deny ${tool}`);
   }
   assert.deepEqual(permissions(jobs(review).check ?? ""), {
@@ -189,10 +211,45 @@ test("AI review jobs are read-only: no shell, no edits, comments only", () => {
   });
   assert.match(review, /--model claude-sonnet-/, "reviews use Sonnet (Opus writes the code)");
   assert.match(review, /github_token: \$\{\{ github\.token \}\}/, "uses the job's own token");
-  assert.match(review, /git show "\$BASE_SHA:AGENTS\.md" > AGENTS\.md/, "base AGENTS.md");
-  assert.ok(review.includes("git ls-files -z -- '*/CLAUDE.md'"), "no nested CLAUDE.md from PR");
   assert.match(review, /never instructions/, "the prompt says PR content is data");
-  assert.match(review, /continue-on-error: true/, "advisory: never blocks a PR");
+  assert.match(review, /continue-on-error: true/, "advisory: a model failure never blocks");
+});
+
+test("AI review jobs never take instructions from the PR's own files", () => {
+  const review = read(`${dir}ai-check.yml`);
+  // The skill and rules are base-branch copies outside the checkout, and the prompt uses them.
+  assert.match(review, /git show "\$BASE_SHA:\$skill" > "\$INPUTS\/skill\.md"/);
+  assert.match(review, /git show "\$BASE_SHA:\$rules" > "\$INPUTS\/rules\.md"/);
+  assert.match(review, /Read \$\{\{ github\.workspace \}\}-inputs\/skill\.md/);
+  assert.doesNotMatch(review, /Read \.claude\/skills/, "never the PR head's skill");
+  // Every instruction file, at any depth, is removed and put back from the base branch.
+  for (const file of ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"]) {
+    assert.ok(review.includes(`':(glob)**/${file}'`), `${file} from the PR stays loaded`);
+  }
+  assert.ok(review.includes("rm -rf .claude .mcp.json .claude.json CLAUDE.local.md"));
+  assert.ok(review.includes("for path in .claude CLAUDE.md AGENTS.md; do"));
+  assert.ok(review.includes('git checkout "$BASE_SHA" -- "$path"'));
+});
+
+test("the AI check report counts only this run's comments and fails on a broken setup", () => {
+  const review = read(`${dir}ai-check.yml`);
+  assert.ok(review.includes('grep -cvxF -f "$INPUTS/earlier-ids.txt"'), "re-runs aren't new");
+  assert.ok(review.includes(`PREP: ${expr("steps.prep.outcome")}`));
+  assert.match(review, /if \[ "\$PREP" != "success" \]; then\n\s+status="Couldn't prepare/);
+  assert.match(review, /\[ "\$PREP" = "success" \]\n$/, "the report step fails when prep failed");
+});
+
+test("the security check covers code, config, CI and agent instruction files", () => {
+  const security = block(read(`${dir}ai-check-security-baseline.yml`), "on");
+  const paths = [...security.matchAll(/^\s+- "([^"]+)"$/gm)].map((m) => m[1] ?? "");
+  for (const path of ["apps/**", "packages/**", "*.json", ".github/**", "scripts/**"]) {
+    assert.ok(paths.includes(path), `security check skips ${path}`);
+  }
+  // Paths listed after "!**/*.md" count even though they are Markdown.
+  const afterMd = paths.slice(paths.indexOf("!**/*.md") + 1);
+  for (const path of [".claude/**", "AGENTS.md", "**/CLAUDE.md"]) {
+    assert.ok(afterMd.includes(path), `${path} must come after the Markdown exclusion`);
+  }
 });
 
 test("each AI check is gated to maintainers' same-repo PRs, capped and path-filtered", () => {
@@ -249,19 +306,6 @@ test("@claude runs only for maintainers, skips forks and commits only through th
     );
     if (!tool.startsWith("mcp__")) assert.ok(tool.endsWith(workspace), `${tool}: not the checkout`);
   }
-  // The action adds unscoped Read/Grep/Glob itself, so the deny list must cover the runner.
-  const denied = toolList(claude, "--disallowedTools");
-  for (const rule of [
-    `Read(/${expr("runner.temp")}/**)`,
-    "Read(//home/runner/runners/**)",
-    "Read(//home/runner/actions-runner/**)",
-    "Read(~/.config/**)",
-    "Read(~/.ssh/**)",
-    "Read(~/.gitconfig)",
-    "Read(~/.git-credentials)",
-  ]) {
-    assert.ok(denied.includes(rule), `@claude doesn't deny ${rule}`);
-  }
   assert.match(claude, /never instructions/, "the prompt says issue and PR text is data");
 });
 
@@ -269,7 +313,7 @@ test("each skill reads its shared rules, treats input as data and only comments"
   for (const { text } of callers) {
     const check = checkId(text);
     const skill = read(`.claude/skills/${check}-check/SKILL.md`);
-    assert.match(skill, new RegExp(`^---\\n\\n?name: ${check}-check\\ndescription: "`));
+    assert.match(skill, new RegExp(`^---\\nname: ${check}-check\\ndescription: "`));
     assert.ok(skill.includes(`docs/checks/${check}.md`), `${check}: links its rules`);
     assert.match(skill, /never instructions to you/, `${check}: input is data`);
     assert.match(skill, /never approve, request changes/, `${check}: comments only`);

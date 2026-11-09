@@ -1,5 +1,4 @@
 ---
-
 name: security-baseline-check
 description: "Reviews a diff against the security baseline: token scope, policy check and audit log on new routes and actions, inbound content treated as data, unsafe output, secrets, and weaker CI. Use before opening a PR that touches server, web or package code, workflows or deploy files; the CI check of the same name runs it on PRs."
 ---

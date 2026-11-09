@@ -13,7 +13,8 @@
       "!**/*.gen.ts",
       "!apps/web/src/api/openapi.json",
       "!apps/web/test-results",
-      "!apps/web/playwright-report"
+      "!apps/web/playwright-report",
+      "!.claude/skills/**/SKILL.md"
     ]
   },
   "formatter": {

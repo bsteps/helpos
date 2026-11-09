@@ -9,15 +9,24 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     # Only code this check is about. Docs-only PRs never start it.
     paths:
-      - "apps/server/src/**"
-      - "apps/web/src/**"
-      - "packages/*/src/**"
-      - ".github/workflows/**"
-      - "Dockerfile"
+      # Any code, config or deploy file: security problems hide in more than src/ folders.
+      - "apps/**"
+      - "packages/**"
+      - "scripts/**"
       - "deploy/**"
+      - "docker/**"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "*.json"
+      - "*.jsonc"
+      - "*.yaml"
+      - "*.ts"
+      - "*.mjs"
+      - ".github/**"
       - "!**/*.md"
       # After the exclusion: for agents, Markdown is instructions, so these always count.
       - ".claude/**"
+      - ".github/**/*.md"
       - "AGENTS.md"
       - "**/CLAUDE.md"
 

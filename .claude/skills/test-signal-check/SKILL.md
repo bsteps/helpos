@@ -1,5 +1,4 @@
 ---
-
 name: test-signal-check
 description: "Reviews test changes for weak signal: sleeps, fixed timeouts, retries, tests that can't fail, mocks where real Postgres is expected. Asks only for fewer or better tests, never for more coverage. Use before opening a PR that changes tests; the CI check of the same name runs it on PRs."
 ---

@@ -1,5 +1,4 @@
 ---
-
 name: tenant-isolation-check
 description: "Reviews a diff for tenant isolation problems: tenant data reached outside withTenant(), queries without tenant scope, new tables without RLS. Use before opening a PR that touches packages/db or apps/server; the CI check of the same name runs it on PRs."
 ---
