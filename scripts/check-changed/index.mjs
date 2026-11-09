@@ -23,6 +23,13 @@ const pnpm = (/** @type {string[]} */ args) =>
   /\.[cm]?js$/.test(pnpmPath) ? [process.execPath, [pnpmPath, ...args]] : [pnpmPath, args];
 
 const target = process.argv[2] ?? "origin/main";
+const found = spawnSync("git", ["rev-parse", "--verify", "--quiet", target], { encoding: "utf8" });
+if (found.status !== 0) {
+  process.stderr.write(
+    `check:changed: no ref "${target}". Run \`git fetch origin\` or pass a base ref.\n`,
+  );
+  process.exit(1);
+}
 const base = git("merge-base", "HEAD", target);
 
 // Committed since the base, plus uncommitted and untracked work.
@@ -67,6 +74,7 @@ for (const [cmd, args] of steps) {
   // Never through a shell: changed paths come from the branch and may hold shell metacharacters.
   const [bin, binArgs] = cmd === "pnpm" ? pnpm(args) : [process.execPath, args];
   const r = spawnSync(bin, binArgs, { stdio: "inherit", shell: false });
+  if (r.error) process.stderr.write(`check:changed: could not start ${bin}: ${r.error.message}\n`);
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 process.stdout.write("\ncheck:changed passed. Run `pnpm verify` once before opening a PR.\n");
