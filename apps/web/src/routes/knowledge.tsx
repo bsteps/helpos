@@ -125,6 +125,7 @@ function problem(error: unknown, failed: string, invalid = `${failed} Try again.
       return `${failed} It's managed in the workspace's git repo now.`;
   }
   if (error.status === 404) return `${failed} It's no longer in this workspace.`;
+  if (error.status === 401) return `${failed} You've been signed out. Sign in again, then retry.`;
   if (error.code === "forbidden") return `${failed} Your account can't change knowledge sources.`;
   if (error.status === 403) return `${failed} Reload the page, then try again.`;
   if (error.status === 400) return invalid;
@@ -138,6 +139,10 @@ function afterReset<T>(reset: () => void, set: (value: T) => void) {
     set(value);
   };
 }
+
+/** `required` accepts a title of only spaces, which the API refuses, so it's named here. */
+const blankTitle = (title: string) =>
+  title !== "" && title.trim() === "" ? "Add a title." : false;
 
 function AddSource({ onDone }: { onDone: () => void }) {
   const add = useAddKnowledgeSource();
@@ -194,6 +199,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
             maxLength={300}
             value={title}
             onChange={afterReset(add.reset, setTitle)}
+            error={blankTitle(title)}
             required
             disabled={add.isPending}
           />
@@ -465,6 +471,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
         maxLength={300}
         value={title}
         onChange={afterReset(edit.reset, setTitle)}
+        error={blankTitle(title)}
         required
         disabled={edit.isPending}
       />
