@@ -1593,13 +1593,16 @@ describe("editing sources", () => {
     expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(chunksBefore);
     expect((await sourceOf(acme, added.id))?.ingestedAt).toEqual(ready.ingestedAt);
     expect(await tokensToday()).toBe(tokensBefore);
-    expect((await auditOf(acme, added.id)).map((e) => e.action)).toEqual([
-      "knowledge_source.created",
-      "knowledge_source.ingested",
+    const actions = (await auditOf(acme, added.id)).map((e) => e.action);
+    expect(actions).toHaveLength(5);
+    expect(actions.slice(0, 2)).toEqual(["knowledge_source.created", "knowledge_source.ingested"]);
+    // The first edit writes both events in one transaction: same created_at, and IDs made in
+    // the same millisecond don't sort in a fixed order (#128). Check them without an order.
+    expect(actions.slice(2, 4).sort()).toEqual([
       "knowledge_source.edited",
       "knowledge_source.made_public",
-      "knowledge_source.made_internal",
     ]);
+    expect(actions[4]).toBe("knowledge_source.made_internal");
   });
 
   it("a content change re-embeds only that source, and the old text is never retrieved again", async () => {
