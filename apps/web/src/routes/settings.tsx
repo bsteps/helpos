@@ -162,9 +162,11 @@ function ShadowModeSettings() {
                 type="button"
                 variant="ghost"
                 disabled={update.isPending}
-                onClick={() =>
-                  status.enabled ? setConfirmingOff(true) : update.mutate({ enabled: true })
-                }
+                onClick={() => {
+                  if (!status.enabled) return update.mutate({ enabled: true });
+                  update.reset();
+                  setConfirmingOff(true);
+                }}
               >
                 {status.enabled ? "Turn off shadow mode" : "Turn on shadow mode"}
               </Button>

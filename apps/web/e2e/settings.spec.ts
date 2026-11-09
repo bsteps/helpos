@@ -59,6 +59,10 @@ test("turning shadow mode off asks first, and while the server locks it shows wh
   await expect(page.getByRole("alert")).toContainText("doesn't allow turning shadow mode off");
   await expect(page.getByText("On", { exact: true })).toBeVisible();
   await expect(page.getByTestId("shadow-mode-summary")).toContainText("not to customers");
+
+  await page.getByRole("button", { name: "Turn off shadow mode" }).click();
+  await expect(page.getByText("Turn off shadow mode?")).toBeVisible();
+  await expect(page.getByText("doesn't allow turning shadow mode off")).toBeHidden();
 });
 
 const tokens = async (page: Page, testId: string): Promise<number> =>
