@@ -203,6 +203,15 @@ describe("an agent token works the inbox", () => {
     expect(await auditFor(acme, id)).toEqual([
       { action: "knowledge_source.created", actorType: "agent", actorId: writer.id },
     ]);
+
+    const path = `/v1/knowledge/sources/${id}`;
+    const publish = { visibility: "public" };
+    expect((await call("PATCH", path, { token: reader.token }, publish)).status).toBe(403);
+    expect((await call("PATCH", path, { token: writer.token }, publish)).status).toBe(200);
+    expect(await auditFor(acme, id)).toEqual([
+      { action: "knowledge_source.created", actorType: "agent", actorId: writer.id },
+      { action: "knowledge_source.made_public", actorType: "agent", actorId: writer.id },
+    ]);
   });
 
   it("uses the GitHub routes with github:write, but can never connect a repo", async () => {
