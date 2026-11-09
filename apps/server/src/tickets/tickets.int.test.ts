@@ -62,6 +62,7 @@ const post = (path: string, as: string | null) =>
 
 type TicketJson = {
   id: string;
+  replyNotSent?: boolean;
   subject: string;
   status: string;
   customer: { email: string; name: string | null };
@@ -217,6 +218,49 @@ describe("GET /v1/tickets?status=", () => {
     expect(await ids("status=closed&limit=100")).toContain(closed);
     expect(await ids("status=closed&limit=100")).not.toContain(open);
     expect((await get("/v1/tickets?status=pending", "reader")).status).toBe(400);
+  });
+});
+
+describe("a reply that couldn't be sent", () => {
+  it("flags the ticket, and keeps it in the inbox list even once closed", async () => {
+    const quiet = await receiveEmail();
+    const failed = await receiveEmail();
+    await setTicket(quiet, { status: "closed" });
+    await setTicket(failed, { status: "closed" });
+    await db.withTenant(acme, async (tx) => {
+      const [message] = await tx
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(eq(schema.messages.ticketId, failed));
+      if (!message) throw new Error("no message");
+      await tx.insert(schema.drafts).values({
+        tenantId: acme,
+        ticketId: failed,
+        messageId: message.id,
+        body: "Sorry for the wait.",
+        status: "send_failed",
+        approvedAt: new Date(),
+        outboundMessageIdHeader: `<failed-${failed}@acme.test>`,
+      });
+    });
+    const list = async (query: string, as = "reader") =>
+      ((await (await get(`/v1/tickets?${query}`, as)).json()) as { tickets: TicketJson[] }).tickets;
+
+    const inbox = await list("status=open&orReplyNotSent=true&limit=100");
+    expect(inbox.find((t) => t.id === failed)).toMatchObject({
+      status: "closed",
+      replyNotSent: true,
+    });
+    expect(inbox.map((t) => t.id)).not.toContain(quiet);
+    expect(inbox.filter((t) => t.status === "closed").map((t) => t.id)).toEqual([failed]);
+    // Without the flag, open means open.
+    expect((await list("status=open&limit=100")).map((t) => t.id)).not.toContain(failed);
+    const quietTicket = (await (await get(`/v1/tickets/${quiet}`, "reader")).json()) as TicketJson;
+    expect(quietTicket.replyNotSent).toBe(false);
+
+    // Another workspace never sees Acme's failed reply through its own list.
+    const theirs = await list("status=open&orReplyNotSent=true&limit=100", "outsider");
+    expect(theirs.map((t) => t.id)).not.toContain(failed);
   });
 });
 

@@ -27,8 +27,14 @@ export const meQuery = queryOptions({
 export const openTicketsQuery = queryOptions({
   queryKey: keys.openTickets,
   queryFn: async () =>
-    (await unwrap(api.GET("/v1/tickets", { params: { query: { status: "open", limit: 100 } } })))
-      .tickets,
+    (
+      await unwrap(
+        // Closed tickets too, while their reply couldn't be sent: the customer still waits.
+        api.GET("/v1/tickets", {
+          params: { query: { status: "open", orReplyNotSent: "true", limit: 100 } },
+        }),
+      )
+    ).tickets,
 });
 
 export const ticketQuery = (id: string) =>
@@ -113,7 +119,12 @@ export function useRetryDraft(ticketId: string) {
   return useMutation({
     mutationFn: (id: string) =>
       unwrap(api.POST("/v1/drafts/{id}/retry", { params: { path: { id } } })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        // The inbox flags tickets whose reply couldn't be sent.
+        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+      ]),
   });
 }
 
@@ -122,7 +133,12 @@ export function useDiscardDraft(ticketId: string) {
   return useMutation({
     mutationFn: (id: string) =>
       unwrap(api.POST("/v1/drafts/{id}/discard", { params: { path: { id } } })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+        // The inbox flags tickets whose reply couldn't be sent.
+        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+      ]),
   });
 }
 

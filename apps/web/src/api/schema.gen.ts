@@ -519,13 +519,14 @@ export interface paths {
         };
         /**
          * List tickets
-         * @description The workspace's tickets, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. Needs `tickets:read`.
+         * @description The workspace's tickets, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they aren't missed. Needs `tickets:read`.
          */
         get: {
             parameters: {
                 query?: {
                     limit?: number;
                     status?: "open" | "closed";
+                    orReplyNotSent?: "true" | "false";
                 };
                 header?: never;
                 path?: never;
@@ -2400,6 +2401,7 @@ export interface components {
             automated: boolean;
             /** @enum {string|null} */
             aiPausedReason: "daily_budget" | null;
+            replyNotSent: boolean;
         };
         TicketDetail: components["schemas"]["Ticket"] & {
             messages: components["schemas"]["Message"][];
