@@ -1,45 +1,57 @@
 import {
   and,
-  defineTenantJob,
   enqueue,
   eq,
   inArray,
   schema,
   type TenantStepsHandler,
+  type TenantTx,
 } from "@helpos/db";
 import type { Logger } from "pino";
-import { z } from "zod";
+import { recordAudit } from "../audit/audit.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
+import type { ServerConfig } from "../services.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { type GithubApiFactory, parseRepo } from "./github-api.ts";
 import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
+import { recheckIssueJob } from "./jobs.ts";
 
 const { integrations, ticketGithubIssues } = schema;
 
-/**
- * Reads a linked issue's state from GitHub and applies it, when events alone can't say it:
- * - right after linking, if GitHub couldn't be reached: an issue can close before its link is
- *   written, and that close's webhook had nothing to match;
- * - after a close and a reopen in the same second, which GitHub's times can't order.
- * Without it, a GitHub hiccup at the wrong moment would mean the customer is never told, or is
- * told it's fixed while the issue is open.
- */
-export const recheckIssueJob = defineTenantJob("github.recheck-issue", { linkId: z.uuid() });
-
-/** How long before a check, and between checks while GitHub can't be reached. */
-const defaultRecheckSeconds = 120;
 /** Checks stop a day after the link's last change: the issue's later webhooks still arrive. */
 const recheckForMs = 24 * 60 * 60 * 1000;
 
-export const recheckAfter = (seconds: number | undefined) =>
-  new Date(Date.now() + (seconds ?? defaultRecheckSeconds) * 1000);
+/** When the next check runs: `issueRecheckSeconds` from now. */
+export const recheckAfter = (seconds: number) => new Date(Date.now() + seconds * 1000);
 
 export interface RecheckDeps {
   secretBox: SecretBox;
   github: GithubApiFactory;
   logger: Pick<Logger, "warn" | "info">;
-  noticeDelaySeconds?: number | undefined;
-  recheckSeconds?: number | undefined;
+  config: Pick<ServerConfig, "noticeDelaySeconds" | "issueRecheckSeconds">;
+}
+
+/**
+ * Checks stopped without reading the issue's state: GitHub stayed unreachable for a day, or
+ * the job failed every retry. The link keeps the last state it knew, and the audit event on
+ * the ticket says it may be stale, so someone can look at the issue.
+ */
+export async function handleRecheckGaveUp(
+  payload: { tenantId: string; linkId: string },
+  tx: TenantTx,
+): Promise<void> {
+  const [link] = await tx
+    .select({ ticketId: ticketGithubIssues.ticketId })
+    .from(ticketGithubIssues)
+    .where(eq(ticketGithubIssues.id, payload.linkId));
+  if (!link) return;
+  await recordAudit(tx, {
+    tenantId: payload.tenantId,
+    actor: githubWebhookActor,
+    action: "github_issue.recheck_failed",
+    target: { type: "ticket", id: link.ticketId },
+    requestId: null,
+  });
 }
 
 /** Steps, not one transaction: no connection is held while GitHub answers. */
@@ -88,10 +100,13 @@ export function handleRecheckIssue(
     const later = async (why: string, since: Date) => {
       if (Date.now() - since.getTime() > recheckForMs) {
         deps.logger.warn({ linkId, why }, "github recheck: giving up");
+        await transaction((tx) => handleRecheckGaveUp(payload, tx));
         return;
       }
       await transaction((tx) =>
-        enqueue(tx, recheckIssueJob, payload, { startAfter: recheckAfter(deps.recheckSeconds) }),
+        enqueue(tx, recheckIssueJob, payload, {
+          startAfter: recheckAfter(deps.config.issueRecheckSeconds),
+        }),
       );
     };
     if ("waitFor" in target) {
@@ -119,7 +134,7 @@ export function handleRecheckIssue(
       current: true,
       actor: githubWebhookActor,
       requestId: null,
-      noticeDelaySeconds: deps.noticeDelaySeconds,
+      noticeDelaySeconds: deps.config.noticeDelaySeconds,
     };
     const changed = await transaction((tx) =>
       now.value.state === "closed"

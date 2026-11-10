@@ -243,6 +243,7 @@
             ],
             "enum": [
               "daily_budget",
+              "draft_failed",
               null
             ]
           },

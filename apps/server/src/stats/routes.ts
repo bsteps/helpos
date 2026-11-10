@@ -2,11 +2,12 @@ import { and, type Database, eq, gte, inArray, lt, schema, sql, type TenantTx } 
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
 import { errorSchema, json } from "../http/route-kit.ts";
+import type { Clock } from "../services.ts";
 import { countDraftOutcomes, type DraftOutcomes } from "./draft-outcomes.ts";
 
 export interface StatsRoutesDeps {
   db: Pick<Database, "withTenant">;
-  now?: () => Date;
+  clock: Clock;
 }
 
 const { auditEvents, drafts } = schema;
@@ -93,7 +94,7 @@ export function registerStatsRoutes(app: OpenAPIHono, deps: StatsRoutesDeps): vo
   app.openapi(draftStatsRoute, async (c) => {
     const principal = c.get("principal");
     const params = c.req.valid("query");
-    const to = params.to ? new Date(params.to) : (deps.now ?? (() => new Date()))();
+    const to = params.to ? new Date(params.to) : deps.clock.now();
     const from = params.from ? new Date(params.from) : new Date(to.getTime() - 14 * day);
     if (from >= to) return c.json({ error: "empty_range" }, 400);
     if (to.getTime() - from.getTime() > maxRangeDays * day) {

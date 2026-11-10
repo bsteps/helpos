@@ -11,6 +11,7 @@ import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
 import { dailyBudget, recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
+import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
 import { extractHtml, tidyAuthored } from "./extract.ts";
 import { ingestSourceJob } from "./jobs.ts";
@@ -24,11 +25,12 @@ export interface IngestWorkerDeps {
   embeddingModel: EmbeddingModel;
   fetch: Fetcher;
   logger: Pick<Logger, "info" | "warn">;
-  /** Embedding tokens count toward the same daily budget as drafting. */
-  dailyTokenBudget: number;
-  now?: () => Date;
-  /** Waits before each new try of a page that failed on a temporary error. Shorter in tests. */
-  fetchRetryDelaysMs?: readonly number[] | undefined;
+  clock: Clock;
+  /**
+   * Embedding tokens count toward the same daily budget as drafting. `fetchRetryDelaysMs`:
+   * waits before each new try of a page that failed on a temporary error.
+   */
+  config: Pick<ServerConfig, "dailyTokenBudget" | "fetchRetryDelaysMs">;
 }
 
 const ingestActor = { type: "system", id: "ingest-source" } as const;
@@ -55,7 +57,6 @@ const temporaryErrors = new Set([
   "http_504",
 ]);
 const isTemporary = (error: string) => temporaryErrors.has(error);
-const defaultFetchRetryDelaysMs = [1_000, 3_000];
 
 /**
  * The page's answer says the old passages no longer describe it: it's gone, or it now has no
@@ -116,7 +117,7 @@ function metaCharset(bytes: Uint8Array): string | undefined {
  */
 async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<PageText> {
   let page = await fetchPageText(deps, url);
-  for (const delay of deps.fetchRetryDelaysMs ?? defaultFetchRetryDelaysMs) {
+  for (const delay of deps.config.fetchRetryDelaysMs) {
     if (page.ok || !isTemporary(page.error) || page.error === "timeout") return page;
     await new Promise((done) => setTimeout(done, delay));
     page = await fetchPageText(deps, url);
@@ -200,6 +201,45 @@ function vectorAt(embeddings: number[][], position: number): number[] {
   return vector;
 }
 
+/**
+ * Runs once every attempt failed. The handler throws only on database errors (everything
+ * else marks the source itself), so this is a database that stayed broken: the source is
+ * marked `failed` with `ingest_error`, for someone to re-ingest, instead of staying `pending`
+ * with no job left to run it. The last good passages stay in use.
+ *
+ * Only if no newer ingest request came in since the job was queued (`requests`): an edit or a
+ * re-ingest asked for after that has its own run waiting, and failing the source here would
+ * make that run quit ("not pending") and the change never get ingested. That request's run may
+ * be this very job (a pending source reuses its queued one), so a fresh job is queued for it.
+ */
+export async function handleIngestGaveUp(
+  payload: { tenantId: string; sourceId: string; requests: number },
+  tx: TenantTx,
+): Promise<void> {
+  const { tenantId, sourceId, requests } = payload;
+  const [source] = await tx
+    .select({ status: knowledgeSources.status, requests: knowledgeSources.ingestRequests })
+    .from(knowledgeSources)
+    .where(eq(knowledgeSources.id, sourceId))
+    .for("update");
+  if (source?.status !== "pending") return;
+  if (source.requests !== requests) {
+    await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests: source.requests });
+    return;
+  }
+  await tx
+    .update(knowledgeSources)
+    .set({ status: "failed", error: "ingest_error" })
+    .where(eq(knowledgeSources.id, sourceId));
+  await recordAudit(tx, {
+    tenantId,
+    actor: ingestActor,
+    action: "knowledge_source.failed",
+    target: { type: "knowledge_source", id: sourceId },
+    requestId: null,
+  });
+}
+
 /** The start of the next UTC day, when the daily budget resets. */
 export function nextUtcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
@@ -225,7 +265,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     transaction: TenantTransaction,
   ): Promise<void> => {
     const { tenantId, sourceId } = payload;
-    const now = deps.now ?? (() => new Date());
+    const now = () => deps.clock.now();
     const [source] = await transaction((tx) =>
       tx.select().from(knowledgeSources).where(eq(knowledgeSources.id, sourceId)),
     );
@@ -248,7 +288,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         .for("update");
       if (current?.status !== "pending") return false;
       if (current.requests === requests) return true;
-      await enqueue(tx, ingestSourceJob, { tenantId, sourceId });
+      await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests: current.requests });
       return false;
     };
 
@@ -290,7 +330,12 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
           .update(knowledgeSources)
           .set({ error: reason })
           .where(eq(knowledgeSources.id, sourceId));
-        await enqueue(tx, ingestSourceJob, { tenantId, sourceId }, { singletonKey, startAfter });
+        await enqueue(
+          tx,
+          ingestSourceJob,
+          { tenantId, sourceId, requests },
+          { singletonKey, startAfter },
+        );
         deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
       });
 
@@ -307,7 +352,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
 
     const [used, budget] = await transaction(async (tx) => [
       totalTokens(await usageOn(tx, day)),
-      await dailyBudget(tx, tenantId, deps.dailyTokenBudget),
+      await dailyBudget(tx, tenantId, deps.config.dailyTokenBudget),
     ]);
     if (used >= budget) {
       // The budget resets at midnight UTC. One waiting job per source per day, however often

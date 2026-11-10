@@ -32,17 +32,20 @@ export interface SystemJob<P> {
 /**
  * Defines a tenant job. Payloads carry IDs only, never tenant content: the handler
  * reloads data inside withTenant(), so nothing lingers in job history. `tenantId` is always added.
+ * `counters` are whole numbers that say which version of the row the job was queued for (a
+ * request count), so a give-up can tell its run is out of date. Never content.
  */
-export function defineTenantJob<const K extends string>(
+export function defineTenantJob<const K extends string, const C extends string = never>(
   queue: string,
   ids: Record<K, z.ZodUUID>,
-): TenantJob<{ tenantId: string } & Record<K, string>> {
+  counters?: Record<C, z.ZodNumber>,
+): TenantJob<{ tenantId: string } & Record<K, string> & Record<C, number>> {
   const name = queueNameSchema.parse(queue);
   if (name.startsWith(SYSTEM_PREFIX)) throw new Error(`tenant queue cannot use "${SYSTEM_PREFIX}"`);
-  const shape: Record<string, z.ZodUUID> = { ...ids, tenantId: z.uuid() };
-  // The shape is all UUIDs by construction, so the parsed object has exactly this type.
+  const shape: Record<string, z.ZodType> = { ...ids, ...counters, tenantId: z.uuid() };
+  // The shape is UUIDs and whole numbers by construction, so the parsed object has this type.
   const payload = z.strictObject(shape) as unknown as z.ZodType<
-    { tenantId: string } & Record<K, string>
+    { tenantId: string } & Record<K, string> & Record<C, number>
   >;
   return { kind: "tenant", queue: name, payload };
 }
@@ -120,14 +123,20 @@ export interface RetryPolicy {
   maxDelaySeconds?: number;
 }
 
-export interface TenantWorkOptions<P> {
-  /**
-   * Runs once, in its own transaction, after the last attempt failed (the attempt's own
-   * transaction has rolled back). For marking the work as failed for good, so it isn't lost
-   * silently. The job still ends up failed in pg-boss.
-   */
-  onGiveUp?: TenantJobHandler<P>;
-}
+/**
+ * How a tenant job runs, and what happens once it has failed for good. `transaction`: the
+ * whole job in one withTenant() transaction. `steps`: the handler opens short transactions
+ * around network waits instead.
+ *
+ * `onGiveUp` is required: it runs once, in its own transaction, after the last attempt failed
+ * (that attempt's own transaction has rolled back). It marks the work as failed where people
+ * see it, so a job that keeps failing is never lost silently. The job still ends up failed in
+ * pg-boss.
+ */
+export type TenantWorker<P> = (
+  | { transaction: TenantJobHandler<P>; steps?: never }
+  | { steps: TenantStepsHandler<P>; transaction?: never }
+) & { onGiveUp: TenantJobHandler<P> };
 
 export interface JobRunner {
   /** Starts pg-boss. Call installJobs() first (migrate step). */
@@ -141,17 +150,8 @@ export interface JobRunner {
     retry?: RetryPolicy,
   ): Promise<void>;
   /** Creates the queue if needed and starts working it. */
-  work<P extends { tenantId: string }>(
-    job: TenantJob<P>,
-    handler: TenantJobHandler<P>,
-    options?: TenantWorkOptions<P>,
-  ): Promise<void>;
+  work<P extends { tenantId: string }>(job: TenantJob<P>, worker: TenantWorker<P>): Promise<void>;
   work<P>(job: SystemJob<P>, handler: SystemJobHandler<P>): Promise<void>;
-  /** Like work(), for a handler that opens its own transactions between network calls. */
-  workInSteps<P extends { tenantId: string }>(
-    job: TenantJob<P>,
-    handler: TenantStepsHandler<P>,
-  ): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -219,29 +219,21 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   async function work(
     job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
-    handler: TenantJobHandler<{ tenantId: string }> | SystemJobHandler<unknown>,
-    workOptions: TenantWorkOptions<{ tenantId: string }> = {},
+    worker: TenantWorker<{ tenantId: string }> | SystemJobHandler<unknown>,
   ): Promise<void> {
     if (job.kind === "system") {
-      await consume(job, handler as SystemJobHandler<unknown>);
+      await consume(job, worker as SystemJobHandler<unknown>);
       return;
     }
-    const tenantHandler = handler as TenantJobHandler<{ tenantId: string }>;
-    const { onGiveUp } = workOptions;
+    const tenantWorker = worker as TenantWorker<{ tenantId: string }>;
+    const { onGiveUp } = tenantWorker;
     await consume<{ tenantId: string }>(
       job,
-      (payload) => options.db.withTenant(payload.tenantId, (tx) => tenantHandler(payload, tx)),
-      onGiveUp &&
-        ((payload) => options.db.withTenant(payload.tenantId, (tx) => onGiveUp(payload, tx))),
-    );
-  }
-
-  async function workInSteps<P extends { tenantId: string }>(
-    job: TenantJob<P>,
-    handler: TenantStepsHandler<P>,
-  ): Promise<void> {
-    await consume<P>(job, (payload) =>
-      handler(payload, tenantTransactions(options.db, payload.tenantId)),
+      (payload) =>
+        tenantWorker.steps
+          ? tenantWorker.steps(payload, tenantTransactions(options.db, payload.tenantId))
+          : options.db.withTenant(payload.tenantId, (tx) => tenantWorker.transaction(payload, tx)),
+      (payload) => options.db.withTenant(payload.tenantId, (tx) => onGiveUp(payload, tx)),
     );
   }
 
@@ -251,7 +243,6 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       await boss.start();
     },
     work: work as JobRunner["work"],
-    workInSteps,
     stop: () => boss.stop({ graceful: true, timeout: 5_000 }),
   };
 }

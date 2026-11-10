@@ -13,8 +13,9 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { ensureJobQueues } from "../jobs.ts";
+import { composeServices, defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 // Human sign-in through the public API, against real Postgres and Better Auth: what the
@@ -28,21 +29,13 @@ const password = "a long enough password";
 let testDb: TestDatabase;
 let db: Database;
 let auth: AuthStore;
-let sessions: SessionAuth;
+let _sessions: SessionAuth;
 let runner: JobRunner;
 let acme: string;
 let ownerId: string;
 
 const app = () =>
-  createApp({
-    db,
-    files,
-    logger,
-    inboundSecret: undefined,
-    sessions,
-    passwords: auth,
-    publicUrl: origin,
-  });
+  createApp(composeServices({ db, files, logger, auth, config: { publicUrl: origin } }));
 
 function call(
   path: string,
@@ -101,10 +94,10 @@ beforeAll(async () => {
     },
   });
   if (!auth.sessions) throw new Error("sessions not configured");
-  sessions = auth.sessions;
+  _sessions = auth.sessions;
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await runner.ensureQueue(draftReplyJob);
+  await ensureJobQueues(runner, defaultConfig);
   const result = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -165,7 +158,7 @@ describe("sign-in", () => {
   });
 
   it("is 503 when the server has no session secret", async () => {
-    const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(
+    const res = await createApp(composeServices({ db, files, logger })).request(
       "/v1/auth/sign-in",
       {
         method: "POST",

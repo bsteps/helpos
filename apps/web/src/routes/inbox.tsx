@@ -87,7 +87,7 @@ export function InboxPage() {
                     ) : null}
                     {ticket.aiPausedReason ? (
                       <AnimatedBadge status="warning" size="sm">
-                        AI paused
+                        {ticket.aiPausedReason === "draft_failed" ? "No AI draft" : "AI paused"}
                       </AnimatedBadge>
                     ) : null}
                     {ticket.automated ? (

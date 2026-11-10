@@ -7,7 +7,6 @@ import {
   asc,
   createAuthStore,
   createDatabase,
-  createJobRunner,
   type Database,
   eq,
   type JobRunner,
@@ -25,7 +24,8 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { intendedToHeader } from "../outbound-email/shadow.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
-import { startWorker } from "../worker.ts";
+import { composeServer, type Server } from "../server.ts";
+import { defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { addFixedDraft, fixedNoticeBody, githubWebhookActor } from "./fixed-notice.ts";
 import { octokitGithub } from "./github-api.ts";
@@ -58,6 +58,8 @@ let testDb: TestDatabase;
 let db: Database;
 let auth: AuthStore;
 let runner: JobRunner;
+/** The API and the worker, built from one set of services as in the real server. */
+let helpos: Server;
 let acme: string;
 let other: string;
 
@@ -225,26 +227,25 @@ function makeApp(
     webhookSecretCacheMs?: number;
   } = {},
 ) {
-  return createApp({
-    db: overrides.db ?? db,
-    files,
-    logger,
-    inboundSecret: undefined,
-    noticeDelaySeconds: 3600,
-    publicUrl: "https://help.acme.test/desk",
-    dailyTokenBudget: overrides.budget ?? 1_000_000,
-    model: "model" in overrides ? overrides.model : issueModel,
-    secretBox: "secretBox" in overrides ? undefined : box,
-    github: fakeGithub,
-    issueRecheckSeconds: 0,
-    ...(overrides.webhookSecretCacheMs === undefined
-      ? {}
-      : { webhookSecretCacheMs: overrides.webhookSecretCacheMs }),
-    authenticate: async (req) => {
-      const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-      return principals[token]?.() ?? null;
+  // The worker's services, with what this test changes.
+  return createApp(
+    {
+      ...helpos.services,
+      db: overrides.db ?? db,
+      model: "model" in overrides ? overrides.model : issueModel,
+      secretBox: "secretBox" in overrides ? undefined : box,
+      config: {
+        ...helpos.services.config,
+        dailyTokenBudget: overrides.budget ?? helpos.services.config.dailyTokenBudget,
+      },
     },
-  });
+    {
+      authenticate: async (req) => {
+        const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+        return principals[token]?.() ?? null;
+      },
+    },
+  );
 }
 let app: ReturnType<typeof makeApp>;
 
@@ -387,30 +388,28 @@ beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
-  runner = createJobRunner({
-    jobsUrl: testDb.jobsUrl,
+  helpos = composeServer({
     db,
-    onError: (error) => {
+    jobsUrl: testDb.jobsUrl,
+    pollingIntervalSeconds: 0.5,
+    onJobError: (error) => {
       throw error;
     },
-    pollingIntervalSeconds: 0.5,
-  });
-  await runner.start();
-  await startWorker({
-    runner,
     files,
     logger,
     model: mockModel({ text: replyText }),
-    embeddingModel: undefined,
     transport,
-    auth: undefined,
-    publicUrl: "https://help.acme.test",
-    noticeDelaySeconds: 3600,
-    dailyTokenBudget: 1_000_000,
     secretBox: box,
     github: fakeGithub,
-    issueRecheckSeconds: 0,
+    config: {
+      publicUrl: "https://help.acme.test/desk",
+      noticeDelaySeconds: 3600,
+      dailyTokenBudget: 1_000_000,
+      issueRecheckSeconds: 0,
+    },
   });
+  runner = helpos.runner;
+  await helpos.startWorker();
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -1770,6 +1769,7 @@ describe("the webhook", () => {
       db: slowDb,
       logger,
       secretBox: box,
+      config: defaultConfig,
       verifyLimits: { concurrent: 1, waiting: 0, perWorkspace: 1, waitMs: 1_000 },
     });
     const first = forgedPing(small, acme);
@@ -1800,7 +1800,7 @@ describe("the webhook", () => {
       c.set("requestId", "test");
       await next();
     });
-    registerGithubWebhook(small, { db: countingDb, logger, secretBox: box });
+    registerGithubWebhook(small, { db: countingDb, logger, secretBox: box, config: defaultConfig });
     // Read once, for the first request.
     expect((await forgedPing(small, acme)).status).toBe(401);
     const once = lookups;

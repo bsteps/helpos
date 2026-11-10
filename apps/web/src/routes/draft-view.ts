@@ -9,8 +9,13 @@ export function liveFixNotice(drafts: Draft[]): Draft | undefined {
   return drafts.filter((d) => d.kind === "fixed" && d.status !== "discarded").at(-1);
 }
 
-/** A new AI draft was asked for while this reply was the newest (`null`: there was none). */
-export type Ask = { replacing: string | null };
+/**
+ * A new AI draft was asked for while this reply was the newest (`null`: there was none).
+ * `queued`: the server accepted the request and the ticket was fetched again after that. The
+ * server clears `draft_failed` when it queues one, so a `draft_failed` seen after that is a new
+ * failure of this ask, not the old one.
+ */
+export type Ask = { replacing: string | null; queued?: boolean };
 
 /** What happened to the reply while a person was writing their own. */
 export type Meanwhile = "drafted" | "answered" | "send_failed";
@@ -28,7 +33,7 @@ export type DraftView =
   | { kind: "draft"; draft: Draft }
   | { kind: "writing" }
   | { kind: "compose"; meanwhile: Meanwhile | undefined }
-  | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" };
+  | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" | "draft_failed" };
 
 export function draftView(
   ticket: TicketDetail | undefined,
@@ -49,10 +54,18 @@ export function draftView(
   }
   if (live) return { kind: "draft", draft: live };
   if (ticket?.status !== "open" || ticket.automated) return { kind: "none" };
-  if (ask && ask.replacing === (newest?.id ?? null)) return { kind: "writing" };
+  if (ask && ask.replacing === (newest?.id ?? null)) {
+    // The asked-for draft failed too: say so instead of waiting for it forever.
+    if (ask.queued && ticket.aiPausedReason === "draft_failed") {
+      return { kind: "choose", after: "draft_failed" };
+    }
+    return { kind: "writing" };
+  }
   if (newest && !answeredEarlier) {
     return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
   }
+  // Every try to draft failed: offer the choice instead of waiting for a draft that won't come.
+  if (ticket.aiPausedReason === "draft_failed") return { kind: "choose", after: "draft_failed" };
   if (ticket.aiPausedReason) return { kind: "choose", after: "ai_paused" };
   return { kind: "writing" };
 }

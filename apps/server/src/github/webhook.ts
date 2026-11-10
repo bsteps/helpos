@@ -6,9 +6,11 @@ import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
 import { errorSchema, json } from "../http/route-kit.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
+import type { ServerConfig } from "../services.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { markIssueClosed, markIssueReopened, tiedLinks } from "./issue-state.ts";
-import { recheckAfter, recheckIssueJob } from "./recheck.ts";
+import { recheckIssueJob } from "./jobs.ts";
+import { recheckAfter } from "./recheck.ts";
 import { createGate, defaultGateLimits, type GateLimits, recentIds } from "./verify-gate.ts";
 import { createWebhookSecrets, type WebhookSecrets } from "./webhook-secrets.ts";
 import { signatureHeader, signatureMatches } from "./webhook-signature.ts";
@@ -19,9 +21,8 @@ export interface GithubWebhookDeps {
   db: Pick<Database, "withTenant">;
   logger: Pick<Logger, "info" | "warn">;
   secretBox: SecretBox | undefined;
-  noticeDelaySeconds?: number | undefined;
-  /** For tests: how long before a tied event's issue state is read from GitHub. */
-  issueRecheckSeconds?: number | undefined;
+  /** `issueRecheckSeconds`: how long before a tied event's issue state is read from GitHub. */
+  config: Pick<ServerConfig, "noticeDelaySeconds" | "issueRecheckSeconds">;
   /** Shared with the routes that change the secret, so they can forget it at once. */
   secrets?: WebhookSecrets;
   /** For tests: how many deliveries are checked at once, and how many may wait. */
@@ -246,7 +247,7 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
       number: issue.number,
       actor: githubWebhookActor,
       requestId,
-      noticeDelaySeconds: deps.noticeDelaySeconds,
+      noticeDelaySeconds: deps.config.noticeDelaySeconds,
       changedAt: issue.updated_at ? new Date(issue.updated_at) : null,
     };
     const answer = (changed: number) =>
@@ -263,7 +264,10 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
           tx,
           recheckIssueJob,
           { tenantId, linkId },
-          { startAfter: recheckAfter(deps.issueRecheckSeconds), singletonKey: `tie:${linkId}` },
+          {
+            startAfter: recheckAfter(deps.config.issueRecheckSeconds),
+            singletonKey: `tie:${linkId}`,
+          },
         );
       }
     };

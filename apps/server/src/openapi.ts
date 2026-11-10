@@ -1,5 +1,6 @@
 import { createMemoryFileStore } from "@helpos/files";
 import { createApp } from "./app.ts";
+import { composeServices } from "./services.ts";
 
 const unused = (): never => {
   throw new Error("building the API document never touches the database");
@@ -7,18 +8,19 @@ const unused = (): never => {
 
 /** The public API contract, exactly as `GET /openapi.json` serves it, without a running server. */
 export async function openApiDocument(): Promise<unknown> {
-  const app = createApp({
-    db: {
-      ping: unused,
-      withTenant: unused,
-      resolveMailbox: unused,
-      resolveApiToken: unused,
-      listMemberships: unused,
-    },
-    files: createMemoryFileStore(),
-    logger: { error: () => {}, warn: () => {}, info: () => {} },
-    inboundSecret: undefined,
-  });
+  const app = createApp(
+    composeServices({
+      db: {
+        ping: unused,
+        withTenant: unused,
+        resolveMailbox: unused,
+        resolveApiToken: unused,
+        listMemberships: unused,
+      },
+      files: createMemoryFileStore(),
+      logger: { error: () => {}, warn: () => {}, info: () => {} },
+    }),
+  );
   return (await app.request("/openapi.json")).json();
 }
 

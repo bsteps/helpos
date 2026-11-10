@@ -10,6 +10,7 @@ import {
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { defaultConfig } from "../services.ts";
 import { hashToken } from "../tokens/token.ts";
 import { buildDemoData } from "./demo-data.ts";
 import { seedDemoData } from "./seed.ts";
@@ -66,12 +67,12 @@ async function snapshot() {
 
 describe("seedDemoData", () => {
   it("writes the demo data, and a second run changes nothing", async () => {
-    const first = await seedDemoData({ db, auth, jobs });
+    const first = await seedDemoData({ db, auth, jobs, config: defaultConfig });
     expect(first).toMatchObject({ ok: true, skipped: [] });
     const before = await snapshot();
 
     // The second run finds both workspaces and leaves them alone.
-    expect(await seedDemoData({ db, auth, jobs })).toMatchObject({
+    expect(await seedDemoData({ db, auth, jobs, config: defaultConfig })).toMatchObject({
       ok: true,
       skipped: ["northwind", "lumen"],
     });
@@ -126,6 +127,7 @@ describe("seedDemoData", () => {
         },
       },
       jobs: { ensureQueue: async () => {} },
+      config: defaultConfig,
     });
     expect(result).toEqual({ ok: false, reason: "mailbox_taken", mailbox });
     expect(writes).toEqual([]);

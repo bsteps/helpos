@@ -57,3 +57,5 @@ export const envSchema = z.object({
   // The GitHub API. Optional, default api.github.com; set it for GitHub Enterprise Server.
   HELPOS_GITHUB_API_URL: z.url().default("https://api.github.com"),
 });
+
+export type Env = z.infer<typeof envSchema>;

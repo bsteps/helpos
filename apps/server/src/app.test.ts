@@ -3,6 +3,7 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.ts";
+import { composeServices } from "./services.ts";
 
 const files = createMemoryFileStore();
 const logger = () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() });
@@ -22,7 +23,7 @@ describe("GET /health", () => {
   });
 
   it("returns 200 OK when the database is reachable", async () => {
-    const res = await createApp({ db, files, logger: logger(), inboundSecret: undefined }).request(
+    const res = await createApp(composeServices({ db, files, logger: logger() })).request(
       "/health",
     );
     expect(res.status).toBe(200);
@@ -33,12 +34,9 @@ describe("GET /health", () => {
     const down = createDatabase("postgres://nobody:nothing@127.0.0.1:1/none");
     try {
       const log = logger();
-      const res = await createApp({
-        db: down,
-        files,
-        logger: log,
-        inboundSecret: undefined,
-      }).request("/health");
+      const res = await createApp(composeServices({ db: down, files, logger: log })).request(
+        "/health",
+      );
       expect(res.status).toBe(503);
       // No error details leak into the response, but they are logged.
       expect(await res.json()).toEqual({ status: "error", database: "unreachable" });

@@ -5,7 +5,6 @@ import {
   asc,
   createAuthStore,
   createDatabase,
-  createJobRunner,
   type Database,
   eq,
   type JobRunner,
@@ -22,7 +21,8 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { noticeSubject } from "../outbound-email/draft-notice.ts";
 import { intendedToHeader } from "../outbound-email/shadow.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
-import { startWorker } from "../worker.ts";
+import { composeServer, type Server } from "../server.ts";
+import { composeServices, defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
 import { handleDraftNotice } from "./notice-worker.ts";
@@ -42,6 +42,7 @@ let mailpitApi: string;
 let db: Database;
 let auth: AuthStore;
 let runner: JobRunner;
+let helpos: Server;
 let transport: EmailTransport;
 let acme: string;
 let other: string;
@@ -61,20 +62,18 @@ function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
 }
 
+// The API and the worker share one set of services, as in the real server; only the shadow
+// mode setting is changed per test.
 const app = () =>
-  createApp({
-    db,
-    files,
-    logger,
-    inboundSecret: undefined,
-    // No wait in tests, so the Mailpit case doesn't take 5 minutes.
-    noticeDelaySeconds: 0,
-    allowShadowModeOff,
-    authenticate: async (req) => {
-      const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-      return principals[token]?.() ?? null;
+  createApp(
+    { ...helpos.services, config: { ...helpos.services.config, allowShadowModeOff } },
+    {
+      authenticate: async (req) => {
+        const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+        return principals[token]?.() ?? null;
+      },
     },
-  });
+  );
 
 function call(method: string, path: string, as: string | null, body?: object) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -163,29 +162,29 @@ beforeAll(async () => {
   transport = createSmtpTransport(
     `smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`,
   );
-  runner = createJobRunner({
-    jobsUrl: testDb.jobsUrl,
+  helpos = composeServer({
     db,
-    onError: (error) => {
+    jobsUrl: testDb.jobsUrl,
+    pollingIntervalSeconds: 0.5,
+    onJobError: (error) => {
       throw error;
     },
-    pollingIntervalSeconds: 0.5,
-  });
-  await runner.start();
-  await startWorker({
-    runner,
     files,
     logger,
     model,
-    embeddingModel: undefined,
     transport,
     auth,
-    publicUrl: "http://helpdesk.test",
-    noticeDelaySeconds: 0,
-    dailyTokenBudget: 1_000_000,
-    // A send that fails once on a busy machine is retried in a second, not a minute.
-    sendRetry: { limit: 2, delaySeconds: 1, backoff: false },
+    config: {
+      publicUrl: "http://helpdesk.test",
+      // No wait in tests, so the Mailpit case doesn't take 5 minutes.
+      noticeDelaySeconds: 0,
+      dailyTokenBudget: 1_000_000,
+      // A send that fails once on a busy machine is retried in a second, not a minute.
+      jobRetry: { limit: 2, delaySeconds: 1, backoff: false },
+    },
   });
+  runner = helpos.runner;
+  await helpos.startWorker();
 
   const a = await initWorkspace(
     { db, auth },
@@ -463,9 +462,8 @@ describe("draft waiting notice", () => {
       handleDraftNotice({
         transport,
         auth,
-        publicUrl: "http://helpdesk.test",
         logger,
-        noticeDelaySeconds: 0,
+        config: { ...defaultConfig, publicUrl: "http://helpdesk.test", noticeDelaySeconds: 0 },
       })({ tenantId: acme, draftId: second.id }, tx),
     );
     // Give the queued job time to run too: it must not send either.
@@ -567,10 +565,12 @@ describe("drafting in context", () => {
       ),
     );
     // Replays the older message's job, as if it had been slow or retried.
-    await handleDraftReply({ model, logger, dailyTokenBudget: 1_000_000 })(
-      { tenantId: acme, messageId: first.messageId },
-      tenantTransactions(db, acme),
-    );
+    await handleDraftReply({
+      model,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
+    })({ tenantId: acme, messageId: first.messageId }, tenantTransactions(db, acme));
     const live = (await draftsOf(first.ticketId)).filter((d) => d.status !== "discarded");
     expect(live.map((d) => d.id)).toEqual([newer.id]);
   });
@@ -681,7 +681,13 @@ describe("draft API access", () => {
     const body = method === "GET" ? undefined : { body: "x" };
     expect((await call(method, path, null, body)).status).toBe(401);
     // createApp() without an authenticator accepts only real agent tokens, not test names.
-    const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(path, {
+    const res = await createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+      }),
+    ).request(path, {
       method,
       headers: { authorization: "Bearer approver", "content-type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),

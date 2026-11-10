@@ -2,6 +2,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { openApiDocument } from "../openapi.ts";
+import { composeServices } from "../services.ts";
 import type { Access } from "./access.ts";
 import { type Principal, type Scope, scopes } from "./principal.ts";
 
@@ -34,19 +35,20 @@ async function operations(): Promise<Operation[]> {
 }
 
 function appAs(principal: Principal | null) {
-  return createApp({
-    db: {
-      ping: unused,
-      withTenant: unused,
-      resolveMailbox: unused,
-      resolveApiToken: unused,
-      listMemberships: unused,
-    },
-    files: createMemoryFileStore(),
-    logger: { error: () => {}, warn: () => {}, info: () => {} },
-    inboundSecret: undefined,
-    authenticate: async () => principal,
-  });
+  return createApp(
+    composeServices({
+      db: {
+        ping: unused,
+        withTenant: unused,
+        resolveMailbox: unused,
+        resolveApiToken: unused,
+        listMemberships: unused,
+      },
+      files: createMemoryFileStore(),
+      logger: { error: () => {}, warn: () => {}, info: () => {} },
+    }),
+    { authenticate: async () => principal },
+  );
 }
 
 const as = (type: "user" | "agent", held: readonly Scope[]): Principal => ({

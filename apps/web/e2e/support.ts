@@ -20,6 +20,10 @@ export interface E2eState {
   issueTitle: string;
   /** A reply whose subject has this in it fails to send until it is retried from the dashboard. */
   smtpDownMarker: string;
+  /** An email whose subject has this in it gets no AI draft until the AI is asked again. */
+  modelDownMarker: string;
+  /** Like `modelDownMarker`, but asking the AI again fails too: only the next ask works. */
+  modelStillDownMarker: string;
   /** The owner of the seeded Northwind Cycles workspace (demo data), and their password. */
   seedOwner: string;
   seedPassword: string;

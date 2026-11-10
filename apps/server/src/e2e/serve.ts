@@ -6,20 +6,19 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mockEmbeddingModel, mockModel, routedMockModel } from "@helpos/ai/testing";
-import { createAuthStore, createDatabase, createJobRunner, eq, schema } from "@helpos/db";
+import { mockEmbeddingModel, routedMockModel } from "@helpos/ai/testing";
+import { createAuthStore, createDatabase, eq, schema } from "@helpos/db";
 import { containerHost, startTestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
 import { GenericContainer } from "testcontainers";
 import { z } from "zod";
-import { createApp } from "../app.ts";
 import { octokitGithub } from "../github/github-api.ts";
 import { createLogger } from "../logger.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
 import { seedDemoData } from "../seed/seed.ts";
-import { startWorker } from "../worker.ts";
+import { composeServer } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { passwordSetupLink } from "../workspaces/password-link.ts";
 
@@ -65,6 +64,35 @@ function flakySmtp(smtp: EmailTransport): EmailTransport {
     },
     close: () => smtp.close(),
   };
+}
+
+/**
+ * An email whose subject has this in it (and the unique suffix after it) makes the AI fail its
+ * first two tries, as if the provider were down: with one retry allowed here, the ticket ends
+ * up marked `draft_failed`. A third try (asking the AI again from the dashboard) works.
+ */
+export const e2eModelDownMarker = "model-down";
+/** The same, but it fails four tries: the first ask and asking the AI again both give up. */
+export const e2eModelStillDownMarker = "model-still-down";
+const failedDrafts = new Map<string, number>();
+const triesToFail = new Map([
+  [e2eModelDownMarker, 2],
+  [e2eModelStillDownMarker, 4],
+]);
+function failWhileModelDown(email: string): void {
+  for (const [marker, tries] of triesToFail) {
+    const key = new RegExp(`${marker} [a-z0-9]+`).exec(email)?.[0];
+    if (!key) continue;
+    failTries(key, tries);
+    return;
+  }
+}
+function failTries(key: string, tries: number): void {
+  const failures = failedDrafts.get(key) ?? 0;
+  if (failures < tries) {
+    failedDrafts.set(key, failures + 1);
+    throw new Error("e2e: the AI provider is down");
+  }
 }
 
 /** What the AI suggests for every GitHub issue in these tests. */
@@ -133,41 +161,46 @@ async function setOwnerPassword(email: string, password: string): Promise<void> 
     throw new Error(`e2e: setPassword refused the password for ${email}`);
   }
 }
-const runner = createJobRunner({
-  jobsUrl: testDb.jobsUrl,
-  db,
-  onError: (err) => logger.error({ err }, "job runner error"),
-  pollingIntervalSeconds: 0.5,
-});
-await runner.start();
 // A throwaway key: everything it encrypts dies with this process.
 const secretBox = createSecretBox(randomBytes(32));
-const github = octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithub });
-await startWorker({
-  runner,
+// Built like the real server: one set of services for the API and the worker.
+const helpos = composeServer({
+  db,
+  jobsUrl: testDb.jobsUrl,
+  pollingIntervalSeconds: 0.5,
   files: createMemoryFileStore(),
   logger,
+  config: {
+    publicUrl: baseUrl,
+    inboundSecret,
+    webDir,
+    dailyTokenBudget: e2eDailyTokenBudget,
+    // Owner notices would land in Mailpit next to the replies the tests look for.
+    noticeDelaySeconds: 3600,
+    // One retry a second later, so a failing job gives up in seconds, not hours.
+    jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
+  },
   // Plays a model that obeyed the injection when an email asks for the note, so the dashboard's
-  // warning can be tested. Every other email gets `e2eDraft`.
-  model: routedMockModel((email) => ({
-    text: email.includes(e2ePasteTrigger) ? `Here is our note: ${e2eInternalNote}` : e2eDraft,
-    usage: e2eDraftUsage,
-  })),
+  // warning can be tested. Every other email gets `e2eDraft`, and every GitHub issue `e2eIssue`.
+  model: routedMockModel((email, system) => {
+    if (system.includes("GitHub issue")) return { text: JSON.stringify(e2eIssue) };
+    failWhileModelDown(email);
+    return {
+      text: email.includes(e2ePasteTrigger) ? `Here is our note: ${e2eInternalNote}` : e2eDraft,
+      usage: e2eDraftUsage,
+    };
+  }),
   // Offline and deterministic, so knowledge (internal notes) reaches the drafts.
   embeddingModel: mockEmbeddingModel(),
   transport: flakySmtp(
     createSmtpTransport(`smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`),
   ),
-  // One retry a second later, so a failing send gives up in seconds, not hours.
-  sendRetry: { limit: 1, delaySeconds: 1, backoff: false },
   auth,
-  publicUrl: baseUrl,
-  // Owner notices would land in Mailpit next to the replies the tests look for.
-  noticeDelaySeconds: 3600,
-  dailyTokenBudget: e2eDailyTokenBudget,
   secretBox,
-  github,
+  github: octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithub }),
 });
+const runner = helpos.runner;
+await helpos.startWorker();
 
 const owner = "owner@acme.test";
 const workspace = await initWorkspace(
@@ -179,7 +212,7 @@ const setup = await auth.issueSetupToken(workspace.ownerId);
 
 // The demo workspaces too, for tests that need history (drafts sent weeks ago). Their owner
 // gets a password here, since the seed gives nobody one.
-const seeded = await seedDemoData({ db, auth, jobs: runner });
+const seeded = await seedDemoData({ db, auth, jobs: runner, config: helpos.services.config });
 if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
 const seedOwner = "maya.okafor@northwind-cycles.test";
 const seedPassword = "northwind demo password";
@@ -207,20 +240,7 @@ await db.withTenant(budget.tenantId, (tx) =>
 // Its shadow recipient is changed by a test, which must not redirect other tests' replies.
 const shadow = await testWorkspace("Shadow Shop", "shadow-shop");
 
-const app = createApp({
-  db,
-  files: createMemoryFileStore(),
-  logger,
-  inboundSecret,
-  sessions: auth.sessions ?? undefined,
-  passwords: auth,
-  publicUrl: baseUrl,
-  webDir,
-  dailyTokenBudget: e2eDailyTokenBudget,
-  model: mockModel({ text: JSON.stringify(e2eIssue) }),
-  secretBox,
-  github,
-});
+const app = helpos.app();
 mkdirSync(dirname(env.E2E_STATE_FILE), { recursive: true });
 writeFileSync(
   env.E2E_STATE_FILE,
@@ -238,6 +258,8 @@ writeFileSync(
     githubToken,
     issueTitle: e2eIssue.title,
     smtpDownMarker: e2eSmtpDownMarker,
+    modelDownMarker: e2eModelDownMarker,
+    modelStillDownMarker: e2eModelStillDownMarker,
     seedOwner,
     seedPassword,
     budgetOwner: budget.owner,

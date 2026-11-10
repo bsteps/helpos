@@ -1,10 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft, CircleCheck } from "lucide-react";
 import { useState } from "react";
 import { ApiError, type Draft, type Message } from "@/api/client.ts";
 import {
   draftsQuery,
+  keys,
   ticketQuery,
   useApproveDraft,
   useCloseTicket,
@@ -56,12 +57,21 @@ export function TicketPage() {
 }
 
 function Ticket({ id }: { id: string }) {
-  const ticket = useQuery(ticketQuery(id));
+  const queryClient = useQueryClient();
   // Up here, not in the cards: whether a new draft was asked for decides the polling, and a
   // reply being written must survive a draft arriving meanwhile.
   const redraft = useCreateDraft(id);
   const [ask, setAsk] = useState<Ask>();
   const [composing, setComposing] = useState(false);
+  const ticket = useQuery({
+    ...ticketQuery(id),
+    // The AI giving up shows only on the ticket (`draft_failed`), not in the drafts: while a
+    // draft is awaited, look at the ticket again too.
+    refetchInterval: (query) =>
+      waitingOn(query.state.data, ask)(queryClient.getQueryData(keys.drafts(id)) ?? [])
+        ? 2_000
+        : false,
+  });
   const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, ask)));
   const close = useCloseTicket(id);
 
@@ -169,8 +179,22 @@ function Ticket({ id }: { id: string }) {
             view={draftView(t, drafts.data, ask, composing)}
             redraft={redraft}
             askAi={() => {
-              setAsk({ replacing: newestReply(drafts.data)?.id ?? null });
-              redraft.mutate({ regenerate: true }, { onError: () => setAsk(undefined) });
+              const replacing = newestReply(drafts.data)?.id ?? null;
+              setAsk({ replacing });
+              redraft.mutate(
+                { regenerate: true },
+                {
+                  onError: () => setAsk(undefined),
+                  onSuccess: async () => {
+                    // The server cleared the old `draft_failed`: with the ticket fetched again, a
+                    // `draft_failed` that shows up later is this ask failing too.
+                    await queryClient.invalidateQueries({ queryKey: keys.ticket(id) });
+                    setAsk((now) =>
+                      now?.replacing === replacing ? { replacing, queued: true } : now,
+                    );
+                  },
+                },
+              );
             }}
             setComposing={setComposing}
           />
@@ -223,6 +247,7 @@ const chooseNote = {
   discarded: "The draft was discarded. Nothing has gone to the customer.",
   send_failed: "The reply that couldn't be sent was discarded. Nothing has gone to the customer.",
   ai_paused: "You can write the reply yourself.",
+  draft_failed: "Ask the AI to try again, or write the reply yourself.",
 } as const;
 
 function DraftPanel({
@@ -281,6 +306,18 @@ function DraftPanel({
                 <AlertDescription>
                   Today's AI budget for this workspace is spent, so this ticket has no draft. It
                   resumes at midnight UTC.
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
+          ) : null}
+          {view.after === "draft_failed" ? (
+            <Alert variant="warning">
+              <AlertIcon />
+              <AlertContent>
+                <AlertTitle>No AI draft</AlertTitle>
+                <AlertDescription>
+                  The AI couldn't write a draft for this ticket: every try failed. Nothing has gone
+                  to the customer.
                 </AlertDescription>
               </AlertContent>
             </Alert>

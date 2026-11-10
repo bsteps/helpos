@@ -179,12 +179,15 @@ describe("job runner", () => {
       resolveSeen = resolve;
     });
     // Awaited, so the queue exists before the enqueue below.
-    await runner.work(probe, async (_payload, tx) => {
-      const rows = await tx.select().from(tickets);
-      const [setting] = await tx.execute<{ t: string }>(
-        "select current_setting('app.tenant_id', true) as t",
-      );
-      resolveSeen({ tenant: setting?.t, ticketCount: rows.length });
+    await runner.work(probe, {
+      transaction: async (_payload, tx) => {
+        const rows = await tx.select().from(tickets);
+        const [setting] = await tx.execute<{ t: string }>(
+          "select current_setting('app.tenant_id', true) as t",
+        );
+        resolveSeen({ tenant: setting?.t, ticketCount: rows.length });
+      },
+      onGiveUp: async () => {},
     });
     await db.withTenant(tenantA, (tx) =>
       enqueue(tx, probe, { tenantId: tenantA, ticketId: bTicket }),
@@ -199,20 +202,23 @@ describe("job runner", () => {
       resolveSeen = resolve;
     });
     const stepsProbe = defineTenantJob("test-steps-probe", { ticketId: z.uuid() });
-    await runner.workInSteps(stepsProbe, async (_payload, transaction) => {
-      const steps: Step[] = [];
-      for (let i = 0; i < 2; i++) {
-        steps.push(
-          await transaction(async (tx) => {
-            const [row] = await tx.execute<{ t: string; txid: string }>(
-              "select current_setting('app.tenant_id', true) as t, txid_current()::text as txid",
-            );
-            const rows = await tx.select().from(tickets);
-            return { tenant: row?.t, txid: row?.txid ?? "", tickets: rows.length };
-          }),
-        );
-      }
-      resolveSeen(steps);
+    await runner.work(stepsProbe, {
+      steps: async (_payload, transaction) => {
+        const steps: Step[] = [];
+        for (let i = 0; i < 2; i++) {
+          steps.push(
+            await transaction(async (tx) => {
+              const [row] = await tx.execute<{ t: string; txid: string }>(
+                "select current_setting('app.tenant_id', true) as t, txid_current()::text as txid",
+              );
+              const rows = await tx.select().from(tickets);
+              return { tenant: row?.t, txid: row?.txid ?? "", tickets: rows.length };
+            }),
+          );
+        }
+        resolveSeen(steps);
+      },
+      onGiveUp: async () => {},
     });
     await db.withTenant(tenantA, (tx) =>
       enqueue(tx, stepsProbe, { tenantId: tenantA, ticketId: uuidv7() }),
@@ -232,22 +238,19 @@ describe("job runner", () => {
       resolveGaveUp = resolve;
     });
     let giveUps = 0;
-    await runner.work(
-      flaky,
-      async () => {
+    await runner.work(flaky, {
+      transaction: async () => {
         attempts++;
         throw new Error("always fails");
       },
-      {
-        onGiveUp: async (_payload, tx) => {
-          giveUps++;
-          const [row] = await tx.execute<{ t: string }>(
-            "select current_setting('app.tenant_id', true) as t",
-          );
-          resolveGaveUp(row?.t);
-        },
+      onGiveUp: async (_payload, tx) => {
+        giveUps++;
+        const [row] = await tx.execute<{ t: string }>(
+          "select current_setting('app.tenant_id', true) as t",
+        );
+        resolveGaveUp(row?.t);
       },
-    );
+    });
     await db.withTenant(tenantA, (tx) =>
       enqueue(tx, flaky, { tenantId: tenantA, ticketId: uuidv7() }),
     );
@@ -258,5 +261,37 @@ describe("job runner", () => {
     const [job] = await jobsSql<{ state: string; retry_limit: number }[]>`
       select state, retry_limit from pgboss.job where name = ${flaky.queue}`;
     expect(job?.retry_limit).toBe(2);
+  });
+
+  it("gives up a steps job too, once, as its own tenant", async () => {
+    const flakySteps = defineTenantJob("test-give-up-steps", { ticketId: z.uuid() });
+    await runner.ensureQueue(flakySteps, { limit: 1, delaySeconds: 1, backoff: false });
+    let attempts = 0;
+    let giveUps = 0;
+    let resolveGaveUp: (tenant: string | undefined) => void = () => {};
+    const gaveUp = new Promise<string | undefined>((resolve) => {
+      resolveGaveUp = resolve;
+    });
+    await runner.work(flakySteps, {
+      steps: async (_payload, transaction) => {
+        attempts++;
+        await transaction(async () => {
+          throw new Error("always fails");
+        });
+      },
+      onGiveUp: async (_payload, tx) => {
+        giveUps++;
+        const [row] = await tx.execute<{ t: string }>(
+          "select current_setting('app.tenant_id', true) as t",
+        );
+        resolveGaveUp(row?.t);
+      },
+    });
+    await db.withTenant(tenantB, (tx) =>
+      enqueue(tx, flakySteps, { tenantId: tenantB, ticketId: uuidv7() }),
+    );
+    expect(await gaveUp).toBe(tenantB);
+    expect(attempts).toBe(2);
+    expect(giveUps).toBe(1);
   });
 });

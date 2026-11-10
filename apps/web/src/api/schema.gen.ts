@@ -2400,7 +2400,7 @@ export interface components {
             lastMessageAt: string;
             automated: boolean;
             /** @enum {string|null} */
-            aiPausedReason: "daily_budget" | null;
+            aiPausedReason: "daily_budget" | "draft_failed" | null;
             replyNotSent: boolean;
         };
         TicketDetail: components["schemas"]["Ticket"] & {

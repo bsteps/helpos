@@ -1,12 +1,7 @@
-import type { LanguageModel } from "@helpos/ai";
 import { brand } from "@helpos/brand";
-import type { AuthStore, Database, SessionAuth } from "@helpos/db";
-import type { FileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { requestId } from "hono/request-id";
-import type { Logger } from "pino";
-import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { registerAiUsageRoute } from "./ai-budget/routes.ts";
 import {
   type Authenticate,
@@ -17,11 +12,10 @@ import {
 import { registerAuthRoutes } from "./auth/routes.ts";
 import { humanSessions } from "./auth/session.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
-import { type GithubApiFactory, octokitGithub } from "./github/github-api.ts";
 import { registerGithubRoutes } from "./github/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
-import type { SecretBox } from "./secrets/secret-box.ts";
+import type { Services } from "./services.ts";
 import { registerStatsRoutes } from "./stats/routes.ts";
 import { registerTicketRoutes } from "./tickets/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
@@ -29,74 +23,34 @@ import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerDashboard } from "./web/dashboard.ts";
 import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 
-export interface AppDeps {
-  db: Pick<
-    Database,
-    "ping" | "withTenant" | "resolveMailbox" | "resolveApiToken" | "listMemberships"
-  >;
-  files: FileStore;
-  logger: Pick<Logger, "error" | "warn" | "info">;
-  /** HELPOS_INBOUND_SECRET. When unset, the inbound email endpoint refuses every request. */
-  inboundSecret: string | undefined;
+/** What the API (web role) is built from: the shared services, never its own copies. */
+export type AppServices = Pick<
+  Services,
+  "db" | "files" | "logger" | "clock" | "config" | "model" | "auth" | "secretBox" | "github"
+>;
+
+export interface AppOptions {
   /**
-   * Human sign-in (session cookies). Without it, sign-in answers 503 and only agent tokens
-   * work. Needs HELPOS_AUTH_SECRET and HELPOS_DATABASE_AUTH_URL.
-   */
-  sessions?: SessionAuth | undefined;
-  /** Password setup links. Without it, setting a password answers 503. */
-  passwords?: Pick<AuthStore, "setPassword"> | undefined;
-  /** HELPOS_PUBLIC_URL: where the dashboard runs. Browser writes from other origins are refused. */
-  publicUrl?: string;
-  /** The built dashboard to serve at `/`. Without it, the server serves only the API. */
-  webDir?: string | undefined;
-  /**
-   * Resolves API callers. Defaults to agent tokens (`hos_…`) and, when `sessions` is set,
-   * human session cookies. Tests replace it to act as a signed-in human.
+   * Resolves API callers. Defaults to agent tokens (`hos_…`) and, when sessions are
+   * configured, human session cookies. Tests replace it to act as a signed-in human.
    */
   authenticate?: Authenticate;
-  /** Reported by the usage endpoint. The worker enforces it. */
-  dailyTokenBudget?: number;
-  /** For tests: the clock "today" is read from. */
-  now?: () => Date;
-  /** How long a new draft waits before its owner notice is sent. */
-  noticeDelaySeconds?: number;
-  /** HELPOS_ALLOW_SHADOW_MODE_OFF. Off by default: shadow mode can't be turned off. */
-  allowShadowModeOff?: boolean;
-  /** Drafts GitHub issues from tickets. Without it, issues are written by hand. */
-  model?: LanguageModel | undefined;
-  /** From HELPOS_ENCRYPTION_KEY. Without it, no GitHub repo can be connected. */
-  secretBox?: SecretBox | undefined;
-  /** Talks to GitHub. Defaults to Octokit against api.github.com; tests pass a fake. */
-  github?: GithubApiFactory;
-  /** For tests: how long before a failed GitHub issue state check is tried again. */
-  issueRecheckSeconds?: number;
-  /** For tests: how long a webhook secret read from the database is trusted. */
-  webhookSecretCacheMs?: number;
 }
 
-export function createApp({
-  db,
-  files,
-  logger,
-  inboundSecret,
-  sessions,
-  passwords,
-  publicUrl = "http://localhost:3000",
-  webDir,
-  authenticate,
-  dailyTokenBudget = defaultDailyTokenBudget,
-  now,
-  noticeDelaySeconds,
-  allowShadowModeOff = false,
-  model,
-  secretBox,
-  github = octokitGithub({ baseUrl: "https://api.github.com" }),
-  issueRecheckSeconds,
-  webhookSecretCacheMs,
-}: AppDeps): OpenAPIHono {
+export function createApp(services: AppServices, options: AppOptions = {}): OpenAPIHono {
+  const { db, files, logger, clock, config, model, auth, secretBox, github } = services;
+  const { publicUrl, inboundSecret, webDir } = config;
+  // Human sign-in needs HELPOS_AUTH_SECRET and HELPOS_DATABASE_AUTH_URL. Without it, sign-in
+  // answers 503 and only agent tokens work.
+  const sessions = auth?.sessions ?? undefined;
+  // Only the one function the API needs for password links. Without it, setting a password
+  // answers 503.
+  const passwords = auth
+    ? { setPassword: (token: string, password: string) => auth.setPassword(token, password) }
+    : undefined;
   const trustedOrigin = new URL(publicUrl).origin;
   const resolve =
-    authenticate ??
+    options.authenticate ??
     authenticateRequest({
       tokens: agentTokens(db),
       session: sessions ? humanSessions({ sessions, db, trustedOrigin }) : refuseAll,
@@ -130,32 +84,19 @@ export function createApp({
   registerAuthRoutes(app, { db, sessions, passwords, trustedOrigin });
   registerTokenRoutes(app, { db });
   registerTicketRoutes(app, { db });
-  registerDraftRoutes(app, {
-    db,
-    dailyTokenBudget,
-    ...(now ? { now } : {}),
-    ...(noticeDelaySeconds !== undefined ? { noticeDelaySeconds } : {}),
-  });
-  registerAiUsageRoute(app, {
-    db,
-    dailyTokenBudget,
-    ...(now ? { now } : {}),
-  });
+  registerDraftRoutes(app, { db, clock, config });
+  registerAiUsageRoute(app, { db, clock, config });
   registerKnowledgeRoutes(app, { db });
-  registerStatsRoutes(app, { db, ...(now ? { now } : {}) });
-  registerShadowModeRoutes(app, { db, allowShadowModeOff });
+  registerStatsRoutes(app, { db, clock });
+  registerShadowModeRoutes(app, { db, allowShadowModeOff: config.allowShadowModeOff });
   registerGithubRoutes(app, {
     db,
     logger,
-    publicUrl,
     secretBox,
     github,
     model,
-    dailyTokenBudget,
-    noticeDelaySeconds,
-    issueRecheckSeconds,
-    webhookSecretCacheMs,
-    ...(now ? { now } : {}),
+    clock,
+    config,
   });
 
   if (webDir) registerDashboard(app, webDir);
