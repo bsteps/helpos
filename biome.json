@@ -20,7 +20,8 @@
     "./biome-plugins/route-kit.grit",
     "./biome-plugins/route-security.grit",
     "./biome-plugins/route-not-found.grit",
-    "./biome-plugins/route-audit.grit"
+    "./biome-plugins/route-audit.grit",
+    "./biome-plugins/github-integration.grit"
   ],
   "formatter": {
     "enabled": true,
@@ -66,6 +67,23 @@
     }
   },
   "overrides": [
+    {
+      "includes": [
+        "apps/server/src/**/routes.ts",
+        "apps/server/src/**/*-routes.ts",
+        "apps/server/src/**/route.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noExcessiveLinesPerFile": {
+              "level": "error",
+              "options": { "maxLines": 600 }
+            }
+          }
+        }
+      }
+    },
     {
       "includes": [".claude/skills/**/SKILL.md"],
       "formatter": {

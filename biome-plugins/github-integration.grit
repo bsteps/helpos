@@ -1,0 +1,16 @@
+language js
+
+// The GitHub connection (its row, its sealed token and webhook secret) is read and written
+// in one file, apps/server/src/github/integration.ts. It answers "is it connected, can what we
+// stored still be opened" for the routes, the recheck job and the webhook. A second copy of the
+// lookup or of the open-and-handle-SecretBoxError dance is how the three drifted apart.
+or {
+  `eq($table.provider, "github")`,
+  `$box.open($sealed, $binding)`
+} as $call where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*github.integration\.ts",
+  $filename <: not r".*secrets.secret-box\.ts",
+  $filename <: not r".*\.test\.ts",
+  register_diagnostic(span=$call, message="Read or write the GitHub connection, and open its sealed token or webhook secret, only in apps/server/src/github/integration.ts (openGithubAccess, loadWebhookSecret, connectIntegration, ...). Add a function there instead of repeating the lookup.", severity="error")
+}

@@ -1,21 +1,19 @@
-import { randomBytes } from "node:crypto";
-import { type Database, enqueue, eq, schema, type TenantTx } from "@helpos/db";
+import type { Database, TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
 import { errorSchema, json } from "../http/route-kit.ts";
-import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
+import type { SecretBox } from "../secrets/secret-box.ts";
 import type { ServerConfig } from "../services.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
+import { loadWebhookSecret } from "./integration.ts";
 import { markIssueClosed, markIssueReopened, tiedLinks } from "./issue-state.ts";
-import { recheckIssueJob } from "./jobs.ts";
-import { recheckAfter } from "./recheck.ts";
+import { enqueueRecheck } from "./recheck.ts";
 import { createGate, defaultGateLimits, type GateLimits, recentIds } from "./verify-gate.ts";
 import { createWebhookSecrets, type WebhookSecrets } from "./webhook-secrets.ts";
 import { signatureHeader, signatureMatches } from "./webhook-signature.ts";
-
-const { integrations } = schema;
+import { webhookPath } from "./webhook-url.ts";
 
 export interface GithubWebhookDeps {
   db: Pick<Database, "withTenant">;
@@ -29,7 +27,6 @@ export interface GithubWebhookDeps {
   verifyLimits?: GateLimits;
 }
 
-export const webhookPath = "/v1/integrations/github/webhook";
 /** A webhook delivery is a few KB; GitHub caps them at 25 MB. Nothing we read is near this. */
 const maxWebhookBytes = 1024 * 1024;
 
@@ -260,15 +257,9 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     const recheckTied = async (tx: TenantTx, from: "open" | "closed") => {
       for (const linkId of await tiedLinks(tx, change, from)) {
         // One waiting recheck per link: a redelivered event doesn't queue another.
-        await enqueue(
-          tx,
-          recheckIssueJob,
-          { tenantId, linkId },
-          {
-            startAfter: recheckAfter(deps.config.issueRecheckSeconds),
-            singletonKey: `tie:${linkId}`,
-          },
-        );
+        await enqueueRecheck(tx, { tenantId, linkId }, deps.config, {
+          singletonKey: `tie:${linkId}`,
+        });
       }
     };
     if (payload.action === "closed") {
@@ -317,49 +308,19 @@ function readPayload(
 }
 
 /**
- * The workspace's webhook secret, or null when it has no repo connected or the secret can't
- * be read. Both do the same work (open a sealed secret), so the timing doesn't tell which
- * workspaces exist: a workspace with no repo opens a throwaway secret instead.
+ * The workspace's webhook secret, or null when it has no repo connected, no encryption key is
+ * set or the secret can't be read.
  */
 async function loadSecret(
   deps: GithubWebhookDeps,
   tenantId: string,
   unreadable: (tenantId: string) => void,
 ): Promise<string | null> {
-  const box = deps.secretBox;
-  if (!box) return null;
-  const [row] = await deps.db.withTenant(tenantId, (tx) =>
-    tx
-      .select({ webhookSecretCiphertext: integrations.webhookSecretCiphertext })
-      .from(integrations)
-      .where(eq(integrations.provider, "github")),
-  );
-  try {
-    const secret = box.open(row?.webhookSecretCiphertext ?? decoySecret(box), {
-      tenantId: row ? tenantId : decoyTenant,
-      purpose: "github-webhook-secret",
-    });
-    return row ? secret : null;
-  } catch (error) {
-    if (!(error instanceof SecretBoxError)) throw error;
+  if (!deps.secretBox) return null;
+  const secret = await loadWebhookSecret(deps.db, deps.secretBox, tenantId);
+  if (secret === "unreadable") {
     unreadable(tenantId);
     return null;
   }
-}
-
-/** A tenant ID no workspace has: the decoy secret is sealed for it alone. */
-const decoyTenant = "00000000-0000-4000-8000-000000000000";
-const decoys = new WeakMap<SecretBox, string>();
-
-/** A sealed random secret, made once per key, opened when a workspace has no repo. */
-function decoySecret(box: SecretBox): string {
-  let sealed = decoys.get(box);
-  if (!sealed) {
-    sealed = box.seal(randomBytes(32).toString("hex"), {
-      tenantId: decoyTenant,
-      purpose: "github-webhook-secret",
-    });
-    decoys.set(box, sealed);
-  }
-  return sealed;
+  return secret;
 }

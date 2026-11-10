@@ -13,8 +13,9 @@ const dir = `apps/server/src/lint-fixture-${process.pid}`;
 mkdirSync(new URL(`../${dir}`, import.meta.url), { recursive: true });
 after(() => rmSync(new URL(`../${dir}`, import.meta.url), { recursive: true, force: true }));
 
-function pluginMessages(source) {
-  const file = `${dir}/routes.ts`;
+function lint(source, name) {
+  const file = `${dir}/${name}`;
+  mkdirSync(new URL(`../${file}/..`, import.meta.url), { recursive: true });
   writeFileSync(new URL(`../${file}`, import.meta.url), source);
   let out;
   try {
@@ -26,8 +27,12 @@ function pluginMessages(source) {
   } catch (error) {
     out = error.stdout;
   }
-  return JSON.parse(out)
-    .diagnostics.filter((d) => d.category === "plugin")
+  return JSON.parse(out).diagnostics;
+}
+
+function pluginMessages(source, name = "routes.ts") {
+  return lint(source, name)
+    .filter((d) => d.category === "plugin")
     .map((d) => String(d.message));
 }
 
@@ -44,6 +49,10 @@ const samples = {
   "route-audit.grit": ["export const f = (tx, e) => recordAudit(tx, e);\n", /auditor\(c\)/],
 };
 
+const githubLookup = 'export const f = (tx) => tx.where(eq(integrations.provider, "github"));\n';
+const githubOpen = "export const f = (box, sealed) => box.open(sealed, { tenantId, purpose });\n";
+const githubIntegration = /github\/integration\.ts/;
+
 for (const [plugin, [source, message]] of Object.entries(samples)) {
   test(`${plugin} reports a route file that uses the banned shape`, () => {
     const messages = pluginMessages(source);
@@ -53,3 +62,35 @@ for (const [plugin, [source, message]] of Object.entries(samples)) {
     );
   });
 }
+
+test("github-integration.grit reports the integration lookup outside github/integration.ts", () => {
+  const messages = pluginMessages(githubLookup, "github/webhook.ts");
+  assert.ok(
+    messages.some((m) => githubIntegration.test(m)),
+    `no longer fires; got ${JSON.stringify(messages)}`,
+  );
+});
+
+test("github-integration.grit reports opening a sealed secret outside github/integration.ts", () => {
+  const messages = pluginMessages(githubOpen, "github/recheck.ts");
+  assert.ok(
+    messages.some((m) => githubIntegration.test(m)),
+    `no longer fires; got ${JSON.stringify(messages)}`,
+  );
+});
+
+test("github-integration.grit allows both in github/integration.ts itself", () => {
+  assert.deepEqual(pluginMessages(githubLookup + githubOpen, "github/integration.ts"), []);
+});
+
+test("a route file past 600 lines is reported", () => {
+  const long = Array.from(
+    { length: 601 },
+    (_, i) => `export const a${i} = ${i};
+`,
+  ).join("");
+  const ids = lint(long, "routes.ts").map((d) => d.category);
+  assert.ok(ids.includes("lint/style/noExcessiveLinesPerFile"), JSON.stringify(ids));
+  // Other files are not held to the limit.
+  assert.ok(!lint(long, "helpers.ts").some((d) => d.category.endsWith("noExcessiveLinesPerFile")));
+});

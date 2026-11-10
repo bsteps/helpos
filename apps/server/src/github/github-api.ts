@@ -71,7 +71,7 @@ export type GithubFailure =
  * `uncertain`: GitHub never gave an answer (a timeout, a dropped connection) or failed on its
  * side (5xx), so a write may have happened. A clear refusal (4xx) is never uncertain.
  */
-type GithubResult<T> =
+export type GithubResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: GithubFailure; uncertain: boolean };
 
