@@ -3,6 +3,7 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
+import { errorSchema, json } from "../http/route-kit.ts";
 import { type IngestDeps, ingestEmail } from "./ingest.ts";
 
 /** Larger messages are rejected (and logged) before they are parsed or stored. */
@@ -14,7 +15,6 @@ export interface InboundEmailDeps extends IngestDeps {
   logger: Pick<Logger, "info" | "warn">;
 }
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const resultSchema = z
   .object({
     status: z.enum(["created", "threaded", "duplicate"]),
@@ -43,30 +43,12 @@ const inboundEmailRoute = apiRoute({
     },
   },
   responses: {
-    200: {
-      description: "Duplicate delivery: already stored",
-      content: { "application/json": { schema: resultSchema } },
-    },
-    201: {
-      description: "Stored as a new ticket or a reply",
-      content: { "application/json": { schema: resultSchema } },
-    },
-    401: {
-      description: "Missing or wrong secret",
-      content: { "application/json": { schema: errorSchema } },
-    },
-    404: {
-      description: "No workspace has this address. Nothing was stored",
-      content: { "application/json": { schema: errorSchema } },
-    },
-    413: {
-      description: `Larger than ${maxEmailBytes} bytes`,
-      content: { "application/json": { schema: errorSchema } },
-    },
-    422: {
-      description: "Not a usable email (e.g. no From address)",
-      content: { "application/json": { schema: errorSchema } },
-    },
+    200: json(resultSchema, "Duplicate delivery: already stored"),
+    201: json(resultSchema, "Stored as a new ticket or a reply"),
+    401: json(errorSchema, "Missing or wrong secret"),
+    404: json(errorSchema, "No workspace has this address. Nothing was stored"),
+    413: json(errorSchema, `Larger than ${maxEmailBytes} bytes`),
+    422: json(errorSchema, "Not a usable email (e.g. no From address)"),
   },
 });
 

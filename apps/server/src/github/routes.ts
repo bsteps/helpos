@@ -22,10 +22,19 @@ import {
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { dailyBudget, reserveUsage, settleUsage, utcDay } from "../ai-budget/budget.ts";
-import { type AuditActor, nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
-import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
+import {
+  type Auditor,
+  auditor,
+  errorSchema,
+  idParams,
+  json,
+  jsonBody,
+  notFound,
+  notFoundResponse,
+} from "../http/route-kit.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { type CreatedIssue, type GithubApiFactory, parseRepo, repoString } from "./github-api.ts";
@@ -42,7 +51,6 @@ const { integrations, messages, ticketGithubIssues, tickets } = schema;
 
 export interface GithubRoutesDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
   logger: Pick<Logger, "info" | "warn" | "error">;
   /** HELPOS_PUBLIC_URL: the webhook address shown to the admin is built from it. */
   publicUrl: string;
@@ -71,7 +79,6 @@ const staleClaimSeconds = 300;
 
 const integrationPath = "/v1/integrations/github";
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const integrationSchema = z
   .object({
     connected: z.boolean(),
@@ -115,16 +122,6 @@ const issueDraftSchema = z
   })
   .openapi("GithubIssueDraft");
 
-const json = <T extends z.ZodType>(s: T, description: string) => ({
-  description,
-  content: { "application/json": { schema: s } },
-});
-const security = [{ apiAuth: [] }];
-const authErrors = {
-  401: json(errorSchema, "No valid credentials"),
-  403: json(errorSchema, "The credentials lack the required scope"),
-};
-const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
 const notConfigured = json(
   errorSchema,
   "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
@@ -139,8 +136,7 @@ const getRoute = apiRoute({
   description:
     "Which repo is connected, and the webhook address to give GitHub. Never includes the " +
     "token or the webhook secret. Needs `github:write`, or `workspace:admin`.",
-  security,
-  responses: { 200: json(integrationSchema, "The connection"), ...authErrors },
+  responses: { 200: json(integrationSchema, "The connection") },
 });
 
 const connectRoute = apiRoute({
@@ -157,33 +153,26 @@ const connectRoute = apiRoute({
     "only time it is shown; connecting the same repo again (a new token) keeps the secret unless " +
     "`rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs " +
     "`workspace:admin` in a human session.",
-  security,
   request: {
-    body: {
-      required: true,
-      content: {
-        "application/json": {
-          schema: z.strictObject({
-            repo: z
-              .string()
-              .max(140)
-              .refine((r) => parseRepo(r) !== null, "must be owner/name"),
-            token: z
-              .string()
-              .trim()
-              // Fine-grained tokens only: a classic `ghp_` token reaches every repo its owner
-              // can, and the helpdesk must reach only the one it is connected to.
-              .regex(/^github_pat_[A-Za-z0-9_]{20,250}$/, "must be a fine-grained token"),
-            /** Make a new webhook secret even when the repo is the same, e.g. after a leak. */
-            rotateWebhookSecret: z.boolean().optional(),
-          }),
-        },
-      },
-    },
+    body: jsonBody(
+      z.strictObject({
+        repo: z
+          .string()
+          .max(140)
+          .refine((r) => parseRepo(r) !== null, "must be owner/name"),
+        token: z
+          .string()
+          .trim()
+          // Fine-grained tokens only: a classic `ghp_` token reaches every repo its owner
+          // can, and the helpdesk must reach only the one it is connected to.
+          .regex(/^github_pat_[A-Za-z0-9_]{20,250}$/, "must be a fine-grained token"),
+        /** Make a new webhook secret even when the repo is the same, e.g. after a leak. */
+        rotateWebhookSecret: z.boolean().optional(),
+      }),
+    ),
   },
   responses: {
     200: json(connectedSchema, "Connected"),
-    ...authErrors,
     422: json(
       errorSchema,
       "GitHub refused the token (`token_rejected`), or the token can't see the repo " +
@@ -203,8 +192,7 @@ const disconnectRoute = apiRoute({
   description:
     "Deletes the stored token and webhook secret. Tickets keep their issue links, and webhooks " +
     "are refused from now on. Needs `workspace:admin` in a human session.",
-  security,
-  responses: { 204: { description: "Disconnected, or nothing was connected" }, ...authErrors },
+  responses: { 204: { description: "Disconnected, or nothing was connected" } },
 });
 
 const rotatePath = `${integrationPath}/webhook-secret`;
@@ -219,13 +207,11 @@ const rotateRoute = apiRoute({
     "only time it is shown. Paste it into the repo's webhook settings right away; until then " +
     "GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human " +
     "session.",
-  security,
   responses: {
     200: json(
       z.object({ webhookSecret: z.string() }).openapi("GithubWebhookSecret"),
       "The new secret",
     ),
-    ...authErrors,
     404: json(errorSchema, "No repo is connected (`not_connected`)"),
     503: notConfigured,
   },
@@ -242,12 +228,10 @@ const draftIssueRoute = apiRoute({
     "messages. Nothing is created: edit the text, then create the issue. The customer's text " +
     "is data, never instructions, so the draft has no labels, assignees, links, @mentions or " +
     "issue references. Counts against the AI daily budget. Needs `tickets:read` and `github:write`.",
-  security,
   request: { params: idParams },
   responses: {
     200: json(issueDraftSchema, "The suggested issue"),
-    ...authErrors,
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
     409: json(
       errorSchema,
       "No message from the customer to work from (`nothing_to_report`), or today's AI budget " +
@@ -274,25 +258,18 @@ const createIssueRoute = apiRoute({
     "if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue " +
     "instead of opening a duplicate. When the issue is closed as completed, the ticket gets a " +
     "`fixed` draft to approve. One issue per ticket. Needs `tickets:read` and `github:write`.",
-  security,
   request: {
     params: idParams,
-    body: {
-      required: true,
-      content: {
-        "application/json": {
-          schema: z.strictObject({
-            title: z.string().trim().min(1).max(maxIssueTitleChars),
-            body: z.string().max(60_000),
-          }),
-        },
-      },
-    },
+    body: jsonBody(
+      z.strictObject({
+        title: z.string().trim().min(1).max(maxIssueTitleChars),
+        body: z.string().max(60_000),
+      }),
+    ),
   },
   responses: {
     201: json(issueLinkSchema, "The issue, now linked to the ticket"),
-    ...authErrors,
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
     409: json(
       errorSchema,
       "No repo is connected (`not_connected`), the ticket already has an issue " +
@@ -338,15 +315,6 @@ function webhookUrl(publicUrl: string, tenantId: string): string {
 }
 
 export function registerGithubRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
-  const auth = requirePrincipal(deps.authenticate);
-  // The exact path only: the webhook below authenticates with its signature instead.
-  app.use(integrationPath, auth);
-  app.use(rotatePath, auth);
-  // This feature's ticket paths. The ticket routes' `/v1/tickets/*` covers them too; a second
-  // pass is a no-op, and these stay correct even if that one changes.
-  app.use("/v1/tickets/:id/github-issue", auth);
-  app.use("/v1/tickets/:id/github-issue/draft", auth);
-
   // Read by the webhook, forgotten here whenever the secret changes.
   const secrets = createWebhookSecrets(
     deps.webhookSecretCacheMs === undefined
@@ -383,6 +351,7 @@ function registerConnectionRoutes(
 
   app.openapi(connectRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const input = c.req.valid("json");
@@ -450,13 +419,7 @@ function registerConnectionRoutes(
           .returning({ id: integrations.id });
       }
       if (!row) throw new Error("github connect: write returned no row");
-      await recordAudit(tx, {
-        tenantId,
-        actor: principal.actor,
-        action: "github.connected",
-        target: { type: "integration", id: row.id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "github.connected", { type: "integration", id: row.id });
       return secret;
     });
     secrets.forget(tenantId);
@@ -475,6 +438,7 @@ function registerConnectionRoutes(
 
   app.openapi(rotateRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const { tenantId } = principal;
@@ -487,13 +451,7 @@ function registerConnectionRoutes(
         .where(eq(integrations.provider, "github"))
         .returning({ id: integrations.id });
       if (!row) return false;
-      await recordAudit(tx, {
-        tenantId,
-        actor: principal.actor,
-        action: "github.webhook_secret_rotated",
-        target: { type: "integration", id: row.id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "github.webhook_secret_rotated", { type: "integration", id: row.id });
       return true;
     });
     if (!rotated) return c.json({ error: "not_connected" }, 404);
@@ -506,19 +464,14 @@ function registerConnectionRoutes(
 
   app.openapi(disconnectRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     await deps.db.withTenant(principal.tenantId, async (tx) => {
       const removed = await tx
         .delete(integrations)
         .where(eq(integrations.provider, "github"))
         .returning({ id: integrations.id });
       for (const { id } of removed) {
-        await recordAudit(tx, {
-          tenantId: principal.tenantId,
-          actor: principal.actor,
-          action: "github.disconnected",
-          target: { type: "integration", id },
-          requestId: c.get("requestId"),
-        });
+        await audit(tx, "github.disconnected", { type: "integration", id });
       }
       if (removed.length === 0) nothingToAudit("not connected");
     });
@@ -530,6 +483,7 @@ function registerConnectionRoutes(
 function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
   app.openapi(draftIssueRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const model = deps.model;
     if (!model) return c.json({ error: "ai_not_configured" }, 503);
     const { id } = c.req.valid("param");
@@ -575,16 +529,10 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         return "daily_budget_reached" as const;
       }
       // Logged with the reservation, in its transaction: from here on the call is paid for.
-      await recordAudit(tx, {
-        tenantId,
-        actor: principal.actor,
-        action: "github_issue.drafted",
-        target: { type: "ticket", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "github_issue.drafted", { type: "ticket", id });
       return { input, reserved };
     });
-    if (prepared === "not_found") return c.json({ error: prepared }, 404);
+    if (prepared === "not_found") return notFound(c);
     if (typeof prepared === "string") return c.json({ error: prepared }, 409);
 
     // 2. The model call, with no transaction open.
@@ -624,6 +572,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
 
   app.openapi(createIssueRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const box = deps.secretBox;
     if (!box) return c.json({ error: "encryption_not_configured" }, 503);
     const { id: ticketId } = c.req.valid("param");
@@ -702,7 +651,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       }
       return { claimId: claimed.id, repo: integration.repo, token, stale: undefined };
     });
-    if (claim === "not_found") return c.json({ error: claim }, 404);
+    if (claim === "not_found") return notFound(c);
     if (typeof claim === "string") return c.json({ error: claim }, 409);
 
     // 2. Call GitHub with no transaction open: a slow GitHub holds no connection or lock.
@@ -807,8 +756,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
             claimId: claim.claimId,
             repo: issueRepo,
             issue: made,
-            actor: principal.actor,
-            requestId: c.get("requestId"),
+            audit,
           }),
         );
       } catch (error) {
@@ -915,8 +863,7 @@ async function recordIssue(
     claimId: string;
     repo: string;
     issue: CreatedIssue;
-    actor: AuditActor;
-    requestId: string;
+    audit: Auditor;
   },
 ): Promise<{ id: string; repo: string } | "taken"> {
   const values = {
@@ -966,12 +913,6 @@ async function recordIssue(
     if (sameIssue) nothingToAudit("linked and audited by an earlier attempt");
     return sameIssue ? { id: existing.id, repo: existing.repo } : "taken";
   }
-  await recordAudit(tx, {
-    tenantId: input.tenantId,
-    actor: input.actor,
-    action: "github_issue.created",
-    target: { type: "ticket", id: input.ticketId },
-    requestId: input.requestId,
-  });
+  await input.audit(tx, "github_issue.created", { type: "ticket", id: input.ticketId });
   return row;
 }

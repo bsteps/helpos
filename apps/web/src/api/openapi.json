@@ -1499,7 +1499,7 @@
             }
           },
           "403": {
-            "description": "The credentials lack `tickets:read`",
+            "description": "The credentials lack the required scope",
             "content": {
               "application/json": {
                 "schema": {
@@ -1558,7 +1558,7 @@
             }
           },
           "403": {
-            "description": "The credentials lack `tickets:read`",
+            "description": "The credentials lack the required scope",
             "content": {
               "application/json": {
                 "schema": {
@@ -1633,7 +1633,7 @@
             }
           },
           "403": {
-            "description": "The credentials lack `tickets:write` or `tickets:read`",
+            "description": "The credentials lack the required scope",
             "content": {
               "application/json": {
                 "schema": {
@@ -2292,7 +2292,7 @@
             }
           },
           "403": {
-            "description": "Missing scope",
+            "description": "The credentials lack the required scope",
             "content": {
               "application/json": {
                 "schema": {

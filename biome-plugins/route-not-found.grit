@@ -1,0 +1,8 @@
+language js
+
+// One answer for a row that is missing or belongs to another workspace.
+`$c.json({ error: "not_found" }, 404)` as $answer where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*.http.route-kit\.ts",
+  register_diagnostic(span=$answer, message="Answer a missing row with notFound(c) from ../http/route-kit.ts and document it as `404: notFoundResponse`.", severity="error")
+}

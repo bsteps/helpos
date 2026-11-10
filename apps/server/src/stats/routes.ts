@@ -1,12 +1,11 @@
 import { and, type Database, eq, gte, inArray, lt, schema, sql, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
-import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
+import { errorSchema, json } from "../http/route-kit.ts";
 import { countDraftOutcomes, type DraftOutcomes } from "./draft-outcomes.ts";
 
 export interface StatsRoutesDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
   now?: () => Date;
 }
 
@@ -15,7 +14,6 @@ const day = 24 * 60 * 60 * 1000;
 /** A year and a bit: long enough for any trial, short enough to stay a cheap query. */
 const maxRangeDays = 400;
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const draftStatsSchema = z
   .object({
     /** The range counted: drafts created at or after `from` and before `to`. */
@@ -47,11 +45,6 @@ const query = z.object({
     .openapi({ description: "End of the range, exclusive. Defaults to now." }),
 });
 
-const json = <T extends z.ZodType>(s: T, description: string) => ({
-  description,
-  content: { "application/json": { schema: s } },
-});
-
 const draftStatsRoute = apiRoute({
   access: { allScopes: ["stats:read"] },
   method: "get",
@@ -61,13 +54,10 @@ const draftStatsRoute = apiRoute({
     "Outcomes of the drafts created in a date range: approved unchanged, approved after an " +
     "edit (by anyone), discarded, still pending, and the share of approved drafts that went " +
     `out unchanged. The range is at most ${maxRangeDays} days. Needs \`stats:read\`.`,
-  security: [{ apiAuth: [] }],
   request: { query },
   responses: {
     200: json(draftStatsSchema, "The counts"),
     400: json(errorSchema, "`from` is not before `to`, or the range is too long"),
-    401: json(errorSchema, "No valid credentials"),
-    403: json(errorSchema, "The credentials lack the required scope"),
   },
 });
 
@@ -100,7 +90,6 @@ async function draftOutcomes(tx: TenantTx, from: Date, to: Date): Promise<DraftO
 }
 
 export function registerStatsRoutes(app: OpenAPIHono, deps: StatsRoutesDeps): void {
-  app.use(draftStatsRoute.path, requirePrincipal(deps.authenticate));
   app.openapi(draftStatsRoute, async (c) => {
     const principal = c.get("principal");
     const params = c.req.valid("query");

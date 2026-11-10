@@ -8,7 +8,12 @@ import { requestId } from "hono/request-id";
 import type { Logger } from "pino";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { registerAiUsageRoute } from "./ai-budget/routes.ts";
-import { type Authenticate, authenticateRequest, refuseAll } from "./auth/principal.ts";
+import {
+  type Authenticate,
+  authenticateRequest,
+  callerResolver,
+  refuseAll,
+} from "./auth/principal.ts";
 import { registerAuthRoutes } from "./auth/routes.ts";
 import { humanSessions } from "./auth/session.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
@@ -99,6 +104,8 @@ export function createApp({
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
   app.use("*", requestId());
+  // Routes authenticate their own callers (see apiRoute()); this says how.
+  app.use("*", callerResolver(resolve));
 
   // Liveness + readiness in one: the server is only useful if it can reach Postgres.
   // The body stays minimal on purpose, so it reveals nothing about the setup.
@@ -120,28 +127,25 @@ export function createApp({
   });
 
   registerInboundEmail(app, { db, files, logger, inboundSecret });
-  registerAuthRoutes(app, { db, authenticate: resolve, sessions, passwords, trustedOrigin });
-  registerTokenRoutes(app, { db, authenticate: resolve });
-  registerTicketRoutes(app, { db, authenticate: resolve });
+  registerAuthRoutes(app, { db, sessions, passwords, trustedOrigin });
+  registerTokenRoutes(app, { db });
+  registerTicketRoutes(app, { db });
   registerDraftRoutes(app, {
     db,
-    authenticate: resolve,
     dailyTokenBudget,
     ...(now ? { now } : {}),
     ...(noticeDelaySeconds !== undefined ? { noticeDelaySeconds } : {}),
   });
   registerAiUsageRoute(app, {
     db,
-    authenticate: resolve,
     dailyTokenBudget,
     ...(now ? { now } : {}),
   });
-  registerKnowledgeRoutes(app, { db, authenticate: resolve });
-  registerStatsRoutes(app, { db, authenticate: resolve, ...(now ? { now } : {}) });
-  registerShadowModeRoutes(app, { db, authenticate: resolve, allowShadowModeOff });
+  registerKnowledgeRoutes(app, { db });
+  registerStatsRoutes(app, { db, ...(now ? { now } : {}) });
+  registerShadowModeRoutes(app, { db, allowShadowModeOff });
   registerGithubRoutes(app, {
     db,
-    authenticate: resolve,
     logger,
     publicUrl,
     secretBox,

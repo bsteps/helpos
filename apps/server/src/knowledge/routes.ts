@@ -12,9 +12,17 @@ import {
   uuidv7,
 } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AuditEvent, nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { type AuditAction, nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
-import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
+import {
+  auditor,
+  errorSchema,
+  idParams,
+  json,
+  jsonBody,
+  notFound,
+  notFoundResponse,
+} from "../http/route-kit.ts";
 import { ingestSourceJob } from "./jobs.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;
@@ -22,7 +30,6 @@ type SourceRow = typeof knowledgeSources.$inferSelect;
 
 export interface KnowledgeRoutesDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
 }
 
 /** Lowercase words joined by `-`, optionally in `/` folders, so it can become a file path. */
@@ -77,7 +84,6 @@ const updateBody = z
   .refine((b) => Object.values(b).some((v) => v !== undefined), "nothing to change")
   .openapi("KnowledgeSourceUpdate");
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const conflictSchema = z
   .object({
     error: z.string(),
@@ -119,17 +125,6 @@ const sourceSchema = z
   })
   .openapi("KnowledgeSource");
 
-const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
-const json = <T extends z.ZodType>(s: T, description: string) => ({
-  description,
-  content: { "application/json": { schema: s } },
-});
-const authErrors = {
-  401: json(errorSchema, "No valid credentials"),
-  403: json(errorSchema, "The credentials lack the required scope"),
-};
-const security = [{ apiAuth: [] }];
-
 const listRoute = apiRoute({
   access: { allScopes: ["knowledge:read"] },
   method: "get",
@@ -138,10 +133,8 @@ const listRoute = apiRoute({
   description:
     "Every knowledge source in the workspace, oldest first, with its ingestion status. " +
     "Needs `knowledge:read`.",
-  security,
   responses: {
     200: json(z.object({ sources: z.array(sourceSchema) }), "The sources"),
-    ...authErrors,
   },
 });
 
@@ -159,13 +152,11 @@ const createSourceRoute = apiRoute({
     "data and record which ones they cite. One page per URL source: links are not followed. " +
     "`slug` defaults to one made from the title. `visibility` defaults to `internal`. " +
     "Needs `knowledge:write`.",
-  security,
   request: {
-    body: { required: true, content: { "application/json": { schema: createBody } } },
+    body: jsonBody(createBody),
   },
   responses: {
     201: json(sourceSchema, "The new source, status `pending`"),
-    ...authErrors,
     409: json(
       conflictSchema,
       "The workspace already has a source with this slug (`slug_taken`), or with this URL " +
@@ -185,12 +176,10 @@ const deleteRoute = apiRoute({
     "Deletes the source and its passages. Drafts written with it keep their copy of the " +
     "passages they saw, with `sourceId` null. " +
     "Needs `knowledge:write`.",
-  security,
   request: { params: idParams },
   responses: {
     204: { description: "Deleted" },
-    ...authErrors,
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
     409: json(
       errorSchema,
       "The source is managed in the workspace's git repo (`managed_in_git`): delete the file there",
@@ -212,12 +201,10 @@ const reingestRoute = apiRoute({
     "(no text, too long, not a page), they're removed. Asking again while it's pending queues " +
     "nothing new, but a request made during a fetch gets a fetch of its own. " +
     "Needs `knowledge:write`.",
-  security,
   request: { params: idParams },
   responses: {
     202: json(sourceSchema, "The source, status `pending`"),
-    ...authErrors,
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
     409: json(
       errorSchema,
       "The source is managed in the workspace's git repo (`managed_in_git`): it's re-ingested on sync",
@@ -245,16 +232,14 @@ const updateRoute = apiRoute({
     "background (status `pending`, counted toward the daily AI budget). Until that is done the " +
     "source has no passages. Sending what it already has changes nothing and logs nothing. " +
     "Needs `knowledge:write`.",
-  security,
   request: {
     params: idParams,
-    body: { required: true, content: { "application/json": { schema: updateBody } } },
+    body: jsonBody(updateBody),
   },
   responses: {
     200: json(sourceSchema, "The source as it is now"),
     400: json(errorSchema, "`content` sent for a URL source (`content_not_editable`)"),
-    ...authErrors,
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
     409: json(
       errorSchema,
       "The source is managed in the workspace's git repo (`managed_in_git`): edit the file there",
@@ -298,8 +283,6 @@ export function slugify(title: string): string {
 }
 
 export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesDeps): void {
-  app.use("/v1/knowledge/*", requirePrincipal(deps.authenticate));
-
   app.openapi(listRoute, async (c) => {
     const principal = c.get("principal");
     const rows = await deps.db.withTenant(principal.tenantId, (tx) =>
@@ -314,7 +297,8 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
   app.openapi(createSourceRoute, async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("json");
-    const { tenantId, actor } = principal;
+    const { tenantId } = principal;
+    const audit = auditor(c);
     const id = uuidv7();
     const url = input.kind === "url" ? normalizeKnowledgeUrl(input.url) : null;
     const base = slugify(input.title);
@@ -375,13 +359,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
             })
             .returning();
           if (!row) throw new Error("create knowledge source: insert returned no row");
-          await recordAudit(tx, {
-            tenantId,
-            actor,
-            action: "knowledge_source.created",
-            target: { type: "knowledge_source", id },
-            requestId: c.get("requestId"),
-          });
+          await audit(tx, "knowledge_source.created", { type: "knowledge_source", id });
           // In the same transaction: the source and its ingest job exist together or not at all.
           await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id }, { singletonKey: id });
           return row;
@@ -398,6 +376,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const { tenantId } = principal;
+    const audit = auditor(c);
     const result = await deps.db.withTenant(tenantId, async (tx) => {
       const [found] = await tx
         .select({
@@ -426,13 +405,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         .where(eq(knowledgeSources.id, id))
         .returning();
       if (!row) throw new Error("reingest: update returned no row");
-      await recordAudit(tx, {
-        tenantId,
-        actor: principal.actor,
-        action: "knowledge_source.reingest_requested",
-        target: { type: "knowledge_source", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "knowledge_source.reingest_requested", { type: "knowledge_source", id });
       // Already pending: reuse its job rather than queue two. If that job is already fetching,
       // it sees this request when it writes (the count went up) and queues a run for it.
       // Otherwise always queue a new one. The last job may have committed but still look
@@ -446,7 +419,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       );
       return row;
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
     return c.json(serialize(result), 202);
   });
@@ -455,7 +428,8 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    const { tenantId, actor } = principal;
+    const { tenantId } = principal;
+    const audit = auditor(c);
     const result = await deps.db.withTenant(tenantId, async (tx) => {
       const [found] = await tx
         .select()
@@ -502,19 +476,12 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, id));
         await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id });
       }
-      const audit = (action: AuditEvent["action"]) =>
-        recordAudit(tx, {
-          tenantId,
-          actor,
-          action,
-          target: { type: "knowledge_source", id },
-          requestId: c.get("requestId"),
-        });
-      if (title || content) await audit("knowledge_source.edited");
+      const record = (action: AuditAction) => audit(tx, action, { type: "knowledge_source", id });
+      if (title || content) await record("knowledge_source.edited");
       // There are two visibilities, so the new one names the old one too: what customers may
       // be shown is always traceable.
       if (visibility) {
-        await audit(
+        await record(
           row.visibility === "public"
             ? "knowledge_source.made_public"
             : "knowledge_source.made_internal",
@@ -522,7 +489,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       }
       return row;
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
     if (result === "content_not_editable") return c.json({ error: "content_not_editable" }, 400);
     return c.json(serialize(result), 200);
@@ -530,6 +497,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
 
   app.openapi(deleteRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [found] = await tx
@@ -543,16 +511,10 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       if (found.managedBy === "git") return "managed_in_git" as const;
       // Its chunks go with it (ON DELETE CASCADE); drafts' copies of its passages stay.
       await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));
-      await recordAudit(tx, {
-        tenantId: principal.tenantId,
-        actor: principal.actor,
-        action: "knowledge_source.deleted",
-        target: { type: "knowledge_source", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "knowledge_source.deleted", { type: "knowledge_source", id });
       return "deleted" as const;
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
     return c.body(null, 204);
   });

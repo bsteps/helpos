@@ -1,0 +1,10 @@
+language js
+
+// A route records audit events with auditor(c) from ../http/route-kit.ts, which takes the
+// workspace, the caller and the request ID from the request. Spelling them out by hand is how
+// an event ends up under the wrong actor or without its request ID. Workers and other
+// background code have no request and call recordAudit() themselves.
+`recordAudit($tx, $event)` as $call where {
+  $filename <: r".*apps.server.src..*.(?:routes?|[a-z-]+-routes|webhook)\.ts",
+  register_diagnostic(span=$call, message="Record audit events in a route with `const audit = auditor(c)` and `audit(tx, action, target)` from ../http/route-kit.ts, not recordAudit() with tenantId, actor and requestId by hand.", severity="error")
+}

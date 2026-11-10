@@ -1,7 +1,8 @@
 import { createRoute, type RouteConfig } from "@hono/zod-openapi";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { type AuditAction, auditTrail } from "../audit/audit.ts";
-import type { Principal, Scope } from "./principal.ts";
+import { errorSchema, json } from "../http/route-kit.ts";
+import type { Authenticate, Principal, Scope } from "./principal.ts";
 
 /**
  * Who may call a route. Every route says it in its definition, so a new route can't forget the
@@ -70,11 +71,22 @@ function accessRefusal(
   return ok ? null : "forbidden";
 }
 
+/** The caller, authenticated once per request (a route that is matched twice reuses it). */
+async function resolveCaller(c: Context): Promise<Principal | undefined> {
+  const known: Principal | undefined = c.get("principal");
+  if (known) return known;
+  const authenticate: Authenticate | undefined = c.get("authenticate");
+  // An app without callerResolver() refuses every caller, instead of letting one through.
+  const principal = authenticate ? await authenticate(c.req.raw) : null;
+  if (!principal) return undefined;
+  c.set("principal", principal);
+  return principal;
+}
+
 function enforce(name: string, access: Access, audit: Audit | undefined): MiddlewareHandler {
   return async (c, next) => {
-    // `principal` is set by requirePrincipal() on the feature's paths. A route registered
-    // without it is refused, not let through.
-    const refusal = accessRefusal(access, c.get("principal"));
+    const principal = "noCaller" in access ? undefined : await resolveCaller(c);
+    const refusal = accessRefusal(access, principal);
     if (refusal === "unauthorized") return c.json({ error: refusal }, 401);
     if (refusal) return c.json({ error: refusal }, 403);
     if (!audit || "none" in audit) return next();
@@ -101,14 +113,41 @@ function enforce(name: string, access: Access, audit: Audit | undefined): Middle
   };
 }
 
+const unauthorizedResponse = json(errorSchema, "No valid credentials");
+const forbiddenResponse = json(errorSchema, "The credentials lack the required scope");
+
+/**
+ * The 401 and 403 an access rule can produce, documented on the route without it saying so.
+ * A route that needs something more specific says it in its own `responses`.
+ */
+type AuthResponses<A extends Access> = A extends { noCaller: string }
+  ? Record<never, never>
+  : A extends { anyCaller: string }
+    ? { 401: typeof unauthorizedResponse }
+    : { 401: typeof unauthorizedResponse; 403: typeof forbiddenResponse };
+
+function authResponses<A extends Access>(access: A): AuthResponses<A> {
+  const responses =
+    "noCaller" in access
+      ? {}
+      : "anyCaller" in access
+        ? { 401: unauthorizedResponse }
+        : { 401: unauthorizedResponse, 403: forbiddenResponse };
+  return responses as AuthResponses<A>;
+}
+
 /**
  * The only way to define an API route: `createRoute()` plus a required `access`, and on a
  * write route a required `audit`. Both are enforced by middleware: access before validation
  * and the handler, audit after the handler. Both are published in the OpenAPI document
  * (`x-access`, `x-audit`), so agents can read what each operation needs and records.
+ *
+ * The caller is authenticated here too, so a route needs no path middleware, and it gets
+ * what follows from its `access`: the `apiAuth` security scheme and the 401 and 403 responses.
+ * A `noCaller` route proves its caller another way and states that in its own `security`.
  */
-export function apiRoute<const R extends Omit<RouteConfig, "middleware">>(
-  config: R & { access: Access } & (R["method"] extends WriteMethod
+export function apiRoute<const R extends Omit<RouteConfig, "middleware">, const A extends Access>(
+  config: R & { access: A } & (R["method"] extends WriteMethod
       ? { audit: Audit }
       : { audit?: never }),
 ) {
@@ -116,8 +155,15 @@ export function apiRoute<const R extends Omit<RouteConfig, "middleware">>(
   // TypeScript can't see that removing `access` and `audit` from R leaves R's own route fields.
   const route = rest as unknown as R;
   const name = `${route.method.toUpperCase()} ${route.path}`;
+  // Spelled out, so the route's type names its parts instead of inlining the library's.
+  const responses: AuthResponses<A> & R["responses"] = {
+    ...authResponses<A>(access),
+    ...route.responses,
+  };
   return createRoute({
     ...route,
+    ...("noCaller" in access || route.security ? {} : { security: [{ apiAuth: [] }] }),
+    responses,
     "x-access": access,
     ...(audit ? { "x-audit": audit } : {}),
     middleware: [enforce(name, access, audit)] as const,
