@@ -72,11 +72,7 @@ export interface CreateIssueInput {
 type IssueLink = { repo: string; number: number; url: string; state: "open" | "closed" };
 
 /** Why a claim was refused. A caller can act on each: connect, wait, or stop. */
-type ClaimRefusal =
-  | "not_connected"
-  | "reconnect_required"
-  | "creation_pending"
-  | "already_linked";
+type ClaimRefusal = "not_connected" | "reconnect_required" | "creation_pending" | "already_linked";
 
 export type CreateIssueOutcome =
   | { kind: "created"; link: IssueLink }
