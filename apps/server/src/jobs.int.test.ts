@@ -54,15 +54,8 @@ async function receiveEmail(body: string) {
   return result;
 }
 
-async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const value = await fn();
-    if (value !== undefined) return value;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`timed out waiting for ${what}`);
-}
+/** Jobs run in the background: poll until the state shows, up to 30 s. */
+const eventually = { timeout: 30_000 };
 
 const ticketOf = async (ticketId: string) => {
   const [ticket] = await db.withTenant(acme, (tx) =>
@@ -131,11 +124,9 @@ afterAll(async () => {
 describe("draft-reply gives up", () => {
   it("marks the ticket draft_failed, with an audit event, when every try fails", async () => {
     const email = await receiveEmail(`Hi, ${providerDown}, can you help?`);
-    const ticket = await waitFor("the ticket marked", async () => {
-      const t = await ticketOf(email.ticketId);
-      return t?.aiPausedReason === "draft_failed" ? t : undefined;
-    });
-    expect(ticket.aiPausedReason).toBe("draft_failed");
+    await expect
+      .poll(async () => (await ticketOf(email.ticketId))?.aiPausedReason, eventually)
+      .toBe("draft_failed");
     expect(await auditActions(email.ticketId)).toContain("ai.draft_failed");
     const drafts = await db.withTenant(acme, (tx) =>
       tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
@@ -145,12 +136,17 @@ describe("draft-reply gives up", () => {
 
   it("leaves a ticket alone when the message got a draft meanwhile", async () => {
     const email = await receiveEmail("Hi, where is my order?");
-    await waitFor("a draft", async () => {
-      const [d] = await db.withTenant(acme, (tx) =>
-        tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
-      );
-      return d;
-    });
+    await expect
+      .poll(
+        async () =>
+          (
+            await db.withTenant(acme, (tx) =>
+              tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+            )
+          ).length,
+        eventually,
+      )
+      .toBe(1);
     await db.withTenant(acme, (tx) =>
       handleDraftGaveUp({ tenantId: acme, messageId: email.messageId }, tx),
     );
@@ -164,9 +160,9 @@ describe("draft-notice gives up", () => {
     smtpDown = true;
     try {
       const email = await receiveEmail("Hi, I was charged twice.");
-      await waitFor("the notice given up", async () =>
-        (await auditActions(email.ticketId)).includes("draft.notice_failed") ? true : undefined,
-      );
+      await expect
+        .poll(() => auditActions(email.ticketId), eventually)
+        .toContain("draft.notice_failed");
       const actions = await auditActions(email.ticketId);
       expect(actions).not.toContain("draft.notice_sent");
       const [draft] = await db.withTenant(acme, (tx) =>
@@ -241,9 +237,9 @@ describe("github.recheck-issue gives up", () => {
 describe("give-up handlers stay in their tenant", () => {
   it("another workspace's job can't mark this workspace's ticket, source or link", async () => {
     const email = await receiveEmail(`Hi, ${providerDown} again, help?`);
-    await waitFor("the ticket marked", async () =>
-      (await ticketOf(email.ticketId))?.aiPausedReason === "draft_failed" ? true : undefined,
-    );
+    await expect
+      .poll(async () => (await ticketOf(email.ticketId))?.aiPausedReason, eventually)
+      .toBe("draft_failed");
     await db.withTenant(acme, (tx) =>
       tx
         .update(schema.tickets)
