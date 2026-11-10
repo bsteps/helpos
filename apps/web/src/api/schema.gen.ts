@@ -554,7 +554,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description The credentials lack `tickets:read` */
+                /** @description The credentials lack the required scope */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -613,7 +613,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description The credentials lack `tickets:read` */
+                /** @description The credentials lack the required scope */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -683,7 +683,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description The credentials lack `tickets:write` or `tickets:read` */
+                /** @description The credentials lack the required scope */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1219,7 +1219,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description Missing scope */
+                /** @description The credentials lack the required scope */
                 403: {
                     headers: {
                         [name: string]: unknown;

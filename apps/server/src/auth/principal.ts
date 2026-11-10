@@ -40,19 +40,19 @@ export function authenticateRequest(parts: {
 declare module "hono" {
   interface ContextVariableMap {
     principal: Principal;
+    /** How this app resolves callers. Set for every request by `callerResolver()`. */
+    authenticate: Authenticate;
   }
 }
 
 /**
- * Runs before validation, so an unauthenticated caller learns nothing, not even a 400. Safe to
- * register on overlapping paths: a request is authenticated once.
+ * Tells the routes how to resolve a caller. Register it once, on the whole app: `apiRoute()`
+ * then authenticates the request itself, before validation, so an unauthenticated caller
+ * learns nothing, not even a 400. A route needs no path middleware of its own.
  */
-export function requirePrincipal(authenticate: Authenticate): MiddlewareHandler {
-  return async (c, next) => {
-    if (c.get("principal")) return next();
-    const principal = await authenticate(c.req.raw);
-    if (!principal) return c.json({ error: "unauthorized" }, 401);
-    c.set("principal", principal);
+export function callerResolver(authenticate: Authenticate): MiddlewareHandler {
+  return (c, next) => {
+    c.set("authenticate", authenticate);
     return next();
   };
 }

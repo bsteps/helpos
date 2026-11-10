@@ -1,0 +1,8 @@
+language js
+
+// apiRoute() puts the apiAuth security scheme on every route that has a caller.
+`security: [{ apiAuth: [] }]` as $security where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*auth.access\.ts",
+  register_diagnostic(span=$security, message="Delete `security`: apiRoute() adds the apiAuth security scheme to every route that has a caller.", severity="error")
+}

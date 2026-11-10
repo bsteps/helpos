@@ -1,12 +1,11 @@
 import type { Database } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
-import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
+import { json } from "../http/route-kit.ts";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "./budget.ts";
 
 export interface AiUsageRouteDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
   dailyTokenBudget: number;
   now?: () => Date;
 }
@@ -26,7 +25,6 @@ const usageSchema = z
     paused: z.boolean(),
   })
   .openapi("AiUsage");
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 const usageRoute = apiRoute({
   access: { allScopes: ["tickets:read"] },
@@ -37,19 +35,12 @@ const usageRoute = apiRoute({
     "Tokens the workspace's AI drafting used today (UTC), against its hard daily budget. " +
     "At or over the budget, no model call is made and new tickets are marked " +
     "`ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.",
-  security: [{ apiAuth: [] }],
   responses: {
-    200: { description: "Usage", content: { "application/json": { schema: usageSchema } } },
-    401: {
-      description: "No valid credentials",
-      content: { "application/json": { schema: errorSchema } },
-    },
-    403: { description: "Missing scope", content: { "application/json": { schema: errorSchema } } },
+    200: json(usageSchema, "Usage"),
   },
 });
 
 export function registerAiUsageRoute(app: OpenAPIHono, deps: AiUsageRouteDeps): void {
-  app.use(usageRoute.path, requirePrincipal(deps.authenticate));
   app.openapi(usageRoute, async (c) => {
     const principal = c.get("principal");
     const day = utcDay((deps.now ?? (() => new Date()))());

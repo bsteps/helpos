@@ -1,0 +1,17 @@
+language js
+
+// Route files take what they share from the route kit (apps/server/src/http/route-kit.ts).
+// A copy in one file drifts, and the next route copies the copy.
+
+or {
+  `const errorSchema = $_`,
+  `const json = $_`,
+  `const jsonBody = $_`,
+  `const idParams = $_`,
+  `const security = $_`,
+  `const authErrors = $_`
+} as $decl where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*.http.route-kit\.ts",
+  register_diagnostic(span=$decl, message="Import errorSchema, json, jsonBody and idParams from ../http/route-kit.ts instead of defining your own. apiRoute() adds the apiAuth security and the 401/403 responses itself, so a route needs no `security` or `authErrors`.", severity="error")
+}

@@ -16,6 +16,12 @@
       "!apps/web/playwright-report"
     ]
   },
+  "plugins": [
+    "./biome-plugins/route-kit.grit",
+    "./biome-plugins/route-security.grit",
+    "./biome-plugins/route-not-found.grit",
+    "./biome-plugins/route-audit.grit"
+  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

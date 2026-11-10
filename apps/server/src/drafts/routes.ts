@@ -16,9 +16,18 @@ import {
 } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
-import { nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute, Grant } from "../auth/access.ts";
-import { type Authenticate, type Principal, requirePrincipal } from "../auth/principal.ts";
+import type { Principal } from "../auth/principal.ts";
+import {
+  auditor,
+  errorSchema,
+  idParams,
+  json,
+  jsonBody,
+  notFound,
+  notFoundResponse,
+} from "../http/route-kit.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -27,7 +36,6 @@ type DraftRow = typeof drafts.$inferSelect;
 
 export interface DraftRoutesDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
   /** Regenerate is refused up front when today's AI budget is spent. */
   dailyTokenBudget: number;
   now?: () => Date;
@@ -35,7 +43,6 @@ export interface DraftRoutesDeps {
   noticeDelaySeconds?: number;
 }
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const draftSourceSchema = z
   .object({
     /** Null when the source has since been deleted; the rest is what the draft saw. */
@@ -93,29 +100,16 @@ const draftSchema = z
 type DraftJson = z.infer<typeof draftSchema>;
 type DraftSourceJson = z.infer<typeof draftSourceSchema>;
 
-const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
-const json = <T extends z.ZodType>(schema: T, description: string) => ({
-  description,
-  content: { "application/json": { schema } },
-});
-const authErrors = {
-  401: json(errorSchema, "No valid credentials"),
-  403: json(errorSchema, "The credentials lack the required scope"),
-  404: json(errorSchema, "Not found in this workspace"),
-} as const;
-const security = [{ apiAuth: [] }];
-
 const listRoute = apiRoute({
   access: { allScopes: ["tickets:read"] },
   method: "get",
   path: "/v1/tickets/{id}/drafts",
   summary: "List a ticket's drafts",
   description: "Every AI draft on the ticket, oldest first. Needs `tickets:read`.",
-  security,
   request: { params: idParams },
   responses: {
     200: json(z.object({ drafts: z.array(draftSchema) }), "The drafts"),
-    ...authErrors,
+    404: notFoundResponse,
   },
 });
 
@@ -126,21 +120,13 @@ const editRoute = apiRoute({
   path: "/v1/drafts/{id}",
   summary: "Edit a pending draft",
   description: "Replaces the body of a draft that is still `pending`. Needs `drafts:write`.",
-  security,
   request: {
     params: idParams,
-    body: {
-      required: true,
-      content: {
-        "application/json": {
-          schema: z.strictObject({ body: z.string().trim().min(1).max(50_000) }),
-        },
-      },
-    },
+    body: jsonBody(z.strictObject({ body: z.string().trim().min(1).max(50_000) })),
   },
   responses: {
     200: json(draftSchema, "The edited draft"),
-    ...authErrors,
+    404: notFoundResponse,
     409: json(errorSchema, "The draft is no longer pending"),
   },
 });
@@ -157,17 +143,13 @@ const approveRoute = apiRoute({
     "becomes `sent` once the email is out, and a failed send is retried. The request carries " +
     "the body the approver reviewed: if the draft was edited since, nothing is approved (409). " +
     "Needs `drafts:approve`.",
-  security,
   request: {
     params: idParams,
-    body: {
-      required: true,
-      content: { "application/json": { schema: z.strictObject({ body: z.string() }) } },
-    },
+    body: jsonBody(z.strictObject({ body: z.string() })),
   },
   responses: {
     200: json(draftSchema, "The approved draft"),
-    ...authErrors,
+    404: notFoundResponse,
     409: json(errorSchema, "The draft is no longer pending, or was edited since it was reviewed"),
   },
 });
@@ -181,11 +163,10 @@ const discardRoute = apiRoute({
   description:
     "Marks a `pending` or `send_failed` draft `discarded`, so it can never be approved or " +
     "sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.",
-  security,
   request: { params: idParams },
   responses: {
     200: json(draftSchema, "The discarded draft"),
-    ...authErrors,
+    404: notFoundResponse,
     409: json(errorSchema, "The draft is not pending or `send_failed`"),
   },
 });
@@ -202,11 +183,10 @@ const retryRoute = apiRoute({
     "and to whoever shadow mode says at the time it is sent. Safe to repeat: a `sent` draft is " +
     "returned as it is, and an `approved` one has its send queued again only if none is " +
     "queued already, so it is never sent twice. Needs `drafts:approve`.",
-  security,
   request: { params: idParams },
   responses: {
     200: json(draftSchema, "The draft, queued to send (or already sending or sent)"),
-    ...authErrors,
+    404: notFoundResponse,
     409: json(errorSchema, "The draft was never approved, or was discarded"),
   },
 });
@@ -224,25 +204,19 @@ const createDraftRoute = apiRoute({
     "appears in the list when ready. Either way, older pending replies on the ticket are " +
     "discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is " +
     "approved. Needs `drafts:write` and `tickets:read`.",
-  security,
   request: {
     params: idParams,
-    body: {
-      required: true,
-      content: {
-        "application/json": {
-          schema: z.union([
-            z.strictObject({ body: z.string().trim().min(1).max(50_000) }),
-            z.strictObject({ regenerate: z.literal(true) }),
-          ]),
-        },
-      },
-    },
+    body: jsonBody(
+      z.union([
+        z.strictObject({ body: z.string().trim().min(1).max(50_000) }),
+        z.strictObject({ regenerate: z.literal(true) }),
+      ]),
+    ),
   },
   responses: {
     201: json(draftSchema, "The new draft"),
     202: json(z.object({ status: z.literal("queued") }), "An AI draft is being written"),
-    ...authErrors,
+    404: notFoundResponse,
     409: json(
       errorSchema,
       "No customer message to answer (`nothing_to_answer`), or the latest one already has " +
@@ -338,10 +312,6 @@ async function presentOne(tx: TenantTx, principal: Principal, row: DraftRow): Pr
 }
 
 export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): void {
-  const auth = requirePrincipal(deps.authenticate);
-  app.use("/v1/tickets/*", auth);
-  app.use("/v1/drafts/*", auth);
-
   app.openapi(listRoute, async (c) => {
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
@@ -356,12 +326,13 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
       return present(tx, principal, rows);
     });
     // Another workspace's ticket looks exactly like one that doesn't exist.
-    if (!result) return c.json({ error: "not_found" }, 404);
+    if (!result) return notFound(c);
     return c.json({ drafts: result }, 200);
   });
 
   app.openapi(editRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const { id } = c.req.valid("param");
     const { body } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
@@ -372,22 +343,17 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         .where(and(eq(drafts.id, id), eq(drafts.status, "pending")))
         .returning();
       if (!updated) return (await draftExists(tx, id)) ? "conflict" : "not_found";
-      await recordAudit(tx, {
-        tenantId: principal.tenantId,
-        actor: principal.actor,
-        action: "draft.edited",
-        target: { type: "draft", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "draft.edited", { type: "draft", id });
       return presentOne(tx, principal, updated);
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 
   app.openapi(approveRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const { id } = c.req.valid("param");
     const { body: reviewed } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
@@ -413,13 +379,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
         .where(and(eq(drafts.id, id), eq(drafts.status, "pending"), eq(drafts.body, reviewed)))
         .returning();
       if (!approved) return "conflict";
-      await recordAudit(tx, {
-        tenantId: principal.tenantId,
-        actor: principal.actor,
-        action: "draft.approved",
-        target: { type: "draft", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "draft.approved", { type: "draft", id });
       await enqueue(
         tx,
         sendReplyJob,
@@ -428,7 +388,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
       );
       return presentOne(tx, principal, approved);
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
     return c.json(result, 200);
   });
@@ -443,8 +403,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     const principal = c.get("principal");
     const { id: ticketId } = c.req.valid("param");
     const input = c.req.valid("json");
-    const { tenantId, actor } = principal;
-    const requestId = c.get("requestId");
+    const { tenantId } = principal;
+    const audit = auditor(c);
 
     const result = await deps.db.withTenant(tenantId, async (tx) => {
       const [ticket] = await tx
@@ -504,13 +464,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         )
         .returning({ id: drafts.id });
       for (const { id } of stale) {
-        await recordAudit(tx, {
-          tenantId,
-          actor,
-          action: "draft.discarded",
-          target: { type: "draft", id },
-          requestId,
-        });
+        await audit(tx, "draft.discarded", { type: "draft", id });
       }
 
       if ("regenerate" in input) {
@@ -532,17 +486,11 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       await queueDraftNotice(tx, draft, deps.noticeDelaySeconds);
       // The ticket has an answer now, so it's no longer waiting on a paused AI.
       await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
-      await recordAudit(tx, {
-        tenantId,
-        actor,
-        action: "draft.created",
-        target: { type: "draft", id: draft.id },
-        requestId,
-      });
+      await audit(tx, "draft.created", { type: "draft", id: draft.id });
       return presentOne(tx, principal, draft);
     });
 
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (
       result === "nothing_to_answer" ||
       result === "already_answered" ||
@@ -558,6 +506,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(discardRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [discarded] = await tx
@@ -566,16 +515,10 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .where(and(eq(drafts.id, id), inArray(drafts.status, ["pending", "send_failed"])))
         .returning();
       if (!discarded) return (await draftExists(tx, id)) ? "conflict" : "not_found";
-      await recordAudit(tx, {
-        tenantId: principal.tenantId,
-        actor: principal.actor,
-        action: "draft.discarded",
-        target: { type: "draft", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "draft.discarded", { type: "draft", id });
       return presentOne(tx, principal, discarded);
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
     return c.json(result, 200);
   });
@@ -584,6 +527,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(retryRoute, async (c) => {
     const principal = c.get("principal");
+    const audit = auditor(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       // Conditional on `send_failed`, so two retries at once queue one send between them. The
@@ -604,13 +548,7 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         // Already approved: queue the send again in case its job was lost (it expired, or the
         // worker died, on the last attempt). The singleton key returns the live job if there
         // is one, and the worker locks the draft and skips it once sent, so it can't go twice.
-        await recordAudit(tx, {
-          tenantId: principal.tenantId,
-          actor: principal.actor,
-          action: "draft.send_retried",
-          target: { type: "draft", id },
-          requestId: c.get("requestId"),
-        });
+        await audit(tx, "draft.send_retried", { type: "draft", id });
         await enqueue(
           tx,
           sendReplyJob,
@@ -619,13 +557,7 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         );
         return presentOne(tx, principal, current);
       }
-      await recordAudit(tx, {
-        tenantId: principal.tenantId,
-        actor: principal.actor,
-        action: "draft.send_retried",
-        target: { type: "draft", id },
-        requestId: c.get("requestId"),
-      });
+      await audit(tx, "draft.send_retried", { type: "draft", id });
       await enqueue(
         tx,
         sendReplyJob,
@@ -634,7 +566,7 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       );
       return presentOne(tx, principal, retried);
     });
-    if (result === "not_found") return c.json({ error: "not_found" }, 404);
+    if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
     return c.json(result, 200);
   });

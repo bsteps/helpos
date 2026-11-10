@@ -1,9 +1,9 @@
 import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { nothingToAudit, recordAudit } from "../audit/audit.ts";
+import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
-import { type Authenticate, requirePrincipal } from "../auth/principal.ts";
 import { messageText } from "../drafts/html-text.ts";
+import { auditor, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 
 const { customers, drafts, messages, ticketGithubIssues, tickets } = schema;
@@ -13,10 +13,8 @@ const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${draf
 
 export interface TicketRoutesDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
 }
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const ticketSchema = z
   .object({
     id: z.uuid(),
@@ -79,16 +77,6 @@ const ticketDetailSchema = ticketSchema
   })
   .openapi("TicketDetail");
 
-const json = <T extends z.ZodType>(s: T, description: string) => ({
-  description,
-  content: { "application/json": { schema: s } },
-});
-const security = [{ apiAuth: [] }];
-const authErrors = {
-  401: json(errorSchema, "No valid credentials"),
-  403: json(errorSchema, "The credentials lack `tickets:read`"),
-};
-const idParams = z.object({ id: z.uuid().openapi({ param: { name: "id", in: "path" } }) });
 const maxLimit = 100;
 
 const listTicketsRoute = apiRoute({
@@ -101,7 +89,6 @@ const listTicketsRoute = apiRoute({
     `${maxLimit}). \`status\` keeps only open or only closed ones. \`status=open\` with ` +
     "`orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they " +
     "aren't missed, listed first. Needs `tickets:read`.",
-  security,
   request: {
     query: z.object({
       limit: z.coerce.number().int().min(1).max(maxLimit).default(50),
@@ -111,7 +98,6 @@ const listTicketsRoute = apiRoute({
   },
   responses: {
     200: json(z.object({ tickets: z.array(ticketSchema) }), "The tickets"),
-    ...authErrors,
   },
 });
 
@@ -121,12 +107,10 @@ const getTicketRoute = apiRoute({
   path: "/v1/tickets/{id}",
   summary: "Read a ticket and its messages",
   description: "One ticket with its emails, oldest first. Needs `tickets:read`.",
-  security,
   request: { params: idParams },
   responses: {
     200: json(ticketDetailSchema, "The ticket"),
-    ...authErrors,
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
   },
 });
 
@@ -140,13 +124,10 @@ const closeTicketRoute = apiRoute({
   description:
     "Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. " +
     "Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.",
-  security,
   request: { params: idParams },
   responses: {
     200: json(ticketSchema, "The closed ticket"),
-    401: json(errorSchema, "No valid credentials"),
-    403: json(errorSchema, "The credentials lack `tickets:write` or `tickets:read`"),
-    404: json(errorSchema, "Not found in this workspace"),
+    404: notFoundResponse,
   },
 });
 
@@ -186,10 +167,6 @@ function serialize(t: TicketRow): z.infer<typeof ticketSchema> {
 }
 
 export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): void {
-  const auth = requirePrincipal(deps.authenticate);
-  app.use("/v1/tickets", auth);
-  app.use("/v1/tickets/*", auth);
-
   app.openapi(listTicketsRoute, async (c) => {
     const principal = c.get("principal");
     const { limit, status, orReplyNotSent } = c.req.valid("query");
@@ -231,7 +208,7 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
       return { ticket, rows, issue };
     });
     // Another workspace's ticket looks exactly like one that doesn't exist.
-    if (!result) return c.json({ error: "not_found" }, 404);
+    if (!result) return notFound(c);
     return c.json(
       {
         ...serialize(result.ticket),
@@ -262,6 +239,7 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
   app.openapi(closeTicketRoute, async (c) => {
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
+    const audit = auditor(c);
     const ticket = await deps.db.withTenant(principal.tenantId, async (tx) => {
       // Conditional on `open`, so closing twice writes one audit event, not two.
       const [closed] = await tx
@@ -270,20 +248,14 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
         .where(and(eq(tickets.id, id), eq(tickets.status, "open")))
         .returning({ id: tickets.id });
       if (closed) {
-        await recordAudit(tx, {
-          tenantId: principal.tenantId,
-          actor: principal.actor,
-          action: "ticket.closed",
-          target: { type: "ticket", id },
-          requestId: c.get("requestId"),
-        });
+        await audit(tx, "ticket.closed", { type: "ticket", id });
       } else {
         nothingToAudit("already closed, or not found");
       }
       const [row] = await ticketsWithCustomer(tx).where(eq(tickets.id, id));
       return row ?? null;
     });
-    if (!ticket) return c.json({ error: "not_found" }, 404);
+    if (!ticket) return notFound(c);
     return c.json(serialize(ticket), 200);
   });
 }

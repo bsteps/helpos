@@ -4,6 +4,7 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
+import { errorSchema, json } from "../http/route-kit.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { markIssueClosed, markIssueReopened, tiedLinks } from "./issue-state.ts";
@@ -39,12 +40,6 @@ const refreshAfterMs = 5_000;
 
 /** GitHub's form content type wraps the same JSON in a `payload` field. */
 const formPayload = z.object({ payload: z.string() });
-
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
-const json = <T extends z.ZodType>(s: T, description: string) => ({
-  description,
-  content: { "application/json": { schema: s } },
-});
 
 /** The fields of GitHub's webhook payloads that we read. Everything else is ignored. */
 const webhookPayload = z

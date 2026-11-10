@@ -8,13 +8,13 @@ import {
 } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import { errorSchema, json, jsonBody } from "../http/route-kit.ts";
 import { apiRoute } from "./access.ts";
-import { type Authenticate, requirePrincipal, scopes } from "./principal.ts";
+import { scopes } from "./principal.ts";
 import { fromForeignOrigin } from "./session.ts";
 
 export interface AuthRoutesDeps {
   db: Pick<Database, "withTenant">;
-  authenticate: Authenticate;
   /** Undefined when no HELPOS_AUTH_SECRET is set: sign-in then answers 503. */
   sessions: SessionAuth | undefined;
   /** Undefined without HELPOS_DATABASE_AUTH_URL: setting a password then answers 503. */
@@ -23,14 +23,6 @@ export interface AuthRoutesDeps {
   trustedOrigin: string;
 }
 
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
-const json = <T extends z.ZodType>(s: T, description: string) => ({
-  description,
-  content: { "application/json": { schema: s } },
-});
-const jsonBody = <T extends z.ZodType>(s: T) => ({
-  body: { required: true, content: { "application/json": { schema: s } } },
-});
 const disabled = { 503: json(errorSchema, "Human sign-in isn't configured on this server") };
 const foreignOrigin = {
   403: json(errorSchema, "Sent by a browser from another site (`forbidden_origin`)"),
@@ -54,9 +46,11 @@ const signInRoute = apiRoute({
     "Starts a human session and sets it as an HttpOnly cookie. A wrong email and a wrong " +
     "password get the same answer. There is no sign-up: users are created by the operator. " +
     "Agents use tokens instead (`POST /v1/tokens`).",
-  request: jsonBody(
-    z.strictObject({ email: z.string().max(320), password: z.string().min(1).max(1000) }),
-  ),
+  request: {
+    body: jsonBody(
+      z.strictObject({ email: z.string().max(320), password: z.string().min(1).max(1000) }),
+    ),
+  },
   responses: {
     204: { description: "Signed in; the session cookie is set" },
     401: json(errorSchema, "Wrong email or password (`invalid_credentials`)"),
@@ -90,9 +84,9 @@ const setPasswordRoute = apiRoute({
     "Uses the token from a password setup link (printed by `helpos:init`) to set the user's " +
     `password, ${passwordSchema.minLength ?? 12} to ${passwordSchema.maxLength ?? 128} ` +
     "characters. The token works once. Every existing session of that user is signed out.",
-  request: jsonBody(
-    z.strictObject({ token: z.string().min(1).max(200), password: passwordSchema }),
-  ),
+  request: {
+    body: jsonBody(z.strictObject({ token: z.string().min(1).max(200), password: passwordSchema })),
+  },
   responses: {
     204: { description: "Password set; sign in with it" },
     400: json(errorSchema, "The link is unknown, used or expired (`invalid_token`)"),
@@ -109,11 +103,7 @@ const meRoute = apiRoute({
   path: "/v1/me",
   summary: "Who is calling",
   description: "The caller's identity, workspace and scopes. Works for sessions and tokens.",
-  security: [{ apiAuth: [] }],
-  responses: {
-    200: json(meSchema, "The caller"),
-    401: json(errorSchema, "No valid credentials"),
-  },
+  responses: { 200: json(meSchema, "The caller") },
 });
 
 /** Copies Better Auth's cookies onto our response. */
@@ -130,7 +120,6 @@ export function registerAuthRoutes(app: OpenAPIHono, deps: AuthRoutesDeps): void
     c.header("cache-control", "no-store");
     return next();
   });
-  app.use("/v1/me", requirePrincipal(deps.authenticate));
 
   app.openapi(signInRoute, async (c) => {
     if (!deps.sessions) return c.json({ error: "sessions_disabled" }, 503);
