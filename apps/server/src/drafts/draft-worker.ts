@@ -4,18 +4,7 @@ import {
   maxHistoryMessages,
   maxKnowledgeArticles,
 } from "@helpos/ai";
-import {
-  and,
-  desc,
-  eq,
-  gt,
-  isNull,
-  lt,
-  ne,
-  schema,
-  type TenantTransaction,
-  type TenantTx,
-} from "@helpos/db";
+import { and, desc, eq, lt, ne, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import {
   dailyBudget,
@@ -25,7 +14,7 @@ import {
   usageOn,
   utcDay,
 } from "../ai-budget/budget.ts";
-import { recordAudit } from "../audit/audit.ts";
+import { auditorFor, recordAudit } from "../audit/audit.ts";
 import {
   noKnowledge,
   SearchError,
@@ -35,9 +24,9 @@ import {
 } from "../knowledge/search.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
-import { queueDraftNotice } from "./notice-worker.ts";
+import { createReply, liveDraftFor, lockTicketForDrafting } from "./lifecycle.ts";
 
-const { draftCitations, drafts, messages, tickets } = schema;
+const { draftCitations, messages, tickets } = schema;
 
 /** Passages retrieved per draft. More cost tokens and dilute the answer. */
 export const knowledgeLimit = Math.min(5, maxKnowledgeArticles);
@@ -109,22 +98,6 @@ async function searchOrNothing(
 
 type Spent = { inputTokens: number; outputTokens: number };
 
-/** A reply draft for this message that still counts: anything but a discarded one. */
-async function hasReplyDraft(tx: TenantTx, messageId: string): Promise<boolean> {
-  const [found] = await tx
-    .select({ id: drafts.id })
-    .from(drafts)
-    .where(
-      and(
-        eq(drafts.messageId, messageId),
-        eq(drafts.kind, "reply"),
-        ne(drafts.status, "discarded"),
-      ),
-    )
-    .limit(1);
-  return found !== undefined;
-}
-
 /**
  * Runs once every attempt to draft has failed (the model kept erroring, say). The ticket is
  * marked `draft_failed`, so the dashboard offers to ask the AI again or write the reply,
@@ -136,32 +109,16 @@ export async function handleDraftGaveUp(
   tx: TenantTx,
 ): Promise<void> {
   const [row] = await tx
-    .select({ ticketId: messages.ticketId, createdAt: messages.createdAt })
+    .select({ ticketId: messages.ticketId })
     .from(messages)
     .where(eq(messages.id, payload.messageId));
   if (!row) return;
-  // Locked, as the draft worker and the create endpoint do, so a person's draft that arrives
-  // meanwhile can't end up next to `draft_failed`.
-  await tx
-    .select({ id: tickets.id })
-    .from(tickets)
-    .where(eq(tickets.id, row.ticketId))
-    .for("update");
-  if (await hasReplyDraft(tx, payload.messageId)) return;
-  const [newer] = await tx
-    .select({ id: messages.id })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.ticketId, row.ticketId),
-        eq(messages.direction, "inbound"),
-        isNull(messages.automatedReason),
-        ne(messages.id, payload.messageId),
-        gt(messages.createdAt, row.createdAt),
-      ),
-    )
-    .limit(1);
-  if (newer) return;
+  // Locked, as every drafting path does, so a person's draft that arrives meanwhile can't end
+  // up next to `draft_failed`.
+  const lock = await lockTicketForDrafting(tx, row.ticketId);
+  // The customer wrote again: that message's own job drafts for it.
+  if (lock?.answering !== payload.messageId) return;
+  if (await liveDraftFor(tx, payload.messageId, "reply")) return;
   await tx
     .update(tickets)
     .set({ aiPausedReason: "draft_failed" })
@@ -239,17 +196,8 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     // Ingest already skips these; checked again so a stray job can't draft for a machine.
     if (row.direction !== "inbound" || row.automatedReason !== null || row.ticketAutomated) return;
 
-    const [existing] = await tx
-      .select({ id: drafts.id })
-      .from(drafts)
-      .where(
-        and(
-          eq(drafts.messageId, payload.messageId),
-          eq(drafts.kind, "reply"),
-          ne(drafts.status, "discarded"),
-        ),
-      );
-    if (existing) return; // a retry after the draft was saved, or already answered
+    // A retry after the draft was saved, or already answered.
+    if (await liveDraftFor(tx, payload.messageId, "reply")) return;
 
     // The hard cap. Over budget, the ticket is marked and the job ends without a draft. The
     // budget resets with the UTC day.
@@ -312,16 +260,7 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     if (used >= budget) return pause(used);
     // Another job for this message (a retry overlapping a slow attempt) may have drafted it
     // while this one searched and waited for the lock. Looked at again before paying the model.
-    const [drafted] = await tx
-      .select({ id: drafts.id })
-      .from(drafts)
-      .where(
-        and(
-          eq(drafts.messageId, payload.messageId),
-          eq(drafts.kind, "reply"),
-          ne(drafts.status, "discarded"),
-        ),
-      );
+    const drafted = await liveDraftFor(tx, payload.messageId, "reply");
     if (drafted) {
       if (totalTokens(spent) > 0) await recordUsage(tx, payload.tenantId, day, spent);
       return;
@@ -361,75 +300,19 @@ function draftInTransaction(deps: DraftWorkerDeps) {
 
     // The model call took a while. Lock the ticket (as the create endpoint does) and look again,
     // so a slow job never overwrites what happened meanwhile.
-    await tx
-      .select({ id: tickets.id })
-      .from(tickets)
-      .where(eq(tickets.id, row.ticketId))
-      .for("update");
-    const [answered] = await tx
-      .select({ id: drafts.id })
-      .from(drafts)
-      .where(
-        and(
-          eq(drafts.messageId, payload.messageId),
-          eq(drafts.kind, "reply"),
-          ne(drafts.status, "discarded"),
-        ),
-      );
-    if (answered) return;
-    const [newer] = await tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.ticketId, row.ticketId),
-          eq(messages.direction, "inbound"),
-          isNull(messages.automatedReason),
-          ne(messages.id, payload.messageId),
-          // Postgres keeps microseconds and a JS Date only milliseconds, so the row itself would
-          // count as "newer" without the id check above.
-          gt(messages.createdAt, row.createdAt),
-        ),
-      )
-      .limit(1);
+    const lock = await lockTicketForDrafting(tx, row.ticketId);
     // The customer wrote again: that message's own job drafts the answer.
-    if (newer) return;
+    if (lock?.answering !== payload.messageId) return;
+    if (await liveDraftFor(tx, payload.messageId, "reply")) return;
 
-    // This is the latest message, so pending drafts for earlier ones are stale. Discard them,
-    // so nobody approves an answer to a question the customer has moved past.
-    const stale = await tx
-      .update(drafts)
-      .set({ status: "discarded" })
-      .where(
-        and(
-          eq(drafts.ticketId, row.ticketId),
-          eq(drafts.status, "pending"),
-          // A pending "fixed" notice is still news when the customer writes again.
-          eq(drafts.kind, "reply"),
-          ne(drafts.messageId, payload.messageId),
-        ),
-      )
-      .returning({ id: drafts.id });
-    for (const { id } of stale) {
-      await recordAudit(tx, {
-        tenantId: payload.tenantId,
-        actor: draftWorkerActor,
-        action: "draft.discarded",
-        target: { type: "draft", id },
-        requestId: null,
-      });
-    }
-
-    const [draft] = await tx
-      .insert(drafts)
-      .values({
-        tenantId: payload.tenantId,
-        ticketId: row.ticketId,
-        messageId: payload.messageId,
-        body,
-      })
-      .returning({ id: drafts.id });
-    if (!draft) throw new Error("draft-reply: insert returned no row");
+    // This is the latest message, so createReply discards pending replies to earlier ones.
+    const draft = await createReply(tx, auditorFor(payload.tenantId, draftWorkerActor), {
+      tenantId: payload.tenantId,
+      ticketId: row.ticketId,
+      messageId: payload.messageId,
+      body,
+      noticeDelaySeconds: deps.config.noticeDelaySeconds,
+    });
     // Every passage the model saw, so the approver can check the draft against its sources.
     if (hits.length > 0) {
       await tx.insert(draftCitations).values(
@@ -446,24 +329,6 @@ function draftInTransaction(deps: DraftWorkerDeps) {
         })),
       );
     }
-    await queueDraftNotice(
-      tx,
-      {
-        tenantId: payload.tenantId,
-        id: draft.id,
-        ticketId: row.ticketId,
-      },
-      deps.config.noticeDelaySeconds,
-    );
-    await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
-
-    await recordAudit(tx, {
-      tenantId: payload.tenantId,
-      actor: draftWorkerActor,
-      action: "draft.created",
-      target: { type: "draft", id: draft.id },
-      requestId: null,
-    });
     deps.logger.info({ draftId: draft.id, ticketId: row.ticketId }, "draft created");
   };
 }

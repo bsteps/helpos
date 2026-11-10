@@ -47,6 +47,14 @@ const samples = {
     /notFound\(c\)/,
   ],
   "route-audit.grit": ["export const f = (tx, e) => recordAudit(tx, e);\n", /auditor\(c\)/],
+  "draft-writes.grit": [
+    'export const f = (tx) => tx.update(drafts).set({ status: "discarded" });\n',
+    /drafts\/lifecycle\.ts/,
+  ],
+  "draft-writes.grit (insert into schema.drafts)": [
+    "export const f = (tx, v) => tx.insert(schema.drafts).values(v);\n",
+    /drafts\/lifecycle\.ts/,
+  ],
 };
 
 const githubLookup = 'export const f = (tx) => tx.where(eq(integrations.provider, "github"));\n';

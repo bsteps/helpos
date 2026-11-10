@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNull, lt, lte, or, schema, sql, type TenantTx } from "@helpos/db";
-import { type AuditActor, recordAudit } from "../audit/audit.ts";
+import { and, eq, isNull, lt, lte, or, schema, sql, type TenantTx } from "@helpos/db";
+import { type AuditActor, auditorFor, recordAudit } from "../audit/audit.ts";
+import { discardStale } from "../drafts/lifecycle.ts";
 import { addFixedDraft } from "./fixed-notice.ts";
 
-const { drafts, ticketGithubIssues } = schema;
+const { ticketGithubIssues } = schema;
 
 /**
  * What happens to linked tickets when GitHub says an issue closed or reopened. One place, used
@@ -143,18 +144,6 @@ export async function markIssueReopened(tx: TenantTx, change: IssueChange): Prom
       );
   }
   if (reopened.length === 0) return 0;
-  const tickets = reopened.map((r) => r.ticketId);
-  const withdrawn = await tx
-    .update(drafts)
-    .set({ status: "discarded" })
-    .where(
-      and(
-        inArray(drafts.ticketId, tickets),
-        eq(drafts.kind, "fixed"),
-        eq(drafts.status, "pending"),
-      ),
-    )
-    .returning({ id: drafts.id });
   for (const { ticketId } of reopened) {
     await recordAudit(tx, {
       tenantId: change.tenantId,
@@ -164,14 +153,9 @@ export async function markIssueReopened(tx: TenantTx, change: IssueChange): Prom
       requestId: change.requestId,
     });
   }
-  for (const { id } of withdrawn) {
-    await recordAudit(tx, {
-      tenantId: change.tenantId,
-      actor: change.actor,
-      action: "draft.discarded",
-      target: { type: "draft", id },
-      requestId: change.requestId,
-    });
-  }
+  await discardStale(tx, auditorFor(change.tenantId, change.actor, change.requestId), {
+    ticketIds: reopened.map((r) => r.ticketId),
+    kind: "fixed",
+  });
   return reopened.length;
 }

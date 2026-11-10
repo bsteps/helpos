@@ -85,3 +85,22 @@ export async function recordAudit(tx: TenantTx, event: AuditEvent): Promise<void
   });
   auditTrail.getStore()?.recorded.add(event.action);
 }
+
+/** Records one audit event inside the action's own transaction, for an actor fixed up front. */
+export type Auditor = (
+  tx: TenantTx,
+  action: AuditAction,
+  target: AuditEvent["target"],
+) => Promise<void>;
+
+/**
+ * An `Auditor` for one actor in one workspace. A route uses `auditor(c)` from the route kit,
+ * which takes all three from the request; a background job names itself here.
+ */
+export function auditorFor(
+  tenantId: string,
+  actor: AuditActor,
+  requestId: string | null = null,
+): Auditor {
+  return (tx, action, target) => recordAudit(tx, { tenantId, actor, action, target, requestId });
+}
