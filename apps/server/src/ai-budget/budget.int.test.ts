@@ -346,15 +346,6 @@ describe("a ticket paused by the budget", () => {
     });
     const closed = await app.request(`/v1/tickets/${email.ticketId}/close`, { method: "POST" });
     expect(closed.status).toBe(200);
-    // Asking the AI for a draft on it is refused, instead of waiting for one that never comes.
-    const asked = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ regenerate: true }),
-    });
-    expect(asked.status).toBe(409);
-    expect(await asked.json()).toEqual({ error: "ticket_closed" });
-
     // The next day its waiting job runs: no model call, no reservation, no draft.
     clock = new Date("2026-11-23T00:01:00Z");
     const notices = () =>

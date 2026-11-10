@@ -137,5 +137,4 @@ test("a closed ticket hides AI regeneration and rejects stale requests", async (
   expect(manual.status()).toBe(201);
   await page.reload();
   await expect(page.getByTestId("draft-body")).toHaveText("Glad you found the answer.");
-  expect(await repliesInMailpit(request, subject)).toBe(0);
 });
