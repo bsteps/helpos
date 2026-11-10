@@ -10,7 +10,7 @@ import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@hel
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
-import { AiBusyError, aiBudget } from "../ai-budget/budget.ts";
+import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
@@ -347,14 +347,14 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     // The budget resets at midnight UTC. One waiting job per source per day, however often
     // it's asked for meanwhile. A source that already had its one more try keeps that reason,
     // so the budget wait doesn't give it another.
-    const waitForBudget = () => {
-      const resetsAt = budget.resetsAt();
+    const waitForBudget = (resetsAt: Date) => {
       const reason = waitedOnce && source.error ? source.error : "daily_budget_reached";
       return waitUntil(reason, resetsAt, `${sourceId}:after:${resetsAt.toISOString()}`);
     };
     // Checked before the fetch too, so a source that must wait doesn't fetch its page twice.
     // The reservation below is what holds the cap.
-    if ((await transaction((tx) => budget.today(tx, tenantId))).paused) return waitForBudget();
+    const today = await transaction((tx) => budget.today(tx, tenantId));
+    if (today.paused) return waitForBudget(nextUtcDay(new Date(today.day)));
 
     let chunks: string[];
     try {
@@ -384,9 +384,9 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const reservation = await transaction((tx) =>
       budget.reserve(tx, tenantId, tokenBound(...chunks)),
     );
-    if (reservation === "over_budget") return waitForBudget();
     // Other calls in flight hold the rest of today's budget: pg-boss tries again shortly.
     if (reservation === "busy") throw new AiBusyError();
+    if ("refused" in reservation) return waitForBudget(reservation.resetsAt);
 
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
     try {
@@ -396,8 +396,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         (signal) => embedTexts(deps.embeddingModel, chunks, { abortSignal: signal }),
         {
           of: (result) => ({ inputTokens: result.tokens, outputTokens: 0 }),
-          // After the SDK's own retries. Batches embedded before the failure were paid for, so
-          // they count.
+          // Includes earlier spend and the failed batch bound: its bill may be unknown.
           ofFailure: (error) => ({
             inputTokens: error instanceof EmbedError ? error.tokens : 0,
             outputTokens: 0,

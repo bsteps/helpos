@@ -1,6 +1,6 @@
 import { createServer, type RequestListener, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { embedBatchSize, embeddingDimensions } from "@helpos/ai";
+import { embedBatchSize, embeddingDimensions, tokenBound } from "@helpos/ai";
 import { mockEmbeddingModel, mockModel, providerDownError } from "@helpos/ai/testing";
 import {
   type AuthStore,
@@ -803,9 +803,11 @@ describe("embedding model changes", () => {
 
   it("a new model never compares against old vectors, and skips the embedding call", async () => {
     const newModel = mockEmbeddingModel("new-model");
-    const result = await db.withTenant(acme, (tx) =>
-      createVectorSearch(newModel).search(tx, { tenantId: acme, text: "refunds", limit: 5 }),
-    );
+    const result = await createVectorSearch(newModel).search(tenantTransactions(db, acme), {
+      tenantId: acme,
+      text: "refunds",
+      limit: 5,
+    });
     expect(result).toEqual({ hits: [], tokens: 0 });
     expect(newModel.doEmbedCalls).toEqual([]);
   });
@@ -1113,6 +1115,7 @@ describe("limits", () => {
     );
     if (!row) throw new Error("no row");
     let calls = 0;
+    let failedBound = 0;
     const partial = {
       specificationVersion: "v4",
       provider: "test",
@@ -1120,7 +1123,10 @@ describe("limits", () => {
       maxEmbeddingsPerCall: 1_000,
       supportsParallelCalls: false,
       doEmbed: async ({ values }: { values: string[] }) => {
-        if (++calls > 1) throw new Error("429 rate limited");
+        if (++calls > 1) {
+          failedBound = tokenBound(...values);
+          throw new Error("429 rate limited");
+        }
         return {
           embeddings: values.map(() => new Array<number>(embeddingDimensions).fill(0.1)),
           usage: { tokens: 30 },
@@ -1142,7 +1148,7 @@ describe("limits", () => {
     });
     // The batch embedded before the failure was paid for; the rest of the reservation is let go.
     const after = await usageOn(db, other);
-    expect(after.totalTokens - before.totalTokens).toBe(30);
+    expect(after.totalTokens - before.totalTokens).toBe(30 + failedBound);
     expect(after.reservedTokens).toBe(before.reservedTokens);
   });
 
@@ -1394,11 +1400,41 @@ describe("drafting with knowledge", () => {
     await ingested(other, otherRefund);
   });
 
+  it("embeds the search query with no database transaction open", async () => {
+    let inTransaction = false;
+    let embedded = false;
+    const model = mockEmbeddingModel();
+    const original = model.doEmbed.bind(model);
+    model.doEmbed = async (options) => {
+      expect(inTransaction).toBe(false);
+      embedded = true;
+      return original(options);
+    };
+    const transaction: ReturnType<typeof tenantTransactions> = (fn) =>
+      db.withTenant(acme, async (tx) => {
+        inTransaction = true;
+        try {
+          return await fn(tx);
+        } finally {
+          inTransaction = false;
+        }
+      });
+    const result = await createVectorSearch(model).search(transaction, {
+      tenantId: acme,
+      text: "refunds",
+      limit: 5,
+    });
+    expect(embedded).toBe(true);
+    expect(result.hits.length).toBeGreaterThan(0);
+  });
+
   it("leak: vector search as Acme never returns Other's chunks", async () => {
     const search = createVectorSearch(embeddingModel);
-    const result = await db.withTenant(acme, (tx) =>
-      search.search(tx, { tenantId: acme, text: "refunds refunds OTHER-SECRET", limit: 20 }),
-    );
+    const result = await search.search(tenantTransactions(db, acme), {
+      tenantId: acme,
+      text: "refunds refunds OTHER-SECRET",
+      limit: 20,
+    });
     expect(result.hits.length).toBeGreaterThan(0);
     expect(result.hits.map((h) => h.sourceId)).not.toContain(otherRefund);
     expect(result.hits.map((h) => h.content).join(" ")).not.toContain("OTHER-SECRET");
@@ -1406,42 +1442,36 @@ describe("drafting with knowledge", () => {
 
   it("a public-only search in a workspace with only internal notes makes no embedding call", async () => {
     const fresh = mockEmbeddingModel();
-    const result = await db.withTenant(other, (tx) =>
-      createVectorSearch(fresh).search(tx, {
-        tenantId: other,
-        text: "refunds",
-        limit: 5,
-        visibility: ["public"],
-      }),
-    );
+    const result = await createVectorSearch(fresh).search(tenantTransactions(db, other), {
+      tenantId: other,
+      text: "refunds",
+      limit: 5,
+      visibility: ["public"],
+    });
     expect(result).toEqual({ hits: [], tokens: 0 });
     expect(fresh.doEmbedCalls).toEqual([]);
   });
 
   it("a search that allows no visibility finds nothing, and makes no call", async () => {
     const fresh = mockEmbeddingModel();
-    const result = await db.withTenant(acme, (tx) =>
-      createVectorSearch(fresh).search(tx, {
-        tenantId: acme,
-        text: "refunds",
-        limit: 5,
-        visibility: [],
-      }),
-    );
+    const result = await createVectorSearch(fresh).search(tenantTransactions(db, acme), {
+      tenantId: acme,
+      text: "refunds",
+      limit: 5,
+      visibility: [],
+    });
     expect(result).toEqual({ hits: [], tokens: 0 });
     expect(fresh.doEmbedCalls).toEqual([]);
   });
 
   it("a public-only search never returns internal notes", async () => {
     const search = createVectorSearch(embeddingModel);
-    const result = await db.withTenant(acme, (tx) =>
-      search.search(tx, {
-        tenantId: acme,
-        text: "refunds password shipping",
-        limit: 20,
-        visibility: ["public"],
-      }),
-    );
+    const result = await search.search(tenantTransactions(db, acme), {
+      tenantId: acme,
+      text: "refunds password shipping",
+      limit: 20,
+      visibility: ["public"],
+    });
     expect(result.hits.map((h) => [h.title, h.visibility])).toEqual([["Refund policy", "public"]]);
   });
 
@@ -1568,9 +1598,12 @@ describe("editing sources", () => {
         .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id)),
     );
   const search = (tenantId: string, text: string, visibility?: ("public" | "internal")[]) =>
-    db.withTenant(tenantId, (tx) =>
-      createVectorSearch(embeddingModel).search(tx, { tenantId, text, limit: 20, visibility }),
-    );
+    createVectorSearch(embeddingModel).search(tenantTransactions(db, tenantId), {
+      tenantId,
+      text,
+      limit: 20,
+      visibility,
+    });
   const tokensToday = async () => (await usageOn(db, acme)).totalTokens;
 
   it("a visibility change applies to the next public-only search at once, without re-ingesting", async () => {

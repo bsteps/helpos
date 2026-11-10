@@ -97,7 +97,8 @@ async function readAndReserve(
       })),
     };
     const reservation = await budget.reserve(tx, tenantId, issueDraftTokenEstimate(modelInput));
-    if (typeof reservation === "string") return reservation;
+    if (reservation === "busy") return reservation;
+    if ("refused" in reservation) return reservation.refused;
     // Logged with the reservation, in its transaction: from here on the call is paid for.
     await input.audit(tx, "github_issue.drafted", { type: "ticket", id: ticketId });
     return { input: modelInput, reservation };

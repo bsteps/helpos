@@ -106,6 +106,8 @@ test("github-integration.grit allows both in github/integration.ts itself", () =
 test("ai-usage.grit allows ai_usage writes only inside ai-budget/", () => {
   const write = "export const f = (tx) => tx.insert(aiUsage).values({ tenantId, day });\n";
   assert.deepEqual(pluginMessages(write, "ai-budget/budget.ts"), []);
+  const lookalike = pluginMessages(write, "workspaces/ai-budget.ts");
+  assert.ok(lookalike.some((m) => /aiBudget\(\)/.test(m)));
   const elsewhere = pluginMessages(write, "knowledge/ingest-worker.ts");
   assert.ok(
     elsewhere.some((m) => /aiBudget\(\)/.test(m)),

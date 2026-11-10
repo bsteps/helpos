@@ -140,8 +140,8 @@ describe("drafting when knowledge search fails", () => {
       // Without a savepoint, this would abort the job's transaction and every query after it.
       "a search query fails",
       (): SearchProvider => ({
-        search: async (tx) => {
-          await tx.execute(sql`select 1 / 0`);
+        search: async (transaction) => {
+          await transaction((tx) => tx.execute(sql`select 1 / 0`));
           return { hits: [], tokens: 0 };
         },
       }),
@@ -246,13 +246,15 @@ describe("drafting with knowledge: spend and limits", () => {
     const before = await usedToday();
     // Stands in for an overlapping job that drafted the message while this one searched.
     const raced: SearchProvider = {
-      search: async (tx) => {
-        await tx.insert(schema.drafts).values({
-          tenantId: acme,
-          ticketId: email.ticketId,
-          messageId: email.messageId,
-          body: "Drafted by the other job.",
-        });
+      search: async (transaction) => {
+        await transaction((tx) =>
+          tx.insert(schema.drafts).values({
+            tenantId: acme,
+            ticketId: email.ticketId,
+            messageId: email.messageId,
+            body: "Drafted by the other job.",
+          }),
+        );
         return { hits: [], tokens: 5 };
       },
     };

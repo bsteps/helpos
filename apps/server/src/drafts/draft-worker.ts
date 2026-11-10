@@ -1,6 +1,7 @@
 import {
   type DraftResult,
   draftReply,
+  EmbedError,
   failedDraftCost,
   type LanguageModel,
   maxHistoryMessages,
@@ -87,25 +88,28 @@ export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
 /**
  * The workspace's best-matching knowledge, or none when search fails (embedding provider down,
  * wrong key). Drafting worked without knowledge before, so a broken search must not stop it.
- * Only this workspace's knowledge: it runs in a withTenant() transaction, inside a savepoint,
- * so a failed query can't break the rest of that transaction.
+ * Database reads use separate tenant transactions, so a failed query rolls back its own read
+ * and embedding never holds a connection.
  */
 async function searchOrNothing(
   deps: DraftWorkerDeps,
-  tx: TenantTx,
+  transaction: TenantTransaction,
   query: SearchQuery,
   signal: AbortSignal,
 ): Promise<SearchResult> {
   const { search } = deps;
   if (!search) return noKnowledge;
   try {
-    return await tx.transaction((sp) => search.search(sp, query, signal));
+    return await search.search(transaction, query, signal);
   } catch (error) {
     // Stopped (a shutdown, or out of time): drafting on without knowledge would be wrong too.
     if (signal.aborted) throw error;
     deps.logger.warn({ err: error }, "knowledge search failed: drafting without it");
     // Its embedding call may have been paid for before the failure.
-    return { ...noKnowledge, tokens: error instanceof SearchError ? error.tokens : 0 };
+    return {
+      ...noKnowledge,
+      tokens: error instanceof SearchError || error instanceof EmbedError ? error.tokens : 0,
+    };
   }
 }
 
@@ -166,9 +170,9 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       transaction,
       job.reservation,
       async (signal) => {
+        const knowledge = await searchOrNothing(deps, transaction, job.query, signal);
+        searchTokens = knowledge.tokens;
         const found = await transaction(async (tx) => {
-          const knowledge = await searchOrNothing(deps, tx, job.query, signal);
-          searchTokens = knowledge.tokens;
           // Another job for this message (a retry overlapping a slow attempt) may have drafted
           // it meanwhile. Looked at again before paying the model.
           return { knowledge, drafted: await liveDraftFor(tx, payload.messageId, "reply") };
@@ -307,8 +311,8 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   const reservation = await budget.reserve(tx, payload.tenantId, estimate);
   // Other drafts in flight hold the rest of today's budget: pg-boss tries again shortly.
   if (reservation === "busy") throw new AiBusyError();
-  if (reservation === "over_budget") {
-    await pause(deps, budget, payload, tx, row.ticketId);
+  if ("refused" in reservation) {
+    await pause(deps, reservation.resetsAt, payload, tx, row.ticketId);
     return null;
   }
   return { ticketId: row.ticketId, input, query, reservation };
@@ -321,7 +325,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
  */
 async function pause(
   deps: DraftWorkerDeps,
-  budget: AiBudget,
+  resetsAt: Date,
   payload: Payload,
   tx: TenantTx,
   ticketId: string,
@@ -334,7 +338,6 @@ async function pause(
     target: { type: "ticket", id: ticketId },
     requestId: null,
   });
-  const resetsAt = budget.resetsAt();
   await enqueue(tx, draftReplyJob, payload, {
     singletonKey: `${payload.messageId}:after:${resetsAt.toISOString()}`,
     // The queue starts it by the database's clock, the budget's day comes from this server's.

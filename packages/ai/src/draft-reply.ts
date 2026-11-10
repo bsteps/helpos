@@ -248,14 +248,14 @@ export function parseSources(text: string, offered: number): { text: string; cit
 
 /** Room for the reply: an email, not an essay. The budget reservation counts on this bound. */
 const maxReplyOutputTokens = 2_000;
-/** A passage's title, link and JSON around its text, generously. */
-const articleExtraBytes = 2_000;
+/** API limits: title 300, URL 2,000 UTF-16 units; JSON escapes take up to six bytes each. */
+const articleExtraBytes = (300 + 2_000) * 6 + 256;
 
 /**
  * An upper bound on the tokens one reply draft costs (see tokenBound): its prompt, with the
  * passages in `input.knowledge`, and the output cap. Before the search has run, the passages
  * it may still find are counted at their longest: `unretrieved` of them, each cut to
- * maxArticleChars UTF-16 units, and one unit is at most 3 UTF-8 bytes.
+ * maxArticleChars UTF-16 units, and one unit may become a six-byte JSON escape.
  */
 export function replyDraftTokenEstimate(input: DraftInput, unretrieved = 0): number {
   const retrieved = (input.knowledge ?? []).slice(0, maxKnowledgeArticles);
@@ -264,7 +264,7 @@ export function replyDraftTokenEstimate(input: DraftInput, unretrieved = 0): num
     retrieved.length + more > 0
       ? `${draftInstructions}\n${knowledgeInstructions}`
       : draftInstructions;
-  const unseen = more * (maxArticleChars * 3 + articleExtraBytes);
+  const unseen = more * (maxArticleChars * 6 + articleExtraBytes);
   return (
     tokenBound(instructions, fenceKnowledge(retrieved), fenceEmail(input)) +
     unseen +
@@ -285,6 +285,8 @@ export async function draftReply(
 ): Promise<DraftResult> {
   const knowledge = (input.knowledge ?? []).slice(0, maxKnowledgeArticles);
   const result = await generateText({
+    // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
+    maxRetries: 0,
     model,
     instructions:
       knowledge.length > 0 ? `${draftInstructions}\n${knowledgeInstructions}` : draftInstructions,

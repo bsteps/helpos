@@ -18,6 +18,6 @@ or {
   `lockUsage($...)`
 } as $write where {
   $filename <: r".*apps.server.src..*",
-  $filename <: not r".*.ai-budget..*",
+  $filename <: not r".*[/\\]ai-budget[/\\].*",
   register_diagnostic(span=$write, message="Pay for an AI call only through aiBudget() in apps/server/src/ai-budget/budget.ts: reserve() its estimate in a short transaction, then spend() makes the call and settles it. Nothing else writes ai_usage.", severity="error")
 }

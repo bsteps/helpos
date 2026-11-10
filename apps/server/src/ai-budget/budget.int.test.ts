@@ -379,6 +379,20 @@ describe("reserve and spend", () => {
   const budgetAt = (now: Date) =>
     aiBudget({ clock: { now: () => now }, config: { dailyTokenBudget: budget }, logger });
 
+  it("a refusal crossing midnight resets after the checked day", async () => {
+    await seedUsage(db, other, "2027-01-01", 200);
+    let reads = 0;
+    const budget = aiBudget({
+      clock: {
+        now: () => new Date(reads++ === 0 ? "2027-01-01T23:59:59Z" : "2027-01-02T00:00:01Z"),
+      },
+      config: { dailyTokenBudget: 200 },
+      logger,
+    });
+    const result = await db.withTenant(other, (tx) => budget.reserve(tx, other, 50));
+    expect(result).toEqual({ refused: "over_budget", resetsAt: new Date("2027-01-02T00:00:00Z") });
+  });
+
   it("two reservations at the cap at once: the second waits for the first, then is refused", async () => {
     const day = new Date("2026-11-25T12:00:00Z");
     await seedUsage(db, other, "2026-11-25", 100);
@@ -435,14 +449,17 @@ describe("reserve and spend", () => {
     });
     // Spent to the budget, a reservation is refused until midnight.
     await seedUsage(db, other, "2026-11-25", 40);
-    expect(await db.withTenant(other, reserve)).toBe("over_budget");
+    expect(await db.withTenant(other, reserve)).toMatchObject({
+      refused: "over_budget",
+      resetsAt: new Date("2026-11-26T00:00:00Z"),
+    });
   });
 
   it("a failed call lets its reservation go, or counts all of it when its cost is unknown", async () => {
     const at = new Date("2026-11-26T12:00:00Z");
     const failWith = async (cost: "none" | "unknown") => {
       const r = await db.withTenant(other, (tx) => budgetAt(at).reserve(tx, other, 70));
-      if (typeof r === "string") throw new Error(r);
+      if (typeof r === "string" || "refused" in r) throw new Error("reservation refused");
       const spending = budgetAt(at).spend(
         tenantTransactions(db, other),
         r,
@@ -471,32 +488,38 @@ describe("reserve and spend", () => {
     // reservation runs out, it blocks.
     await seedReservation(db, other, "2026-11-29", 150, 60);
     expect(await reserve()).toBe("busy");
-    // Run out, it holds nothing, and the new reservation replaces it.
+    // Expiry charges the unknown bill, so it is over_budget rather than permanently busy.
     await seedReservation(db, other, "2026-11-29", 150, -1);
-    const r = await reserve();
-    if (typeof r === "string") throw new Error(r);
-    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 60, reservedTokens: 100 });
+    expect(await reserve()).toMatchObject({ refused: "over_budget" });
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 210, reservedTokens: 0 });
+    // Repeated attempts cannot forget that bill or charge it twice.
+    expect(await reserve()).toMatchObject({ refused: "over_budget" });
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 210, reservedTokens: 0 });
+  });
 
-    // A settle that comes after its reservation ran out leaves the newer one in place.
-    // Long past by any clock, so the database's and this machine's needn't agree.
+  it("a late settlement cannot release a newer call's reservation", async () => {
+    const at = new Date("2026-11-30T12:00:00Z");
+    await seedUsage(db, other, "2026-11-30", 10);
+    const r = await db.withTenant(other, (tx) => budgetAt(at).reserve(tx, other, 100));
+    if (typeof r === "string" || "refused" in r) throw new Error("reservation refused");
     const late = { ...r, tokens: 150, expiresAt: new Date("2000-01-01T00:00:00Z") };
     await budgetAt(at).spend(tenantTransactions(db, other), late, async () => 1, {
       of: () => ({ inputTokens: 10, outputTokens: 0 }),
       ofFailure: () => "unknown",
     });
-    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 70, reservedTokens: 100 });
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 10, reservedTokens: 100 });
     await budgetAt(at).spend(tenantTransactions(db, other), r, async () => 1, {
       of: () => ({ inputTokens: 30, outputTokens: 0 }),
       ofFailure: () => "unknown",
     });
-    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 100, reservedTokens: 0 });
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 40, reservedTokens: 0 });
   });
 
   it("settles on the day it was reserved, even after midnight", async () => {
     const before = new Date("2026-11-27T23:59:59Z");
     const after = new Date("2026-11-28T00:00:01Z");
     const r = await db.withTenant(other, (tx) => budgetAt(before).reserve(tx, other, 30));
-    if (typeof r === "string") throw new Error(r);
+    if (typeof r === "string" || "refused" in r) throw new Error("reservation refused");
     await budgetAt(after).spend(tenantTransactions(db, other), r, async () => 1, {
       of: () => ({ inputTokens: 20, outputTokens: 0 }),
       ofFailure: () => "unknown",

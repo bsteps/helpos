@@ -18,7 +18,7 @@ import type { Clock, ServerConfig } from "../services.ts";
 // A reservation runs out after `reservationSeconds`. A call can't outlive it: spend() aborts it
 // after `aiCallTimeoutMs`, or as soon as the server starts shutting down, and settles it. So
 // only a process that dies mid-call leaves a reservation unsettled, and that one stops holding
-// the budget once it runs out. Until then the budget may overcount, never undercount.
+// the budget once it runs out: it becomes conservative spend, never a free call.
 
 const { aiUsage, tenants } = schema;
 
@@ -87,7 +87,7 @@ export interface Reservation {
  * Why reserve() said no. `over_budget`: today's budget is spent, until UTC midnight.
  * `busy`: it isn't, but calls in flight hold the rest of it; try again once they settle.
  */
-type Refusal = "over_budget" | "busy";
+type Refusal = { refused: "over_budget"; resetsAt: Date } | "busy";
 
 /** Thrown by a job refused as `busy`, so pg-boss runs it again once the calls in flight end. */
 export class AiBusyError extends Error {
@@ -130,8 +130,6 @@ export interface AiBudget {
     call: (signal: AbortSignal) => Promise<T>,
     cost: { of: (result: T) => Spent; ofFailure: (error: unknown) => FailureCost },
   ): Promise<T>;
-  /** When an `over_budget` refusal ends: the next UTC midnight. */
-  resetsAt(): Date;
 }
 
 /**
@@ -151,6 +149,7 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
   return {
     async today(tx, tenantId) {
       const day = utcDay(deps.clock.now());
+      await chargeExpired(tx, day);
       const [usage, budget] = [await spentOn(tx, day), await workspaceBudget(tx, tenantId)];
       const totalTokens = usage.inputTokens + usage.outputTokens;
       return {
@@ -171,10 +170,11 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
         .insert(aiUsage)
         .values({ tenantId, day })
         .onConflictDoNothing({ target: [aiUsage.tenantId, aiUsage.day] });
+      await chargeExpired(tx, day);
       // One statement: Postgres re-checks the condition against a concurrent reservation's
       // committed row, so two calls can't both fit into the same room. Room means anything
       // left: a call bigger than what's left still runs once, and overshoots by at most itself.
-      // Reservations that ran out are dropped here, and the newest one sets when all run out.
+      // Expired reservations were charged above; newer calls extend the shared hold window.
       const [reserved] = await tx
         .update(aiUsage)
         .set({
@@ -195,7 +195,9 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
         });
       if (reserved) return { tenantId, day, tokens, expiresAt: new Date(reserved.expiresAtMs) };
       const usage = await spentOn(tx, day);
-      return usage.inputTokens + usage.outputTokens >= budget ? "over_budget" : "busy";
+      return usage.inputTokens + usage.outputTokens >= budget
+        ? { refused: "over_budget", resetsAt: nextUtcDay(new Date(day)) }
+        : "busy";
     },
 
     async spend(transaction, reservation, call, cost) {
@@ -221,8 +223,6 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
       await settleQuietly(cost.of(result));
       return result;
     },
-
-    resetsAt: () => nextUtcDay(deps.clock.now()),
   };
 }
 
@@ -242,8 +242,8 @@ async function spentOn(tx: TenantTx, day: string) {
 /**
  * Lets the reservation go and adds what the call cost. A call counts when it cost anything;
  * one whose cost is unknown counts its whole reservation. A reservation that already ran out
- * is no longer in `reservedTokens` (or soon won't be), so it is left alone: taking it off
- * could take a newer call's reservation away instead.
+ * keeps its full bound as conservative spend (or waits for chargeExpired to count it).
+ * It cannot subtract tokens from a newer call's reservation.
  */
 async function settle(tx: TenantTx, reservation: Reservation, cost: FailureCost): Promise<void> {
   const spent =
@@ -264,5 +264,30 @@ async function settle(tx: TenantTx, reservation: Reservation, cost: FailureCost)
       calls: sql`${aiUsage.calls} + ${paid}`,
       updatedAt: new Date(),
     })
-    .where(and(eq(aiUsage.tenantId, reservation.tenantId), eq(aiUsage.day, reservation.day)));
+    .where(
+      and(
+        eq(aiUsage.tenantId, reservation.tenantId),
+        eq(aiUsage.day, reservation.day),
+        sql`now() < ${reservation.expiresAt.toISOString()}::timestamptz`,
+      ),
+    );
+}
+
+/** Unknown bills remain counted after a crash or a failed settle; only their hold expires. */
+async function chargeExpired(tx: TenantTx, day: string): Promise<void> {
+  await tx
+    .update(aiUsage)
+    .set({
+      inputTokens: sql`${aiUsage.inputTokens} + ${aiUsage.reservedTokens}`,
+      calls: sql`${aiUsage.calls} + case when ${aiUsage.reservedTokens} > 0 then 1 else 0 end`,
+      reservedTokens: 0,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(aiUsage.day, day),
+        sql`${aiUsage.reservedUntil} <= now()`,
+        sql`${aiUsage.reservedTokens} > 0`,
+      ),
+    );
 }

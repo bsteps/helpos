@@ -1,6 +1,8 @@
+import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { draftGithubIssue } from "./draft-issue.ts";
 import {
   draftInstructions,
   draftReply,
@@ -364,6 +366,17 @@ describe("parseSources", () => {
 });
 
 describe("replyDraftTokenEstimate", () => {
+  it("bounds JSON control escapes and maximum source metadata before retrieval", () => {
+    const knowledge = Array.from({ length: 5 }, () => ({
+      title: "\u0001".repeat(300),
+      url: `https://help.test/${"a".repeat(1982)}`,
+      content: "\u0001".repeat(5_000),
+    }));
+    expect(replyDraftTokenEstimate(email, 5)).toBeGreaterThanOrEqual(
+      replyDraftTokenEstimate({ ...email, knowledge }),
+    );
+  });
+
   it("is at least the prompt's bytes with every passage at its longest, plus the output cap", async () => {
     // Passages as long as they are let in, in a script of 3 bytes a character, with long titles.
     const passage = {
@@ -389,4 +402,26 @@ describe("replyDraftTokenEstimate", () => {
       tokenBound(draftInstructions, fenceEmail(email)) + 2_000,
     );
   });
+});
+
+describe("one provider attempt per reservation", () => {
+  it.each([draftReply, draftGithubIssue])(
+    "leaves retryable generation failures to the caller",
+    async (generate) => {
+      let calls = 0;
+      const model = new MockLanguageModelV4({
+        doGenerate: async () => {
+          calls++;
+          throw new APICallError({
+            message: "response lost",
+            url: "https://provider.test",
+            requestBodyValues: {},
+            isRetryable: true,
+          });
+        },
+      });
+      await expect(generate(model, email)).rejects.toThrow("response lost");
+      expect(calls).toBe(1);
+    },
+  );
 });

@@ -264,6 +264,8 @@ export async function draftGithubIssue(
   options: { abortSignal?: AbortSignal } = {},
 ): Promise<IssueDraft> {
   const result = await generateText({
+    // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
+    maxRetries: 0,
     model,
     instructions: issueInstructions,
     prompt: fenceEmail(input),
