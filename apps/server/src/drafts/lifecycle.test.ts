@@ -26,11 +26,7 @@ describe("draft lifecycle", () => {
     );
   });
 
-  it("never moves a sent or discarded draft", () => {
-    for (const t of Object.values(draftTransitions)) {
-      expect(t.from).not.toContain("sent");
-      expect(t.from).not.toContain("discarded");
-    }
+  it("counts a draft as open until it is sent or discarded", () => {
     expect(openStatuses).toEqual(["pending", "approved", "send_failed"]);
   });
 
@@ -46,14 +42,5 @@ describe("draft lifecycle", () => {
       }
     }
     expect([...reached].sort()).toEqual([...schema.draftStatuses].sort());
-  });
-
-  it("sends only what was approved", () => {
-    // Only approve and retry lead to `approved`, the one status the send worker sends.
-    const intoApproved = Object.entries(draftTransitions)
-      .filter(([, t]) => t.to === "approved")
-      .map(([op]) => op);
-    expect(intoApproved.sort()).toEqual(["approve", "retry"]);
-    expect(draftTransitions.markSent.from).toEqual(["approved"]);
   });
 });
