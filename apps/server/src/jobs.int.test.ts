@@ -14,6 +14,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.ts";
 import { handleDraftGaveUp } from "./drafts/draft-worker.ts";
+import { handleNoticeGaveUp } from "./drafts/notice-worker.ts";
 import { handleRecheckGaveUp } from "./github/recheck.ts";
 import { ingestEmail } from "./inbound-email/ingest.ts";
 import { handleIngestGaveUp } from "./knowledge/ingest-worker.ts";
@@ -376,7 +377,7 @@ describe("github.recheck-issue gives up", () => {
 });
 
 describe("give-up handlers stay in their tenant", () => {
-  it("another workspace's job can't mark this workspace's ticket, source or link", async () => {
+  it("another workspace's job can't mark this workspace's ticket, draft, source or link", async () => {
     const email = await receiveEmail(`Hi, ${providerDown} again, help?`);
     await expect
       .poll(async () => (await ticketOf(email.ticketId))?.aiPausedReason, eventually)
@@ -400,12 +401,38 @@ describe("give-up handlers stay in their tenant", () => {
         .returning({ id: schema.knowledgeSources.id }),
     );
     if (!source) throw new Error("no source");
+    const [draft] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(schema.drafts)
+        .values({
+          tenantId: acme,
+          ticketId: email.ticketId,
+          messageId: email.messageId,
+          body: "Pending, waiting for its notice.",
+        })
+        .returning({ id: schema.drafts.id }),
+    );
+    if (!draft) throw new Error("no draft");
+    const linkId = uuidv7();
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.ticketGithubIssues).values({
+        id: linkId,
+        tenantId: acme,
+        ticketId: email.ticketId,
+        repo: "acme/app",
+        issueNumber: 8,
+        issueUrl: "https://github.com/acme/app/issues/8",
+        state: "open",
+      }),
+    );
     const before = (await auditActions(email.ticketId)).length;
 
     // Tenant B's payloads naming tenant A's rows: RLS shows B nothing of A's, so nothing changes.
     await db.withTenant(other, async (tx) => {
       await handleDraftGaveUp({ tenantId: other, messageId: email.messageId }, tx);
       await handleIngestGaveUp({ tenantId: other, sourceId: source.id, requests: 0 }, tx);
+      await handleNoticeGaveUp({ tenantId: other, draftId: draft.id }, tx);
+      await handleRecheckGaveUp({ tenantId: other, linkId }, tx);
     });
 
     expect((await ticketOf(email.ticketId))?.aiPausedReason).toBeNull();
@@ -420,5 +447,7 @@ describe("give-up handlers stay in their tenant", () => {
     ).map((e) => e.action);
     expect(otherActions).not.toContain("ai.draft_failed");
     expect(otherActions).not.toContain("knowledge_source.failed");
+    expect(otherActions).not.toContain("draft.notice_failed");
+    expect(otherActions).not.toContain("github_issue.recheck_failed");
   });
 });
