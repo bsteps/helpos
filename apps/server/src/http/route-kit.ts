@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import { type AuditAction, type AuditEvent, recordAudit } from "../audit/audit.ts";
 
 // What every route file needs, in one place. A route file never defines its own copy: the
-// "route kit" check (route-kit.test.ts) fails when one does.
+// route-*.grit Biome plugins fail when one does (scripts/biome-plugins.test.mjs proves they fire).
 
 /** The one error body of the API. Registered once, as the `Error` component. */
 export const errorSchema = z.object({ error: z.string() }).openapi("Error");
