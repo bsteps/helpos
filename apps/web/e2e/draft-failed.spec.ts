@@ -27,10 +27,12 @@ test("a ticket the AI couldn't draft for says so, and the AI can be asked again"
   const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: subject }) });
   await expect(row.getByText("No AI draft")).toBeVisible();
   await row.getByRole("link", { name: subject }).click();
-  await expect(page.getByRole("alert")).toContainText("The AI couldn't write a draft");
+  // Only this alert: a draft can carry others (e.g. it used internal notes other tests added).
+  const noDraft = page.getByRole("alert").filter({ hasText: "The AI couldn't write a draft" });
+  await expect(noDraft).toBeVisible();
   await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
 
   await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft, { timeout: 30_000 });
-  await expect(page.getByRole("alert")).toBeHidden();
+  await expect(noDraft).toBeHidden();
 });
