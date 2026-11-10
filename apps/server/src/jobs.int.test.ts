@@ -32,6 +32,7 @@ let db: Database;
 let auth: AuthStore;
 let helpos: Server;
 let acme: string;
+let other: string;
 /** While true, every email the worker sends fails, as when the mail server is down. */
 let smtpDown = false;
 const sent = vi.fn();
@@ -111,8 +112,13 @@ beforeAll(async () => {
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
   );
-  if (!a.ok) throw new Error("setup failed");
+  const o = await initWorkspace(
+    { db, auth },
+    { workspace: "Other", mailbox: "help@other.test", owner: "owner@other.test" },
+  );
+  if (!a.ok || !o.ok) throw new Error("setup failed");
   acme = a.tenantId;
+  other = o.tenantId;
 });
 
 afterAll(async () => {
@@ -229,5 +235,53 @@ describe("github.recheck-issue gives up", () => {
       tx.select().from(schema.ticketGithubIssues).where(eq(schema.ticketGithubIssues.id, linkId)),
     );
     expect(link?.state).toBe("open");
+  });
+});
+
+describe("give-up handlers stay in their tenant", () => {
+  it("another workspace's job can't mark this workspace's ticket, source or link", async () => {
+    const email = await receiveEmail(`Hi, ${providerDown} again, help?`);
+    await waitFor("the ticket marked", async () =>
+      (await ticketOf(email.ticketId))?.aiPausedReason === "draft_failed" ? true : undefined,
+    );
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.tickets)
+        .set({ aiPausedReason: null })
+        .where(eq(schema.tickets.id, email.ticketId)),
+    );
+    const [source] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(schema.knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "isolated-doc",
+          kind: "markdown",
+          title: "I",
+          content: "i",
+        })
+        .returning({ id: schema.knowledgeSources.id }),
+    );
+    if (!source) throw new Error("no source");
+    const before = (await auditActions(email.ticketId)).length;
+
+    // Tenant B's payloads naming tenant A's rows: RLS shows B nothing of A's, so nothing changes.
+    await db.withTenant(other, async (tx) => {
+      await handleDraftGaveUp({ tenantId: other, messageId: email.messageId }, tx);
+      await handleIngestGaveUp({ tenantId: other, sourceId: source.id }, tx);
+    });
+
+    expect((await ticketOf(email.ticketId))?.aiPausedReason).toBeNull();
+    expect((await auditActions(email.ticketId)).length).toBe(before);
+    const [row] = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.knowledgeSources).where(eq(schema.knowledgeSources.id, source.id)),
+    );
+    expect(row?.status).toBe("pending");
+    expect(await auditActions(source.id)).toEqual([]);
+    const otherActions = (
+      await db.withTenant(other, (tx) => tx.select().from(schema.auditEvents))
+    ).map((e) => e.action);
+    expect(otherActions).not.toContain("ai.draft_failed");
+    expect(otherActions).not.toContain("knowledge_source.failed");
   });
 });
