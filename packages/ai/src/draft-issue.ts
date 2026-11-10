@@ -261,6 +261,7 @@ export function failedDraftCost(error: unknown): DraftUsage | "none" | "unknown"
 export async function draftGithubIssue(
   model: LanguageModel,
   input: DraftInput,
+  options: { abortSignal?: AbortSignal } = {},
 ): Promise<IssueDraft> {
   const result = await generateText({
     model,
@@ -269,6 +270,7 @@ export async function draftGithubIssue(
     output: Output.object({ schema: issueSchema }),
     // The budget reservation counts on this bound.
     maxOutputTokens: maxIssueOutputTokens,
+    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
   });
   return {
     ...formatIssue(result.output),

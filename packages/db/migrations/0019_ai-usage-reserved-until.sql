@@ -1,0 +1,1 @@
+ALTER TABLE "ai_usage" ADD COLUMN "reserved_until" timestamp with time zone;

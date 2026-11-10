@@ -13,10 +13,25 @@ import type { Clock, ServerConfig } from "../services.ts";
 //
 // The row lock is held only for that one statement, so a slow call never makes another wait,
 // and two concurrent calls can't both slip under the cap: the second sees the first's
-// reservation. A process that dies mid-call leaves its reservation held until the day ends,
-// so the budget may overcount, never undercount.
+// reservation.
+//
+// A reservation runs out after `reservationSeconds`. A call can't outlive it: spend() aborts it
+// after `aiCallTimeoutMs`, or as soon as the server starts shutting down, and settles it. So
+// only a process that dies mid-call leaves a reservation unsettled, and that one stops holding
+// the budget once it runs out. Until then the budget may overcount, never undercount.
 
 const { aiUsage, tenants } = schema;
+
+/** The longest one AI call may run: spend() aborts it then, and settles it. */
+const aiCallTimeoutMs = 4 * 60_000;
+/**
+ * How long a reservation holds the budget. Well past aiCallTimeoutMs, so a call has always
+ * settled (or its process died) before its reservation runs out.
+ */
+const reservationSeconds = 10 * 60;
+const reservationWindow = sql.raw(`interval '${reservationSeconds} seconds'`);
+/** The reservations that still hold the budget: none once the newest has run out. */
+const liveReserved = sql`(case when ${aiUsage.reservedUntil} > now() then ${aiUsage.reservedTokens} else 0 end)`;
 
 /**
  * Tokens per workspace per UTC day. Low on purpose: an email flood to a public demo mailbox
@@ -64,6 +79,8 @@ export interface Reservation {
   /** The day it was taken on: it settles there, even if the call ends after midnight. */
   readonly day: string;
   readonly tokens: number;
+  /** When it runs out, by the database's clock. A settle after that leaves the tokens alone. */
+  readonly expiresAt: Date;
 }
 
 /**
@@ -90,6 +107,11 @@ export interface AiBudgetDeps {
   clock: Clock;
   config: Pick<ServerConfig, "dailyTokenBudget">;
   logger: Pick<Logger, "warn">;
+  /**
+   * Aborted when the server starts shutting down: every call in flight stops then, and is
+   * settled before the database closes. Tests that never shut down leave it out.
+   */
+  shutdown?: AbortSignal | undefined;
 }
 
 export interface AiBudget {
@@ -99,12 +121,13 @@ export interface AiBudget {
   /**
    * Makes the call, then settles the reservation in its own transaction: to `cost.of` the
    * result, or `cost.ofFailure` the error, which is then rethrown. A settle that fails is
-   * logged and leaves the reservation counted.
+   * logged and leaves the reservation counted. The call must pass `signal` to every AI call
+   * it makes: it aborts after aiCallTimeoutMs, or when the server shuts down.
    */
   spend<T>(
     transaction: TenantTransaction,
     reservation: Reservation,
-    call: () => Promise<T>,
+    call: (signal: AbortSignal) => Promise<T>,
     cost: { of: (result: T) => Spent; ofFailure: (error: unknown) => FailureCost },
   ): Promise<T>;
   /** When an `over_budget` refusal ends: the next UTC midnight. */
@@ -151,17 +174,26 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
       // One statement: Postgres re-checks the condition against a concurrent reservation's
       // committed row, so two calls can't both fit into the same room. Room means anything
       // left: a call bigger than what's left still runs once, and overshoots by at most itself.
-      const reserved = await tx
+      // Reservations that ran out are dropped here, and the newest one sets when all run out.
+      const [reserved] = await tx
         .update(aiUsage)
-        .set({ reservedTokens: sql`${aiUsage.reservedTokens} + ${tokens}`, updatedAt: new Date() })
+        .set({
+          reservedTokens: sql`${liveReserved} + ${tokens}`,
+          reservedUntil: sql`greatest(${aiUsage.reservedUntil}, now() + ${reservationWindow})`,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(aiUsage.day, day),
-            sql`${aiUsage.inputTokens} + ${aiUsage.outputTokens} + ${aiUsage.reservedTokens} < ${budget}`,
+            sql`${aiUsage.inputTokens} + ${aiUsage.outputTokens} + ${liveReserved} < ${budget}`,
           ),
         )
-        .returning({ id: aiUsage.id });
-      if (reserved.length > 0) return { tenantId, day, tokens };
+        .returning({
+          expiresAtMs: sql<number>`extract(epoch from now() + ${reservationWindow}) * 1000`.mapWith(
+            Number,
+          ),
+        });
+      if (reserved) return { tenantId, day, tokens, expiresAt: new Date(reserved.expiresAtMs) };
       const usage = await spentOn(tx, day);
       return usage.inputTokens + usage.outputTokens >= budget ? "over_budget" : "busy";
     },
@@ -177,9 +209,11 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
           );
         }
       };
+      const timeout = AbortSignal.timeout(aiCallTimeoutMs);
+      const signal = deps.shutdown ? AbortSignal.any([timeout, deps.shutdown]) : timeout;
       let result: Awaited<ReturnType<typeof call>>;
       try {
-        result = await call();
+        result = await call(signal);
       } catch (error) {
         await settleQuietly(cost.ofFailure(error));
         throw error;
@@ -207,7 +241,9 @@ async function spentOn(tx: TenantTx, day: string) {
 
 /**
  * Lets the reservation go and adds what the call cost. A call counts when it cost anything;
- * one whose cost is unknown counts its whole reservation.
+ * one whose cost is unknown counts its whole reservation. A reservation that already ran out
+ * is no longer in `reservedTokens` (or soon won't be), so it is left alone: taking it off
+ * could take a newer call's reservation away instead.
  */
 async function settle(tx: TenantTx, reservation: Reservation, cost: FailureCost): Promise<void> {
   const spent =
@@ -220,7 +256,9 @@ async function settle(tx: TenantTx, reservation: Reservation, cost: FailureCost)
   await tx
     .update(aiUsage)
     .set({
-      reservedTokens: sql`greatest(0, ${aiUsage.reservedTokens} - ${reservation.tokens})`,
+      reservedTokens: sql`case when now() < ${reservation.expiresAt.toISOString()}::timestamptz
+        then greatest(0, ${aiUsage.reservedTokens} - ${reservation.tokens})
+        else ${aiUsage.reservedTokens} end`,
       inputTokens: sql`${aiUsage.inputTokens} + ${spent.inputTokens}`,
       outputTokens: sql`${aiUsage.outputTokens} + ${spent.outputTokens}`,
       calls: sql`${aiUsage.calls} + ${paid}`,

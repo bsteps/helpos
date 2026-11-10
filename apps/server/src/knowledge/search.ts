@@ -29,7 +29,8 @@ export interface SearchResult {
  * pgvector today; another engine can implement this later without touching the callers.
  */
 export interface SearchProvider {
-  search(tx: TenantTx, query: SearchQuery): Promise<SearchResult>;
+  /** `signal` aborts the embedding call (see AiBudget.spend). */
+  search(tx: TenantTx, query: SearchQuery, signal?: AbortSignal): Promise<SearchResult>;
 }
 
 export const noKnowledge: SearchResult = { hits: [], tokens: 0 };
@@ -47,7 +48,7 @@ export class SearchError extends Error {
 export function createVectorSearch(model: EmbeddingModel): SearchProvider {
   const modelId = embeddingModelId(model);
   return {
-    async search(tx, query) {
+    async search(tx, query, signal) {
       // No visibility allowed means no knowledge, not an error.
       if (query.visibility?.length === 0) return noKnowledge;
       // Most workspaces start with no knowledge (or none of the wanted visibility): skip the
@@ -65,7 +66,11 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
         )
         .limit(1);
       if (!any) return noKnowledge;
-      const { embeddings, tokens } = await embedTexts(model, [query.text]);
+      const { embeddings, tokens } = await embedTexts(
+        model,
+        [query.text],
+        signal ? { abortSignal: signal } : {},
+      );
       try {
         const [embedding] = embeddings;
         if (!embedding) throw new Error("search: the embedding model returned no vector");

@@ -87,6 +87,8 @@ export function newDraftError(code: string | undefined): string {
       return "The customer's latest message already has a reply that was approved or sent.";
     case "nothing_to_answer":
       return "There's no customer message to answer.";
+    case "ticket_closed":
+      return "This ticket is closed, so the AI won't draft for it. You can write a reply yourself.";
     case "not_found":
       return "This ticket is gone, or you no longer have access to it.";
     default:

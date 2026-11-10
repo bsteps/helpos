@@ -1,5 +1,5 @@
 // For tests only: read and seed a workspace's AI usage without going through a model call.
-import { type Database, eq, schema } from "@helpos/db";
+import { type Database, eq, schema, sql } from "@helpos/db";
 import { utcDay } from "./budget.ts";
 
 const { aiUsage } = schema;
@@ -50,6 +50,32 @@ export async function seedUsage(
     await tx
       .update(aiUsage)
       .set({ inputTokens: (row?.inputTokens ?? 0) + inputTokens })
+      .where(eq(aiUsage.day, day));
+  });
+}
+
+/**
+ * Holds tokens on a workspace's day as an unsettled call would (one whose process died),
+ * running out `seconds` from now: negative for one that already ran out.
+ */
+export async function seedReservation(
+  db: Pick<Database, "withTenant">,
+  tenantId: string,
+  day: string,
+  tokens: number,
+  seconds: number,
+): Promise<void> {
+  await db.withTenant(tenantId, async (tx) => {
+    await tx
+      .insert(aiUsage)
+      .values({ tenantId, day })
+      .onConflictDoNothing({ target: [aiUsage.tenantId, aiUsage.day] });
+    await tx
+      .update(aiUsage)
+      .set({
+        reservedTokens: tokens,
+        reservedUntil: sql`now() + make_interval(secs => ${seconds})`,
+      })
       .where(eq(aiUsage.day, day));
   });
 }

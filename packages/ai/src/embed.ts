@@ -79,12 +79,15 @@ export function embeddingModelId(model: EmbeddingModel): string {
 export type EmbedResult = { embeddings: number[][]; tokens: number };
 
 /**
- * A provider outage or rate limit that outlasted the SDK's own retries: worth trying again
- * later. A wrong key, a bad request or a broken model is not, and fails at once.
+ * A provider outage, a rate limit that outlasted the SDK's own retries, or a call that ran out
+ * of time: worth trying again later. A wrong key, a bad request or a broken model is not, and
+ * fails at once.
  */
 export function isTemporaryAiFailure(error: unknown): boolean {
   let e: unknown = error;
   for (let depth = 0; e !== undefined && depth < 5; depth++) {
+    // What AbortSignal.timeout() aborts with. The SDK passes it through as it is.
+    if (e instanceof Error && e.name === "TimeoutError") return true;
     if (RetryError.isInstance(e)) return e.reason === "maxRetriesExceeded";
     if (APICallError.isInstance(e)) return e.isRetryable;
     e = e instanceof Error ? e.cause : undefined;
@@ -111,14 +114,23 @@ export class EmbedError extends Error {
  * size than the column holds, so a misconfigured model is a clear error, not a failed insert
  * later. A failure is an EmbedError carrying the tokens the earlier batches cost.
  */
-export async function embedTexts(model: EmbeddingModel, values: string[]): Promise<EmbedResult> {
+export async function embedTexts(
+  model: EmbeddingModel,
+  values: string[],
+  options: { abortSignal?: AbortSignal } = {},
+): Promise<EmbedResult> {
   const embeddings: number[][] = [];
   let tokens = 0;
   for (let i = 0; i < values.length; i += embedBatchSize) {
     const batch = values.slice(i, i + embedBatchSize);
     let result: Awaited<ReturnType<typeof embedMany>>;
     try {
-      result = await embedMany({ model, values: batch, dimensions: embeddingDimensions });
+      result = await embedMany({
+        model,
+        values: batch,
+        dimensions: embeddingDimensions,
+        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+      });
     } catch (cause) {
       throw new EmbedError(tokens, { cause });
     }

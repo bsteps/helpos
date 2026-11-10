@@ -19,6 +19,7 @@ export interface DraftIssueDeps {
   model: LanguageModel;
   clock: Clock;
   config: Pick<ServerConfig, "dailyTokenBudget">;
+  shutdown?: AbortSignal | undefined;
 }
 
 export type DraftIssueOutcome =
@@ -48,7 +49,7 @@ export async function draftIssue(
     const draft = await budget.spend(
       tenantTransactions(deps.db, input.tenantId),
       prepared.reservation,
-      () => draftGithubIssue(deps.model, prepared.input),
+      (signal) => draftGithubIssue(deps.model, prepared.input, { abortSignal: signal }),
       { of: (d) => d.usage, ofFailure: failedDraftCost },
     );
     return { kind: "drafted", title: draft.title, body: draft.body };

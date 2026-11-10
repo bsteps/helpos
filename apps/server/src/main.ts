@@ -30,6 +30,9 @@ async function shutdown(signal: string): Promise<void> {
     logger.error({ timeoutMs: shutdownTimeoutMs }, "shutdown timed out, forcing exit");
     process.exit(1);
   }, shutdownTimeoutMs).unref();
+  // AI calls first: each settles its budget reservation while the database is still open, and
+  // a request waiting on one ends now instead of holding up the stop.
+  helpos.stopAiCalls();
   // Stop accepting connections and let in-flight requests finish before closing the pool.
   try {
     await new Promise<void>((resolve) => server.close(() => resolve()));

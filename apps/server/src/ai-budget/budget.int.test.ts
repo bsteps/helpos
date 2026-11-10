@@ -24,7 +24,7 @@ import { composeServices, defaultConfig } from "../services.ts";
 import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { aiBudget, type Reservation } from "./budget.ts";
-import { seedUsage, usageOn } from "./testing.ts";
+import { seedReservation, seedUsage, usageOn } from "./testing.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
 // and the budget is 200: the first call fits, the second fits (120 < 200 before it), the third
@@ -326,6 +326,52 @@ describe("a ticket paused by the budget", () => {
     expect(await draftCount(acme, email.ticketId)).toBe(1);
     expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBeNull();
   });
+
+  it("closed while it waits, it gets no draft, no notice and costs nothing", async () => {
+    clock = new Date("2026-11-22T15:00:00Z");
+    await seedUsage(db, acme, "2026-11-22", budget);
+    const email = await receive(31);
+    await draft(acme, email.messageId);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+    const [job] = await waitingJobs(email.messageId);
+    if (!job) throw new Error("no waiting job");
+
+    // Someone closes it in the dashboard before the budget resets.
+    const app = createApp(composeServices({ db, files, logger, clock: { now } }), {
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(["tickets:read", "tickets:write", "drafts:write"] as const),
+      }),
+    });
+    const closed = await app.request(`/v1/tickets/${email.ticketId}/close`, { method: "POST" });
+    expect(closed.status).toBe(200);
+    // Asking the AI for a draft on it is refused, instead of waiting for one that never comes.
+    const asked = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ regenerate: true }),
+    });
+    expect(asked.status).toBe(409);
+    expect(await asked.json()).toEqual({ error: "ticket_closed" });
+
+    // The next day its waiting job runs: no model call, no reservation, no draft.
+    clock = new Date("2026-11-23T00:01:00Z");
+    const notices = () =>
+      jobsDb.withTenant(acme, (tx) =>
+        tx.execute(sql`select 1 from pgboss.job where name = 'draft-notice'`),
+      );
+    const noticesBefore = (await notices()).length;
+    const model = await draft(job.data.tenantId, job.data.messageId);
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(await draftCount(acme, email.ticketId)).toBe(0);
+    expect(await notices()).toHaveLength(noticesBefore);
+    expect(await usageOn(db, acme, clock)).toMatchObject({
+      totalTokens: 0,
+      reservedTokens: 0,
+      calls: 0,
+    });
+  });
 });
 
 describe("reserve and spend", () => {
@@ -415,6 +461,35 @@ describe("reserve and spend", () => {
       reservedTokens: 0,
       calls: 1,
     });
+  });
+
+  it("a reservation that was never settled stops holding the budget once it runs out", async () => {
+    const at = new Date("2026-11-29T12:00:00Z");
+    await seedUsage(db, other, "2026-11-29", 60);
+    const reserve = () => db.withTenant(other, (tx) => budgetAt(at).reserve(tx, other, 100));
+    // A call whose process died holds the rest of the budget (60 + 150 of 200): until its
+    // reservation runs out, it blocks.
+    await seedReservation(db, other, "2026-11-29", 150, 60);
+    expect(await reserve()).toBe("busy");
+    // Run out, it holds nothing, and the new reservation replaces it.
+    await seedReservation(db, other, "2026-11-29", 150, -1);
+    const r = await reserve();
+    if (typeof r === "string") throw new Error(r);
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 60, reservedTokens: 100 });
+
+    // A settle that comes after its reservation ran out leaves the newer one in place.
+    // Long past by any clock, so the database's and this machine's needn't agree.
+    const late = { ...r, tokens: 150, expiresAt: new Date("2000-01-01T00:00:00Z") };
+    await budgetAt(at).spend(tenantTransactions(db, other), late, async () => 1, {
+      of: () => ({ inputTokens: 10, outputTokens: 0 }),
+      ofFailure: () => "unknown",
+    });
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 70, reservedTokens: 100 });
+    await budgetAt(at).spend(tenantTransactions(db, other), r, async () => 1, {
+      of: () => ({ inputTokens: 30, outputTokens: 0 }),
+      ofFailure: () => "unknown",
+    });
+    expect(await usageOn(db, other, at)).toMatchObject({ totalTokens: 100, reservedTokens: 0 });
   });
 
   it("settles on the day it was reserved, even after midnight", async () => {

@@ -550,6 +550,11 @@ export const aiUsage = pgTable(
      * really cost. Kept apart from the tokens above, so usage shows only what was spent.
      */
     reservedTokens: bigint("reserved_tokens", { mode: "number" }).notNull().default(0),
+    /**
+     * When the newest reservation runs out. Past it, `reservedTokens` counts as 0: a call
+     * that never settled (a crash, a deploy mid-call) holds the budget for minutes, not all day.
+     */
+    reservedUntil: timestamp("reserved_until", { withTimezone: true }),
   },
   (t) => [unique("ai_usage_tenant_day").on(t.tenantId, t.day), tenantIsolation()],
 );

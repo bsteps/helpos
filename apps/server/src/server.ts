@@ -25,7 +25,7 @@ import { createSecretBox } from "./secrets/secret-box.ts";
 import { composeServices, type Services, type ServicesInput } from "./services.ts";
 import { startWorker } from "./worker.ts";
 
-export type ServerInput = Omit<ServicesInput, "db"> & {
+export type ServerInput = Omit<ServicesInput, "db" | "shutdown"> & {
   /** The app-role database. The job runner reaches tenant data only through its withTenant(). */
   db: Database;
   /** The jobs role (owner of `pgboss`). */
@@ -47,10 +47,22 @@ export interface Server {
   app(options?: AppOptions): OpenAPIHono;
   /** The worker role: starts pg-boss, creates every queue and works them. */
   startWorker(): Promise<void>;
+  /**
+   * The first step of a shutdown: aborts every AI call in flight, in jobs and requests. Each
+   * settles its budget reservation (its cost unknown, so all of it counts) and fails: a job is
+   * tried again after the restart. Call it before anything waits for work to finish.
+   */
+  stopAiCalls(): void;
+  /** Stops AI calls, then the worker, waiting for its jobs (and their settles) to end. */
+  stopWorker(): Promise<void>;
 }
 
 export function composeServer(input: ServerInput): Server {
-  const services = composeServices(input);
+  const stopping = new AbortController();
+  const services = composeServices({ ...input, shutdown: stopping.signal });
+  const stopAiCalls = () => {
+    if (!stopping.signal.aborted) stopping.abort(new Error("the server is shutting down"));
+  };
   const runner = createJobRunner({
     jobsUrl: input.jobsUrl,
     db: input.db,
@@ -66,6 +78,11 @@ export function composeServer(input: ServerInput): Server {
     startWorker: async () => {
       await runner.start();
       await startWorker(services, runner);
+    },
+    stopAiCalls,
+    stopWorker: async () => {
+      stopAiCalls();
+      await runner.stop();
     },
   };
 }
@@ -126,7 +143,7 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
   return {
     ...server,
     close: async () => {
-      await server.runner.stop();
+      await server.stopWorker();
       transport?.close();
       await auth?.close();
       await db.close();

@@ -32,6 +32,8 @@ export interface IngestWorkerDeps {
    * waits before each new try of a page that failed on a temporary error.
    */
   config: Pick<ServerConfig, "dailyTokenBudget" | "fetchRetryDelaysMs">;
+  /** Aborts the embedding calls in flight when the server shuts down. */
+  shutdown?: AbortSignal | undefined;
 }
 
 const ingestActor = { type: "system", id: "ingest-source" } as const;
@@ -391,7 +393,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       embedded = await budget.spend(
         transaction,
         reservation,
-        () => embedTexts(deps.embeddingModel, chunks),
+        (signal) => embedTexts(deps.embeddingModel, chunks, { abortSignal: signal }),
         {
           of: (result) => ({ inputTokens: result.tokens, outputTokens: 0 }),
           // After the SDK's own retries. Batches embedded before the failure were paid for, so
@@ -403,6 +405,8 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         },
       );
     } catch (error) {
+      // The server is shutting down: the job is tried again once it's back, source untouched.
+      if (deps.shutdown?.aborted) throw error;
       deps.logger.warn({ err: error, sourceId }, "embedding failed");
       // The provider is down or rate-limited: try again later, once. A wrong key or a broken
       // model would end the same way every time, so that fails at once.

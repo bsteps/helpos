@@ -281,7 +281,7 @@ export function replyDraftTokenEstimate(input: DraftInput, unretrieved = 0): num
 export async function draftReply(
   model: LanguageModel,
   input: DraftInput,
-  options: { tools?: ToolSet } = {},
+  options: { tools?: ToolSet; abortSignal?: AbortSignal } = {},
 ): Promise<DraftResult> {
   const knowledge = (input.knowledge ?? []).slice(0, maxKnowledgeArticles);
   const result = await generateText({
@@ -291,6 +291,7 @@ export async function draftReply(
     prompt: [fenceKnowledge(knowledge), fenceEmail(input)].filter(Boolean).join("\n\n"),
     // The budget reservation counts on this bound.
     maxOutputTokens: maxReplyOutputTokens,
+    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     ...(options.tools ? { tools: options.tools, stopWhen: stepCountIs(2) } : {}),
   });
   // Everything the model wrote, in order: with one step (the real drafting) that's its text,

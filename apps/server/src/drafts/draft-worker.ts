@@ -78,6 +78,8 @@ export interface DraftWorkerDeps {
   config: Pick<ServerConfig, "dailyTokenBudget" | "noticeDelaySeconds">;
   /** The workspace's knowledge. Without it, drafts are written from the email alone. */
   search?: SearchProvider | undefined;
+  /** Aborts the search and model calls in flight when the server shuts down. */
+  shutdown?: AbortSignal | undefined;
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
@@ -92,12 +94,15 @@ async function searchOrNothing(
   deps: DraftWorkerDeps,
   tx: TenantTx,
   query: SearchQuery,
+  signal: AbortSignal,
 ): Promise<SearchResult> {
   const { search } = deps;
   if (!search) return noKnowledge;
   try {
-    return await tx.transaction((sp) => search.search(sp, query));
+    return await tx.transaction((sp) => search.search(sp, query, signal));
   } catch (error) {
+    // Stopped (a shutdown, or out of time): drafting on without knowledge would be wrong too.
+    if (signal.aborted) throw error;
     deps.logger.warn({ err: error }, "knowledge search failed: drafting without it");
     // Its embedding call may have been paid for before the failure.
     return { ...noKnowledge, tokens: error instanceof SearchError ? error.tokens : 0 };
@@ -160,9 +165,9 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     const answer = await budget.spend(
       transaction,
       job.reservation,
-      async () => {
+      async (signal) => {
         const found = await transaction(async (tx) => {
-          const knowledge = await searchOrNothing(deps, tx, job.query);
+          const knowledge = await searchOrNothing(deps, tx, job.query, signal);
           searchTokens = knowledge.tokens;
           // Another job for this message (a retry overlapping a slow attempt) may have drafted
           // it meanwhile. Looked at again before paying the model.
@@ -182,7 +187,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           })),
         };
         callBound = replyDraftTokenEstimate(input);
-        return { hits, result: await draftReply(deps.model, input) };
+        return { hits, result: await draftReply(deps.model, input, { abortSignal: signal }) };
       },
       {
         of: ({ result }) => ({
@@ -252,6 +257,9 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   const lock = await lockTicketForDrafting(tx, row.ticketId);
   // The customer wrote again: that message's own job drafts the answer.
   if (lock?.answering !== payload.messageId) return null;
+  // Closed meanwhile (e.g. while it waited for the budget to reset): nothing to answer. A
+  // customer who writes again reopens it, and their message gets a job of its own.
+  if (lock.closed) return null;
   // A retry after the draft was saved, or already answered.
   if (await liveDraftFor(tx, payload.messageId, "reply")) return null;
 
@@ -350,6 +358,8 @@ async function save(
   const lock = await lockTicketForDrafting(tx, ticketId);
   // The customer wrote again: that message's own job drafts the answer.
   if (lock?.answering !== payload.messageId) return;
+  // Closed while the model wrote: a draft (and its notice) would be noise.
+  if (lock.closed) return;
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
 
   // This is the latest message, so createReply discards pending replies to earlier ones.
