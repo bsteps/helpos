@@ -84,8 +84,8 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   registerAuthRoutes(app, { db, sessions, passwords, trustedOrigin });
   registerTokenRoutes(app, { db });
   registerTicketRoutes(app, { db });
-  registerDraftRoutes(app, { db, clock, config });
-  registerAiUsageRoute(app, { db, clock, config });
+  registerDraftRoutes(app, { db, clock, config, logger });
+  registerAiUsageRoute(app, { db, clock, config, logger });
   registerKnowledgeRoutes(app, { db });
   registerStatsRoutes(app, { db, clock });
   registerShadowModeRoutes(app, { db, allowShadowModeOff: config.allowShadowModeOff });

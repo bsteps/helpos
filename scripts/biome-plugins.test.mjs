@@ -59,6 +59,14 @@ const samples = {
     "export const f = (tx, v) => tx.insert(schema.drafts).values(v);\n",
     /drafts\/lifecycle\.ts/,
   ],
+  "ai-usage.grit (a write to ai_usage)": [
+    "export const f = (tx) => tx.update(schema.aiUsage).set({ inputTokens: 1 });\n",
+    /aiBudget\(\)/,
+  ],
+  "ai-usage.grit (a helper that records outside the reservation)": [
+    'export const f = (tx, t) => recordUsage(tx, t, "2026-11-10", { inputTokens: 1 });\n',
+    /aiBudget\(\)/,
+  ],
 };
 
 const githubLookup = 'export const f = (tx) => tx.where(eq(integrations.provider, "github"));\n';
@@ -93,6 +101,16 @@ test("github-integration.grit reports opening a sealed secret outside github/int
 
 test("github-integration.grit allows both in github/integration.ts itself", () => {
   assert.deepEqual(pluginMessages(githubLookup + githubOpen, "github/integration.ts"), []);
+});
+
+test("ai-usage.grit allows ai_usage writes only inside ai-budget/", () => {
+  const write = "export const f = (tx) => tx.insert(aiUsage).values({ tenantId, day });\n";
+  assert.deepEqual(pluginMessages(write, "ai-budget/budget.ts"), []);
+  const elsewhere = pluginMessages(write, "knowledge/ingest-worker.ts");
+  assert.ok(
+    elsewhere.some((m) => /aiBudget\(\)/.test(m)),
+    `no longer fires; got ${JSON.stringify(elsewhere)}`,
+  );
 });
 
 test("a route file past 600 lines is reported", () => {

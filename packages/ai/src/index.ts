@@ -32,6 +32,7 @@ export {
   maxHistoryMessages,
   maxKnowledgeArticles,
   parseSources,
+  replyDraftTokenEstimate,
 } from "./draft-reply.ts";
 export {
   createEmbeddingModel,
@@ -47,6 +48,7 @@ export {
   isTemporaryAiFailure,
   parseEmbeddingConfig,
 } from "./embed.ts";
+export { tokenBound } from "./estimate.ts";
 export {
   minQuoteContentWords,
   minQuoteWords,

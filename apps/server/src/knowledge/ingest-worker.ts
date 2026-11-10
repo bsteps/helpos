@@ -4,12 +4,13 @@ import {
   embeddingModelId,
   embedTexts,
   isTemporaryAiFailure,
+  tokenBound,
 } from "@helpos/ai";
 import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
-import { dailyBudget, recordUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { AiBusyError, aiBudget } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
@@ -240,11 +241,6 @@ export async function handleIngestGaveUp(
   });
 }
 
-/** The start of the next UTC day, when the daily budget resets. */
-export function nextUtcDay(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-}
-
 /**
  * Turns one knowledge source into embedded chunks. A page that fails on a temporary error is
  * tried again a few seconds later. If the site or the embedding provider is still down, the
@@ -260,6 +256,7 @@ export function nextUtcDay(now: Date): Date {
  * connection or row lock: a delete or re-ingest of the source never waits for it.
  */
 export function handleIngestSource(deps: IngestWorkerDeps) {
+  const budget = aiBudget(deps);
   return async (
     payload: { tenantId: string; sourceId: string },
     transaction: TenantTransaction,
@@ -315,12 +312,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         deps.logger.warn({ sourceId, error }, "knowledge source could not be ingested");
       });
 
-    // Before the fetch, so a source that must wait doesn't fetch its page twice. Read, not
-    // locked: holding the budget row through the embedding call would stop every draft in the
-    // workspace until this ingest commits. Concurrent ingests can each pass the check and
-    // overshoot by one embedding call, like a draft that starts just under the cap.
     const started = now();
-    const day = utcDay(started);
 
     /** Not a failure: the source stays `pending` with the reason, and runs again by itself. */
     const waitUntil = (reason: string, startAfter: Date, singletonKey: string) =>
@@ -350,18 +342,17 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return waitUntil(reason, retryAt, `${sourceId}:retry:${retryAt.toISOString()}`);
     };
 
-    const [used, budget] = await transaction(async (tx) => [
-      totalTokens(await usageOn(tx, day)),
-      await dailyBudget(tx, tenantId, deps.config.dailyTokenBudget),
-    ]);
-    if (used >= budget) {
-      // The budget resets at midnight UTC. One waiting job per source per day, however often
-      // it's asked for meanwhile. A source that already had its one more try keeps that reason,
-      // so the budget wait doesn't give it another.
-      const resetsAt = nextUtcDay(started);
+    // The budget resets at midnight UTC. One waiting job per source per day, however often
+    // it's asked for meanwhile. A source that already had its one more try keeps that reason,
+    // so the budget wait doesn't give it another.
+    const waitForBudget = () => {
+      const resetsAt = budget.resetsAt();
       const reason = waitedOnce && source.error ? source.error : "daily_budget_reached";
-      return waitUntil(reason, resetsAt, `${sourceId}:after:${utcDay(resetsAt)}`);
-    }
+      return waitUntil(reason, resetsAt, `${sourceId}:after:${resetsAt.toISOString()}`);
+    };
+    // Checked before the fetch too, so a source that must wait doesn't fetch its page twice.
+    // The reservation below is what holds the cap.
+    if ((await transaction((tx) => budget.today(tx, tenantId))).paused) return waitForBudget();
 
     let chunks: string[];
     try {
@@ -388,30 +379,38 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if (chunks.length === 0) return fail("no_text");
     if (chunks.length > maxChunks) return fail("too_long");
 
+    const reservation = await transaction((tx) =>
+      budget.reserve(tx, tenantId, tokenBound(...chunks)),
+    );
+    if (reservation === "over_budget") return waitForBudget();
+    // Other calls in flight hold the rest of today's budget: pg-boss tries again shortly.
+    if (reservation === "busy") throw new AiBusyError();
+
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
     try {
-      embedded = await embedTexts(deps.embeddingModel, chunks);
+      embedded = await budget.spend(
+        transaction,
+        reservation,
+        () => embedTexts(deps.embeddingModel, chunks),
+        {
+          of: (result) => ({ inputTokens: result.tokens, outputTokens: 0 }),
+          // After the SDK's own retries. Batches embedded before the failure were paid for, so
+          // they count.
+          ofFailure: (error) => ({
+            inputTokens: error instanceof EmbedError ? error.tokens : 0,
+            outputTokens: 0,
+          }),
+        },
+      );
     } catch (error) {
-      // After the SDK's own retries. Batches embedded before the failure were paid for, so
-      // they count.
       deps.logger.warn({ err: error, sourceId }, "embedding failed");
-      const spent = error instanceof EmbedError ? error.tokens : 0;
-      if (spent > 0) {
-        await transaction((tx) =>
-          recordUsage(tx, tenantId, day, { inputTokens: spent, outputTokens: 0 }),
-        );
-      }
       // The provider is down or rate-limited: try again later, once. A wrong key or a broken
       // model would end the same way every time, so that fails at once.
       if (!isTemporaryAiFailure(error)) return fail("embedding_failed");
       return waitedOnce ? fail("embedding_unavailable") : retryLater("embedding_unavailable");
     }
-    const { embeddings, tokens } = embedded;
+    const { embeddings } = embedded;
     const modelId = embeddingModelId(deps.embeddingModel);
-    // Paid for whatever happens next, so it's committed on its own.
-    await transaction((tx) =>
-      recordUsage(tx, tenantId, day, { inputTokens: tokens, outputTokens: 0 }),
-    );
     if (embeddings.length !== chunks.length) {
       // A broken server. Retrying would pay again for the same answer.
       deps.logger.warn(

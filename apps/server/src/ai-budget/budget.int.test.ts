@@ -8,6 +8,8 @@ import {
   eq,
   type JobRunner,
   schema,
+  sql,
+  type TenantTx,
   tenantTransactions,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
@@ -21,7 +23,8 @@ import { ensureJobQueues } from "../jobs.ts";
 import { composeServices, defaultConfig } from "../services.ts";
 import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { recordUsage } from "./budget.ts";
+import { aiBudget, type Reservation } from "./budget.ts";
+import { seedUsage, usageOn } from "./testing.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
 // and the budget is 200: the first call fits, the second fits (120 < 200 before it), the third
@@ -35,6 +38,8 @@ const now = () => clock;
 
 let testDb: TestDatabase;
 let db: Database;
+/** As the jobs role, to see what waits in the queue. */
+let jobsDb: Database;
 let auth: AuthStore;
 let runner: JobRunner;
 let acme: string;
@@ -81,6 +86,7 @@ const draftCount = (tenantId: string, ticketId: string) =>
 beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
+  jobsDb = createDatabase(testDb.jobsUrl);
   auth = createAuthStore(testDb.authUrl);
   // Ingest queues draft jobs; nothing works the queue here, the test runs the handler itself.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
@@ -102,6 +108,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await runner?.stop();
   await db?.close();
+  await jobsDb?.close();
   await auth?.close();
   await testDb?.stop();
 });
@@ -180,22 +187,33 @@ describe("daily AI budget", () => {
 
   it("two jobs at once can't both slip under the budget", async () => {
     clock = new Date("2026-11-09T09:00:00Z");
-    await db.withTenant(acme, (tx) =>
-      recordUsage(tx, acme, "2026-11-09", { inputTokens: 100, outputTokens: 0 }),
-    );
+    await seedUsage(db, acme, "2026-11-09", 100);
     // 100 used, 200 budget, 120 per call: exactly one more call fits.
     const [a, b] = await Promise.all([receive(7), receive(8)]);
-    const [ma, mb] = await Promise.all([draft(acme, a.messageId), draft(acme, b.messageId)]);
+    const [ma, mb] = [mockModel(callCost), mockModel(callCost)];
+    const runs = await Promise.allSettled([
+      draft(acme, a.messageId, ma),
+      draft(acme, b.messageId, mb),
+    ]);
     expect(ma.doGenerateCalls.length + mb.doGenerateCalls.length).toBe(1);
+    // The other found the first's reservation holding the rest: refused, for pg-boss to retry.
+    const refused = runs.findIndex((r) => r.status === "rejected");
+    expect(runs.map((r) => (r.status === "rejected" ? String(r.reason) : "ok")).sort()).toEqual([
+      "AiBusyError: AI calls in flight hold the rest of today's budget: trying again later",
+      "ok",
+    ]);
+    // Its retry finds the budget spent (100 + 120), and pauses the ticket without a call.
+    const retried = refused === 0 ? a : b;
+    const retry = await draft(acme, retried.messageId);
+    expect(retry.doGenerateCalls).toHaveLength(0);
+    expect((await ticket(acme, retried.ticketId))?.aiPausedReason).toBe("daily_budget");
   });
 
   it("regenerate is refused up front when the budget is spent, and keeps the current draft", async () => {
     clock = new Date("2026-11-10T09:00:00Z");
     const email = await receive(9);
     await draft(acme, email.messageId);
-    await db.withTenant(acme, (tx) =>
-      recordUsage(tx, acme, "2026-11-10", { inputTokens: 500, outputTokens: 0 }),
-    );
+    await seedUsage(db, acme, "2026-11-10", 500);
     const app = createApp(
       composeServices({
         db,
@@ -272,6 +290,141 @@ describe("daily AI budget", () => {
     expect(model.doGenerateCalls).toHaveLength(1);
     await draft(acme, paused.messageId);
     expect((await ticket(acme, paused.ticketId))?.aiPausedReason).toBeNull();
+  });
+});
+
+describe("a ticket paused by the budget", () => {
+  const waitingJobs = (messageId: string) =>
+    jobsDb.withTenant(acme, (tx) =>
+      tx.execute<{ data: { tenantId: string; messageId: string }; start: string }>(
+        sql`select data, start_after::text as start from pgboss.job
+            where name = 'draft-reply' and singleton_key like ${`%${messageId}:after:%`}`,
+      ),
+    );
+
+  it("is drafted again by itself once the UTC day rolls over", async () => {
+    clock = new Date("2026-11-20T15:00:00Z");
+    await seedUsage(db, acme, "2026-11-20", budget);
+    const email = await receive(30);
+    await draft(acme, email.messageId);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+
+    // Its job waits in the queue for midnight UTC.
+    const waiting = await waitingJobs(email.messageId);
+    expect(waiting.map((j) => new Date(j.start).toISOString())).toEqual([
+      "2026-11-21T00:00:00.000Z",
+    ]);
+    // Paused again the same day (a retry), it still has the one waiting job.
+    await draft(acme, email.messageId);
+    expect(await waitingJobs(email.messageId)).toHaveLength(1);
+
+    // When that job runs, the budget has reset: the ticket gets its draft.
+    clock = new Date("2026-11-21T00:00:01Z");
+    const [job] = waiting;
+    if (!job) throw new Error("no waiting job");
+    await draft(job.data.tenantId, job.data.messageId);
+    expect(await draftCount(acme, email.ticketId)).toBe(1);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBeNull();
+  });
+});
+
+describe("reserve and spend", () => {
+  // On the Other workspace, on days nothing else uses.
+  const budgetAt = (now: Date) =>
+    aiBudget({ clock: { now: () => now }, config: { dailyTokenBudget: budget }, logger });
+
+  it("two reservations at the cap at once: the second waits for the first, then is refused", async () => {
+    const day = new Date("2026-11-25T12:00:00Z");
+    await seedUsage(db, other, "2026-11-25", 100);
+    const reserve = (tx: TenantTx) => budgetAt(day).reserve(tx, other, 150);
+
+    let release = () => {};
+    const released = new Promise<void>((done) => {
+      release = done;
+    });
+    let markReserved = () => {};
+    const reserved = new Promise<void>((done) => {
+      markReserved = done;
+    });
+    // The first keeps its transaction open after reserving, so its row lock is held.
+    const first = db.withTenant(other, async (tx) => {
+      const r = await reserve(tx);
+      markReserved();
+      await released;
+      return r;
+    });
+    await reserved;
+    const second = db.withTenant(other, reserve);
+    // Once the second is seen waiting on that lock, the first commits.
+    await expect
+      .poll(
+        async () =>
+          (
+            await db.withTenant(other, (tx) =>
+              tx.execute(sql`select 1 from pg_stat_activity where wait_event_type = 'Lock'`),
+            )
+          ).length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(0);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toMatchObject({ tenantId: other, day: "2026-11-25", tokens: 150 });
+    // 100 spent is under 200, but the first's 150 holds the rest.
+    expect(b).toBe("busy");
+    expect(await usageOn(db, other, day)).toMatchObject({ totalTokens: 100, reservedTokens: 150 });
+
+    // Settled to what it cost, it lets the rest go.
+    await budgetAt(day).spend(tenantTransactions(db, other), a as Reservation, async () => 1, {
+      of: () => ({ inputTokens: 50, outputTokens: 10 }),
+      ofFailure: () => "unknown",
+    });
+    expect(await usageOn(db, other, day)).toMatchObject({
+      totalTokens: 160,
+      reservedTokens: 0,
+      calls: 1,
+    });
+    // Spent to the budget, a reservation is refused until midnight.
+    await seedUsage(db, other, "2026-11-25", 40);
+    expect(await db.withTenant(other, reserve)).toBe("over_budget");
+  });
+
+  it("a failed call lets its reservation go, or counts all of it when its cost is unknown", async () => {
+    const at = new Date("2026-11-26T12:00:00Z");
+    const failWith = async (cost: "none" | "unknown") => {
+      const r = await db.withTenant(other, (tx) => budgetAt(at).reserve(tx, other, 70));
+      if (typeof r === "string") throw new Error(r);
+      const spending = budgetAt(at).spend(
+        tenantTransactions(db, other),
+        r,
+        async () => {
+          throw new Error("503 service unavailable");
+        },
+        { of: () => ({ inputTokens: 1, outputTokens: 1 }), ofFailure: () => cost },
+      );
+      // The call's own error reaches the caller.
+      await expect(spending).rejects.toThrow("503 service unavailable");
+      return usageOn(db, other, at);
+    };
+    expect(await failWith("none")).toMatchObject({ totalTokens: 0, reservedTokens: 0, calls: 0 });
+    expect(await failWith("unknown")).toMatchObject({
+      totalTokens: 70,
+      reservedTokens: 0,
+      calls: 1,
+    });
+  });
+
+  it("settles on the day it was reserved, even after midnight", async () => {
+    const before = new Date("2026-11-27T23:59:59Z");
+    const after = new Date("2026-11-28T00:00:01Z");
+    const r = await db.withTenant(other, (tx) => budgetAt(before).reserve(tx, other, 30));
+    if (typeof r === "string") throw new Error(r);
+    await budgetAt(after).spend(tenantTransactions(db, other), r, async () => 1, {
+      of: () => ({ inputTokens: 20, outputTokens: 0 }),
+      ofFailure: () => "unknown",
+    });
+    expect(await usageOn(db, other, before)).toMatchObject({ totalTokens: 20, reservedTokens: 0 });
+    expect(await usageOn(db, other, after)).toMatchObject({ totalTokens: 0 });
   });
 });
 

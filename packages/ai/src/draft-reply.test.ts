@@ -6,8 +6,11 @@ import {
   draftReply,
   fenceEmail,
   fenceKnowledge,
+  knowledgeInstructions,
   parseSources,
+  replyDraftTokenEstimate,
 } from "./draft-reply.ts";
+import { tokenBound } from "./estimate.ts";
 import { mockModel } from "./testing.ts";
 
 const email = { from: "jane@customer.test", subject: "Late order", body: "Where is my order?" };
@@ -357,5 +360,32 @@ describe("parseSources", () => {
       text: "Hi.",
       cited: [0],
     });
+  });
+});
+
+describe("replyDraftTokenEstimate", () => {
+  it("is at least the prompt's bytes with every passage at its longest, plus the output cap", async () => {
+    // Passages as long as they are let in, in a script of 3 bytes a character, with long titles.
+    const passage = {
+      title: "表".repeat(400),
+      url: "https://help.test/a",
+      content: "字".repeat(5_000),
+    };
+    const knowledge = Array.from({ length: 5 }, () => passage);
+    const model = mockModel({ text: "Hi" });
+    await draftReply(model, { ...email, knowledge });
+    const call = model.doGenerateCalls[0];
+    expect(call?.maxOutputTokens).toBe(2_000);
+    const prompt = tokenBound(
+      `${draftInstructions}
+${knowledgeInstructions}`,
+      fenceKnowledge(knowledge),
+      fenceEmail(email),
+    );
+    expect(replyDraftTokenEstimate(email, 5)).toBeGreaterThanOrEqual(prompt + 2_000);
+    // Without knowledge, only the email and the rules.
+    expect(replyDraftTokenEstimate(email, 0)).toBe(
+      tokenBound(draftInstructions, fenceEmail(email)) + 2_000,
+    );
   });
 });

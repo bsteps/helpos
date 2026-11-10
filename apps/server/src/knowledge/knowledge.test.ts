@@ -20,7 +20,8 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { createSafeFetch, isBlockedAddress, safeFetch } from "@helpos/safe-fetch";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { utcDay } from "../ai-budget/budget.ts";
+import { usageOn } from "../ai-budget/testing.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
@@ -28,13 +29,7 @@ import { composeServer, type Server as HelposServer } from "../server.ts";
 import { composeServices, defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
-import {
-  type Fetcher,
-  handleIngestSource,
-  maxPageBytes,
-  nextUtcDay,
-  retryDelayMs,
-} from "./ingest-worker.ts";
+import { type Fetcher, handleIngestSource, maxPageBytes, retryDelayMs } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
@@ -1072,15 +1067,6 @@ describe("limits", () => {
     expect(await sourceOf(acme, id)).toMatchObject({ status: "failed", error: "ingest_error" });
   });
 
-  it("the budget wait ends at the next midnight UTC", () => {
-    expect(nextUtcDay(new Date("2026-03-31T23:59:59Z")).toISOString()).toBe(
-      "2026-04-01T00:00:00.000Z",
-    );
-    expect(nextUtcDay(new Date("2026-12-31T00:00:00Z")).toISOString()).toBe(
-      "2027-01-01T00:00:00.000Z",
-    );
-  });
-
   it("marks a source failed, not stuck pending, when the embedding call fails", async () => {
     const [row] = await db.withTenant(acme, (tx) =>
       tx
@@ -1142,9 +1128,7 @@ describe("limits", () => {
         };
       },
     } as const;
-    const usedToday = () =>
-      db.withTenant(other, async (tx) => totalTokens(await usageOn(tx, utcDay(new Date()))));
-    const before = await usedToday();
+    const before = await usageOn(db, other);
     await handleIngestSource({
       embeddingModel: partial,
       fetch: testFetch,
@@ -1156,7 +1140,10 @@ describe("limits", () => {
       status: "failed",
       error: "embedding_failed",
     });
-    expect((await usedToday()) - before).toBe(30);
+    // The batch embedded before the failure was paid for; the rest of the reservation is let go.
+    const after = await usageOn(db, other);
+    expect(after.totalTokens - before.totalTokens).toBe(30);
+    expect(after.reservedTokens).toBe(before.reservedTokens);
   });
 
   it("marks a source failed, not stuck pending, when the server returns too few vectors", async () => {
@@ -1584,8 +1571,7 @@ describe("editing sources", () => {
     db.withTenant(tenantId, (tx) =>
       createVectorSearch(embeddingModel).search(tx, { tenantId, text, limit: 20, visibility }),
     );
-  const tokensToday = async () =>
-    totalTokens(await db.withTenant(acme, (tx) => usageOn(tx, utcDay(new Date()))));
+  const tokensToday = async () => (await usageOn(db, acme)).totalTokens;
 
   it("a visibility change applies to the next public-only search at once, without re-ingesting", async () => {
     const added = await addSource("editor", {

@@ -17,7 +17,7 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { lockUsage, utcDay } from "../ai-budget/budget.ts";
+import { aiBudget } from "../ai-budget/budget.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
@@ -25,7 +25,7 @@ import { intendedToHeader } from "../outbound-email/shadow.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
 import { composeServer, type Server } from "../server.ts";
-import { defaultConfig } from "../services.ts";
+import { defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { addFixedDraft, fixedNoticeBody, githubWebhookActor } from "./fixed-notice.ts";
 import { octokitGithub } from "./github-api.ts";
@@ -714,13 +714,16 @@ describe("drafting an issue with the AI", () => {
     const usage = () =>
       db.withTenant(other, async (tx) => (await tx.select().from(schema.aiUsage))[0]);
     let second = 0;
+    let secondError = "";
     app = makeApp({
       model: mockModel({
         text: JSON.stringify(issueJson),
         usage: { inputTokens: 300, outputTokens: 100 },
         // While this draft is in flight, leave no room above its reservation, then ask again.
         pause: async () => {
-          const reserved = (await usage())?.inputTokens ?? 0;
+          // Held apart from the spend until the call settles.
+          expect(await usage()).toMatchObject({ inputTokens: 0, calls: 0 });
+          const reserved = (await usage())?.reservedTokens ?? 0;
           expect(reserved).toBeGreaterThan(300);
           await db.withTenant(other, (tx) =>
             tx
@@ -728,15 +731,23 @@ describe("drafting an issue with the AI", () => {
               .set({ aiDailyTokenBudget: reserved })
               .where(eq(schema.tenants.id, other)),
           );
-          second = (await call("POST", path, "otherOwner")).status;
+          const res = await call("POST", path, "otherOwner");
+          second = res.status;
+          secondError = ((await res.json()) as { error: string }).error;
         },
       }),
     });
     try {
       expect((await call("POST", path, "otherOwner")).status).toBe(200);
-      expect(second).toBe(409);
+      // Nothing is spent yet, but the call in flight holds the rest: try again shortly.
+      expect([second, secondError]).toEqual([503, "ai_busy"]);
       // The reservation became the real cost: one call, 300 in, 100 out.
-      expect(await usage()).toMatchObject({ inputTokens: 300, outputTokens: 100, calls: 1 });
+      expect(await usage()).toMatchObject({
+        inputTokens: 300,
+        outputTokens: 100,
+        calls: 1,
+        reservedTokens: 0,
+      });
 
       // A failure whose cost can't be told keeps its reservation counted: the budget may
       // overcount, never undercount. (Which failures are free is unit-tested in @helpos/ai.)
@@ -749,7 +760,7 @@ describe("drafting an issue with the AI", () => {
       app = makeApp({ model: failingModel() });
       expect((await call("POST", path, "otherOwner")).status).toBe(502);
       const after = await usage();
-      expect(after).toMatchObject({ outputTokens: 100, calls: 2 });
+      expect(after).toMatchObject({ outputTokens: 100, calls: 2, reservedTokens: 0 });
       expect(after?.inputTokens).toBeGreaterThan(300 + 2_000);
     } finally {
       app = makeApp();
@@ -782,12 +793,17 @@ describe("drafting an issue with the AI", () => {
     app = makeApp({
       model: mockModel({
         text: JSON.stringify(issueJson),
-        // While the model "thinks", take the usage lock reply drafting takes, with a short
-        // timeout: it must be free.
+        // While the model "thinks", reserve from the same usage row, with a short timeout:
+        // its lock must be free.
         pause: async () => {
+          const budget = aiBudget({
+            clock: systemClock,
+            config: { dailyTokenBudget: 1e9 },
+            logger,
+          });
           await db.withTenant(acme, async (tx) => {
             await tx.execute(sql`set local lock_timeout = '2s'`);
-            await lockUsage(tx, acme, utcDay(new Date()));
+            await budget.reserve(tx, acme, 0);
           });
           lockedMeanwhile = true;
         },

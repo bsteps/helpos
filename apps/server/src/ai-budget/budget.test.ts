@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveBudget, totalTokens, utcDay } from "./budget.ts";
+import { effectiveBudget, nextUtcDay, utcDay } from "./budget.ts";
 
 describe("utcDay", () => {
   it("uses UTC, so the budget resets at UTC midnight whatever the server's time zone", () => {
@@ -8,8 +8,13 @@ describe("utcDay", () => {
     expect(utcDay(new Date("2026-11-08T05:00:00+05:30"))).toBe("2026-11-07");
   });
 
-  it("totalTokens adds input and output", () => {
-    expect(totalTokens({ inputTokens: 3, outputTokens: 4 })).toBe(7);
+  it("the budget resets at the next midnight UTC", () => {
+    expect(nextUtcDay(new Date("2026-03-31T23:59:59Z")).toISOString()).toBe(
+      "2026-04-01T00:00:00.000Z",
+    );
+    expect(nextUtcDay(new Date("2026-12-31T00:00:00Z")).toISOString()).toBe(
+      "2027-01-01T00:00:00.000Z",
+    );
   });
 });
 

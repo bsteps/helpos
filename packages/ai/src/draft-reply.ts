@@ -1,4 +1,5 @@
 import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
+import { tokenBound } from "./estimate.ts";
 
 /** An earlier message on the same ticket, oldest first. */
 export type HistoryMessage = { direction: "inbound" | "outbound"; from: string; body: string };
@@ -245,6 +246,25 @@ export function parseSources(text: string, offered: number): { text: string; cit
   };
 }
 
+/** Room for the reply: an email, not an essay. The budget reservation counts on this bound. */
+const maxReplyOutputTokens = 2_000;
+/** A passage's title, link and JSON around its text, generously. */
+const articleExtraBytes = 2_000;
+
+/**
+ * An upper bound on the tokens one reply draft costs (see tokenBound): its prompt and the
+ * output cap. The knowledge isn't retrieved yet when the cost is reserved, so up to
+ * `knowledgeArticles` passages are counted at their longest. A passage's text is cut to
+ * maxArticleChars UTF-16 units, and one unit is at most 3 UTF-8 bytes.
+ */
+export function replyDraftTokenEstimate(input: DraftInput, knowledgeArticles: number): number {
+  const articles = Math.min(knowledgeArticles, maxKnowledgeArticles);
+  const instructions =
+    articles > 0 ? `${draftInstructions}\n${knowledgeInstructions}` : draftInstructions;
+  const knowledge = articles * (maxArticleChars * 3 + articleExtraBytes);
+  return tokenBound(instructions, fenceEmail(input)) + knowledge + maxReplyOutputTokens;
+}
+
 /**
  * Drafts a reply to one email. The instructions go in the system slot and the email (and any
  * knowledge) go in the prompt, quoted, so the model never sees that text as part of its rules.
@@ -262,6 +282,8 @@ export async function draftReply(
     instructions:
       knowledge.length > 0 ? `${draftInstructions}\n${knowledgeInstructions}` : draftInstructions,
     prompt: [fenceKnowledge(knowledge), fenceEmail(input)].filter(Boolean).join("\n\n"),
+    // The budget reservation counts on this bound.
+    maxOutputTokens: maxReplyOutputTokens,
     ...(options.tools ? { tools: options.tools, stopWhen: stepCountIs(2) } : {}),
   });
   // Everything the model wrote, in order: with one step (the real drafting) that's its text,

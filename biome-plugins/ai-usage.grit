@@ -1,0 +1,23 @@
+language js
+
+// AI usage is reserved and settled only in apps/server/src/ai-budget/, through aiBudget()
+// (reserve, then spend). Each AI call once had its own way to check and record the cap, and
+// four fixes re-solved it one caller at a time. A second writer of ai_usage, or a helper
+// that records outside the reservation, is how that starts again. Tests seed usage with
+// ai-budget/testing.ts.
+or {
+  `$db.insert(aiUsage)`,
+  `$db.insert(schema.aiUsage)`,
+  `$db.update(aiUsage)`,
+  `$db.update(schema.aiUsage)`,
+  `$db.delete(aiUsage)`,
+  `$db.delete(schema.aiUsage)`,
+  `recordUsage($...)`,
+  `reserveUsage($...)`,
+  `settleUsage($...)`,
+  `lockUsage($...)`
+} as $write where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*.ai-budget..*",
+  register_diagnostic(span=$write, message="Pay for an AI call only through aiBudget() in apps/server/src/ai-budget/budget.ts: reserve() its estimate in a short transaction, then spend() makes the call and settles it. Nothing else writes ai_usage.", severity="error")
+}

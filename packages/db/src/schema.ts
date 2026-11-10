@@ -533,7 +533,8 @@ export const apiTokens = pgTable(
 
 /**
  * AI tokens a workspace used on one UTC day, summed from the model's responses. The daily
- * budget is checked against this before every model call.
+ * budget is checked against this before every model call. Written only by
+ * apps/server/src/ai-budget/budget.ts.
  */
 export const aiUsage = pgTable(
   "ai_usage",
@@ -544,6 +545,11 @@ export const aiUsage = pgTable(
     inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
     outputTokens: bigint("output_tokens", { mode: "number" }).notNull().default(0),
     calls: integer("calls").notNull().default(0),
+    /**
+     * Held for calls in flight: each one's upper-bound estimate, until it settles to what it
+     * really cost. Kept apart from the tokens above, so usage shows only what was spent.
+     */
+    reservedTokens: bigint("reserved_tokens", { mode: "number" }).notNull().default(0),
   },
   (t) => [unique("ai_usage_tenant_day").on(t.tenantId, t.day), tenantIsolation()],
 );
