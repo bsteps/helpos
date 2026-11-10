@@ -154,6 +154,9 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
 
     // What the search cost, kept apart: if the model then fails, the search still counts.
     let searchTokens = 0;
+    // The most the model call can cost, once its prompt is known. Until then, a failure whose
+    // cost can't be told keeps the whole reservation (made before the passages were found).
+    let callBound: number | undefined;
     const answer = await budget.spend(
       transaction,
       job.reservation,
@@ -168,7 +171,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         // The model sees at most this many, and citations are matched to them by position.
         const hits = found.knowledge.hits.slice(0, maxKnowledgeArticles);
         if (found.drafted) return { hits, result: null };
-        const result = await draftReply(deps.model, {
+        const input = {
           ...job.input,
           // Internal notes are used too: a human approves every draft before it's sent.
           knowledge: hits.map((h) => ({
@@ -177,8 +180,9 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
             content: h.content,
             internal: h.visibility === "internal",
           })),
-        });
-        return { hits, result };
+        };
+        callBound = replyDraftTokenEstimate(input);
+        return { hits, result: await draftReply(deps.model, input) };
       },
       {
         of: ({ result }) => ({
@@ -187,8 +191,13 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         }),
         ofFailure: (error) => {
           const model = failedDraftCost(error);
-          if (model === "unknown") return "unknown";
-          const used: Spent = model === "none" ? { inputTokens: 0, outputTokens: 0 } : model;
+          if (model === "unknown" && callBound === undefined) return "unknown";
+          const used: Spent =
+            model === "unknown"
+              ? { inputTokens: callBound ?? 0, outputTokens: 0 }
+              : model === "none"
+                ? { inputTokens: 0, outputTokens: 0 }
+                : model;
           return { ...used, inputTokens: used.inputTokens + searchTokens };
         },
       },
@@ -320,7 +329,10 @@ async function pause(
   const resetsAt = budget.resetsAt();
   await enqueue(tx, draftReplyJob, payload, {
     singletonKey: `${payload.messageId}:after:${resetsAt.toISOString()}`,
-    startAfter: resetsAt,
+    // The queue starts it by the database's clock, the budget's day comes from this server's.
+    // A minute's margin, so a server clock a little behind still sees the new day: otherwise
+    // the job would pause again under its own key, and nothing would be queued.
+    startAfter: new Date(resetsAt.getTime() + 60_000),
   });
   deps.logger.warn({ ticketId, resetsAt }, "AI paused: daily budget reached");
 }

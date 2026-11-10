@@ -309,17 +309,17 @@ describe("a ticket paused by the budget", () => {
     await draft(acme, email.messageId);
     expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
 
-    // Its job waits in the queue for midnight UTC.
+    // Its job waits in the queue until just after midnight UTC.
     const waiting = await waitingJobs(email.messageId);
     expect(waiting.map((j) => new Date(j.start).toISOString())).toEqual([
-      "2026-11-21T00:00:00.000Z",
+      "2026-11-21T00:01:00.000Z",
     ]);
     // Paused again the same day (a retry), it still has the one waiting job.
     await draft(acme, email.messageId);
     expect(await waitingJobs(email.messageId)).toHaveLength(1);
 
     // When that job runs, the budget has reset: the ticket gets its draft.
-    clock = new Date("2026-11-21T00:00:01Z");
+    clock = new Date("2026-11-21T00:01:00Z");
     const [job] = waiting;
     if (!job) throw new Error("no waiting job");
     await draft(job.data.tenantId, job.data.messageId);
@@ -361,7 +361,10 @@ describe("reserve and spend", () => {
         async () =>
           (
             await db.withTenant(other, (tx) =>
-              tx.execute(sql`select 1 from pg_stat_activity where wait_event_type = 'Lock'`),
+              tx.execute(
+                sql`select 1 from pg_stat_activity
+                    where wait_event_type = 'Lock' and datname = current_database()`,
+              ),
             )
           ).length,
         { timeout: 10_000 },

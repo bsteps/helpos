@@ -377,12 +377,13 @@ describe("replyDraftTokenEstimate", () => {
     const call = model.doGenerateCalls[0];
     expect(call?.maxOutputTokens).toBe(2_000);
     const prompt = tokenBound(
-      `${draftInstructions}
-${knowledgeInstructions}`,
+      `${draftInstructions}\n${knowledgeInstructions}`,
       fenceKnowledge(knowledge),
       fenceEmail(email),
     );
     expect(replyDraftTokenEstimate(email, 5)).toBeGreaterThanOrEqual(prompt + 2_000);
+    // Once the passages are found, they count as they are.
+    expect(replyDraftTokenEstimate({ ...email, knowledge })).toBe(prompt + 2_000);
     // Without knowledge, only the email and the rules.
     expect(replyDraftTokenEstimate(email, 0)).toBe(
       tokenBound(draftInstructions, fenceEmail(email)) + 2_000,

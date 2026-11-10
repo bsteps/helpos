@@ -252,17 +252,24 @@ const maxReplyOutputTokens = 2_000;
 const articleExtraBytes = 2_000;
 
 /**
- * An upper bound on the tokens one reply draft costs (see tokenBound): its prompt and the
- * output cap. The knowledge isn't retrieved yet when the cost is reserved, so up to
- * `knowledgeArticles` passages are counted at their longest. A passage's text is cut to
+ * An upper bound on the tokens one reply draft costs (see tokenBound): its prompt, with the
+ * passages in `input.knowledge`, and the output cap. Before the search has run, the passages
+ * it may still find are counted at their longest: `unretrieved` of them, each cut to
  * maxArticleChars UTF-16 units, and one unit is at most 3 UTF-8 bytes.
  */
-export function replyDraftTokenEstimate(input: DraftInput, knowledgeArticles: number): number {
-  const articles = Math.min(knowledgeArticles, maxKnowledgeArticles);
+export function replyDraftTokenEstimate(input: DraftInput, unretrieved = 0): number {
+  const retrieved = (input.knowledge ?? []).slice(0, maxKnowledgeArticles);
+  const more = Math.min(unretrieved, maxKnowledgeArticles - retrieved.length);
   const instructions =
-    articles > 0 ? `${draftInstructions}\n${knowledgeInstructions}` : draftInstructions;
-  const knowledge = articles * (maxArticleChars * 3 + articleExtraBytes);
-  return tokenBound(instructions, fenceEmail(input)) + knowledge + maxReplyOutputTokens;
+    retrieved.length + more > 0
+      ? `${draftInstructions}\n${knowledgeInstructions}`
+      : draftInstructions;
+  const unseen = more * (maxArticleChars * 3 + articleExtraBytes);
+  return (
+    tokenBound(instructions, fenceKnowledge(retrieved), fenceEmail(input)) +
+    unseen +
+    maxReplyOutputTokens
+  );
 }
 
 /**

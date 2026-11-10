@@ -45,7 +45,7 @@ export function nextUtcDay(now: Date): Date {
 export type Spent = DraftUsage;
 
 /** Today's spend against the budget. Reservations of calls in flight aren't in it. */
-export interface BudgetToday {
+interface BudgetToday {
   day: string;
   inputTokens: number;
   outputTokens: number;
@@ -70,7 +70,7 @@ export interface Reservation {
  * Why reserve() said no. `over_budget`: today's budget is spent, until UTC midnight.
  * `busy`: it isn't, but calls in flight hold the rest of it; try again once they settle.
  */
-export type Refusal = "over_budget" | "busy";
+type Refusal = "over_budget" | "busy";
 
 /** Thrown by a job refused as `busy`, so pg-boss runs it again once the calls in flight end. */
 export class AiBusyError extends Error {
@@ -84,7 +84,7 @@ export class AiBusyError extends Error {
  * What a failed call cost, as far as can be told: the usage it reported, `none` when it
  * wasn't billed, or `unknown`, which keeps the whole reservation counted as spent.
  */
-export type FailureCost = Spent | "none" | "unknown";
+type FailureCost = Spent | "none" | "unknown";
 
 export interface AiBudgetDeps {
   clock: Clock;

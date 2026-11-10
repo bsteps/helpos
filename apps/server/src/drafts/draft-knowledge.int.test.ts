@@ -181,16 +181,18 @@ describe("drafting with knowledge: spend and limits", () => {
     expect(await draftsOf(email.ticketId)).toEqual([]);
   });
 
-  it("keeps the whole reservation counted when a failed call's cost can't be told", async () => {
+  it("counts the most a failed call could cost when its cost can't be told", async () => {
     const email = await receive(++received);
     const before = await usageOn(db, acme);
     const search: SearchProvider = { search: async () => ({ hits: [], tokens: 42 }) };
     // A dropped connection may still be billed: the budget may overcount, never undercount.
     await expect(draftWith(search, email.messageId, failingModel())).rejects.toThrow();
     const after = await usageOn(db, acme);
-    // The reservation (the email's embedding, five passages at their longest and the reply)
-    // moved from held to spent.
-    expect(after.totalTokens - before.totalTokens).toBeGreaterThan(5 * 9_000);
+    const counted = after.totalTokens - before.totalTokens;
+    // The search, and the bound of the prompt it really sent (no passages) with the output cap:
+    // not the reservation, which counted five passages at their longest.
+    expect(counted).toBeGreaterThan(42 + 2_000);
+    expect(counted).toBeLessThan(5 * 9_000);
     expect(after.reservedTokens).toBe(before.reservedTokens);
   });
 
