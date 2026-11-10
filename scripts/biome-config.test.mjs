@@ -21,6 +21,28 @@ test("the shared restriction list is found", () => {
   for (const name of Object.values(owners)) assert.ok(name in restricted(base), name);
 });
 
+// Biome can't share the block (an override replaces it, and `extends` works only at the top), so
+// the list is written once in `base` and each owner's copy is checked against it. Both guards
+// below stop a copy from drifting: the list can't lose a ban everywhere at once, and no file
+// outside `owners` may quietly get a copy of its own.
+test("the shared list keeps every ban the architecture relies on", () => {
+  const required = ["postgres", "drizzle-orm/postgres-js", "drizzle-orm", "pg-boss"];
+  for (const name of [...required, ...Object.values(owners)]) {
+    assert.ok(name in restricted(base), `biome.json no longer restricts imports of "${name}"`);
+  }
+});
+
+test("only the shared list and the owners restate the restrictions", () => {
+  const copies = config.overrides
+    .filter((o) => restricted(o))
+    .flatMap((o) => (o === base ? [] : o.includes));
+  assert.deepEqual(
+    copies.sort(),
+    Object.keys(owners).sort(),
+    "another override restates noRestrictedImports: add its file to `owners` here, or remove the copy",
+  );
+});
+
 for (const [file, own] of Object.entries(owners)) {
   test(`${file} keeps every restriction except ${own}`, () => {
     const override = config.overrides.find(

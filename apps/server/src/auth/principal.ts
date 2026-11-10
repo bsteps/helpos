@@ -1,25 +1,13 @@
+import { schema } from "@helpos/db";
 import type { MiddlewareHandler } from "hono";
 
 /**
- * Scopes from #49. `tickets:write` changes a ticket itself (closing it, #46).
- * `drafts:approve` is separate so an agent can draft without sending.
- * `knowledge:write` is separate from reading, because what's in the knowledge base shapes
- * every draft. `github:write` drafts and opens GitHub issues from tickets (#37); connecting the
- * repo and its token is `workspace:admin`. `stats:read` reads workspace numbers such as
- * how many drafts are approved unchanged (#116). `workspace:admin` is for humans only: an agent token
- * can't be granted it.
+ * Every scope the API checks: what an agent token may hold (`apiTokenScopes`, the one list in
+ * the database schema, which also builds the table's CHECK) plus `workspace:admin`, which is for
+ * humans only: an agent token can't be granted it. A new scope is one line in `apiTokenScopes`
+ * (and a generated migration); it never needs a second edit here.
  */
-export const scopes = [
-  "tickets:read",
-  "tickets:write",
-  "drafts:write",
-  "drafts:approve",
-  "knowledge:read",
-  "knowledge:write",
-  "github:write",
-  "stats:read",
-  "workspace:admin",
-] as const;
+export const scopes = [...schema.apiTokenScopes, "workspace:admin"] as const;
 export type Scope = (typeof scopes)[number];
 
 /** Who is calling: one workspace, one actor, an exact list of scopes. */

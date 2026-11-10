@@ -4,7 +4,6 @@ import {
   eq,
   inArray,
   type KnowledgeHit,
-  type KnowledgeVisibility,
   schema,
   searchKnowledge,
   type TenantTx,
@@ -15,7 +14,7 @@ export interface SearchQuery {
   text: string;
   limit: number;
   /** Only these visibilities, e.g. `["public"]` for anything a customer sees unreviewed. */
-  visibility?: KnowledgeVisibility[] | undefined;
+  visibility?: schema.KnowledgeVisibility[] | undefined;
 }
 
 export interface SearchResult {

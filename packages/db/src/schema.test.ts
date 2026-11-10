@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { apiTokenScopes } from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 
 // Catalog checks against the migrated database (ADR 0003, ADR 0009 §6). They catch a
@@ -186,6 +187,14 @@ describe("api_tokens: the app role can only create and revoke", () => {
     ["truncate", "truncate api_tokens"],
   ])("cannot %s", async (_, statement) => {
     await expect(asApp((tx) => tx.unsafe(statement))).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("the migrated CHECK allows exactly apiTokenScopes (a new scope needs `pnpm --filter @helpos/db generate`)", async () => {
+    const [row] = await owner<{ def: string }[]>`
+      select pg_get_constraintdef(oid) as def from pg_constraint
+      where conname = 'api_tokens_scopes'`;
+    const allowed = [...(row?.def ?? "").matchAll(/'([a-z]+:[a-z]+)'/g)].map((m) => m[1]);
+    expect(allowed.sort()).toEqual([...apiTokenScopes].sort());
   });
 
   it.each([

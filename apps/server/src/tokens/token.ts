@@ -1,9 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { type ApiTokenScope, schema } from "@helpos/db";
-import type { Scope } from "../auth/principal.ts";
+import { schema } from "@helpos/db";
 
-/** What a token can be granted. Typed as `Scope`, so every one is a scope the API checks for. */
-export const tokenScopes: readonly (ApiTokenScope & Scope)[] = schema.apiTokenScopes;
+/** What a token can be granted. `scopes` is built from this list, so each one is a scope the API checks. */
+export const tokenScopes = schema.apiTokenScopes;
 
 /** Recognisable in logs and by secret scanners, so a leaked token is easy to spot. */
 const tokenPrefix = "hos_";

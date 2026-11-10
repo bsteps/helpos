@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ApiTokenScope, schema } from "@helpos/db";
+import type { schema } from "@helpos/db";
 
 // Demo data for local dev, e2e tests and agent QA. Pure: no I/O, and the same output every time,
 // so tests and screenshots can rely on exact IDs, tokens and timestamps. Every company, person
@@ -95,7 +95,7 @@ type TenantSpec = {
   mailbox: string;
   members: { email: string; name: string; role: "owner" | "member" }[];
   customers: { email: string; name: string }[];
-  tokens: { name: string; scopes: ApiTokenScope[]; revoked?: boolean }[];
+  tokens: { name: string; scopes: schema.ApiTokenScope[]; revoked?: boolean }[];
   sources: SourceSpec[];
   tickets: TicketSpec[];
 };
