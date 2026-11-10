@@ -844,7 +844,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) */
+                /** @description No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed ticket (`ticket_closed`) */
                 409: {
                     headers: {
                         [name: string]: unknown;

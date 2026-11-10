@@ -236,15 +236,15 @@ export async function discardStale(
  * Locks the ticket for drafting and says which message a draft answers: the ticket's latest
  * message from a person (machine mail is never answered), or null when it has none. Every
  * writer of a ticket's drafts takes this lock first, so two can't both add a live draft, and a
- * slow AI draft can't land after something that happened meanwhile. Null when there's no such
- * ticket in this workspace.
+ * slow AI draft can't land after something that happened meanwhile. Also says whether the
+ * ticket is closed. Null when there's no such ticket in this workspace.
  */
 export async function lockTicketForDrafting(
   tx: TenantTx,
   ticketId: string,
-): Promise<{ answering: string | null } | null> {
+): Promise<{ answering: string | null; closed: boolean } | null> {
   const [ticket] = await tx
-    .select({ id: tickets.id })
+    .select({ id: tickets.id, status: tickets.status })
     .from(tickets)
     .where(eq(tickets.id, ticketId))
     .for("update");
@@ -261,7 +261,7 @@ export async function lockTicketForDrafting(
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(1);
-  return { answering: latest?.id ?? null };
+  return { answering: latest?.id ?? null, closed: ticket.status === "closed" };
 }
 
 /**

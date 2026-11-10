@@ -9,7 +9,17 @@ import {
   replyDraftTokenEstimate,
   tokenBound,
 } from "@helpos/ai";
-import { and, desc, eq, lt, ne, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import {
+  and,
+  desc,
+  enqueue,
+  eq,
+  lt,
+  ne,
+  schema,
+  type TenantTransaction,
+  type TenantTx,
+} from "@helpos/db";
 import type { Logger } from "pino";
 import { type AiBudget, AiBusyError, aiBudget, type Spent } from "../ai-budget/budget.ts";
 import { auditorFor, recordAudit } from "../audit/audit.ts";
@@ -22,6 +32,7 @@ import {
 } from "../knowledge/search.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
+import { draftReplyJob } from "./jobs.ts";
 import { createReply, liveDraftFor, lockTicketForDrafting } from "./lifecycle.ts";
 
 const { draftCitations, messages, tickets } = schema;
@@ -250,6 +261,9 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   const lock = await lockTicketForDrafting(tx, row.ticketId);
   // The customer wrote again: that message's own job drafts the answer.
   if (lock?.answering !== payload.messageId) return null;
+  // Closed meanwhile (e.g. while it waited for the budget to reset): nothing to answer. A
+  // customer who writes again reopens it, and their message gets a job of its own.
+  if (lock.closed) return null;
   // A retry after the draft was saved, or already answered.
   if (await liveDraftFor(tx, payload.messageId, "reply")) return null;
 
@@ -298,15 +312,20 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   // Other drafts in flight hold the rest of today's budget: pg-boss tries again shortly.
   if (reservation === "busy") throw new AiBusyError();
   if ("refused" in reservation) {
-    await pause(deps, payload, tx, row.ticketId);
+    await pause(deps, reservation.resetsAt, payload, tx, row.ticketId);
     return null;
   }
   return { ticketId: row.ticketId, input, query, reservation };
 }
 
-/** Marks the ticket paused when the current daily budget is spent. */
+/**
+ * The hard cap: the ticket is marked, and the job runs again when the budget resets at UTC
+ * midnight (one waiting job per message per day). By then the customer may have written
+ * again, or someone answered by hand: it then ends without a draft.
+ */
 async function pause(
   deps: DraftWorkerDeps,
+  resetsAt: Date,
   payload: Payload,
   tx: TenantTx,
   ticketId: string,
@@ -319,7 +338,14 @@ async function pause(
     target: { type: "ticket", id: ticketId },
     requestId: null,
   });
-  deps.logger.warn({ ticketId }, "AI paused: daily budget reached");
+  await enqueue(tx, draftReplyJob, payload, {
+    singletonKey: `${payload.messageId}:after:${resetsAt.toISOString()}`,
+    // The queue starts it by the database's clock, the budget's day comes from this server's.
+    // A minute's margin, so a server clock a little behind still sees the new day: otherwise
+    // the job would pause again under its own key, and nothing would be queued.
+    startAfter: new Date(resetsAt.getTime() + 60_000),
+  });
+  deps.logger.warn({ ticketId, resetsAt }, "AI paused: daily budget reached");
 }
 
 /** Step 3: the draft and the passages it was written from, unless things moved on meanwhile. */
@@ -335,6 +361,8 @@ async function save(
   const lock = await lockTicketForDrafting(tx, ticketId);
   // The customer wrote again: that message's own job drafts the answer.
   if (lock?.answering !== payload.messageId) return;
+  // Closed while the model wrote: a draft (and its notice) would be noise.
+  if (lock.closed) return;
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
 
   // This is the latest message, so createReply discards pending replies to earlier ones.

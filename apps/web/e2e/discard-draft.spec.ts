@@ -110,3 +110,32 @@ test("a discard the API refuses says so, and the draft stays", async ({ page, re
   await expect(page.getByText("This reply changed since you opened it.")).toBeVisible();
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
 });
+
+test("a closed ticket hides AI regeneration and rejects stale requests", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject("Closed ticket draft");
+  const ticketId = await deliver(request, plainEmail(subject, "Hi, I found the answer."));
+  await openPendingDraft(page, subject);
+  await page.getByRole("button", { name: "Close ticket" }).click();
+  await expect(page.getByText("Closed", { exact: true })).toBeVisible();
+  await page
+    .getByRole("region", { name: "Draft" })
+    .getByRole("button", { name: "Discard" })
+    .click();
+  await expect(page.getByTestId("draft-body")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeHidden();
+  const refused = await page.request.post(`/v1/tickets/${ticketId}/drafts`, {
+    data: { regenerate: true },
+  });
+  expect(refused.status()).toBe(409);
+  expect(await refused.json()).toEqual({ error: "ticket_closed" });
+  const manual = await page.request.post(`/v1/tickets/${ticketId}/drafts`, {
+    data: { body: "Glad you found the answer." },
+  });
+  expect(manual.status()).toBe(201);
+  await page.reload();
+  await expect(page.getByTestId("draft-body")).toHaveText("Glad you found the answer.");
+  expect(await repliesInMailpit(request, subject)).toBe(0);
+});

@@ -217,7 +217,8 @@ const createDraftRoute = apiRoute({
       errorSchema,
       "No customer message to answer (`nothing_to_answer`), or the latest one already has " +
         "an approved or sent reply (`already_answered`), or `regenerate` was asked after " +
-        "today's AI budget was spent (`daily_budget_reached`)",
+        "today's AI budget was spent (`daily_budget_reached`) or on a closed ticket " +
+        "(`ticket_closed`)",
     ),
   },
 });
@@ -379,6 +380,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       if (live && live.status !== "pending") return "already_answered" as const;
 
       if ("regenerate" in input) {
+        // The worker drafts nothing for a closed ticket, so asking would wait forever.
+        if (lock.closed) return "ticket_closed" as const;
         // Checked before anything is discarded: a refused regenerate leaves the current draft
         // alone, and the caller hears why instead of waiting for a draft that never comes.
         if ((await budget.today(tx, tenantId)).paused) return "daily_budget_reached" as const;
@@ -408,7 +411,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     if (
       result === "nothing_to_answer" ||
       result === "already_answered" ||
-      result === "daily_budget_reached"
+      result === "daily_budget_reached" ||
+      result === "ticket_closed"
     ) {
       return c.json({ error: result }, 409);
     }
