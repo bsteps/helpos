@@ -72,12 +72,24 @@ function flakySmtp(smtp: EmailTransport): EmailTransport {
  * up marked `draft_failed`. A third try (asking the AI again from the dashboard) works.
  */
 export const e2eModelDownMarker = "model-down";
+/** The same, but it fails four tries: the first ask and asking the AI again both give up. */
+export const e2eModelStillDownMarker = "model-still-down";
 const failedDrafts = new Map<string, number>();
+const triesToFail = new Map([
+  [e2eModelDownMarker, 2],
+  [e2eModelStillDownMarker, 4],
+]);
 function failWhileModelDown(email: string): void {
-  const key = new RegExp(`${e2eModelDownMarker} [a-z0-9]+`).exec(email)?.[0];
-  if (!key) return;
+  for (const [marker, tries] of triesToFail) {
+    const key = new RegExp(`${marker} [a-z0-9]+`).exec(email)?.[0];
+    if (!key) continue;
+    failTries(key, tries);
+    return;
+  }
+}
+function failTries(key: string, tries: number): void {
   const failures = failedDrafts.get(key) ?? 0;
-  if (failures < 2) {
+  if (failures < tries) {
     failedDrafts.set(key, failures + 1);
     throw new Error("e2e: the AI provider is down");
   }
@@ -247,6 +259,7 @@ writeFileSync(
     issueTitle: e2eIssue.title,
     smtpDownMarker: e2eSmtpDownMarker,
     modelDownMarker: e2eModelDownMarker,
+    modelStillDownMarker: e2eModelStillDownMarker,
     seedOwner,
     seedPassword,
     budgetOwner: budget.owner,

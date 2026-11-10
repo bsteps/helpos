@@ -1,4 +1,4 @@
-import { routedMockModel } from "@helpos/ai/testing";
+import { mockEmbeddingModel, routedMockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
   createAuthStore,
@@ -6,11 +6,13 @@ import {
   type Database,
   eq,
   schema,
+  sql,
   uuidv7,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createApp } from "./app.ts";
 import { handleDraftGaveUp } from "./drafts/draft-worker.ts";
 import { handleRecheckGaveUp } from "./github/recheck.ts";
 import { ingestEmail } from "./inbound-email/ingest.ts";
@@ -83,6 +85,7 @@ beforeAll(async () => {
     },
     files,
     logger,
+    embeddingModel: mockEmbeddingModel(),
     model: routedMockModel((email) => {
       if (email.includes(providerDown)) throw new Error("503 the AI provider is down");
       return { text: "Thanks, we're on it." };
@@ -155,6 +158,106 @@ describe("draft-reply gives up", () => {
   });
 });
 
+describe("asking the AI again after it gave up", () => {
+  it("clears draft_failed while the new try runs, and sets it again when that fails too", async () => {
+    const email = await receiveEmail(`Hi, ${providerDown} once more, please help?`);
+    await expect
+      .poll(async () => (await ticketOf(email.ticketId))?.aiPausedReason, eventually)
+      .toBe("draft_failed");
+
+    const app = createApp(helpos.services, {
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "test-agent" },
+        scopes: new Set(["tickets:read", "drafts:write"]),
+      }),
+    });
+    const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer test" },
+      body: JSON.stringify({ regenerate: true }),
+    });
+    expect(res.status).toBe(202);
+    // The new try needs a retry delay to fail, so right now nothing has marked the ticket again.
+    expect((await ticketOf(email.ticketId))?.aiPausedReason).toBeNull();
+    // The model is still down: the second try gives up too and the mark comes back.
+    await expect
+      .poll(async () => (await ticketOf(email.ticketId))?.aiPausedReason, eventually)
+      .toBe("draft_failed");
+    expect(
+      (await auditActions(email.ticketId)).filter((a) => a === "ai.draft_failed"),
+    ).toHaveLength(2);
+  });
+
+  it("can't end up with draft_failed next to a draft a person writes at the same time", async () => {
+    const email = await receiveEmail("Hi, a question nobody has answered yet.");
+    // Wait out the real worker's own draft, then drop it so the message has none.
+    await expect
+      .poll(
+        async () =>
+          (
+            await db.withTenant(acme, (tx) =>
+              tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+            )
+          ).length,
+        eventually,
+      )
+      .toBe(1);
+    await db.withTenant(acme, (tx) =>
+      tx.delete(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+    );
+
+    // A person's draft is being written: it holds the ticket's lock and isn't committed yet.
+    let release: () => void = () => {};
+    const released = new Promise<void>((done) => {
+      release = done;
+    });
+    let holding: () => void = () => {};
+    const holdsLock = new Promise<void>((done) => {
+      holding = done;
+    });
+    const person = db.withTenant(acme, async (tx) => {
+      await tx
+        .select({ id: schema.tickets.id })
+        .from(schema.tickets)
+        .where(eq(schema.tickets.id, email.ticketId))
+        .for("update");
+      await tx.insert(schema.drafts).values({
+        tenantId: acme,
+        ticketId: email.ticketId,
+        messageId: email.messageId,
+        body: "Written by a person",
+      });
+      holding();
+      await released;
+    });
+    await holdsLock;
+
+    // The give-up runs meanwhile and has to wait for the person's transaction. Once it is
+    // seen waiting, the person's draft is committed and the give-up carries on: it must then
+    // find the draft. (Without the lock, it already looked before the draft existed.)
+    const giveUp = db.withTenant(acme, (tx) =>
+      handleDraftGaveUp({ tenantId: acme, messageId: email.messageId }, tx),
+    );
+    await expect
+      .poll(
+        async () =>
+          (
+            await db.withTenant(acme, (tx) =>
+              tx.execute(sql`select 1 from pg_stat_activity where wait_event_type = 'Lock'`),
+            )
+          ).length,
+        eventually,
+      )
+      .toBeGreaterThan(0);
+    release();
+    await Promise.all([person, giveUp]);
+
+    expect((await ticketOf(email.ticketId))?.aiPausedReason).toBeNull();
+    expect(await auditActions(email.ticketId)).not.toContain("ai.draft_failed");
+  });
+});
+
 describe("draft-notice gives up", () => {
   it("records on the ticket that the owners weren't told, and the draft still waits", async () => {
     smtpDown = true;
@@ -195,7 +298,9 @@ describe("ingest-source gives up", () => {
     );
     if (!pending || !ready) throw new Error("no sources");
     for (const id of [pending.id, ready.id]) {
-      await db.withTenant(acme, (tx) => handleIngestGaveUp({ tenantId: acme, sourceId: id }, tx));
+      await db.withTenant(acme, (tx) =>
+        handleIngestGaveUp({ tenantId: acme, sourceId: id, requests: 0 }, tx),
+      );
     }
     const rows = await db.withTenant(acme, (tx) =>
       tx.select().from(schema.knowledgeSources).where(eq(schema.knowledgeSources.tenantId, acme)),
@@ -207,6 +312,42 @@ describe("ingest-source gives up", () => {
     expect(rows.find((r) => r.id === ready.id)).toMatchObject({ status: "ready", error: null });
     expect(await auditActions(pending.id)).toEqual(["knowledge_source.failed"]);
     expect(await auditActions(ready.id)).toEqual([]);
+  });
+
+  it("leaves a source alone when an edit asked for a newer ingest, and that edit still gets ingested", async () => {
+    // Job 1 queued for the first text, then the user edits (the count goes 0 -> 1). Job 1's
+    // last try gives up. Failing the source would make the edit's own job quit as "not
+    // pending", and the new text would never be ingested.
+    const [edited] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(schema.knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "edited-doc",
+          kind: "markdown",
+          title: "E",
+          content: "The edited text",
+          ingestRequests: 1,
+        })
+        .returning({ id: schema.knowledgeSources.id }),
+    );
+    if (!edited) throw new Error("no source");
+    await db.withTenant(acme, (tx) =>
+      handleIngestGaveUp({ tenantId: acme, sourceId: edited.id, requests: 0 }, tx),
+    );
+    expect(await auditActions(edited.id)).toEqual([]);
+    // The give-up queued a run for the newer request, and the real worker ingests it.
+    await expect
+      .poll(async () => {
+        const [row] = await db.withTenant(acme, (tx) =>
+          tx
+            .select({ status: schema.knowledgeSources.status })
+            .from(schema.knowledgeSources)
+            .where(eq(schema.knowledgeSources.id, edited.id)),
+        );
+        return row?.status;
+      }, eventually)
+      .toBe("ready");
   });
 });
 
@@ -264,7 +405,7 @@ describe("give-up handlers stay in their tenant", () => {
     // Tenant B's payloads naming tenant A's rows: RLS shows B nothing of A's, so nothing changes.
     await db.withTenant(other, async (tx) => {
       await handleDraftGaveUp({ tenantId: other, messageId: email.messageId }, tx);
-      await handleIngestGaveUp({ tenantId: other, sourceId: source.id }, tx);
+      await handleIngestGaveUp({ tenantId: other, sourceId: source.id, requests: 0 }, tx);
     });
 
     expect((await ticketOf(email.ticketId))?.aiPausedReason).toBeNull();

@@ -36,3 +36,34 @@ test("a ticket the AI couldn't draft for says so, and the AI can be asked again"
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft, { timeout: 30_000 });
   await expect(noDraft).toBeHidden();
 });
+
+test("when the AI fails again after being asked again, the ticket says so again, not a spinner", async ({
+  page,
+  request,
+}) => {
+  const subject = uniqueSubject(`Billing ${state().modelStillDownMarker}`);
+  const ticketId = await deliver(request, plainEmail(subject, "Hi, I was charged twice."));
+  await signIn(page);
+  const reason = async () =>
+    ((await (await page.request.get(`/v1/tickets/${ticketId}`)).json()) as PausedTicket)
+      .aiPausedReason;
+  await expect.poll(reason, { timeout: 30_000 }).toBe("draft_failed");
+
+  await page.goto(`/tickets/${ticketId}`);
+  const noDraft = page.getByRole("alert").filter({ hasText: "The AI couldn't write a draft" });
+  await expect(noDraft).toBeVisible();
+
+  // The second ask fails every try too. The page waits while it runs, then says so again.
+  await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
+  await expect(page.getByText("The AI is writing a draft…")).toBeVisible();
+  await expect(noDraft).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("The AI is writing a draft…")).toBeHidden();
+
+  // The inbox says the same, and the next ask works.
+  await page.goto("/");
+  const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: subject }) });
+  await expect(row.getByText("No AI draft")).toBeVisible();
+  await row.getByRole("link", { name: subject }).click();
+  await page.getByRole("button", { name: "Ask the AI for a draft" }).click();
+  await expect(page.getByTestId("draft-body")).toHaveText(state().draft, { timeout: 30_000 });
+});

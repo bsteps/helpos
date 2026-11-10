@@ -467,6 +467,12 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       }
 
       if ("regenerate" in input) {
+        // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
+        // shown while the new try runs, and a second failure sets it again for everyone to see.
+        await tx
+          .update(tickets)
+          .set({ aiPausedReason: null })
+          .where(and(eq(tickets.id, ticketId), eq(tickets.aiPausedReason, "draft_failed")));
         await enqueue(
           tx,
           draftReplyJob,

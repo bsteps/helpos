@@ -361,7 +361,12 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
           if (!row) throw new Error("create knowledge source: insert returned no row");
           await audit(tx, "knowledge_source.created", { type: "knowledge_source", id });
           // In the same transaction: the source and its ingest job exist together or not at all.
-          await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id }, { singletonKey: id });
+          await enqueue(
+            tx,
+            ingestSourceJob,
+            { tenantId, sourceId: id, requests: row.ingestRequests },
+            { singletonKey: id },
+          );
           return row;
         });
       } catch (error) {
@@ -414,7 +419,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       await enqueue(
         tx,
         ingestSourceJob,
-        { tenantId, sourceId: id },
+        { tenantId, sourceId: id, requests: row.ingestRequests },
         found.status === "pending" ? { singletonKey: id } : {},
       );
       return row;
@@ -474,7 +479,11 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
         // The old passages go now, not when the new ones are ready: an edit often removes
         // something wrong or private, and that must stop being quoted at once.
         await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, id));
-        await enqueue(tx, ingestSourceJob, { tenantId, sourceId: id });
+        await enqueue(tx, ingestSourceJob, {
+          tenantId,
+          sourceId: id,
+          requests: row.ingestRequests,
+        });
       }
       const record = (action: AuditAction) => audit(tx, action, { type: "knowledge_source", id });
       if (title || content) await record("knowledge_source.edited");

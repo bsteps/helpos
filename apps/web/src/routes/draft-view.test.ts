@@ -125,6 +125,25 @@ describe("draftView", () => {
     expect(draftView(failed, [], { replacing: null }, false)).toEqual({ kind: "writing" });
   });
 
+  it("shows a new failure of an ask that was queued, not a spinner", () => {
+    // `queued`: the server accepted the ask and cleared the old `draft_failed`, and the ticket
+    // was fetched again. A `draft_failed` after that is the asked-for draft failing too.
+    const failed: TicketDetail = { ...ticket, aiPausedReason: "draft_failed" };
+    expect(draftView(failed, [], { replacing: null, queued: true }, false)).toEqual({
+      kind: "choose",
+      after: "draft_failed",
+    });
+    // Not yet queued, the ticket may still be the one from before the ask.
+    expect(draftView(failed, [], { replacing: null, queued: false }, false)).toEqual({
+      kind: "writing",
+    });
+    // Queued and nothing failed yet: still waiting, and still polling.
+    expect(draftView(ticket, [], { replacing: null, queued: true }, false)).toEqual({
+      kind: "writing",
+    });
+    expect(waitingOn(ticket, { replacing: null, queued: true })([])).toBe(true);
+  });
+
   it("says when a reply failed to send while the person was writing", () => {
     expect(draftView(ticket, [draft("d1", "send_failed")], undefined, true)).toEqual({
       kind: "compose",

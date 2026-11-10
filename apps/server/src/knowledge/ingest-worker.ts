@@ -5,7 +5,7 @@ import {
   embedTexts,
   isTemporaryAiFailure,
 } from "@helpos/ai";
-import { and, enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
@@ -206,22 +206,36 @@ function vectorAt(embeddings: number[][], position: number): number[] {
  * else marks the source itself), so this is a database that stayed broken: the source is
  * marked `failed` with `ingest_error`, for someone to re-ingest, instead of staying `pending`
  * with no job left to run it. The last good passages stay in use.
+ *
+ * Only if no newer ingest request came in since the job was queued (`requests`): an edit or a
+ * re-ingest asked for after that has its own run waiting, and failing the source here would
+ * make that run quit ("not pending") and the change never get ingested. That request's run may
+ * be this very job (a pending source reuses its queued one), so a fresh job is queued for it.
  */
 export async function handleIngestGaveUp(
-  payload: { tenantId: string; sourceId: string },
+  payload: { tenantId: string; sourceId: string; requests: number },
   tx: TenantTx,
 ): Promise<void> {
-  const failed = await tx
+  const { tenantId, sourceId, requests } = payload;
+  const [source] = await tx
+    .select({ status: knowledgeSources.status, requests: knowledgeSources.ingestRequests })
+    .from(knowledgeSources)
+    .where(eq(knowledgeSources.id, sourceId))
+    .for("update");
+  if (source?.status !== "pending") return;
+  if (source.requests !== requests) {
+    await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests: source.requests });
+    return;
+  }
+  await tx
     .update(knowledgeSources)
     .set({ status: "failed", error: "ingest_error" })
-    .where(and(eq(knowledgeSources.id, payload.sourceId), eq(knowledgeSources.status, "pending")))
-    .returning({ id: knowledgeSources.id });
-  if (failed.length === 0) return;
+    .where(eq(knowledgeSources.id, sourceId));
   await recordAudit(tx, {
-    tenantId: payload.tenantId,
+    tenantId,
     actor: ingestActor,
     action: "knowledge_source.failed",
-    target: { type: "knowledge_source", id: payload.sourceId },
+    target: { type: "knowledge_source", id: sourceId },
     requestId: null,
   });
 }
@@ -274,7 +288,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
         .for("update");
       if (current?.status !== "pending") return false;
       if (current.requests === requests) return true;
-      await enqueue(tx, ingestSourceJob, { tenantId, sourceId });
+      await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests: current.requests });
       return false;
     };
 
@@ -316,7 +330,12 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
           .update(knowledgeSources)
           .set({ error: reason })
           .where(eq(knowledgeSources.id, sourceId));
-        await enqueue(tx, ingestSourceJob, { tenantId, sourceId }, { singletonKey, startAfter });
+        await enqueue(
+          tx,
+          ingestSourceJob,
+          { tenantId, sourceId, requests },
+          { singletonKey, startAfter },
+        );
         deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
       });
 

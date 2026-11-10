@@ -82,7 +82,7 @@ export async function seedDemoData(deps: {
         await enqueue(
           tx,
           ingestSourceJob,
-          { tenantId: t.tenant.id, sourceId: id },
+          { tenantId: t.tenant.id, sourceId: id, requests: 0 },
           { singletonKey: id },
         );
       }

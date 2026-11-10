@@ -140,6 +140,13 @@ export async function handleDraftGaveUp(
     .from(messages)
     .where(eq(messages.id, payload.messageId));
   if (!row) return;
+  // Locked, as the draft worker and the create endpoint do, so a person's draft that arrives
+  // meanwhile can't end up next to `draft_failed`.
+  await tx
+    .select({ id: tickets.id })
+    .from(tickets)
+    .where(eq(tickets.id, row.ticketId))
+    .for("update");
   if (await hasReplyDraft(tx, payload.messageId)) return;
   const [newer] = await tx
     .select({ id: messages.id })

@@ -756,7 +756,7 @@ describe("re-ingesting", () => {
       enqueue(
         tx,
         ingestSourceJob,
-        { tenantId: acme, sourceId: added.id },
+        { tenantId: acme, sourceId: added.id, requests: 0 },
         { singletonKey: added.id, startAfter: new Date(Date.now() + 86_400_000) },
       ),
     );

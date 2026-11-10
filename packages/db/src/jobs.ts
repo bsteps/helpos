@@ -32,17 +32,20 @@ export interface SystemJob<P> {
 /**
  * Defines a tenant job. Payloads carry IDs only, never tenant content: the handler
  * reloads data inside withTenant(), so nothing lingers in job history. `tenantId` is always added.
+ * `counters` are whole numbers that say which version of the row the job was queued for (a
+ * request count), so a give-up can tell its run is out of date. Never content.
  */
-export function defineTenantJob<const K extends string>(
+export function defineTenantJob<const K extends string, const C extends string = never>(
   queue: string,
   ids: Record<K, z.ZodUUID>,
-): TenantJob<{ tenantId: string } & Record<K, string>> {
+  counters?: Record<C, z.ZodNumber>,
+): TenantJob<{ tenantId: string } & Record<K, string> & Record<C, number>> {
   const name = queueNameSchema.parse(queue);
   if (name.startsWith(SYSTEM_PREFIX)) throw new Error(`tenant queue cannot use "${SYSTEM_PREFIX}"`);
-  const shape: Record<string, z.ZodUUID> = { ...ids, tenantId: z.uuid() };
-  // The shape is all UUIDs by construction, so the parsed object has exactly this type.
+  const shape: Record<string, z.ZodType> = { ...ids, ...counters, tenantId: z.uuid() };
+  // The shape is UUIDs and whole numbers by construction, so the parsed object has this type.
   const payload = z.strictObject(shape) as unknown as z.ZodType<
-    { tenantId: string } & Record<K, string>
+    { tenantId: string } & Record<K, string> & Record<C, number>
   >;
   return { kind: "tenant", queue: name, payload };
 }

@@ -167,11 +167,15 @@ export function useCreateDraft(ticketId: string) {
   });
 }
 
-/** A new draft can lift the ticket's "AI paused" state, so the ticket is fetched again too. */
+/**
+ * A new draft can lift the ticket's "AI paused" state, and asking the AI again clears a failed
+ * one, so the ticket is fetched again too, and the inbox that shows the state.
+ */
 function invalidateDraftState(queryClient: QueryClient, ticketId: string) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
     queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
+    queryClient.invalidateQueries({ queryKey: keys.openTickets }),
   ]);
 }
 
