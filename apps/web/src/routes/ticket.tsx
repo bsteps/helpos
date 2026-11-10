@@ -223,6 +223,7 @@ const chooseNote = {
   discarded: "The draft was discarded. Nothing has gone to the customer.",
   send_failed: "The reply that couldn't be sent was discarded. Nothing has gone to the customer.",
   ai_paused: "You can write the reply yourself.",
+  draft_failed: "Ask the AI to try again, or write the reply yourself.",
 } as const;
 
 function DraftPanel({
@@ -281,6 +282,18 @@ function DraftPanel({
                 <AlertDescription>
                   Today's AI budget for this workspace is spent, so this ticket has no draft. It
                   resumes at midnight UTC.
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
+          ) : null}
+          {view.after === "draft_failed" ? (
+            <Alert variant="warning">
+              <AlertIcon />
+              <AlertContent>
+                <AlertTitle>No AI draft</AlertTitle>
+                <AlertDescription>
+                  The AI couldn't write a draft for this ticket: every try failed. Nothing has gone
+                  to the customer.
                 </AlertDescription>
               </AlertContent>
             </Alert>

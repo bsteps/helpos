@@ -1,5 +1,7 @@
 import { type AuthStore, type Database, enqueue, type JobRunner, schema } from "@helpos/db";
+import { ensureJobQueues } from "../jobs.ts";
 import { ingestSourceJob } from "../knowledge/jobs.ts";
+import type { ServerConfig } from "../services.ts";
 import { hashToken } from "../tokens/token.ts";
 import { buildDemoData, type DemoData } from "./demo-data.ts";
 
@@ -20,8 +22,10 @@ export type SeedResult =
 export async function seedDemoData(deps: {
   db: Pick<Database, "withTenant" | "resolveMailbox">;
   auth: Pick<AuthStore, "ensureUser">;
-  /** Creates the ingest queue: enqueue() refuses one no worker has created yet. */
+  /** Creates the job queues: enqueue() refuses one no worker has created yet. */
   jobs: Pick<JobRunner, "ensureQueue">;
+  /** The same retry settings the worker uses, so seeding doesn't reset them. */
+  config: Pick<ServerConfig, "jobRetry">;
 }): Promise<SeedResult> {
   const data = buildDemoData();
 
@@ -35,7 +39,7 @@ export async function seedDemoData(deps: {
   }
   const toWrite = data.tenants.filter((t) => !skipped.includes(t.key));
 
-  await deps.jobs.ensureQueue(ingestSourceJob);
+  await ensureJobQueues(deps.jobs, deps.config);
   const userIds = new Map<string, string>();
   const emails = new Set(toWrite.flatMap((t) => t.memberships.map((m) => m.email)));
   for (const u of data.users.filter((u) => emails.has(u.email)))

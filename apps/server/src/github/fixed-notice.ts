@@ -32,7 +32,7 @@ export async function addFixedDraft(
     ticketId: string;
     actor: AuditActor;
     requestId: string | null;
-    noticeDelaySeconds?: number | undefined;
+    noticeDelaySeconds: number;
   },
 ): Promise<{ draftId: string } | null> {
   const { tenantId, ticketId } = input;

@@ -13,8 +13,9 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
-import { draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { ensureJobQueues } from "../jobs.ts";
+import { composeServices, defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 // The ticket read API against real Postgres: what an agent or the inbox screen sees.
@@ -44,11 +45,7 @@ function principal(tenantId: string, scopes: Scope[]): Principal {
 }
 
 const app = () =>
-  createApp({
-    db,
-    files,
-    logger,
-    inboundSecret: undefined,
+  createApp(composeServices({ db, files, logger }), {
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -109,7 +106,7 @@ beforeAll(async () => {
   // Inbound mail queues a draft job; nothing works it here.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await runner.ensureQueue(draftReplyJob);
+  await ensureJobQueues(runner, defaultConfig);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

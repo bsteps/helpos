@@ -16,8 +16,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import type { Scope } from "../auth/principal.ts";
 import { handleDraftReply } from "../drafts/draft-worker.ts";
-import { draftNoticeJob, draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { ensureJobQueues } from "../jobs.ts";
+import { composeServices, defaultConfig } from "../services.ts";
 import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { recordUsage } from "./budget.ts";
@@ -56,10 +57,12 @@ async function receive(n: number, to = "support@acme.test") {
 
 /** Runs the draft job for one message, as the worker would. */
 async function draft(tenantId: string, messageId: string, model = mockModel(callCost)) {
-  await handleDraftReply({ model, logger, dailyTokenBudget: budget, now })(
-    { tenantId, messageId },
-    tenantTransactions(db, tenantId),
-  );
+  await handleDraftReply({
+    model,
+    logger,
+    clock: { now },
+    config: { ...defaultConfig, dailyTokenBudget: budget },
+  })({ tenantId, messageId }, tenantTransactions(db, tenantId));
   return model;
 }
 const callCost = { text: "Thanks, we're on it.", usage: { inputTokens: 100, outputTokens: 20 } };
@@ -82,8 +85,7 @@ beforeAll(async () => {
   // Ingest queues draft jobs; nothing works the queue here, the test runs the handler itself.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await runner.ensureQueue(draftReplyJob);
-  await runner.ensureQueue(draftNoticeJob);
+  await ensureJobQueues(runner, defaultConfig);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -135,19 +137,24 @@ describe("daily AI budget", () => {
   });
 
   it("is visible through the API", async () => {
-    const app = createApp({
-      db,
-      files,
-      logger,
-      inboundSecret: undefined,
-      dailyTokenBudget: budget,
-      now,
-      authenticate: async () => ({
-        tenantId: acme,
-        actor: { type: "agent", id: "t" },
-        scopes: new Set(["tickets:read"] as const),
+    const app = createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+        clock: { now },
+        config: {
+          dailyTokenBudget: budget,
+        },
       }),
-    });
+      {
+        authenticate: async () => ({
+          tenantId: acme,
+          actor: { type: "agent", id: "t" },
+          scopes: new Set(["tickets:read"] as const),
+        }),
+      },
+    );
     const res = await app.request("/v1/ai-usage");
     expect(res.status).toBe(200);
     // Acme's two drafts from the first test: 2 x (100 in + 20 out).
@@ -161,9 +168,13 @@ describe("daily AI budget", () => {
       remainingTokens: 0,
       paused: true,
     });
-    const refused = await createApp({ db, files, logger, inboundSecret: undefined }).request(
-      "/v1/ai-usage",
-    );
+    const refused = await createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+      }),
+    ).request("/v1/ai-usage");
     expect(refused.status).toBe(401);
   });
 
@@ -185,19 +196,24 @@ describe("daily AI budget", () => {
     await db.withTenant(acme, (tx) =>
       recordUsage(tx, acme, "2026-11-10", { inputTokens: 500, outputTokens: 0 }),
     );
-    const app = createApp({
-      db,
-      files,
-      logger,
-      inboundSecret: undefined,
-      dailyTokenBudget: budget,
-      now,
-      authenticate: async () => ({
-        tenantId: acme,
-        actor: { type: "agent", id: "t" },
-        scopes: new Set(["tickets:read", "drafts:write"] as const),
+    const app = createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+        clock: { now },
+        config: {
+          dailyTokenBudget: budget,
+        },
       }),
-    });
+      {
+        authenticate: async () => ({
+          tenantId: acme,
+          actor: { type: "agent", id: "t" },
+          scopes: new Set(["tickets:read", "drafts:write"] as const),
+        }),
+      },
+    );
     const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -215,19 +231,24 @@ describe("daily AI budget", () => {
     const email = await receive(10);
     await draft(acme, email.messageId); // still 2026-11-10, over budget: paused
     expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
-    const app = createApp({
-      db,
-      files,
-      logger,
-      inboundSecret: undefined,
-      dailyTokenBudget: budget,
-      now,
-      authenticate: async () => ({
-        tenantId: acme,
-        actor: { type: "agent", id: "t" },
-        scopes: new Set(["tickets:read", "drafts:write"] as const),
+    const app = createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+        clock: { now },
+        config: {
+          dailyTokenBudget: budget,
+        },
       }),
-    });
+      {
+        authenticate: async () => ({
+          tenantId: acme,
+          actor: { type: "agent", id: "t" },
+          scopes: new Set(["tickets:read", "drafts:write"] as const),
+        }),
+      },
+    );
     const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -257,19 +278,24 @@ describe("daily AI budget", () => {
 describe("per-workspace AI budget", () => {
   // The env value (`budget`, 200) is the server-wide ceiling; these run on the Other workspace.
   const usageFor = (tenantId: string, scopes: Scope[]) =>
-    createApp({
-      db,
-      files,
-      logger,
-      inboundSecret: undefined,
-      dailyTokenBudget: budget,
-      now,
-      authenticate: async () => ({
-        tenantId,
-        actor: { type: "agent", id: "t" },
-        scopes: new Set(scopes),
+    createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+        clock: { now },
+        config: {
+          dailyTokenBudget: budget,
+        },
       }),
-    });
+      {
+        authenticate: async () => ({
+          tenantId,
+          actor: { type: "agent", id: "t" },
+          scopes: new Set(scopes),
+        }),
+      },
+    );
 
   it("a workspace budget below the ceiling is enforced", async () => {
     clock = new Date("2026-12-01T09:00:00Z");

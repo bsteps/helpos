@@ -36,10 +36,12 @@ import {
   notFoundResponse,
 } from "../http/route-kit.ts";
 import { type SecretBox, SecretBoxError } from "../secrets/secret-box.ts";
+import type { Clock, ServerConfig } from "../services.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
 import { type CreatedIssue, type GithubApiFactory, parseRepo, repoString } from "./github-api.ts";
 import { markIssueClosed } from "./issue-state.ts";
-import { recheckAfter, recheckIssueJob } from "./recheck.ts";
+import { recheckIssueJob } from "./jobs.ts";
+import { recheckAfter } from "./recheck.ts";
 import { registerGithubWebhook, webhookPath } from "./webhook.ts";
 import {
   createWebhookSecrets,
@@ -52,20 +54,21 @@ const { integrations, messages, ticketGithubIssues, tickets } = schema;
 export interface GithubRoutesDeps {
   db: Pick<Database, "withTenant">;
   logger: Pick<Logger, "info" | "warn" | "error">;
-  /** HELPOS_PUBLIC_URL: the webhook address shown to the admin is built from it. */
-  publicUrl: string;
   /** From HELPOS_ENCRYPTION_KEY. Without it, nothing can be connected and nothing is decrypted. */
   secretBox: SecretBox | undefined;
   github: GithubApiFactory;
   /** Drafts the issue. Without it, drafting answers 503; an issue can still be written by hand. */
   model: LanguageModel | undefined;
-  dailyTokenBudget: number;
-  now?: () => Date;
-  noticeDelaySeconds?: number | undefined;
-  /** For tests: how long before a failed state check is tried again in the background. */
-  issueRecheckSeconds?: number | undefined;
-  /** For tests: how long a webhook secret read from the database is trusted (see webhook-secrets). */
-  webhookSecretCacheMs?: number | undefined;
+  clock: Clock;
+  /** `publicUrl`: the webhook address shown to the admin is built from it. */
+  config: Pick<
+    ServerConfig,
+    | "publicUrl"
+    | "dailyTokenBudget"
+    | "noticeDelaySeconds"
+    | "issueRecheckSeconds"
+    | "webhookSecretCacheMs"
+  >;
 }
 
 /**
@@ -316,11 +319,10 @@ function webhookUrl(publicUrl: string, tenantId: string): string {
 
 export function registerGithubRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
   // Read by the webhook, forgotten here whenever the secret changes.
-  const secrets = createWebhookSecrets(
-    deps.webhookSecretCacheMs === undefined
-      ? defaultWebhookSecretsOptions
-      : { ...defaultWebhookSecretsOptions, maxAgeMs: deps.webhookSecretCacheMs },
-  );
+  const secrets = createWebhookSecrets({
+    ...defaultWebhookSecretsOptions,
+    maxAgeMs: deps.config.webhookSecretCacheMs,
+  });
   registerConnectionRoutes(app, deps, secrets);
   registerIssueRoutes(app, deps);
   registerGithubWebhook(app, { ...deps, secrets });
@@ -343,7 +345,7 @@ function registerConnectionRoutes(
       {
         connected: row !== undefined,
         repo: row?.repo ?? null,
-        webhookUrl: row ? webhookUrl(deps.publicUrl, principal.tenantId) : null,
+        webhookUrl: row ? webhookUrl(deps.config.publicUrl, principal.tenantId) : null,
       },
       200,
     );
@@ -429,7 +431,7 @@ function registerConnectionRoutes(
       {
         connected: true,
         repo: repoString(repo),
-        webhookUrl: webhookUrl(deps.publicUrl, tenantId),
+        webhookUrl: webhookUrl(deps.config.publicUrl, tenantId),
         webhookSecret,
       },
       200,
@@ -488,7 +490,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     if (!model) return c.json({ error: "ai_not_configured" }, 503);
     const { id } = c.req.valid("param");
     const { tenantId } = principal;
-    const day = utcDay((deps.now ?? (() => new Date()))());
+    const day = utcDay(deps.clock.now());
 
     // 1. Read the ticket and reserve the call's cost from today's budget, in one statement:
     // concurrent calls can't all pass the cap, and no lock is held while the model writes, so
@@ -524,7 +526,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         })),
       };
       const reserved = issueDraftTokenEstimate(input);
-      const budget = await dailyBudget(tx, tenantId, deps.dailyTokenBudget);
+      const budget = await dailyBudget(tx, tenantId, deps.config.dailyTokenBudget);
       if (!(await reserveUsage(tx, tenantId, day, reserved, budget))) {
         return "daily_budget_reached" as const;
       }
@@ -715,7 +717,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       }
     }
     if (!created) {
-      // The wall clock, not deps.now: this is compared with GitHub's own timestamps.
+      // The wall clock, not deps.clock: this is compared with GitHub's own timestamps.
       const since = new Date(Date.now() - slack);
       created = await github.createIssue(repo, { ...issue, marker: claim.claimId });
       if (!created.ok && created.uncertain) {
@@ -804,7 +806,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
             tx,
             recheckIssueJob,
             { tenantId, linkId: linked.id },
-            { startAfter: recheckAfter(deps.issueRecheckSeconds) },
+            { startAfter: recheckAfter(deps.config.issueRecheckSeconds) },
           ),
         );
       } catch (error) {
@@ -826,7 +828,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
             current: true,
             actor: githubWebhookActor,
             requestId: c.get("requestId"),
-            noticeDelaySeconds: deps.noticeDelaySeconds,
+            noticeDelaySeconds: deps.config.noticeDelaySeconds,
           });
           // The link's own state: closed here, or already by the close's webhook, which can
           // arrive between linking and this check (then nothing changed here, but it is closed).

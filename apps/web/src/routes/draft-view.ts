@@ -28,7 +28,7 @@ export type DraftView =
   | { kind: "draft"; draft: Draft }
   | { kind: "writing" }
   | { kind: "compose"; meanwhile: Meanwhile | undefined }
-  | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" };
+  | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" | "draft_failed" };
 
 export function draftView(
   ticket: TicketDetail | undefined,
@@ -53,6 +53,8 @@ export function draftView(
   if (newest && !answeredEarlier) {
     return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
   }
+  // Every try to draft failed: offer the choice instead of waiting for a draft that won't come.
+  if (ticket.aiPausedReason === "draft_failed") return { kind: "choose", after: "draft_failed" };
   if (ticket.aiPausedReason) return { kind: "choose", after: "ai_paused" };
   return { kind: "writing" };
 }

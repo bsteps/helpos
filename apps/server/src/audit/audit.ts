@@ -15,8 +15,10 @@ export interface AuditEvent {
     | "draft.send_failed"
     | "draft.send_retried"
     | "draft.notice_sent"
+    | "draft.notice_failed"
     | "ticket.closed"
     | "ai.paused"
+    | "ai.draft_failed"
     | "knowledge_source.created"
     | "knowledge_source.deleted"
     | "knowledge_source.edited"
@@ -37,7 +39,8 @@ export interface AuditEvent {
     | "github_issue.drafted"
     | "github_issue.created"
     | "github_issue.closed"
-    | "github_issue.reopened";
+    | "github_issue.reopened"
+    | "github_issue.recheck_failed";
   target: {
     type: "draft" | "ticket" | "knowledge_source" | "workspace" | "api_token" | "integration";
     id: string;

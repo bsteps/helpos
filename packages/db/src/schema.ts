@@ -255,6 +255,9 @@ export const customers = pgTable(
   ],
 );
 
+export const aiPausedReasons = ["daily_budget", "draft_failed"] as const;
+export type AiPausedReason = (typeof aiPausedReasons)[number];
+
 /** A conversation with a customer. */
 export const tickets = pgTable(
   "tickets",
@@ -269,13 +272,16 @@ export const tickets = pgTable(
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
     /** Opened by machine-sent mail (out-of-office, bounce, list). Never gets an AI draft. */
     automated: boolean("automated").notNull().default(false),
-    /** Why the AI skipped this ticket, e.g. `daily_budget`. Cleared when a draft is made. */
-    aiPausedReason: text("ai_paused_reason", { enum: ["daily_budget"] }),
+    /**
+     * Why the ticket has no AI draft: `daily_budget` (the budget was spent) or `draft_failed`
+     * (every attempt failed). Cleared when a draft is made.
+     */
+    aiPausedReason: text("ai_paused_reason", { enum: aiPausedReasons }),
   },
   (t) => [
     unique("tickets_tenant_id_id").on(t.tenantId, t.id),
     check("tickets_status", sql`${t.status} in ('open', 'closed')`),
-    check("tickets_ai_paused_reason", sql`${t.aiPausedReason} in ('daily_budget')`),
+    check("tickets_ai_paused_reason", sql`${t.aiPausedReason} in ('daily_budget', 'draft_failed')`),
     // Composite keys: a row can never point at another tenant's row, even if RLS were off.
     foreignKey({
       name: "tickets_customer_fk",

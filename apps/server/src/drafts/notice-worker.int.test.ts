@@ -14,11 +14,13 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { ensureJobQueues } from "../jobs.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
+import { defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
-import { draftNoticeJob, draftReplyJob } from "./jobs.ts";
-import { handleDraftNotice, noticeReplyTo } from "./notice-worker.ts";
+import { draftNoticeJob } from "./jobs.ts";
+import { handleDraftNotice, handleNoticeGaveUp, noticeReplyTo } from "./notice-worker.ts";
 
 // The notice handler on its own, with nothing working the queue, so each case runs exactly the
 // jobs it names. The end-to-end Mailpit case is in drafts.test.ts.
@@ -46,10 +48,12 @@ async function pendingDraft() {
   ].join("\r\n");
   const email = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (email.kind !== "created") throw new Error(email.kind);
-  await handleDraftReply({ model: mockModel({ text: "On it." }), logger, dailyTokenBudget: 1e6 })(
-    { tenantId: acme, messageId: email.messageId },
-    tenantTransactions(db, acme),
-  );
+  await handleDraftReply({
+    model: mockModel({ text: "On it." }),
+    logger,
+    clock: systemClock,
+    config: { ...defaultConfig, dailyTokenBudget: 1e6 },
+  })({ tenantId: acme, messageId: email.messageId }, tenantTransactions(db, acme));
   const [draft] = await db.withTenant(acme, (tx) =>
     tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
   );
@@ -64,9 +68,8 @@ function notify(draftId: string, noticeDelaySeconds = 0) {
     handleDraftNotice({
       transport: { send, close: () => {} },
       auth,
-      publicUrl: "http://helpdesk.test",
       logger,
-      noticeDelaySeconds,
+      config: { ...defaultConfig, publicUrl: "http://helpdesk.test", noticeDelaySeconds },
     })({ tenantId: acme, draftId }, tx),
   );
   return run.then(() => send);
@@ -83,8 +86,7 @@ beforeAll(async () => {
     pollingIntervalSeconds: 0.5,
   });
   await runner.start();
-  await runner.ensureQueue(draftReplyJob);
-  await runner.ensureQueue(draftNoticeJob);
+  await ensureJobQueues(runner, defaultConfig);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -234,16 +236,15 @@ describe("draft notice worker", () => {
     );
 
   it("a queued notice waits for the delay instead of sending right away", async () => {
-    await runner.work(
-      draftNoticeJob,
-      handleDraftNotice({
+    await runner.work(draftNoticeJob, {
+      transaction: handleDraftNotice({
         transport: { send: workerSend, close: () => {} },
         auth,
-        publicUrl: "http://helpdesk.test",
         logger,
-        noticeDelaySeconds: 2,
+        config: { ...defaultConfig, publicUrl: "http://helpdesk.test", noticeDelaySeconds: 2 },
       }),
-    );
+      onGiveUp: handleNoticeGaveUp,
+    });
     // Queued with the default 5-minute delay. The worker polls every 0.5 s, so an undelayed
     // job would have been sent well within this wait.
     const draft = await pendingDraft();

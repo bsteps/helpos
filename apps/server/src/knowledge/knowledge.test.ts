@@ -8,7 +8,6 @@ import {
   asc,
   createAuthStore,
   createDatabase,
-  createJobRunner,
   type Database,
   enqueue,
   eq,
@@ -25,7 +24,8 @@ import { totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
-import { startWorker } from "../worker.ts";
+import { composeServer, type Server as HelposServer } from "../server.ts";
+import { composeServices, defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
 import {
@@ -60,6 +60,8 @@ let testDb: TestDatabase;
 let db: Database;
 let auth: AuthStore;
 let runner: JobRunner;
+/** The API and the worker, built from one set of services as in the real server. */
+let helpos: HelposServer;
 let server: Server;
 let port: number;
 let acme: string;
@@ -208,11 +210,7 @@ function principal(tenantId: string, scopes: Scope[]): Principal {
 }
 
 const app = () =>
-  createApp({
-    db,
-    files,
-    logger,
-    inboundSecret: undefined,
+  createApp(helpos.services, {
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -325,28 +323,26 @@ beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
-  runner = createJobRunner({
-    jobsUrl: testDb.jobsUrl,
+  helpos = composeServer({
     db,
-    onError: (error) => {
+    jobsUrl: testDb.jobsUrl,
+    pollingIntervalSeconds: 0.5,
+    onJobError: (error) => {
       throw error;
     },
-    pollingIntervalSeconds: 0.5,
-  });
-  await runner.start();
-  await startWorker({
-    runner,
     files,
     logger,
     model,
     embeddingModel,
     fetch: testFetch,
-    fetchRetryDelaysMs: [20, 20],
-    transport: undefined,
-    auth: undefined,
-    publicUrl: "http://helpdesk.test",
-    dailyTokenBudget: 1_000_000,
+    config: {
+      fetchRetryDelaysMs: [20, 20],
+      publicUrl: "http://helpdesk.test",
+      dailyTokenBudget: 1_000_000,
+    },
   });
+  runner = helpos.runner;
+  await helpos.startWorker();
 
   const a = await initWorkspace(
     { db, auth },
@@ -572,9 +568,8 @@ describe("re-ingesting", () => {
       embeddingModel,
       fetch: testFetch,
       logger,
-      dailyTokenBudget: 1_000_000,
-      fetchRetryDelaysMs: [20, 20],
-      now: () => new Date(Date.now() - retryDelayMs - 60_000),
+      clock: { now: () => new Date(Date.now() - retryDelayMs - 60_000) },
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000, fetchRetryDelaysMs: [20, 20] },
     })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(served["/down-a-while"]).toBe(3);
     expect(await ingested(acme, id)).toMatchObject({ status: "ready", error: null });
@@ -589,8 +584,8 @@ describe("re-ingesting", () => {
         embeddingModel,
         fetch: testFetch,
         logger,
-        dailyTokenBudget: 1_000_000,
-        fetchRetryDelaysMs: [20, 20],
+        clock: systemClock,
+        config: { ...defaultConfig, dailyTokenBudget: 1_000_000, fetchRetryDelaysMs: [20, 20] },
       })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     await ingest();
     expect(await sourceOf(acme, id)).toMatchObject({ status: "pending", error: "http_503" });
@@ -710,10 +705,13 @@ describe("re-ingesting", () => {
   it("holds no lock while it fetches: a delete goes through at once", async () => {
     const { fetch, started, release } = gatedFetch();
     const id = await insertUrlSource("held-fetch", "/refunds");
-    const run = handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
-      { tenantId: acme, sourceId: id },
-      tenantTransactions(db, acme),
-    );
+    const run = handleIngestSource({
+      embeddingModel,
+      fetch,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     await started;
     // With the row locked for the whole fetch, this would wait for release() and never return.
     expect((await call("DELETE", `/v1/knowledge/sources/${id}`, "editor")).status).toBe(204);
@@ -726,10 +724,13 @@ describe("re-ingesting", () => {
   it("a re-ingest asked for during a fetch gets a run of its own", async () => {
     const { fetch, started, release } = gatedFetch();
     const id = await insertUrlSource("asked-again", "/slow");
-    const run = handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
-      { tenantId: acme, sourceId: id },
-      tenantTransactions(db, acme),
-    );
+    const run = handleIngestSource({
+      embeddingModel,
+      fetch,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     await started;
     // Stands in for a re-ingest request that reused this very job: it only counts up.
     await db.withTenant(acme, (tx) =>
@@ -817,10 +818,13 @@ describe("embedding model changes", () => {
 
 describe("SSRF: every fetch goes through the safe fetch", () => {
   const ingestWith = (fetch: Fetcher, tenantId: string, sourceId: string) =>
-    handleIngestSource({ embeddingModel, fetch, logger, dailyTokenBudget: 1_000_000 })(
-      { tenantId, sourceId },
-      tenantTransactions(db, tenantId),
-    );
+    handleIngestSource({
+      embeddingModel,
+      fetch,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
+    })({ tenantId, sourceId }, tenantTransactions(db, tenantId));
 
   /** A pending source the worker won't race us for: inserted directly, with no job. */
   async function pendingSource(url: string): Promise<string> {
@@ -901,8 +905,8 @@ describe("limits", () => {
         embeddingModel,
         fetch: testFetch,
         logger,
-        dailyTokenBudget: 0,
-        now: () => now,
+        clock: { now: () => now },
+        config: { ...defaultConfig, dailyTokenBudget: 0 },
       })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
 
     // Its retry is queued for midnight UTC, so it waits, pending, with the reason.
@@ -920,10 +924,13 @@ describe("limits", () => {
 
   it("doesn't fetch a page while its source waits for the budget", async () => {
     const id = await insertUrlSource("budget-url", "/budget-page");
-    await handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
-      { tenantId: acme, sourceId: id },
-      tenantTransactions(db, acme),
-    );
+    await handleIngestSource({
+      embeddingModel,
+      fetch: testFetch,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 0 },
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(await sourceOf(acme, id)).toMatchObject({
       status: "pending",
       error: "daily_budget_reached",
@@ -933,10 +940,13 @@ describe("limits", () => {
 
   it("asking again while it waits for the budget keeps the reason it waits", async () => {
     const id = await insertUrlSource("budget-reason", "/refunds");
-    await handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
-      { tenantId: acme, sourceId: id },
-      tenantTransactions(db, acme),
-    );
+    await handleIngestSource({
+      embeddingModel,
+      fetch: testFetch,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 0 },
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     const res = await reingest(id);
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ status: "pending", error: "daily_budget_reached" });
@@ -968,8 +978,8 @@ describe("limits", () => {
         embeddingModel: busy,
         fetch: testFetch,
         logger,
-        dailyTokenBudget: 1_000_000,
-        now: () => now,
+        clock: { now: () => now },
+        config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
       })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
 
     const stuck = await markdownSource("embed-busy");
@@ -997,10 +1007,13 @@ describe("limits", () => {
     await db.withTenant(acme, (tx) =>
       tx.update(knowledgeSources).set({ error: "http_503" }).where(eq(knowledgeSources.id, id)),
     );
-    await handleIngestSource({ embeddingModel, fetch: testFetch, logger, dailyTokenBudget: 0 })(
-      { tenantId: acme, sourceId: id },
-      tenantTransactions(db, acme),
-    );
+    await handleIngestSource({
+      embeddingModel,
+      fetch: testFetch,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 0 },
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(await sourceOf(acme, id)).toMatchObject({ status: "pending", error: "http_503" });
   });
 
@@ -1034,7 +1047,8 @@ describe("limits", () => {
       embeddingModel: busy,
       fetch: testFetch,
       logger,
-      dailyTokenBudget: 1e6,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1e6 },
     })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
     // Taking turns between a site and a provider that are down must not wait forever.
     expect(await sourceOf(acme, row.id)).toMatchObject({
@@ -1048,10 +1062,13 @@ describe("limits", () => {
     const broken: Fetcher = async () => {
       throw new TypeError("a bug, not a fetch error");
     };
-    await handleIngestSource({ embeddingModel, fetch: broken, logger, dailyTokenBudget: 1e6 })(
-      { tenantId: acme, sourceId: id },
-      tenantTransactions(db, acme),
-    );
+    await handleIngestSource({
+      embeddingModel,
+      fetch: broken,
+      logger,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1e6 },
+    })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(await sourceOf(acme, id)).toMatchObject({ status: "failed", error: "ingest_error" });
   });
 
@@ -1086,7 +1103,8 @@ describe("limits", () => {
       embeddingModel: broken,
       fetch: testFetch,
       logger,
-      dailyTokenBudget: 1_000_000,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
     expect(await ingested(acme, row.id)).toMatchObject({
       status: "failed",
@@ -1131,7 +1149,8 @@ describe("limits", () => {
       embeddingModel: partial,
       fetch: testFetch,
       logger,
-      dailyTokenBudget: 1_000_000,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: other, sourceId: row.id }, tenantTransactions(db, other));
     expect(await ingested(other, row.id)).toMatchObject({
       status: "failed",
@@ -1166,7 +1185,8 @@ describe("limits", () => {
       embeddingModel: short,
       fetch: testFetch,
       logger,
-      dailyTokenBudget: 1_000_000,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: acme, sourceId: row.id }, tenantTransactions(db, acme));
     expect(await ingested(acme, row.id)).toMatchObject({
       status: "failed",
@@ -1287,7 +1307,13 @@ describe("knowledge API", () => {
   ])("%s %s is 401 without credentials, and by default for a fake token", async (method, path) => {
     const body = method === "POST" ? { kind: "markdown", title: "x", content: "x" } : undefined;
     expect((await call(method, path, null, body)).status).toBe(401);
-    const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(path, {
+    const res = await createApp(
+      composeServices({
+        db,
+        files,
+        logger,
+      }),
+    ).request(path, {
       method,
       headers: { authorization: "Bearer editor", "content-type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
@@ -1689,7 +1715,8 @@ describe("editing sources", () => {
       embeddingModel: slow,
       fetch: testFetch,
       logger,
-      dailyTokenBudget: 1_000_000,
+      clock: systemClock,
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     await started;
     expect((await edit(id, { content: "Returns go to EMU-NEW depot." })).status).toBe(200);

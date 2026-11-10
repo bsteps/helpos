@@ -1,0 +1,2 @@
+ALTER TABLE "tickets" DROP CONSTRAINT "tickets_ai_paused_reason";--> statement-breakpoint
+ALTER TABLE "tickets" ADD CONSTRAINT "tickets_ai_paused_reason" CHECK ("tickets"."ai_paused_reason" in ('daily_budget', 'draft_failed'));

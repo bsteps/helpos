@@ -2,12 +2,13 @@ import type { Database } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
 import { json } from "../http/route-kit.ts";
+import type { Clock, ServerConfig } from "../services.ts";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "./budget.ts";
 
 export interface AiUsageRouteDeps {
   db: Pick<Database, "withTenant">;
-  dailyTokenBudget: number;
-  now?: () => Date;
+  clock: Clock;
+  config: Pick<ServerConfig, "dailyTokenBudget">;
 }
 
 const usageSchema = z
@@ -43,10 +44,10 @@ const usageRoute = apiRoute({
 export function registerAiUsageRoute(app: OpenAPIHono, deps: AiUsageRouteDeps): void {
   app.openapi(usageRoute, async (c) => {
     const principal = c.get("principal");
-    const day = utcDay((deps.now ?? (() => new Date()))());
+    const day = utcDay(deps.clock.now());
     const [usage, budget] = await deps.db.withTenant(principal.tenantId, async (tx) => [
       await usageOn(tx, day),
-      await dailyBudget(tx, principal.tenantId, deps.dailyTokenBudget),
+      await dailyBudget(tx, principal.tenantId, deps.config.dailyTokenBudget),
     ]);
     const total = totalTokens(usage);
     return c.json(

@@ -36,7 +36,7 @@ export {
   type TenantJobHandler,
   type TenantStepsHandler,
   type TenantTransaction,
-  type TenantWorkOptions,
+  type TenantWorker,
   tenantTransactions,
 } from "./jobs.ts";
 export {

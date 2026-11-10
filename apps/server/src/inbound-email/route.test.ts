@@ -13,7 +13,8 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { draftReplyJob } from "../drafts/jobs.ts";
+import { ensureJobQueues } from "../jobs.ts";
+import { composeServices, defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { ingestEmail } from "./ingest.ts";
 import { maxEmailBytes, secretMatches } from "./route.ts";
@@ -30,7 +31,8 @@ let acme: string;
 let other: string;
 const files = createMemoryFileStore();
 const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
-const app = () => createApp({ db, files, logger, inboundSecret: secret });
+const app = () =>
+  createApp(composeServices({ db, files, logger, config: { inboundSecret: secret } }));
 
 function post(body: Uint8Array | string, authorization: string | null = `Bearer ${secret}`) {
   const headers: Record<string, string> = { "content-type": "message/rfc822" };
@@ -50,7 +52,7 @@ beforeAll(async () => {
   // Ingest queues a draft job, and enqueue() needs the queue to exist. Nothing works it here.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await runner.ensureQueue(draftReplyJob);
+  await ensureJobQueues(runner, defaultConfig);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -86,7 +88,7 @@ describe("POST /v1/inbound/email: authentication", () => {
   });
 
   it("refuses everything when no secret is configured", async () => {
-    const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(
+    const res = await createApp(composeServices({ db, files, logger })).request(
       "/v1/inbound/email",
       { method: "POST", headers: { authorization: "Bearer " }, body: fixture("plain.eml") },
     );

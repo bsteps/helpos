@@ -16,6 +16,7 @@ import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
 import { buildDraftNotice, noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
+import type { ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
 
@@ -24,19 +25,14 @@ const { auditEvents, drafts, mailboxes, memberships, messages, tickets } = schem
 export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
 
 /**
- * How long a draft waits before its notice is sent. A draft approved within this time never
- * causes an email: only drafts someone is actually leaving waiting do.
- */
-export const defaultNoticeDelaySeconds = 300;
-
-/**
- * Queues the "a draft is waiting" notice. Call it in the transaction that saves the pending
- * draft, so the notice is queued only if the draft is saved.
+ * Queues the "a draft is waiting" notice, `delaySeconds` from now (`noticeDelaySeconds`): a
+ * draft approved within that time never causes an email. Call it in the transaction that saves
+ * the pending draft, so the notice is queued only if the draft is saved.
  */
 export async function queueDraftNotice(
   tx: TenantTx,
   draft: { tenantId: string; id: string; ticketId: string },
-  delaySeconds = defaultNoticeDelaySeconds,
+  delaySeconds: number,
 ): Promise<void> {
   // No dedupe key: a key would fold this into a job that may already be running and have
   // missed this draft. The window check in the handler, under the ticket lock, dedupes instead.
@@ -73,18 +69,43 @@ function ticketUrl(publicUrl: string, ticketId: string): string {
 export interface NoticeWorkerDeps {
   transport: EmailTransport;
   auth: Pick<AuthStore, "emailsOf">;
-  /** Where the ticket link in the notice points, e.g. `https://help.acme.test`. */
-  publicUrl: string;
   logger: Pick<Logger, "info" | "warn">;
-  /** The same delay the notice was queued with. A younger draft is left to its own job. */
-  noticeDelaySeconds?: number;
+  /**
+   * `publicUrl`: where the ticket link in the notice points, e.g. `https://help.acme.test`.
+   * `noticeDelaySeconds`: the delay the notice was queued with. A younger draft is left to its
+   * own job.
+   */
+  config: Pick<ServerConfig, "noticeDelaySeconds" | "publicUrl">;
+}
+
+/**
+ * Runs once every attempt to send a notice failed (the mail server stayed down). The draft
+ * itself still waits in the inbox; the audit event on its ticket records that the owners were
+ * not told. Nothing is recorded for a draft that is no longer waiting.
+ */
+export async function handleNoticeGaveUp(
+  payload: { tenantId: string; draftId: string },
+  tx: TenantTx,
+): Promise<void> {
+  const [draft] = await tx
+    .select({ ticketId: drafts.ticketId })
+    .from(drafts)
+    .where(and(eq(drafts.id, payload.draftId), eq(drafts.status, "pending")));
+  if (!draft) return;
+  await recordAudit(tx, {
+    tenantId: payload.tenantId,
+    actor: noticeWorkerActor,
+    action: "draft.notice_failed",
+    target: { type: "ticket", id: draft.ticketId },
+    requestId: null,
+  });
 }
 
 /** Emails the workspace owners that a draft is waiting for approval. */
 export function handleDraftNotice(deps: NoticeWorkerDeps) {
   return async (payload: { tenantId: string; draftId: string }, tx: TenantTx): Promise<void> => {
     const { tenantId, draftId } = payload;
-    const delaySeconds = deps.noticeDelaySeconds ?? defaultNoticeDelaySeconds;
+    const delaySeconds = deps.config.noticeDelaySeconds;
     const [queued] = await tx
       .select({ ticketId: drafts.ticketId })
       .from(drafts)
@@ -215,7 +236,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           from: row.mailbox,
           replyTo: noticeReplyTo(row.mailbox),
           to: owner,
-          ticketUrl: ticketUrl(deps.publicUrl, row.ticketId),
+          ticketUrl: ticketUrl(deps.config.publicUrl, row.ticketId),
           customerText: messageText(row),
           messageId: `<notice-${uuidv7()}@${domain}>`,
           date,

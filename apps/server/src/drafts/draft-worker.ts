@@ -33,6 +33,7 @@ import {
   type SearchQuery,
   type SearchResult,
 } from "../knowledge/search.ts";
+import type { Clock, ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -75,14 +76,11 @@ export function retrievalQuery(subject: string, body: string): string {
 export interface DraftWorkerDeps {
   model: LanguageModel;
   logger: Pick<Logger, "info" | "warn">;
-  /** Server-wide ceiling on tokens per workspace per UTC day; a workspace may have less. */
-  dailyTokenBudget: number;
-  /** For tests: the clock the budget day is read from. */
-  now?: () => Date;
+  /** The budget day is read from it. */
+  clock: Clock;
+  config: Pick<ServerConfig, "dailyTokenBudget" | "noticeDelaySeconds">;
   /** The workspace's knowledge. Without it, drafts are written from the email alone. */
   search?: SearchProvider | undefined;
-  /** How long a new draft waits before its owner notice is sent. */
-  noticeDelaySeconds?: number;
 }
 
 export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
@@ -111,6 +109,65 @@ async function searchOrNothing(
 
 type Spent = { inputTokens: number; outputTokens: number };
 
+/** A reply draft for this message that still counts: anything but a discarded one. */
+async function hasReplyDraft(tx: TenantTx, messageId: string): Promise<boolean> {
+  const [found] = await tx
+    .select({ id: drafts.id })
+    .from(drafts)
+    .where(
+      and(
+        eq(drafts.messageId, messageId),
+        eq(drafts.kind, "reply"),
+        ne(drafts.status, "discarded"),
+      ),
+    )
+    .limit(1);
+  return found !== undefined;
+}
+
+/**
+ * Runs once every attempt to draft has failed (the model kept erroring, say). The ticket is
+ * marked `draft_failed`, so the dashboard offers to ask the AI again or write the reply,
+ * instead of waiting for a draft that will never come. Left alone when the message got a
+ * draft meanwhile, or when the customer wrote again (that message's own job drafts for it).
+ */
+export async function handleDraftGaveUp(
+  payload: { tenantId: string; messageId: string },
+  tx: TenantTx,
+): Promise<void> {
+  const [row] = await tx
+    .select({ ticketId: messages.ticketId, createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, payload.messageId));
+  if (!row) return;
+  if (await hasReplyDraft(tx, payload.messageId)) return;
+  const [newer] = await tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.ticketId, row.ticketId),
+        eq(messages.direction, "inbound"),
+        isNull(messages.automatedReason),
+        ne(messages.id, payload.messageId),
+        gt(messages.createdAt, row.createdAt),
+      ),
+    )
+    .limit(1);
+  if (newer) return;
+  await tx
+    .update(tickets)
+    .set({ aiPausedReason: "draft_failed" })
+    .where(eq(tickets.id, row.ticketId));
+  await recordAudit(tx, {
+    tenantId: payload.tenantId,
+    actor: draftWorkerActor,
+    action: "ai.draft_failed",
+    target: { type: "ticket", id: row.ticketId },
+    requestId: null,
+  });
+}
+
 /**
  * Drafts a reply to one inbound message and saves it as `pending`. It never sends anything:
  * a person or an agent with `drafts:approve` has to approve it first.
@@ -126,7 +183,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     payload: { tenantId: string; messageId: string },
     transaction: TenantTransaction,
   ): Promise<void> => {
-    const day = utcDay((deps.now ?? (() => new Date()))());
+    const day = utcDay(deps.clock.now());
     const spent: Spent = { inputTokens: 0, outputTokens: 0 };
     try {
       await transaction((tx) => run(payload, tx, day, spent));
@@ -207,7 +264,7 @@ function draftInTransaction(deps: DraftWorkerDeps) {
     };
     // Read first, without the lock, so nothing is paid for over the cap, and the email's
     // embedding below doesn't hold up the workspace's other drafts.
-    const budget = await dailyBudget(tx, payload.tenantId, deps.dailyTokenBudget);
+    const budget = await dailyBudget(tx, payload.tenantId, deps.config.dailyTokenBudget);
     const before = totalTokens(await usageOn(tx, day));
     if (before >= budget) return pause(before);
 
@@ -389,7 +446,7 @@ function draftInTransaction(deps: DraftWorkerDeps) {
         id: draft.id,
         ticketId: row.ticketId,
       },
-      deps.noticeDelaySeconds,
+      deps.config.noticeDelaySeconds,
     );
     await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, row.ticketId));
 

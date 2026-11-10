@@ -19,10 +19,11 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { lockUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
+import { ensureJobQueues } from "../jobs.ts";
 import { SearchError, type SearchProvider } from "../knowledge/search.ts";
+import { defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
-import { draftNoticeJob, draftReplyJob } from "./jobs.ts";
 
 // Drafting when knowledge search breaks, against real Postgres. Drafts worked without
 // knowledge before, so a broken search (provider down, bad key, a failed query) must not
@@ -58,10 +59,13 @@ async function draftWith(
   messageId: string,
   model: LanguageModel = mockModel({ text: "A teammate will follow up." }),
 ) {
-  await handleDraftReply({ model, logger, dailyTokenBudget: 1_000_000, search })(
-    { tenantId: acme, messageId },
-    tenantTransactions(db, acme),
-  );
+  await handleDraftReply({
+    model,
+    logger,
+    search,
+    clock: systemClock,
+    config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
+  })({ tenantId: acme, messageId }, tenantTransactions(db, acme));
 }
 
 const usedToday = () =>
@@ -106,8 +110,7 @@ beforeAll(async () => {
   auth = createAuthStore(testDb.authUrl);
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await runner.ensureQueue(draftReplyJob);
-  await runner.ensureQueue(draftNoticeJob);
+  await ensureJobQueues(runner, defaultConfig);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

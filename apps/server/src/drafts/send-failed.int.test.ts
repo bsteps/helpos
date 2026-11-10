@@ -4,7 +4,6 @@ import {
   asc,
   createAuthStore,
   createDatabase,
-  createJobRunner,
   type Database,
   eq,
   type JobRunner,
@@ -18,7 +17,7 @@ import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
-import { startWorker } from "../worker.ts";
+import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 // A send that fails for good: every attempt fails, the draft becomes `send_failed` with an
@@ -36,6 +35,8 @@ let mailpitApi: string;
 let db: Database;
 let auth: AuthStore;
 let runner: JobRunner;
+/** The API and the worker, built from one set of services as in the real server. */
+let helpos: Server;
 let smtp: EmailTransport;
 let acme: string;
 let other: string;
@@ -53,12 +54,7 @@ function principal(tenantId: string, scopes: Scope[]): Principal {
 }
 
 const app = () =>
-  createApp({
-    db,
-    files,
-    logger,
-    inboundSecret: undefined,
-    noticeDelaySeconds: 3600,
+  createApp(helpos.services, {
     authenticate: async (req) => {
       const token = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
       return principals[token]?.() ?? null;
@@ -150,21 +146,16 @@ beforeAll(async () => {
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
   smtp = createSmtpTransport(`smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`);
-  runner = createJobRunner({
-    jobsUrl: testDb.jobsUrl,
+  helpos = composeServer({
     db,
-    onError: (error) => {
+    jobsUrl: testDb.jobsUrl,
+    pollingIntervalSeconds: 0.5,
+    onJobError: (error) => {
       throw error;
     },
-    pollingIntervalSeconds: 0.5,
-  });
-  await runner.start();
-  await startWorker({
-    runner,
     files,
     logger,
     model: mockModel({ text: draftText }),
-    embeddingModel: undefined,
     transport: {
       send: async (message) => {
         sendAttempts++;
@@ -174,12 +165,16 @@ beforeAll(async () => {
       close: () => {},
     },
     auth,
-    publicUrl: "http://helpdesk.test",
-    noticeDelaySeconds: 3600,
-    dailyTokenBudget: 1_000_000,
-    // Two attempts a second apart, so giving up takes seconds, not hours.
-    sendRetry: { limit: 1, delaySeconds: 1, backoff: false },
+    config: {
+      publicUrl: "http://helpdesk.test",
+      noticeDelaySeconds: 3600,
+      dailyTokenBudget: 1_000_000,
+      // Two attempts a second apart, so giving up takes seconds, not hours.
+      jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
+    },
   });
+  runner = helpos.runner;
+  await helpos.startWorker();
 
   const a = await initWorkspace(
     { db, auth },

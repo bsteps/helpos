@@ -49,6 +49,8 @@ flowchart LR
 
 Each feature (inbound email, drafts, tokens, GitHub…) is a folder inside `apps/server` that owns its routes, domain logic and tests (AGENTS.md). Pure domain logic stays separate from I/O.
 
+Both roles are built by one function, `composeServer()` (`apps/server/src/server.ts`), from one set of services: the database, files, AI models, mail transport, clock and settings. `main.ts` and the end-to-end test server both use it, so the API and the worker can't end up with different settings or two copies of a store. Every background job is declared once, in `apps/server/src/jobs.ts`: its queue, its retry policy, its handler and its give-up handler. Every queue is created from that list (by the worker, the seed and the tests). The give-up handler is required by its type. It runs once after the last retry fails, and leaves a state people can see plus an audit event: a reply that can't be drafted marks its ticket `draft_failed` (the dashboard offers to ask the AI again or write the reply), a send becomes `send_failed`, a source that can't be ingested becomes `failed`, and a notice or GitHub recheck that gives up is recorded on its ticket.
+
 Swappable pieces sit behind small interfaces so self-hosters aren't locked in (ADR 0002): files (`local disk` | S3), search, realtime (`Broadcaster`), email transport, AI provider.
 
 ## Main flow: email → ticket → draft → approve → send

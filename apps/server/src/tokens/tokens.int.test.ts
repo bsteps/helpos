@@ -18,9 +18,9 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { type Authenticate, authenticateRequest, type Scope } from "../auth/principal.ts";
-import { draftNoticeJob, draftReplyJob } from "../drafts/jobs.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
-import { ingestSourceJob } from "../knowledge/jobs.ts";
+import { ensureJobQueues } from "../jobs.ts";
+import { composeServices, defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { agentTokens } from "./authenticate.ts";
 import { generateToken, hashToken } from "./token.ts";
@@ -69,11 +69,7 @@ const session: Authenticate = async (request) => {
 };
 
 const app = () =>
-  createApp({
-    db,
-    files,
-    logger,
-    inboundSecret: undefined,
+  createApp(composeServices({ db, files, logger }), {
     authenticate: authenticateRequest({ tokens: agentTokens(db), session }),
   });
 
@@ -133,10 +129,10 @@ beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
-  // Only the queues the routes enqueue to: no job is worked here.
+  // Every queue, so the routes can enqueue: no job is worked here.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  for (const job of [draftReplyJob, draftNoticeJob, ingestSourceJob]) await runner.ensureQueue(job);
+  await ensureJobQueues(runner, defaultConfig);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -326,10 +322,9 @@ describe("token auth", () => {
 
   it("is on by default: createApp() accepts real tokens without being told to", async () => {
     const agent = await createToken(["tickets:read"]);
-    const res = await createApp({ db, files, logger, inboundSecret: undefined }).request(
-      "/v1/tickets",
-      { headers: { authorization: `Bearer ${agent.token}` } },
-    );
+    const res = await createApp(composeServices({ db, files, logger })).request("/v1/tickets", {
+      headers: { authorization: `Bearer ${agent.token}` },
+    });
     expect(res.status).toBe(200);
   });
 });

@@ -27,9 +27,10 @@ const ticketSchema = z
     automated: z.boolean(),
     /**
      * Why the AI skipped drafting for this ticket, or null. `daily_budget`: the workspace's AI
-     * budget for the day was spent; a human can still write a reply.
+     * budget for the day was spent. `draft_failed`: every attempt to draft failed (the AI
+     * provider stayed down, say). Either way a human can write a reply or ask the AI again.
      */
-    aiPausedReason: z.enum(["daily_budget"]).nullable(),
+    aiPausedReason: z.enum(schema.aiPausedReasons).nullable(),
     /**
      * True while a reply on this ticket is `send_failed`: approved, but every attempt to send
      * it failed. Retry or discard it (see the drafts routes); until then the customer has

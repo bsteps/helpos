@@ -115,6 +115,16 @@ describe("draftView", () => {
     expect(draftView(paused, [], { replacing: null }, false)).toEqual({ kind: "writing" });
   });
 
+  it("offers the choice when every try to draft failed, instead of waiting for a draft", () => {
+    const failed: TicketDetail = { ...ticket, aiPausedReason: "draft_failed" };
+    expect(draftView(failed, [], undefined, false)).toEqual({
+      kind: "choose",
+      after: "draft_failed",
+    });
+    expect(waitingOn(failed, undefined)([])).toBe(false);
+    expect(draftView(failed, [], { replacing: null }, false)).toEqual({ kind: "writing" });
+  });
+
   it("says when a reply failed to send while the person was writing", () => {
     expect(draftView(ticket, [draft("d1", "send_failed")], undefined, true)).toEqual({
       kind: "compose",

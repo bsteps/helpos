@@ -28,6 +28,7 @@ import {
   notFound,
   notFoundResponse,
 } from "../http/route-kit.ts";
+import type { Clock, ServerConfig } from "../services.ts";
 import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -36,11 +37,9 @@ type DraftRow = typeof drafts.$inferSelect;
 
 export interface DraftRoutesDeps {
   db: Pick<Database, "withTenant">;
-  /** Regenerate is refused up front when today's AI budget is spent. */
-  dailyTokenBudget: number;
-  now?: () => Date;
-  /** How long a new draft waits before its owner notice is sent. */
-  noticeDelaySeconds?: number;
+  clock: Clock;
+  /** Regenerate is refused up front when today's AI budget (`dailyTokenBudget`) is spent. */
+  config: Pick<ServerConfig, "dailyTokenBudget" | "noticeDelaySeconds">;
 }
 
 const draftSourceSchema = z
@@ -446,8 +445,8 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       // Checked before anything is discarded: a refused regenerate leaves the current draft
       // alone, and the caller hears why instead of waiting for a draft that never comes.
       if ("regenerate" in input) {
-        const used = await usageOn(tx, utcDay((deps.now ?? (() => new Date()))()));
-        if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.dailyTokenBudget)))
+        const used = await usageOn(tx, utcDay(deps.clock.now()));
+        if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.config.dailyTokenBudget)))
           return "daily_budget_reached" as const;
       }
 
@@ -483,7 +482,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
         .returning();
       if (!draft) throw new Error("create draft: insert returned no row");
-      await queueDraftNotice(tx, draft, deps.noticeDelaySeconds);
+      await queueDraftNotice(tx, draft, deps.config.noticeDelaySeconds);
       // The ticket has an answer now, so it's no longer waiting on a paused AI.
       await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
       await audit(tx, "draft.created", { type: "draft", id: draft.id });

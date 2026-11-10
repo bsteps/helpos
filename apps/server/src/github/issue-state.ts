@@ -16,7 +16,7 @@ export interface IssueChange {
   number: number;
   actor: AuditActor;
   requestId: string | null;
-  noticeDelaySeconds?: number | undefined;
+  noticeDelaySeconds: number;
   /**
    * GitHub's time for this change (the issue's `updated_at`). A link last changed by a newer
    * event is left alone: GitHub can deliver a close late (a retry, a redelivery) after the
