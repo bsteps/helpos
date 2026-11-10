@@ -1,5 +1,7 @@
-// Query operators, re-exported so callers share the db package's single drizzle-orm instance.
-export { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+// Every drizzle-orm query operator (`eq`, `and`, `sql`, ...), re-exported whole so callers share
+// this package's single drizzle-orm instance and a feature that needs a new one never edits this
+// file. Importing `drizzle-orm` outside packages/db is a lint error.
+export * from "drizzle-orm";
 export {
   type AuthStore,
   createAuthStore,
@@ -45,6 +47,5 @@ export {
   searchKnowledge,
 } from "./knowledge.ts";
 export { runMigrations } from "./migrate.ts";
-export type { ActorType, ApiTokenScope, DraftStatus, KnowledgeVisibility } from "./schema.ts";
 export * as schema from "./schema.ts";
 export { uuidv7 } from "./uuid.ts";

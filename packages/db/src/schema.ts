@@ -460,8 +460,18 @@ export const auditEvents = pgTable(
 );
 
 /**
- * What an agent token may be granted. Workspace administration (shadow mode, minting tokens)
- * is deliberately missing: that stays with humans signed in to a session.
+ * What an agent token may be granted, and the one list of scopes the API checks (the server adds
+ * only `workspace:admin`). A new scope is one line here plus a generated migration (the CHECK
+ * below follows this list; `schema.test.ts` fails if the migration is missing).
+ *
+ * `tickets:write` changes a ticket itself (closing it, #46). `drafts:approve` is separate so an
+ * agent can draft without sending. `knowledge:write` is separate from reading, because what's in
+ * the knowledge base shapes every draft. `github:write` drafts and opens GitHub issues from
+ * tickets (#37); connecting the repo and its token is `workspace:admin`. `stats:read` reads
+ * workspace numbers such as how many drafts are approved unchanged (#116).
+ *
+ * Workspace administration (`workspace:admin`: shadow mode, minting tokens) is deliberately
+ * missing: that stays with humans signed in to a session.
  */
 export const apiTokenScopes = [
   "tickets:read",

@@ -1,4 +1,4 @@
-import { type ApiTokenScope, schema, type TenantTx, uuidv7 } from "@helpos/db";
+import { schema, type TenantTx, uuidv7 } from "@helpos/db";
 import { type AuditActor, recordAudit } from "../audit/audit.ts";
 import { generateToken } from "./token.ts";
 
@@ -14,7 +14,7 @@ export async function createApiToken(
   input: {
     tenantId: string;
     name: string;
-    scopes: ApiTokenScope[];
+    scopes: schema.ApiTokenScope[];
     actor: AuditActor;
     requestId: string | null;
   },

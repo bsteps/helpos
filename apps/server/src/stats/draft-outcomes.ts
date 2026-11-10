@@ -1,9 +1,9 @@
-import type { ActorType, DraftStatus } from "@helpos/db";
+import type { schema } from "@helpos/db";
 
 /** What the counting needs to know about one draft. */
 export interface DraftFact {
   id: string;
-  status: DraftStatus;
+  status: schema.DraftStatus;
   /**
    * Whether it was ever approved. A draft whose send failed for good may be discarded
    * afterwards: it was still approved as written, so it counts as approved, not discarded.
@@ -14,7 +14,7 @@ export interface DraftFact {
 /** One `draft.edited` audit event. Who made it doesn't matter, only that someone did. */
 export interface DraftEdit {
   draftId: string;
-  actorType: ActorType;
+  actorType: schema.ActorType;
 }
 
 export interface DraftOutcomes {
