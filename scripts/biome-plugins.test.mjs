@@ -47,6 +47,10 @@ const samples = {
     /notFound\(c\)/,
   ],
   "route-audit.grit": ["export const f = (tx, e) => recordAudit(tx, e);\n", /auditor\(c\)/],
+  "route-audit.grit (auditorFor)": [
+    'export const f = (t, a) => auditorFor(t, a, "req");\n',
+    /auditor\(c\)/,
+  ],
   "draft-writes.grit": [
     'export const f = (tx) => tx.update(drafts).set({ status: "discarded" });\n',
     /drafts\/lifecycle\.ts/,
