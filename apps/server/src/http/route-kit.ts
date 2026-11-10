@@ -1,7 +1,6 @@
-import type { TenantTx } from "@helpos/db";
 import { z } from "@hono/zod-openapi";
 import type { Context } from "hono";
-import { type AuditAction, type AuditEvent, recordAudit } from "../audit/audit.ts";
+import { type Auditor, auditorFor } from "../audit/audit.ts";
 
 // What every route file needs, in one place. A route file never defines its own copy: the
 // route-*.grit Biome plugins fail when one does (scripts/biome-plugins.test.mjs proves they fire).
@@ -35,12 +34,7 @@ export function notFound(c: Context) {
   return c.json({ error: "not_found" }, 404);
 }
 
-/** Records one audit event inside the action's own transaction. See `auditor()`. */
-export type Auditor = (
-  tx: TenantTx,
-  action: AuditAction,
-  target: AuditEvent["target"],
-) => Promise<void>;
+export type { Auditor };
 
 /**
  * Audit recording bound to the request: the caller's workspace and identity and the request ID
@@ -50,5 +44,5 @@ export type Auditor = (
 export function auditor(c: Context): Auditor {
   const { tenantId, actor } = c.get("principal");
   const requestId = c.get("requestId");
-  return (tx, action, target) => recordAudit(tx, { tenantId, actor, action, target, requestId });
+  return auditorFor(tenantId, actor, requestId);
 }

@@ -1,0 +1,20 @@
+language js
+
+// A draft's status changes only in apps/server/src/drafts/lifecycle.ts, through its named
+// operations (approve, discard, mark sent, ...). A hand-written write elsewhere is how a new
+// status gets handled in one caller and missed in the next. Tests and the demo seed write
+// fixture rows directly.
+or {
+  `$db.update(drafts)`,
+  `$db.update(schema.drafts)`,
+  `$db.insert(drafts)`,
+  `$db.insert(schema.drafts)`,
+  `$db.delete(drafts)`,
+  `$db.delete(schema.drafts)`
+} as $write where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*.drafts.lifecycle\.ts",
+  $filename <: not r".*\.test\.ts",
+  $filename <: not r".*.server.src.seed..*",
+  register_diagnostic(span=$write, message="Change drafts only through apps/server/src/drafts/lifecycle.ts (createReply, approveDraft, discardStale, markSent, ...). Add an operation and its row in draftTransitions there if none fits.", severity="error")
+}

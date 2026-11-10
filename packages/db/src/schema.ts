@@ -374,7 +374,8 @@ export type DraftKind = (typeof draftKinds)[number];
 
 /**
  * An AI-written reply to one inbound message: `pending → approved → sent`, or `discarded`.
- * Only the approve endpoint moves it to `approved`, and only the send worker sends it. When
+ * Written only by apps/server/src/drafts/lifecycle.ts, whose table lists every allowed status
+ * change. Only approval moves it to `approved`, and only the send worker sends it. When
  * every send attempt fails it becomes `send_failed`: retried (back to `approved`, same
  * Message-ID) or discarded by a person or agent, never left stuck.
  */

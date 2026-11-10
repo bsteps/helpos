@@ -1,19 +1,5 @@
 import { quotesInternalPassage } from "@helpos/ai";
-import {
-  and,
-  asc,
-  type Database,
-  desc,
-  enqueue,
-  eq,
-  inArray,
-  isNull,
-  ne,
-  schema,
-  sql,
-  type TenantTx,
-  uuidv7,
-} from "@helpos/db";
+import { and, asc, type Database, enqueue, eq, inArray, schema, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
 import { nothingToAudit } from "../audit/audit.ts";
@@ -29,11 +15,20 @@ import {
   notFoundResponse,
 } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
-import { draftReplyJob, sendReplyJob } from "./jobs.ts";
-import { queueDraftNotice } from "./notice-worker.ts";
+import { draftReplyJob } from "./jobs.ts";
+import {
+  approveDraft,
+  createReply,
+  type DraftRow,
+  discardDraft,
+  discardStale,
+  editDraft,
+  liveDraftFor,
+  lockTicketForDrafting,
+  retrySend,
+} from "./lifecycle.ts";
 
-const { draftCitations, drafts, mailboxes, messages, tickets } = schema;
-type DraftRow = typeof drafts.$inferSelect;
+const { draftCitations, drafts, tickets } = schema;
 
 export interface DraftRoutesDeps {
   db: Pick<Database, "withTenant">;
@@ -335,15 +330,9 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     const { id } = c.req.valid("param");
     const { body } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      // Conditional on `pending`, so an edit can never change a draft already approved.
-      const [updated] = await tx
-        .update(drafts)
-        .set({ body })
-        .where(and(eq(drafts.id, id), eq(drafts.status, "pending")))
-        .returning();
-      if (!updated) return (await draftExists(tx, id)) ? "conflict" : "not_found";
-      await audit(tx, "draft.edited", { type: "draft", id });
-      return presentOne(tx, principal, updated);
+      const edited = await editDraft(tx, audit, id, body);
+      if (edited.outcome !== "changed") return edited.outcome;
+      return presentOne(tx, principal, edited.draft);
     });
     if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
@@ -356,36 +345,9 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     const { id } = c.req.valid("param");
     const { body: reviewed } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const [found] = await tx
-        .select({ mailbox: mailboxes.address })
-        .from(drafts)
-        .innerJoin(tickets, eq(tickets.id, drafts.ticketId))
-        .innerJoin(mailboxes, eq(mailboxes.id, tickets.mailboxId))
-        .where(eq(drafts.id, id));
-      if (!found) return "not_found";
-      const domain = found.mailbox.split("@").pop() ?? "localhost";
-
-      // Approval, audit event and send job commit together, or none of them do.
-      const [approved] = await tx
-        .update(drafts)
-        .set({
-          status: "approved",
-          // The database clock, like the audit events the notice window compares it with.
-          approvedAt: sql`now()`,
-          outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
-        })
-        // Bound to the exact text reviewed: an edit made after review can't ride on the approval.
-        .where(and(eq(drafts.id, id), eq(drafts.status, "pending"), eq(drafts.body, reviewed)))
-        .returning();
-      if (!approved) return "conflict";
-      await audit(tx, "draft.approved", { type: "draft", id });
-      await enqueue(
-        tx,
-        sendReplyJob,
-        { tenantId: principal.tenantId, draftId: id },
-        { singletonKey: id },
-      );
-      return presentOne(tx, principal, approved);
+      const approved = await approveDraft(tx, audit, id, reviewed);
+      if (approved.outcome !== "changed") return approved.outcome;
+      return presentOne(tx, principal, approved.draft);
     });
     if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
@@ -406,92 +368,38 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     const audit = auditor(c);
 
     const result = await deps.db.withTenant(tenantId, async (tx) => {
-      const [ticket] = await tx
-        .select({ id: tickets.id })
-        .from(tickets)
-        .where(eq(tickets.id, ticketId))
-        // Serialises drafting on this ticket, so two calls can't both create a live draft.
-        .for("update");
-      if (!ticket) return "not_found" as const;
+      const lock = await lockTicketForDrafting(tx, ticketId);
+      if (!lock) return "not_found" as const;
+      const messageId = lock.answering;
+      if (!messageId) return "nothing_to_answer" as const;
+      const live = await liveDraftFor(tx, messageId, "reply");
+      if (live && live.status !== "pending") return "already_answered" as const;
 
-      // The latest message from a person. Machine mail is never answered.
-      const [latest] = await tx
-        .select({ id: messages.id })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ticketId, ticketId),
-            eq(messages.direction, "inbound"),
-            isNull(messages.automatedReason),
-          ),
-        )
-        .orderBy(desc(messages.createdAt), desc(messages.id))
-        .limit(1);
-      if (!latest) return "nothing_to_answer" as const;
-
-      const [answered] = await tx
-        .select({ id: drafts.id })
-        .from(drafts)
-        .where(
-          and(
-            eq(drafts.messageId, latest.id),
-            eq(drafts.kind, "reply"),
-            ne(drafts.status, "discarded"),
-            ne(drafts.status, "pending"),
-          ),
-        );
-      if (answered) return "already_answered" as const;
-
-      // Checked before anything is discarded: a refused regenerate leaves the current draft
-      // alone, and the caller hears why instead of waiting for a draft that never comes.
       if ("regenerate" in input) {
+        // Checked before anything is discarded: a refused regenerate leaves the current draft
+        // alone, and the caller hears why instead of waiting for a draft that never comes.
         const used = await usageOn(tx, utcDay(deps.clock.now()));
         if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.config.dailyTokenBudget)))
           return "daily_budget_reached" as const;
-      }
-
-      const stale = await tx
-        .update(drafts)
-        .set({ status: "discarded" })
-        .where(
-          and(
-            eq(drafts.ticketId, ticketId),
-            eq(drafts.status, "pending"),
-            // Only replies: a pending "fixed" notice isn't replaced by a new reply.
-            eq(drafts.kind, "reply"),
-          ),
-        )
-        .returning({ id: drafts.id });
-      for (const { id } of stale) {
-        await audit(tx, "draft.discarded", { type: "draft", id });
-      }
-
-      if ("regenerate" in input) {
+        const stale = await discardStale(tx, audit, { ticketIds: [ticketId], kind: "reply" });
         // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
         // shown while the new try runs, and a second failure sets it again for everyone to see.
         await tx
           .update(tickets)
           .set({ aiPausedReason: null })
           .where(and(eq(tickets.id, ticketId), eq(tickets.aiPausedReason, "draft_failed")));
-        await enqueue(
-          tx,
-          draftReplyJob,
-          { tenantId, messageId: latest.id },
-          { singletonKey: latest.id },
-        );
+        await enqueue(tx, draftReplyJob, { tenantId, messageId }, { singletonKey: messageId });
         // The AI's draft is audited when the worker writes it.
         if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");
         return "queued" as const;
       }
-      const [draft] = await tx
-        .insert(drafts)
-        .values({ tenantId, ticketId, messageId: latest.id, body: input.body })
-        .returning();
-      if (!draft) throw new Error("create draft: insert returned no row");
-      await queueDraftNotice(tx, draft, deps.config.noticeDelaySeconds);
-      // The ticket has an answer now, so it's no longer waiting on a paused AI.
-      await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, ticketId));
-      await audit(tx, "draft.created", { type: "draft", id: draft.id });
+      const draft = await createReply(tx, audit, {
+        tenantId,
+        ticketId,
+        messageId,
+        body: input.body,
+        noticeDelaySeconds: deps.config.noticeDelaySeconds,
+      });
       return presentOne(tx, principal, draft);
     });
 
@@ -514,14 +422,9 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     const audit = auditor(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const [discarded] = await tx
-        .update(drafts)
-        .set({ status: "discarded" })
-        .where(and(eq(drafts.id, id), inArray(drafts.status, ["pending", "send_failed"])))
-        .returning();
-      if (!discarded) return (await draftExists(tx, id)) ? "conflict" : "not_found";
-      await audit(tx, "draft.discarded", { type: "draft", id });
-      return presentOne(tx, principal, discarded);
+      const discarded = await discardDraft(tx, audit, id);
+      if (discarded.outcome !== "changed") return discarded.outcome;
+      return presentOne(tx, principal, discarded.draft);
     });
     if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_pending" }, 409);
@@ -535,49 +438,15 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     const audit = auditor(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      // Conditional on `send_failed`, so two retries at once queue one send between them. The
-      // Message-ID fixed at approval is kept: a server that got an earlier attempt drops this one.
-      const [retried] = await tx
-        .update(drafts)
-        .set({ status: "approved" })
-        .where(and(eq(drafts.id, id), eq(drafts.status, "send_failed")))
-        .returning();
-      if (!retried) {
-        const [current] = await tx.select().from(drafts).where(eq(drafts.id, id));
-        if (!current) return "not_found" as const;
-        if (current.status === "sent") {
-          nothingToAudit("already sent");
-          return presentOne(tx, principal, current);
-        }
-        if (current.status !== "approved") return "conflict" as const;
-        // Already approved: queue the send again in case its job was lost (it expired, or the
-        // worker died, on the last attempt). The singleton key returns the live job if there
-        // is one, and the worker locks the draft and skips it once sent, so it can't go twice.
-        await audit(tx, "draft.send_retried", { type: "draft", id });
-        await enqueue(
-          tx,
-          sendReplyJob,
-          { tenantId: principal.tenantId, draftId: id },
-          { singletonKey: id },
-        );
-        return presentOne(tx, principal, current);
+      const retried = await retrySend(tx, audit, id);
+      if (retried.outcome === "not_found" || retried.outcome === "conflict") {
+        return retried.outcome;
       }
-      await audit(tx, "draft.send_retried", { type: "draft", id });
-      await enqueue(
-        tx,
-        sendReplyJob,
-        { tenantId: principal.tenantId, draftId: id },
-        { singletonKey: id },
-      );
-      return presentOne(tx, principal, retried);
+      if (retried.outcome === "already_sent") nothingToAudit("already sent");
+      return presentOne(tx, principal, retried.draft);
     });
     if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
     return c.json(result, 200);
   });
-}
-
-async function draftExists(tx: TenantTx, id: string): Promise<boolean> {
-  const [row] = await tx.select({ id: drafts.id }).from(drafts).where(eq(drafts.id, id));
-  return row !== undefined;
 }

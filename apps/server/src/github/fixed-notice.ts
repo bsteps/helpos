@@ -1,8 +1,6 @@
-import { and, desc, eq, inArray, isNull, schema, type TenantTx } from "@helpos/db";
-import { type AuditActor, recordAudit } from "../audit/audit.ts";
-import { queueDraftNotice } from "../drafts/notice-worker.ts";
-
-const { drafts, messages, tickets } = schema;
+import type { TenantTx } from "@helpos/db";
+import { type AuditActor, auditorFor } from "../audit/audit.ts";
+import { createFixedNotice } from "../drafts/lifecycle.ts";
 
 /**
  * What the customer is told when their issue is fixed. A fixed text, not AI: it says nothing
@@ -35,55 +33,15 @@ export async function addFixedDraft(
     noticeDelaySeconds: number;
   },
 ): Promise<{ draftId: string } | null> {
-  const { tenantId, ticketId } = input;
-  // The same lock drafting takes, so this and a reply being written can't trip over each other.
-  const [ticket] = await tx
-    .select({ id: tickets.id })
-    .from(tickets)
-    .where(eq(tickets.id, ticketId))
-    .for("update");
-  if (!ticket) return null;
-  const [latest] = await tx
-    .select({ id: messages.id })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.ticketId, ticketId),
-        eq(messages.direction, "inbound"),
-        isNull(messages.automatedReason),
-      ),
-    )
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(1);
-  if (!latest) return null;
-  const [existing] = await tx
-    .select({ id: drafts.id })
-    .from(drafts)
-    .where(
-      and(
-        eq(drafts.ticketId, ticketId),
-        eq(drafts.kind, "fixed"),
-        // One waiting for approval, being sent or waiting on a send retry counts whichever message it answers (the
-        // customer may have written again since), so they are never told twice at once. One
-        // already sent (a fix that didn't hold, reopened, now closed again) is no reason not
-        // to tell the customer about this one.
-        inArray(drafts.status, ["pending", "approved", "send_failed"]),
-      ),
-    );
-  if (existing) return null;
-
-  const [draft] = await tx
-    .insert(drafts)
-    .values({ tenantId, ticketId, messageId: latest.id, kind: "fixed", body: fixedNoticeBody })
-    .returning();
-  if (!draft) throw new Error("fixed draft: insert returned no row");
-  await queueDraftNotice(tx, draft, input.noticeDelaySeconds);
-  await recordAudit(tx, {
-    tenantId,
-    actor: input.actor,
-    action: "draft.created",
-    target: { type: "draft", id: draft.id },
-    requestId: input.requestId,
-  });
-  return { draftId: draft.id };
+  const draft = await createFixedNotice(
+    tx,
+    auditorFor(input.tenantId, input.actor, input.requestId),
+    {
+      tenantId: input.tenantId,
+      ticketId: input.ticketId,
+      body: fixedNoticeBody,
+      noticeDelaySeconds: input.noticeDelaySeconds,
+    },
+  );
+  return draft && { draftId: draft.id };
 }

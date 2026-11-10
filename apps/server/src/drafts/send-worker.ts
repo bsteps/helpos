@@ -1,9 +1,10 @@
-import { and, eq, schema, type TenantTx, uuidv7 } from "@helpos/db";
+import { eq, schema, type TenantTx, uuidv7 } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import type { Logger } from "pino";
-import { recordAudit } from "../audit/audit.ts";
+import { auditorFor } from "../audit/audit.ts";
 import { planDelivery } from "../outbound-email/shadow.ts";
 import { buildReply, type EmailTransport, replySubject } from "../outbound-email/transport.ts";
+import { markSendFailed, markSent } from "./lifecycle.ts";
 import { noticeReplyTo } from "./notice-worker.ts";
 
 const { customers, drafts, mailboxes, messages, tenants, tickets } = schema;
@@ -25,20 +26,7 @@ export async function handleSendGaveUp(
   payload: { tenantId: string; draftId: string },
   tx: TenantTx,
 ): Promise<void> {
-  const { tenantId, draftId } = payload;
-  const failed = await tx
-    .update(drafts)
-    .set({ status: "send_failed" })
-    .where(and(eq(drafts.id, draftId), eq(drafts.status, "approved")))
-    .returning({ id: drafts.id });
-  if (failed.length === 0) return;
-  await recordAudit(tx, {
-    tenantId,
-    actor: sendWorkerActor,
-    action: "draft.send_failed",
-    target: { type: "draft", id: draftId },
-    requestId: null,
-  });
+  await markSendFailed(tx, auditorFor(payload.tenantId, sendWorkerActor), payload.draftId);
 }
 
 /**
@@ -129,20 +117,12 @@ export function handleSendReply(deps: SendWorkerDeps) {
       rawFileKey,
       sentAt: now,
     });
-    const updated = await tx
-      .update(drafts)
-      .set({ status: "sent", sentAt: now, sentMessageId })
-      .where(and(eq(drafts.id, draftId), eq(drafts.status, "approved")))
-      .returning({ id: drafts.id });
-    if (updated.length === 0) throw new Error("send-reply: draft changed while sending");
-    await tx.update(tickets).set({ lastMessageAt: now }).where(eq(tickets.id, draft.ticketId));
-    await recordAudit(tx, {
-      tenantId,
-      actor: sendWorkerActor,
-      action: "draft.sent",
-      target: { type: "draft", id: draftId },
-      requestId: null,
+    const sent = await markSent(tx, auditorFor(tenantId, sendWorkerActor), draftId, {
+      sentAt: now,
+      sentMessageId,
     });
+    if (sent.outcome !== "changed") throw new Error("send-reply: draft changed while sending");
+    await tx.update(tickets).set({ lastMessageAt: now }).where(eq(tickets.id, draft.ticketId));
 
     await deps.transport.send({ from: row.mailbox, to: [email.to], raw });
     deps.logger.info(
