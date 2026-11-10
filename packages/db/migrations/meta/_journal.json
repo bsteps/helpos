@@ -127,6 +127,20 @@
       "when": 1794301877288,
       "tag": "0017_ticket-draft-failed",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794312411306,
+      "tag": "0018_ai-usage-reserved",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794314913926,
+      "tag": "0019_ai-usage-reserved-until",
+      "breakpoints": true
     }
   ]
 }

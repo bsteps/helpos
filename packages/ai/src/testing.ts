@@ -93,6 +93,22 @@ export function failingModel(message = "503 service unavailable"): MockLanguageM
   });
 }
 
+/**
+ * A model whose every call hangs until it's aborted, then fails with the abort's reason, as a
+ * real provider's fetch does. For testing what happens to a call in flight.
+ */
+export function hangingModel(): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    provider: "mock",
+    modelId: "hanging-model",
+    doGenerate: ({ abortSignal }) =>
+      new Promise((_, reject) => {
+        if (!abortSignal) return; // never aborted: hangs for good, which the test will show
+        abortSignal.addEventListener("abort", () => reject(abortSignal.reason), { once: true });
+      }),
+  });
+}
+
 /** A provider that answers with an error status (an overload, say): such a call isn't billed. */
 export function refusingModel(statusCode = 529): MockLanguageModelV4 {
   return new MockLanguageModelV4({

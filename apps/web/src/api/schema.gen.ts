@@ -1190,7 +1190,7 @@ export interface paths {
         };
         /**
          * Today's AI usage for this workspace
-         * @description Tokens the workspace's AI drafting used today (UTC), against its hard daily budget. At or over the budget, no model call is made and new tickets are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.
+         * @description Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new tickets are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.
          */
         get: {
             parameters: {
@@ -2113,7 +2113,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description AI is not configured on this server (`ai_not_configured`) */
+                /** @description AI is not configured on this server (`ai_not_configured`), or the workspace's other AI calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute */
                 503: {
                     headers: {
                         [name: string]: unknown;

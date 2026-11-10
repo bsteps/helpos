@@ -1,13 +1,18 @@
+import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { draftGithubIssue } from "./draft-issue.ts";
 import {
   draftInstructions,
   draftReply,
   fenceEmail,
   fenceKnowledge,
+  knowledgeInstructions,
   parseSources,
+  replyDraftTokenEstimate,
 } from "./draft-reply.ts";
+import { tokenBound } from "./estimate.ts";
 import { mockModel } from "./testing.ts";
 
 const email = { from: "jane@customer.test", subject: "Late order", body: "Where is my order?" };
@@ -358,4 +363,65 @@ describe("parseSources", () => {
       cited: [0],
     });
   });
+});
+
+describe("replyDraftTokenEstimate", () => {
+  it("bounds JSON control escapes and maximum source metadata before retrieval", () => {
+    const knowledge = Array.from({ length: 5 }, () => ({
+      title: "\u0001".repeat(300),
+      url: `https://help.test/${"a".repeat(1982)}`,
+      content: "\u0001".repeat(5_000),
+    }));
+    expect(replyDraftTokenEstimate(email, 5)).toBeGreaterThanOrEqual(
+      replyDraftTokenEstimate({ ...email, knowledge }),
+    );
+  });
+
+  it("is at least the prompt's bytes with every passage at its longest, plus the output cap", async () => {
+    // Passages as long as they are let in, in a script of 3 bytes a character, with long titles.
+    const passage = {
+      title: "表".repeat(400),
+      url: "https://help.test/a",
+      content: "字".repeat(5_000),
+    };
+    const knowledge = Array.from({ length: 5 }, () => passage);
+    const model = mockModel({ text: "Hi" });
+    await draftReply(model, { ...email, knowledge });
+    const call = model.doGenerateCalls[0];
+    expect(call?.maxOutputTokens).toBe(2_000);
+    const prompt = tokenBound(
+      `${draftInstructions}\n${knowledgeInstructions}`,
+      fenceKnowledge(knowledge),
+      fenceEmail(email),
+    );
+    expect(replyDraftTokenEstimate(email, 5)).toBeGreaterThanOrEqual(prompt + 2_000);
+    // Once the passages are found, they count as they are.
+    expect(replyDraftTokenEstimate({ ...email, knowledge })).toBe(prompt + 2_000);
+    // Without knowledge, only the email and the rules.
+    expect(replyDraftTokenEstimate(email, 0)).toBe(
+      tokenBound(draftInstructions, fenceEmail(email)) + 2_000,
+    );
+  });
+});
+
+describe("one provider attempt per reservation", () => {
+  it.each([draftReply, draftGithubIssue])(
+    "leaves retryable generation failures to the caller",
+    async (generate) => {
+      let calls = 0;
+      const model = new MockLanguageModelV4({
+        doGenerate: async () => {
+          calls++;
+          throw new APICallError({
+            message: "response lost",
+            url: "https://provider.test",
+            requestBodyValues: {},
+            isRetryable: true,
+          });
+        },
+      });
+      await expect(generate(model, email)).rejects.toThrow("response lost");
+      expect(calls).toBe(1);
+    },
+  );
 });

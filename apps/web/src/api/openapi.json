@@ -2260,7 +2260,7 @@
     "/v1/ai-usage": {
       "get": {
         "summary": "Today's AI usage for this workspace",
-        "description": "Tokens the workspace's AI drafting used today (UTC), against its hard daily budget. At or over the budget, no model call is made and new tickets are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.",
+        "description": "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new tickets are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.",
         "security": [
           {
             "apiAuth": []
@@ -3367,7 +3367,7 @@
             }
           },
           "503": {
-            "description": "AI is not configured on this server (`ai_not_configured`)",
+            "description": "AI is not configured on this server (`ai_not_configured`), or the workspace's other AI calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute",
             "content": {
               "application/json": {
                 "schema": {
