@@ -100,6 +100,14 @@ const rawRequests = [
   'globalThis["fetch"]("https://example.com");',
   'window["fetch"]("/v1/tickets");',
   'global["fetch"]("https://example.com");',
+  ...["globalThis", "window", "global"].flatMap((global) => [
+    `const { fetch: send } = ${global}; send("https://example.com");`,
+    `${global}[\`fetch\`]("https://example.com");`,
+  ]),
+  'let { location, fetch: send } = globalThis; send("https://example.com");',
+  'var { fetch: send, location } = globalThis; send("https://example.com");',
+  'let send; ({ fetch: send } = globalThis); send("https://example.com");',
+  'const { "fetch": send } = globalThis; send("https://example.com");',
   ...["undici", "node:http", "node:https", "http", "https"].flatMap((module) => [
     `import transport from "${module}"; export { transport };`,
     `import { request as send } from '${module}'; export { send };`,
@@ -148,6 +156,7 @@ test("typed and injected clients remain valid", () => {
     import { safeFetch } from "@helpos/safe-fetch";
     export const load = (deps, url) => deps.fetch(url);
     export const handle = (app, req) => app.fetch(req);
+    export const injected = (deps) => { const { fetch: send } = deps; return send; };
     export type Transport = typeof fetch;
     export { safeFetch };
   `;

@@ -8,6 +8,30 @@ or {
   `globalThis["fetch"]`,
   `window["fetch"]`,
   `global["fetch"]`,
+  js"$global[`fetch`]" where {
+    $global <: or {
+      `globalThis`,
+      `window`,
+      `global`
+    }
+  },
+  or {
+    JsVariableDeclarator(id=$binding, initializer=JsInitializerClause(expression=$global)),
+    JsAssignmentExpression(left=$binding, right=$global)
+  } where {
+    $global <: or {
+      `globalThis`,
+      `window`,
+      `global`
+    },
+    $binding <: or {
+      JsObjectBindingPattern(),
+      JsObjectAssignmentPattern()
+    },
+    $binding <: contains ( JsLiteralMemberName() as $name where {
+      $name <: r"[\x22']?fetch[\x22']?"
+    })
+  },
   `import $imports from $source` where {
     $source <: or {
       `"undici"`,
