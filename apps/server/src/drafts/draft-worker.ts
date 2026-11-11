@@ -15,6 +15,7 @@ import {
   desc,
   enqueue,
   eq,
+  type JobDeferral,
   lt,
   ne,
   schema,
@@ -159,9 +160,10 @@ export async function handleDraftGaveUp(payload: Payload, tx: TenantTx): Promise
  */
 export function handleDraftReply(deps: DraftWorkerDeps) {
   const budget = aiBudget(deps);
-  return async (payload: Payload, transaction: TenantTransaction): Promise<void> => {
+  return async (payload: Payload, transaction: TenantTransaction) => {
     const job = await transaction((tx) => prepare(deps, budget, payload, tx));
     if (!job) return;
+    if ("deferUntil" in job) return job;
 
     // What the search cost, kept apart: if the model then fails, the search still counts.
     let searchTokens = 0;
@@ -312,13 +314,13 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
     replyDraftTokenEstimate(input, deps.search ? knowledgeLimit : 0);
   const reservation = await budget.reserve(tx, payload.tenantId, estimate);
   if ("refused" in reservation) {
-    await mapAiRefusal(reservation, {
-      busy: async (startAfter) => {
-        await enqueue(tx, draftReplyJob, payload, { startAfter });
+    return mapAiRefusal<Promise<JobDeferral | null>>(reservation, {
+      busy: async (deferUntil) => ({ deferUntil }),
+      over_budget: async (retryAt) => {
+        await pause(deps, retryAt, payload, tx, row.conversationId);
+        return null;
       },
-      over_budget: (retryAt) => pause(deps, retryAt, payload, tx, row.conversationId),
     });
-    return null;
   }
   return { conversationId: row.conversationId, input, query, reservation };
 }

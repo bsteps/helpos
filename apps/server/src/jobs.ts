@@ -65,10 +65,10 @@ function defineJob<P extends { tenantId: string }>(spec: JobSpec<P>): Job {
       };
       /** A failed attempt is logged, then rethrown so pg-boss retries it (or gives up). */
       const logged =
-        <C>(handler: (payload: P, context: C) => Promise<void>) =>
+        <C, R>(handler: (payload: P, context: C) => Promise<R>) =>
         async (payload: P, context: C) => {
           try {
-            await handler(payload, context);
+            return await handler(payload, context);
           } catch (error) {
             logger.error({ err: error, queue }, "job attempt failed");
             throw error;
