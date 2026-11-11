@@ -16,7 +16,7 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 
 Every agent works the same way here, whether it is Claude Code, Codex, Antigravity or another tool.
 
-- Start every task with `/pstack:poteto-mode`, and follow the playbook it picks (Feature, Bug fix, Refactoring and the others).
+- Start every task with `/pstack:poteto-mode` (`/poteto-mode` where skills load without the `pstack:` prefix, as in Antigravity), and follow the playbook it picks (Feature, Bug fix, Refactoring and the others).
 - Do cleanup work with the Refactoring playbook. Pin the current behaviour with a test first, then reshape the code.
 - To check a change the way a user would, run the `verify-helpos` skill (`.claude/skills/verify-helpos/`).
 - Before every PR, run `/deslop` and `/no-comments` over the diff. Write the PR description with the `technical-writing` and `unslop` skills.
