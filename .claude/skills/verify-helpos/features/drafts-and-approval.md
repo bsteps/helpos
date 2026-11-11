@@ -11,6 +11,7 @@ Draft states: `pending` → `approved` → `sent`, or `discarded`, or `send_fail
 - `draft-approve` approves exactly the text that was reviewed. If the text changed meanwhile, the approval is refused (409).
 - `draft-send` makes the worker send to the shadow recipient, then marks the draft `sent`.
 - `draft-discard` drops a pending or failed draft.
+- `draft-resolve-send` shows `Delivery uncertain` and requires a scoped human to choose `Mark sent` or `Send again`. `POST v1/drafts/{id}/resolve-send` takes `messageId` and `decision` (`mark_sent` or `send_again`). A stale Message-ID returns 409. An agent gets 403.
 - `draft-retry` re-queues a `send_failed` draft with the same Message-ID.
 - `draft-new` writes your own reply, or asks the AI for a new one (`regenerate`).
 - `draft-internal` warns when the draft was written with, or quotes, an internal note.
@@ -33,6 +34,8 @@ Preconditions: baseline. AI configured. Embeddings on, for `sources`.
 - **New draft.** `pnpm api northwind:triage-bot POST v1/conversations/<id>/drafts '{"regenerate":true}'` returns `202 queued`, and a new `pending` draft appears. `'{"body":"My own reply"}'` creates one with that text.
 - **Internal note.** Deliver an email whose text matches the seeded internal source "Refund exceptions (internal)". The draft has `internalKnowledge: true`. When it repeats the note word for word, `quotesInternalNote: true` and the page shows `This draft quotes an internal note`.
 - **Scopes.** `pnpm api northwind:triage-bot POST v1/drafts/<id>/approve ...` returns `403`, because writing a draft isn't approving it. `pnpm api northwind:approver-bot PATCH v1/drafts/<id> ...` also returns `403`.
+
+The uncertainty path is reproduced by `apps/web/e2e/send-uncertain.spec.ts` against the real application and Mailpit with a transport that loses the successful SMTP response. It checks both recovery choices on laptop and phone.
 
 ## Gotchas
 

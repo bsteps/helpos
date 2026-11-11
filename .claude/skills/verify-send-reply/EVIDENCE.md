@@ -1,4 +1,21 @@
-# Verification evidence
+# Issue 130 verification
+
+The send worker commits an outbound message and `send_uncertain` before SMTP. Its second transaction locks the draft and checks the message identity again. Only the worker that still owns that marker can send. A retry leaves uncertainty visible without calling SMTP. A human decision must match the current Message-ID and pass the session, scope and tenant checks.
+
+The model maps the first committed transaction to `WorkerLocksAndChecks`, and the second lock and identity check to `WorkerRechecksMarker`. SMTP acceptance, final commit and queue settlement remain separate actions. `PreparationFails` leaves the previous committed state unchanged. A rejected explicit resend keeps the original uncertainty visible. The model represents a new Message-ID as a new person-retry generation.
+
+Fresh focused verification passes 53 tests against Postgres, pg-boss and Mailpit, including a physical child-process kill after SMTP acceptance and a database COMMIT failure. Recovery never adds an automatic second copy. The laptop and phone Playwright suites pass 11 tests, including both human recovery choices and normal failed-send recovery.
+
+The six model scenarios preserve `NoResendWithoutPerson`, `NoHiddenDelivery` and `SentOnlyWhenApproved`. `NoSilentStall` still has the separate lost-retry and give-up findings. All six unchanged-model controls hold, and all six mutant/property pairs break their intended promise. Fingerprints were confirmed only after comparing the covered lifecycle, worker and registration code with those actions.
+
+The preserved statechart receipts are under `E:/Projects/helpdesk/.helpos/autopilot/130-statechart-review/`. The current model has the same operators as those receipts. The lost-retry path is approval, failed preparation, retry, failed preparation, give-up, person retry, then old-job settlement. Worker death before preparation on the last attempt can still strand approval. A failed give-up can do the same. The real integration tests retain the lost-retry and give-up reproductions.
+
+Limits remain one draft, two workers, one automatic retry and one person retry. The model abstracts preparation and does not model HTTP permissions, tenant isolation, shadow routing or arbitrary job generations. Integration and browser tests cover those separately. An expected model-runner exit is not a claim that every invariant holds.
+
+## Historical evidence before issue 130
+
+The following records preserve the earlier findings and proofs. They describe the old send protocol, not the current implementation.
+
 
 Reconfirmed against 38c9ab9fc2b4 on 2026-11-12 after the #184 conversation rename. No product source changes are retained.
 
