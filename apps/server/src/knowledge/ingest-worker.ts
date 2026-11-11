@@ -6,7 +6,7 @@ import {
   isTemporaryAiFailure,
   tokenBound,
 } from "@helpos/ai";
-import { eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { eq, type JobDeferral, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { aiBudget, mapAiRefusal, nextUtcDay } from "../ai-budget/budget.ts";
@@ -98,7 +98,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
   return async (
     payload: { tenantId: string; sourceId: string },
     transaction: TenantTransaction,
-  ): Promise<void> => {
+  ) => {
     const { tenantId, sourceId } = payload;
     const now = () => deps.clock.now();
     const [source] = await transaction((tx) =>
@@ -210,13 +210,14 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       budget.reserve(tx, tenantId, tokenBound(...chunks)),
     );
     if ("refused" in reservation) {
-      return mapAiRefusal(reservation, {
-        busy: (startAfter) =>
-          transaction(async (tx) => {
-            if (!(await lockIfCurrent(tx))) return;
-            await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests }, { startAfter });
-          }),
-        over_budget: waitForBudget,
+      return mapAiRefusal<Promise<JobDeferral | undefined>>(reservation, {
+        busy: async (deferUntil) => {
+          const current = await transaction(lockIfCurrent);
+          if (current) return { deferUntil };
+        },
+        over_budget: async (retryAt) => {
+          await waitForBudget(retryAt);
+        },
       });
     }
 

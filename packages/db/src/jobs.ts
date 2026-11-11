@@ -81,12 +81,20 @@ export type TenantJobHandler<P> = (payload: P, tx: TenantTx) => Promise<void>;
 
 /** Opens one transaction as the job's tenant: every query in it goes through withTenant(). */
 export type TenantTransaction = <T>(fn: (tx: TenantTx) => Promise<T>) => Promise<T>;
+export interface JobDeferral {
+  deferUntil: Date;
+}
+
 /**
  * For a job that waits on the network, such as a page fetch or a model call. It opens short
  * transactions around the wait instead of holding one (and its pooled connection and row
  * locks) for the whole job. It still only ever sees its own tenant's data.
+ * Returning a deferral schedules a successor with only the current job's remaining retries.
  */
-export type TenantStepsHandler<P> = (payload: P, transaction: TenantTransaction) => Promise<void>;
+export type TenantStepsHandler<P> = (
+  payload: P,
+  transaction: TenantTransaction,
+) => Promise<void | JobDeferral>;
 
 /** One tenant's transactions, as a steps handler gets them. Exported for tests. */
 export function tenantTransactions(
@@ -177,7 +185,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   async function consume<P extends { tenantId: string }>(
     job: TenantJob<P>,
-    run: (payload: P) => Promise<void>,
+    run: (payload: P, remainingRetries: number) => Promise<void>,
     onLastFailure?: (payload: P) => Promise<void>,
   ): Promise<void> {
     await boss.createQueue(job.queue);
@@ -188,7 +196,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
         const payload = job.payload.parse(data);
         try {
-          await run(payload);
+          await run(payload, retryLimit - retryCount);
         } catch (error) {
           if (onLastFailure && retryCount >= retryLimit) {
             // Reported, not thrown: the job's own error is the one pg-boss should record.
@@ -207,10 +215,26 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     const { onGiveUp } = tenantWorker;
     await consume(
       job,
-      (payload) =>
-        tenantWorker.steps
-          ? tenantWorker.steps(payload, tenantTransactions(options.db, payload.tenantId))
-          : options.db.withTenant(payload.tenantId, (tx) => tenantWorker.transaction(payload, tx)),
+      async (payload, remainingRetries) => {
+        if (tenantWorker.steps) {
+          const result = await tenantWorker.steps(
+            payload,
+            tenantTransactions(options.db, payload.tenantId),
+          );
+          if (result) {
+            await options.db.withTenant(payload.tenantId, (tx) =>
+              enqueue(tx, job, payload, {
+                startAfter: result.deferUntil,
+                retryLimit: remainingRetries,
+              }),
+            );
+          }
+        } else {
+          await options.db.withTenant(payload.tenantId, (tx) =>
+            tenantWorker.transaction(payload, tx),
+          );
+        }
+      },
       (payload) => options.db.withTenant(payload.tenantId, (tx) => onGiveUp(payload, tx)),
     );
   }
