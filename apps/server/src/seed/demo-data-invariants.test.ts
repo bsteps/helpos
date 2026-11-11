@@ -24,14 +24,25 @@ describe("demo draft lifecycle invariants", () => {
       });
       expect(draft.createdAt).toBeInstanceOf(Date);
       expect(inbound?.createdAt.getTime()).toBeLessThanOrEqual(draft.createdAt?.getTime() ?? 0);
+      const approval = tenant.audit.find(
+        (event) => event.targetId === draft.id && event.action === "draft.approved",
+      );
+      expect(draft.approvedAt).toEqual(approval?.createdAt ?? null);
+      if (approval) {
+        expect(draft.outboundMessageIdHeader).toMatch(/^<[^<>\s]+@[^<>\s]+>$/);
+      } else {
+        expect(draft.outboundMessageIdHeader).toBeNull();
+        expect(draft.sentMessageId).toBeNull();
+      }
 
       switch (draft.status) {
         case "pending":
-        case "discarded":
           expect(draft.approvedAt).toBeNull();
-          expect(draft.outboundMessageIdHeader).toBeNull();
           expect(draft.sentAt).toBeNull();
           expect(draft.sentMessageId).toBeNull();
+          break;
+        case "discarded":
+          expect(draft.sentAt).toBeNull();
           break;
         case "sent": {
           expect(draft.approvedAt).toBeInstanceOf(Date);
