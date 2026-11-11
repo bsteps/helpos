@@ -24,6 +24,7 @@ import { z } from "zod";
 import { nextUtcDay, utcDay } from "../ai-budget/budget.ts";
 import { usageOn } from "../ai-budget/testing.ts";
 import { createApp } from "../app.ts";
+import { auditorFor } from "../audit/audit.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { composeServer, type Server as HelposServer } from "../server.ts";
@@ -33,8 +34,8 @@ import { maxChunks } from "./chunk.ts";
 import { handleIngestSource, retryDelayMs } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { type Fetcher, maxPageBytes } from "./page-fetch.ts";
-import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
+import { createSource, deleteSource, requestIngest, slugify, updateSource } from "./sources.ts";
 
 /** Sends the API's reingest request. */
 const reingest = (id: string, as = "editor") =>
@@ -1803,5 +1804,108 @@ describe("editing sources", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "managed_in_git" });
     expect(await sourceOf(acme, git?.id ?? "")).toMatchObject({ visibility: "internal" });
+  });
+});
+
+describe("source operations without HTTP", () => {
+  it("keeps the caller transaction usable after slug and URL refusals", async () => {
+    await db.withTenant(acme, async (tx) => {
+      const audit = vi.fn(auditorFor(acme, { type: "system", id: "source-operations-test" }));
+      const input = {
+        tenantId: acme,
+        kind: "url" as const,
+        title: "Direct create",
+        slug: "direct-create",
+        url: pageUrl("/refunds?direct-create"),
+      };
+      const created = await createSource(tx, audit, input);
+      expect(created.kind).toBe("created");
+      if (created.kind !== "created") throw new Error("source not created");
+      audit.mockClear();
+      expect(
+        await createSource(tx, audit, { ...input, url: pageUrl("/shipping.md?direct-create") }),
+      ).toEqual({ kind: "slug_taken" });
+      expect(
+        await createSource(tx, audit, {
+          ...input,
+          slug: "direct-other-slug",
+          url: `${input.url}#fragment`,
+        }),
+      ).toEqual({ kind: "url_taken", sourceId: created.source.id });
+      expect(await createSource(tx, audit, input)).toEqual({
+        kind: "url_taken",
+        sourceId: created.source.id,
+      });
+      expect(audit).not.toHaveBeenCalled();
+      const next = await createSource(tx, audit, {
+        tenantId: acme,
+        kind: "markdown",
+        title: input.title,
+        content: "A distinct article.",
+      });
+      expect(next.kind).toBe("created");
+      if (next.kind !== "created") throw new Error("source not created after refusals");
+      expect(next.source.slug).toMatch(/^direct-create-[a-f0-9]+$/);
+      expect(audit).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("refuses git-owned and foreign sources without changing or auditing them", async () => {
+    const [owned] = await db.withTenant(acme, (tx) =>
+      tx
+        .insert(knowledgeSources)
+        .values({
+          tenantId: acme,
+          slug: "direct-git-refusals",
+          kind: "markdown",
+          title: "Git article",
+          content: "Keep this text.",
+          managedBy: "git",
+          sourcePath: "knowledge/direct.md",
+          sourceCommit: "abc123",
+          state: { status: "ready" },
+        })
+        .returning(),
+    );
+    if (!owned) throw new Error("source not inserted");
+    for (const [tenantId, expected] of [
+      [acme, "managed_in_git"],
+      [other, "not_found"],
+    ] as const) {
+      await db.withTenant(tenantId, async (tx) => {
+        const audit = vi.fn(auditorFor(tenantId, { type: "system", id: "source-operations-test" }));
+        expect(await requestIngest(tx, audit, { tenantId, id: owned.id })).toBe(expected);
+        expect(
+          await updateSource(tx, audit, {
+            tenantId,
+            id: owned.id,
+            title: "Changed",
+            content: "Changed",
+          }),
+        ).toBe(expected);
+        expect(await deleteSource(tx, audit, { id: owned.id })).toBe(expected);
+        expect(audit).not.toHaveBeenCalled();
+      });
+    }
+    expect(await sourceOf(acme, owned.id)).toEqual(owned);
+  });
+
+  it("refuses missing sources and content edits to URL sources without an audit", async () => {
+    const id = await insertUrlSource("direct-url-refusal", "/refunds");
+    const before = await sourceOf(acme, id);
+    await db.withTenant(acme, async (tx) => {
+      const audit = vi.fn(auditorFor(acme, { type: "system", id: "source-operations-test" }));
+      const missing = "00000000-0000-7000-8000-000000000000";
+      expect(await requestIngest(tx, audit, { tenantId: acme, id: missing })).toBe("not_found");
+      expect(await updateSource(tx, audit, { tenantId: acme, id: missing, title: "Changed" })).toBe(
+        "not_found",
+      );
+      expect(await deleteSource(tx, audit, { id: missing })).toBe("not_found");
+      expect(
+        await updateSource(tx, audit, { tenantId: acme, id, content: "Changed", title: "Changed" }),
+      ).toBe("content_not_editable");
+      expect(audit).not.toHaveBeenCalled();
+    });
+    expect(await sourceOf(acme, id)).toEqual(before);
   });
 });

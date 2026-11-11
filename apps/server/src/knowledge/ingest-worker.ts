@@ -6,15 +6,15 @@ import {
   isTemporaryAiFailure,
   tokenBound,
 } from "@helpos/ai";
-import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
 import { tidyAuthored } from "./extract.ts";
-import { ingestSourceJob } from "./jobs.ts";
 import { type Fetcher, fetchPageText, type PageText } from "./page-fetch.ts";
+import { queueIngest } from "./sources.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;
 
@@ -76,7 +76,7 @@ export async function handleIngestGaveUp(
     .for("update");
   if (!source || (source.state.status !== "pending" && source.state.status !== "waiting")) return;
   if (source.requests !== requests) {
-    await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests: source.requests });
+    await queueIngest(tx, { tenantId, sourceId, requests: source.requests }, { kind: "fresh" });
     return;
   }
   await tx
@@ -118,7 +118,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       if (!current || (current.state.status !== "pending" && current.state.status !== "waiting"))
         return false;
       if (current.requests === requests) return true;
-      await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests: current.requests });
+      await queueIngest(tx, { tenantId, sourceId, requests: current.requests }, { kind: "fresh" });
       return false;
     };
 
@@ -149,7 +149,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const waitUntil = (
       reason: schema.KnowledgeWaitReason,
       startAfter: Date,
-      singletonKey: string,
+      kind: "retry" | "budget",
       retryCount = source.retryCount,
     ) =>
       transaction(async (tx) => {
@@ -161,12 +161,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
             retryCount,
           })
           .where(eq(knowledgeSources.id, sourceId));
-        await enqueue(
-          tx,
-          ingestSourceJob,
-          { tenantId, sourceId, requests },
-          { singletonKey, startAfter },
-        );
+        await queueIngest(tx, { tenantId, sourceId, requests }, { kind, startAfter });
         deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
       });
 
@@ -176,19 +171,10 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const waitedOnce = source.retryCount > 0;
     const retryLater = (reason: schema.KnowledgeWaitReason) => {
       const retryAt = new Date(started.getTime() + retryDelayMs);
-      return waitUntil(
-        reason,
-        retryAt,
-        `${sourceId}:retry:${retryAt.toISOString()}`,
-        source.retryCount + 1,
-      );
+      return waitUntil(reason, retryAt, "retry", source.retryCount + 1);
     };
     const waitForBudget = (resetsAt: Date) =>
-      waitUntil(
-        { code: "daily_budget_reached" },
-        resetsAt,
-        `${sourceId}:after:${resetsAt.toISOString()}`,
-      );
+      waitUntil({ code: "daily_budget_reached" }, resetsAt, "budget");
     // Checked before the fetch too, so a source that must wait doesn't fetch its page twice.
     // The reservation below is what holds the cap.
     const today = await transaction((tx) => budget.today(tx, tenantId));
