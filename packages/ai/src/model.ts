@@ -7,7 +7,7 @@ import type { AiConfig } from "./config.ts";
  * The one place that turns config into a model (ADR 0002: provider-agnostic, bring your own key).
  * Features take a LanguageModel as a parameter, so tests can pass the mock instead.
  */
-export function createModel(config: AiConfig): LanguageModel {
+export function createModel(config: AiConfig): Exclude<LanguageModel, string> {
   switch (config.provider) {
     case "openai":
       return createOpenAI({ apiKey: config.apiKey })(config.model);
