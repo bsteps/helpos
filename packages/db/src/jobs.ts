@@ -23,7 +23,7 @@ export interface TenantJob<P extends { tenantId: string }> {
 }
 
 /** A queue with no tenant, e.g. cleanup. Its handler gets no tenant client. */
-export interface SystemJob<P> {
+interface SystemJob<P> {
   kind: "system";
   queue: string;
   payload: z.ZodType<P>;
@@ -48,11 +48,6 @@ export function defineTenantJob<const K extends string, const C extends string =
     { tenantId: string } & Record<K, string> & Record<C, number>
   >;
   return { kind: "tenant", queue: name, payload };
-}
-
-export function defineSystemJob<P>(queue: string, payload: z.ZodType<P>): SystemJob<P> {
-  const name = queueNameSchema.parse(`${SYSTEM_PREFIX}${queue}`);
-  return { kind: "system", queue: name, payload };
 }
 
 /** The only options app_enqueue() accepts. */
@@ -90,7 +85,7 @@ export async function enqueue<P extends { tenantId: string }>(
 }
 
 export type TenantJobHandler<P> = (payload: P, tx: TenantTx) => Promise<void>;
-export type SystemJobHandler<P> = (payload: P) => Promise<void>;
+type SystemJobHandler<P> = (payload: P) => Promise<void>;
 
 /** Opens one transaction as the job's tenant: every query in it goes through withTenant(). */
 export type TenantTransaction = <T>(fn: (tx: TenantTx) => Promise<T>) => Promise<T>;
@@ -133,7 +128,7 @@ export interface RetryPolicy {
  * see it, so a job that keeps failing is never lost silently. The job still ends up failed in
  * pg-boss.
  */
-export type TenantWorker<P> = (
+type TenantWorker<P> = (
   | { transaction: TenantJobHandler<P>; steps?: never }
   | { steps: TenantStepsHandler<P>; transaction?: never }
 ) & { onGiveUp: TenantJobHandler<P> };
