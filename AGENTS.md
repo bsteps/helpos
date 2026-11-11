@@ -4,7 +4,7 @@ Instructions for AI coding agents (Claude Code, Codex, Cursor, …) working in t
 
 ## What this project is
 
-HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most support work, and humans approve risky actions, handle exceptions and teach. Agents are first-class users: **anything a human can do in the UI, an agent can do through the public API**, except actions kept human-only on purpose, such as creating and revoking agent tokens.
+HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most support work, and humans approve risky actions, handle exceptions and teach. Agents are first-class users: **anything a human can do in the UI, an agent can do through the public API**, except actions kept human-only on purpose: creating agent tokens and revoking someone else's.
 
 ## Before you change anything
 

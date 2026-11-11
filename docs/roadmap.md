@@ -15,16 +15,16 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 | Set                              | Exit goal                                                                                                                                                     |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ✅ **MVP**                       | Email → ticket → AI draft → approve → send, in shadow mode                                                                                                    |
-| **A. The gate**                  | Every action from any agent goes through one gate, and tests prove one writer and nothing sent twice                                                          |
+| **A. The gate**                  | Every action from any agent goes through one gate, and tests prove one writer at a time and no automatic resend                                               |
 | **B. Shadow mode** (alongside A) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
 | **C. Bring your agent**          | An outside agent (Claude Code, Codex) runs the improve loop on a workspace through MCP                                                                        |
-| **D. Safe real mail**            | Shadow mode can be turned off: replies reach real customers safely, and customer outcomes are measured                                                        |
+| **D. Safe real mail**            | Shadow mode can be turned off: replies reach real customers safely, customer outcomes are measured, then outside tools connect through the gate               |
 | **E. Paid hosted**               | Hosted sign-up, billing and onboarding work end to end                                                                                                        |
 | **Later**                        | On demand                                                                                                                                                     |
 
 ## A. The gate
 
-- #130 nothing sent twice · #139 send-failed replies under load
+- #130 no automatic resend · #139 send-failed replies under load
 - #165 one owner per conversation: expiring claims and versions
 - #13 the gate: per-agent permissions, caps, kill switch
 - #166 trust ladder per agent and action type
@@ -39,10 +39,9 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 - #171 approval page with Slack and email alerts · #124 tell the owners when a reply can't be sent · #131 inbound attachments
 - #172 knowledge gaps ranked by demand
 - #77 product events and the one number
+- #52 sanitising and PII masking · #29 rate limiting. Before real conversations are imported and sent to a model
 
 ## C. Bring your agent
-
-In this order: the improve loop first, outside tools last.
 
 - #19 MCP server and skills, with features that announce themselves
 - #17 wake-ups: signed webhooks, event feed, fallback
@@ -50,13 +49,13 @@ In this order: the improve loop first, outside tools last.
 - #173 queues and handoff
 - #71 waiting lists, then #175 remove the GitHub-specific code
 - #12 token rotation · #14 audit log query API
-- #15 envelope encryption, then #174 any MCP tool through the gate
 
 ## D. Safe real mail
 
 - **Email:** #31 SPF/DKIM/DMARC · #74 sending domain and DKIM signing · #75 bounces and quote stripping · #57 routing by envelope recipient
-- **Security:** #52 sanitising and PII masking · #29 rate limiting · #8 leak harness · #28 threat model · #78 incident response and retention
+- **Security:** #8 leak harness · #28 threat model · #78 incident response and retention
 - **Team:** #11 invites, password reset, roles
+- **Then, once customer outcomes are measured:** #15 envelope encryption, then #174 any MCP tool through the gate
 - **Ops:** #18 #6 separate worker · #20 observability · #21 production Docker + Compose · #76 backup, restore, doctor · #23 release automation · #22 quality gates and performance budgets
 
 ## E. Paid hosted
