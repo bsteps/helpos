@@ -54,24 +54,24 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `38c9ab9fc2b4`.
+Last confirmed at commit `32d2520a389c`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `98fb03313cd5` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `b99b24321726` |
 | apps/server/src/drafts/send-worker.ts | handleSendGaveUp | GiveUpMarksFailed, GiveUpFails | `e1ea62598776` |
-| apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `8fa462cc759f` |
+| apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `12c52c5be6fa` |
 | apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `b8bcb5acfa88` |
 | apps/server/src/drafts/lifecycle.ts | queueSend | Enqueue | `1d94c013aa00` |
 | apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `285f1303dcf8` |
 | apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `6b1c318536b9` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `c56a8fd6629c` |
-| apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `pending` |
-| apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `pending` |
-| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `pending` |
-| apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `7cf4398e8c1d` |
+| apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `21a7386e206b` |
+| apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `8069ced2b359` |
+| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `646e76332488` |
+| apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `59dc3b495975` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `66f5f6db3884` |
-| apps/server/src/jobs.ts | jobs | send-reply worker registration | `72daa0e06a72` |
+| apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `a99b2cee9f9e` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |

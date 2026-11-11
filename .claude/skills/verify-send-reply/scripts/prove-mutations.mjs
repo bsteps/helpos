@@ -109,7 +109,10 @@ run("baseline", [], false);
 for (const variant of variants) {
   const original = originals.get(variant.file);
   try {
-    writeFileSync(resolve(root, variant.file), variant.mutate(original.toString()));
+    writeFileSync(
+      resolve(root, variant.file),
+      variant.mutate(original.toString().replaceAll("\r\n", "\n")),
+    );
     const diff = spawnSync("git", ["diff", "--", variant.file], { cwd: root, encoding: "utf8" });
     writeFileSync(resolve(evidence, `${variant.name}.patch`), diff.stdout);
     run(variant.name, variant.properties, true);
