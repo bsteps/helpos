@@ -5,6 +5,8 @@ or {
   `import $source`,
   `export { $exports } from $source`,
   `export * from $source`,
+  `export * as $namespace from $source`,
+  `export type * as $namespace from $source`,
   `import($source)`,
   `require($source)`
 } as $load where {
