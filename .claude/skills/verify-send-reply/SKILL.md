@@ -58,7 +58,7 @@ Last confirmed at commit `38c9ab9fc2b4`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `98fb03313cd5` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `98fb03313cd5` |
 | apps/server/src/drafts/send-worker.ts | handleSendGaveUp | GiveUpMarksFailed, GiveUpFails | `e1ea62598776` |
 | apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `8fa462cc759f` |
 | apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `b8bcb5acfa88` |
@@ -66,6 +66,9 @@ Last confirmed at commit `38c9ab9fc2b4`.
 | apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `285f1303dcf8` |
 | apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `6b1c318536b9` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `c56a8fd6629c` |
+| apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `pending` |
+| apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `pending` |
+| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `pending` |
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `7cf4398e8c1d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `66f5f6db3884` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `72daa0e06a72` |
@@ -73,7 +76,7 @@ Last confirmed at commit `38c9ab9fc2b4`.
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
 | packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `2aeaf7d934eb` |
-| packages/db/src/jobs.ts | createJobRunner.work | one transaction per attempt (`transaction`, not `steps`) | `20eda0869cc2` |
+| packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `20eda0869cc2` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->
 
@@ -89,7 +92,6 @@ Last confirmed at commit `38c9ab9fc2b4`.
 
 ## Known findings
 
-- **#130.** SMTP accepts the reply, then the job's transaction fails to commit (`commit_fails`), SMTP's reply is lost (`smtp_reply_lost`), or the worker dies (`worker_dies`). The transaction rolls back, the draft is still `approved`, and pg-boss retries. The retry sends the reply again (`NoResendWithoutPerson`). Or the retry fails, and handleSendGaveUp marks the draft `send_failed` although the customer got it (`NoHiddenDelivery`).
 - **Give-up failure.** On the last attempt, the worker dies (`worker_dies`) or handleSendGaveUp's transaction fails (`give_up_fails`). pg-boss fails the job without calling onGiveUp, or after it threw. The draft stays `approved` with no job left to send it, and nothing shows it (`NoSilentStall`).
 
 - **Lost retry.** Both send attempts fail. The give-up transaction commits `send_failed`. Before pg-boss settles the job, `retrySend` commits `approved` and reuses that still-active job. pg-boss then marks the old job failed. Nothing sends the approved draft. This needs no injected fault beyond ordinary SMTP rejection.
@@ -98,7 +100,7 @@ Last confirmed at commit `38c9ab9fc2b4`.
 
 `apps/server/src/drafts/send-path-replay.int.test.ts` replays duplicate delivery, hidden delivery, give-up transaction failure and the lost-retry window against real Postgres, pg-boss and Mailpit. Run it with `pnpm --filter @helpos/server exec vitest run src/drafts/send-path-replay.int.test.ts`. The transport injects acceptance followed by an exception; this demonstrates rollback after external delivery, not a physical database COMMIT failure or process kill.
 
-The model mutants check removed give-up handling, a give-up that overwrites `sent`, and admitting a sent draft while calling SMTP before database validation. Both sides of each control/mutant pair disable person retries. A broken control fails the command even if that invariant is an accepted finding in another scenario. These controls protect the tested mutation conditions; accepted-finding scenarios still require trace review and do not distinguish every possible new failure. Run `pnpm verify:send-reply:mutations` from a clean source checkout to repeat the real-code proof. It runs four safety assertions on normal code, temporarily applies three source mutations, requires all four intended assertions to fail, restores the source in `finally`, and reruns the assertions. It saves source backups, patches and logs under `.helpos/send-mutations/`. Do not run other tests or edits concurrently with this command. After a process termination, compare the source with Git and restore the saved backups before continuing. The generated skill still requires manual source-to-model review; fingerprint checks do not translate source into TLA+.
+The model mutants check removed give-up handling, a give-up that overwrites `sent`, and admitting a sent draft while calling SMTP before database validation. Both sides of each control/mutant pair disable person retries. A broken control fails the command even if that invariant is an accepted finding in another scenario. These controls protect the tested mutation conditions; accepted-finding scenarios still require trace review and do not distinguish every possible new failure. Run `pnpm verify:send-reply:mutations` from a clean source checkout to repeat the real-code proof. It runs the send-path safety assertions on normal code, temporarily applies four source mutations, requires all five intended assertions to fail, restores the source in `finally`, and reruns the assertions. It saves source backups, patches and logs under `.helpos/send-mutations/`. Do not run other tests or edits concurrently with this command. After a process termination, compare the source with Git and restore the saved backups before continuing. The generated skill still requires manual source-to-model review; fingerprint checks do not translate source into TLA+.
 
 
 `NoResendWithoutPerson` bounds total accepted deliveries by one plus retry requests. A retry request that reuses an active job still grants this allowance. It does not prove a stronger per-request ordering guarantee. The one-retry bound covers both retry branches but is not an inductive proof for eight retries. Raising `MaxFaults` alone repeats the selected fault; combine entries in `Faults` to explore mixed failures.

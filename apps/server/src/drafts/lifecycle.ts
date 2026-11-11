@@ -6,6 +6,7 @@ import {
   inArray,
   isNull,
   ne,
+  or,
   type SQL,
   schema,
   sql,
@@ -50,7 +51,6 @@ export const draftTransitions = {
    * about was reopened. Only a pending one: a failed send waits for a person to decide.
    */
   discardStale: { from: ["pending"], to: "discarded", audit: "draft.discarded" },
-  /** The send worker handed it to the mail server. */
   rejectSend: { from: ["send_uncertain"], to: "approved", audit: "draft.send_rejected" },
   markSending: {
     from: ["approved", "send_uncertain"],
@@ -213,7 +213,14 @@ export function markSending(
   id: string,
   sentMessageId: string,
 ): Promise<DraftChange> {
-  return change(tx, audit, "markSending", id, { sentMessageId, resendRequested: false });
+  return change(
+    tx,
+    audit,
+    "markSending",
+    id,
+    { sentMessageId, resendRequested: false },
+    or(eq(drafts.status, "approved"), eq(drafts.resendRequested, true)),
+  );
 }
 
 export async function resolveUncertainSend(
@@ -234,6 +241,10 @@ export async function resolveUncertainSend(
   if (input.decision === "mark_sent") {
     const sentAt = new Date();
     await tx.update(messages).set({ sentAt }).where(eq(messages.id, draft.sentMessageId));
+    await tx
+      .update(conversations)
+      .set({ lastMessageAt: sentAt })
+      .where(eq(conversations.id, draft.conversationId));
     return change(tx, audit, "confirmSent", id, { sentAt, resendRequested: false });
   }
   const domain = input.messageId.slice(input.messageId.lastIndexOf("@") + 1, -1);

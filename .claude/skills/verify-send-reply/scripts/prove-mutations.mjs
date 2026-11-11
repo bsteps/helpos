@@ -57,8 +57,8 @@ const variants = [
       let changed = replace(source, 'if (draft.status === "sent") return;', "");
       changed = replace(
         changed,
-        'draft.status !== "approved" || ',
-        '(draft.status !== "approved" && draft.status !== "sent") || ',
+        'draft.status !== "approved" &&',
+        'draft.status !== "approved" && draft.status !== "sent" &&',
       );
       const smtp = "await deps.transport.send({ from: row.mailbox, to: [email.to], raw });";
       changed = replace(changed, smtp, "");
@@ -67,6 +67,17 @@ const variants = [
         "const raw = await buildReply(email);",
         `const raw = await buildReply(email);\n    ${smtp}`,
       );
+    },
+  },
+  {
+    name: "marker-recheck-removed",
+    file: send,
+    properties: ["MarkerGuard"],
+    mutate: (source) => {
+      const start = source.indexOf("      if (\n        current?.status");
+      const end = source.indexOf("      try {", start);
+      if (start < 0 || end < 0) throw new Error("marker guard not found");
+      return source.slice(0, start) + source.slice(end);
     },
   },
 ];

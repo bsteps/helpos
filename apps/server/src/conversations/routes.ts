@@ -8,7 +8,6 @@ import { sanitizeEmailHtml } from "./email-html.ts";
 
 const { customers, drafts, messages, conversationGithubIssues, conversations } = schema;
 
-/** Whether the conversation has a reply that was approved but couldn't be sent, for anyone to retry. */
 const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${drafts.status} in ('send_failed', 'send_uncertain'))`;
 
 export interface ConversationRoutesDeps {
@@ -31,11 +30,7 @@ const conversationSchema = z
      * provider stayed down, say). Either way a human can write a reply or ask the AI again.
      */
     aiPausedReason: z.enum(schema.aiPausedReasons).nullable(),
-    /**
-     * True while a reply on this conversation is `send_failed`: approved, but every attempt to send
-     * it failed. Retry or discard it (see the drafts routes); until then the customer has
-     * heard nothing, even if the conversation is closed.
-     */
+    /** A failed or uncertain reply needs attention, even on a closed conversation. */
     replyNotSent: z.boolean(),
   })
   .openapi("Conversation");

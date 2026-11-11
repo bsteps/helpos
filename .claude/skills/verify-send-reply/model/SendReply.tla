@@ -130,9 +130,6 @@ Fail(w) ==
        ELSE /\ worker' = [worker EXCEPT ![w].pc = "settling_fail"]
             /\ job' = job
 
-\* select ... for update on the draft, then the status checks. A draft that is sent, or not
-\* approved, returns. Otherwise the outbound message and markSent are written in the
-\* transaction, under the lock, before the send.
 WorkerLocksAndChecks(w) ==
     /\ worker[w].pc = "claimed"
     /\ lockHolder = 0
@@ -147,7 +144,7 @@ WorkerLocksAndChecks(w) ==
 WorkerRechecksMarker(w) ==
     /\ worker[w].pc = "prepared"
     /\ lockHolder = 0
-    /\ IF status = "send_uncertain" /\ worker[w].marker = personRetries
+    /\ IF status = "send_uncertain" /\ ~requested /\ worker[w].marker = personRetries
        THEN /\ lockHolder' = w
             /\ worker' = [worker EXCEPT ![w].pc = "sending"]
        ELSE /\ worker' = [worker EXCEPT ![w].pc = "settling_complete"]
@@ -165,7 +162,8 @@ PersonResolvesSent ==
     /\ status = "send_uncertain"
     /\ lockHolder = 0
     /\ status' = "sent"
-    /\ UNCHANGED <<requested, job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+    /\ requested' = FALSE
+    /\ UNCHANGED <<job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
 PersonResolvesResend ==
     /\ status = "send_uncertain"

@@ -1,6 +1,14 @@
+import { fork } from "node:child_process";
+import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import { mockModel } from "@helpos/ai/testing";
-import { createAuthStore, createDatabase, type Database, eq, schema } from "@helpos/db";
-import { containerHost, startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import { createAuthStore, createDatabase, type Database, eq, schema, sql } from "@helpos/db";
+import {
+  containerHost,
+  expireTestSendJob,
+  startTestDatabase,
+  type TestDatabase,
+} from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -14,7 +22,9 @@ import {
 } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { retrySend } from "./lifecycle.ts";
+import { sendReplyJob } from "./jobs.ts";
+import { approveDraft, createReply, retrySend } from "./lifecycle.ts";
+import { handleSendGaveUp, handleSendReply } from "./send-worker.ts";
 
 type Attempt =
   | "accept"
@@ -31,6 +41,7 @@ let helpos: Server;
 let smtp: EmailTransport;
 let acme: string;
 let n = 0;
+let commitFailures = 0;
 const files = createMemoryFileStore();
 let failGiveUp = false;
 let pauseGiveUp = false;
@@ -56,7 +67,11 @@ beforeAll(async () => {
         }
         const pause = pauseGiveUp;
         pauseGiveUp = false;
-        const result = await db.withTenant(tenantId, fn);
+        const result = await db.withTenant(tenantId, fn).catch((error: unknown) => {
+          if (error instanceof Error && error.message === "injected COMMIT failure")
+            commitFailures++;
+          throw error;
+        });
         if (pause) {
           giveUpCommitted.resolve();
           await releaseGiveUp.promise;
@@ -189,6 +204,31 @@ it("#130 NoHiddenDelivery: SmtpAccepts, TransactionCommitFails, retry, SmtpRejec
   expect(await copies(subject)).toBe(1);
 }, 60_000);
 
+it("SMTP accepts, then PostgreSQL rejects COMMIT and the retry sends nothing", async () => {
+  const owner = createDatabase(testDb.ownerUrl);
+  await owner.withTenant(acme, async (tx) => {
+    await tx.execute(
+      sql`create function fail_sent_commit() returns trigger language plpgsql as $$ begin raise exception 'injected COMMIT failure'; end $$`,
+    );
+    await tx.execute(
+      sql`create constraint trigger fail_sent_commit after update on drafts deferrable initially deferred for each row when (new.status = 'sent') execute function fail_sent_commit()`,
+    );
+  });
+  try {
+    script = ["accept"];
+    const { conversationId, subject } = await approvedDraft();
+    await waitFor(async () => (commitFailures > 0 ? true : undefined));
+    expect((await draftOf(conversationId))?.status).toBe("send_uncertain");
+    expect(await copies(subject)).toBe(1);
+  } finally {
+    await owner.withTenant(acme, async (tx) => {
+      await tx.execute(sql`drop trigger fail_sent_commit on drafts`);
+      await tx.execute(sql`drop function fail_sent_commit()`);
+    });
+    await owner.close();
+  }
+}, 60_000);
+
 it("Give-up failure NoSilentStall: SmtpRejects, retry, SmtpRejects, GiveUpFails", async () => {
   script = ["down", "down-and-give-up-fails"];
   const { conversationId } = await approvedDraft();
@@ -200,6 +240,68 @@ it("Give-up failure NoSilentStall: SmtpRejects, retry, SmtpRejects, GiveUpFails"
       : undefined,
   );
   expect((await draftOf(conversationId))?.status).toBe("approved");
+}, 60_000);
+
+it("a killed worker after SMTP acceptance never sends a second copy after lease expiry", async () => {
+  const raw = await readFile(
+    new URL("../../../../fixtures/email/send-uncertain.eml", import.meta.url),
+  );
+  await helpos.runner.stop();
+  const received = await ingestEmail({ db, files }, raw);
+  if (received.kind !== "created") throw new Error(received.kind);
+  const payload = await db.withTenant(acme, async (tx) => {
+    const audit = auditorFor(acme, { type: "user", id: "crash-test" });
+    const draft = await createReply(tx, audit, {
+      tenantId: acme,
+      conversationId: received.conversationId,
+      messageId: received.messageId,
+      body: "Crash replay reply",
+      noticeDelaySeconds: 3600,
+    });
+    await approveDraft(tx, audit, draft.id, draft.body);
+    return { tenantId: acme, draftId: draft.id };
+  });
+  const child = fork(new URL("./fixtures/crash-worker.ts", import.meta.url), [], {
+    env: {
+      ...process.env,
+      TEST_APP_URL: testDb.appUrl,
+      TEST_JOBS_URL: testDb.jobsUrl,
+      TEST_SMTP_URL: `smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`,
+    },
+    stdio: ["ignore", "ignore", "pipe", "ipc"],
+  });
+  const stopped = once(child, "exit");
+  try {
+    const accepted = await once(child, "message");
+    expect(accepted[0]).toBe("SMTP accepted");
+    child.kill("SIGKILL");
+    await stopped;
+    expect((await draftOf(received.conversationId))?.status).toBe("send_uncertain");
+    expect(await copies("Physical worker crash")).toBe(1);
+    await expireTestSendJob(testDb.jobsUrl, payload.draftId);
+    const replayed = Promise.withResolvers<void>();
+    const sendMail = vi.fn();
+    await helpos.runner.start();
+    await helpos.runner.work(sendReplyJob, {
+      steps: async (job, transaction) => {
+        await handleSendReply({
+          files,
+          logger: { info: vi.fn(), warn: vi.fn() },
+          transport: { send: sendMail, close: () => {} },
+        })(job, transaction);
+        if (job.draftId === payload.draftId) replayed.resolve();
+      },
+      onGiveUp: handleSendGaveUp,
+    });
+    await replayed.promise;
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(await copies("Physical worker crash")).toBe(1);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await stopped;
+    await helpos.runner.stop();
+    await helpos.startWorker();
+  }
 }, 60_000);
 
 it("retry between give-up commit and job settlement is lost", async () => {

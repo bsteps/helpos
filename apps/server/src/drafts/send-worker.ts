@@ -65,14 +65,13 @@ export function handleSendReply(deps: SendWorkerDeps) {
         .innerJoin(customers, eq(customers.id, conversations.customerId))
         .innerJoin(tenants, eq(tenants.id, drafts.tenantId))
         .where(eq(drafts.id, draftId))
-        // Locks the draft, so two workers can't both send it.
         .for("update", { of: drafts });
       if (!row) {
         deps.logger.warn({ draftId }, "send-reply: draft not found");
         return;
       }
       const { draft, inbound } = row;
-      if (draft.status === "sent") return; // a retry after a send that committed
+      if (draft.status === "sent") return;
       if (
         (draft.status !== "approved" &&
           !(draft.status === "send_uncertain" && draft.resendRequested)) ||
@@ -101,9 +100,6 @@ export function handleSendReply(deps: SendWorkerDeps) {
         { ...row.shadow, shadowReplyTo: noticeReplyTo(row.mailbox) },
       );
       if (delivery.kind === "no_recipient") {
-        // Thrown, not skipped: the draft stays approved and pg-boss retries, so it goes out once
-        // a shadow recipient is set (or it ends up `send_failed`, to retry once one is). It must
-        // never fall through to the customer.
         throw new Error("send-reply: shadow mode is on but no shadow recipient is set");
       }
       const { email } = delivery;
@@ -118,7 +114,6 @@ export function handleSendReply(deps: SendWorkerDeps) {
         conversationId: draft.conversationId,
         direction: "outbound",
         fromAddress: row.mailbox,
-        // Who really got it: in shadow mode, the shadow recipient, never the customer.
         toAddresses: [email.to],
         subject,
         textBody: email.text,
@@ -175,8 +170,10 @@ export function handleSendReply(deps: SendWorkerDeps) {
         .update(conversations)
         .set({ lastMessageAt: now })
         .where(eq(conversations.id, draft.conversationId));
+      return "sent";
     });
     if (outcome instanceof SendRejected) throw outcome;
+    if (outcome !== "sent") return;
     deps.logger.info(
       { draftId, conversationId: draft.conversationId, shadow: delivery.kind === "shadow" },
       "reply sent",
