@@ -12,6 +12,8 @@ import {
   isTemporaryAiFailure,
   parseEmbeddingConfig,
 } from "./embed.ts";
+import { tokenBound } from "./estimate.ts";
+import fixtures from "./fixtures/token-counts.json";
 import { mockEmbedding, mockEmbeddingModel } from "./testing.ts";
 
 const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * (b[i] ?? 0), 0);
@@ -39,8 +41,24 @@ describe("embedTexts", () => {
         warnings: [],
       }),
     });
-    expect((await embedTexts(silent, ["x".repeat(40)])).tokens).toBe(10);
+    expect((await embedTexts(silent, ["x".repeat(40)])).tokens).toBe(40);
   });
+
+  it.each(fixtures.cases)(
+    "conservatively charges $name without usage",
+    async ({ text, counts }) => {
+      const model = new MockEmbeddingModelV4({
+        doEmbed: async ({ values }) => ({
+          embeddings: values.map(() => new Array(embeddingDimensions).fill(0.1)),
+          warnings: [],
+        }),
+      });
+      const result = await embedTexts(model, [text]);
+      expect(result.tokens).toBe(tokenBound(text));
+      for (const count of Object.values(counts))
+        expect(result.tokens).toBeGreaterThanOrEqual(count);
+    },
+  );
 
   it("makes no call for no texts", async () => {
     const model = mockEmbeddingModel();
