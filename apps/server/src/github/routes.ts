@@ -1,5 +1,6 @@
 import { type LanguageModel, maxIssueTitleChars } from "@helpos/ai";
 import type { Database } from "@helpos/db";
+import { isHuman } from "@helpos/db/actor";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { nothingToAudit } from "../audit/audit.ts";
@@ -410,7 +411,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         tenantId: principal.tenantId,
         conversationId: c.req.valid("param").id,
         issue: c.req.valid("json"),
-        author: principal.actor.type === "agent" ? "agent" : "human",
+        author: isHuman(principal.actor) ? "human" : "agent",
         audit: auditor(c),
         requestId: c.get("requestId"),
       },

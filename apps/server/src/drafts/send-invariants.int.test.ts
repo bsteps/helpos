@@ -4,7 +4,7 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { auditorFor } from "../audit/audit.ts";
+import type { AuditContext } from "../audit/audit.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { SendRejected } from "../outbound-email/transport.ts";
@@ -76,15 +76,19 @@ async function approved() {
   );
   if (received.kind !== "created") throw new Error(received.kind);
   return db.withTenant(tenantId, async (tx) => {
-    const audit = auditorFor(tenantId, { type: "system", id: "invariant-test" });
-    const draft = await createReply(tx, audit, {
+    const context: AuditContext = {
+      tenantId,
+      actor: { type: "system", id: "invariant-test" },
+      requestId: null,
+    };
+    const draft = await createReply(tx, context, {
       tenantId,
       conversationId: received.conversationId,
       messageId: received.messageId,
       body: "Reply",
       noticeDelaySeconds: 3600,
     });
-    const result = await approveDraft(tx, audit, draft.id, draft.body);
+    const result = await approveDraft(tx, context, draft.id, draft.body);
     expect(result.outcome).toBe("changed");
     return { tenantId, draftId: draft.id };
   });

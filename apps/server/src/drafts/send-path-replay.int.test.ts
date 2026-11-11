@@ -13,7 +13,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { auditorFor } from "../audit/audit.ts";
+import type { AuditContext } from "../audit/audit.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import {
   createSmtpTransport,
@@ -201,6 +201,7 @@ it("#130 NoHiddenDelivery: SmtpAccepts, TransactionCommitFails, retry, SmtpRejec
   await waitFor(async () =>
     (await draftOf(conversationId))?.status === "send_uncertain" ? true : undefined,
   );
+  await waitFor(async () => ((await copies(subject)) === 1 ? true : undefined));
   expect(await copies(subject)).toBe(1);
 }, 60_000);
 
@@ -250,15 +251,19 @@ it("a killed worker after SMTP acceptance never sends a second copy after lease 
   const received = await ingestEmail({ db, files }, raw);
   if (received.kind !== "created") throw new Error(received.kind);
   const payload = await db.withTenant(acme, async (tx) => {
-    const audit = auditorFor(acme, { type: "user", id: "crash-test" });
-    const draft = await createReply(tx, audit, {
+    const context: AuditContext = {
+      tenantId: acme,
+      actor: { type: "user", id: "crash-test" },
+      requestId: null,
+    };
+    const draft = await createReply(tx, context, {
       tenantId: acme,
       conversationId: received.conversationId,
       messageId: received.messageId,
       body: "Crash replay reply",
       noticeDelaySeconds: 3600,
     });
-    await approveDraft(tx, audit, draft.id, draft.body);
+    await approveDraft(tx, context, draft.id, draft.body);
     return { tenantId: acme, draftId: draft.id };
   });
   const child = fork(new URL("./fixtures/crash-worker.ts", import.meta.url), [], {
@@ -313,7 +318,11 @@ it("retry between give-up commit and job settlement is lost", async () => {
     await giveUpCommitted.promise;
     expect((await draftOf(conversationId))?.status).toBe("send_failed");
     const result = await db.withTenant(acme, (tx) =>
-      retrySend(tx, auditorFor(acme, { type: "system", id: "replay" }), draftId),
+      retrySend(
+        tx,
+        { tenantId: acme, actor: { type: "system", id: "replay" }, requestId: null },
+        draftId,
+      ),
     );
     expect(result.outcome).toBe("changed");
   } finally {

@@ -17,6 +17,7 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
+import { type Actor, actorTypes } from "./actor.ts";
 import { uuidv7 } from "./uuid.ts";
 
 /**
@@ -435,8 +436,8 @@ export const drafts = pgTable(
   ],
 );
 
-export const actorTypes = ["user", "agent", "system"] as const;
-export type ActorType = (typeof actorTypes)[number];
+export { actorTypes };
+export type ActorType = Actor["type"];
 
 /**
  * Append-only log of every human, agent and system action, written in the same transaction as

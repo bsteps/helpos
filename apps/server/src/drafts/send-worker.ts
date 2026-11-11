@@ -1,4 +1,5 @@
 import { eq, schema, type TenantTransaction, type TenantTx, uuidv7 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { FileStore } from "@helpos/files";
 import type { Logger } from "pino";
 import { auditorFor } from "../audit/audit.ts";
@@ -23,7 +24,7 @@ export interface SendWorkerDeps {
   logger: Pick<Logger, "info" | "warn">;
 }
 
-export const sendWorkerActor = { type: "system", id: "send-reply" } as const;
+export const sendWorkerActor = builtInActors.sendWorker;
 
 /**
  * Runs once every send attempt has failed: the draft is marked `send_failed`, so it shows up
@@ -34,7 +35,11 @@ export async function handleSendGaveUp(
   payload: { tenantId: string; draftId: string },
   tx: TenantTx,
 ): Promise<void> {
-  await markSendFailed(tx, auditorFor(payload.tenantId, sendWorkerActor), payload.draftId);
+  await markSendFailed(
+    tx,
+    { tenantId: payload.tenantId, actor: sendWorkerActor, requestId: null },
+    payload.draftId,
+  );
 }
 
 /**
@@ -127,7 +132,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
       });
       const marked = await markSending(
         tx,
-        auditorFor(tenantId, sendWorkerActor),
+        { tenantId, actor: sendWorkerActor, requestId: null },
         draftId,
         sentMessageId,
       );
@@ -157,16 +162,21 @@ export function handleSendReply(deps: SendWorkerDeps) {
           });
           return error;
         }
-        await rejectSend(tx, auditorFor(tenantId, sendWorkerActor), draftId);
+        await rejectSend(tx, { tenantId, actor: sendWorkerActor, requestId: null }, draftId);
         await tx.delete(messages).where(eq(messages.id, sentMessageId));
         return error;
       }
       const now = new Date();
       await tx.update(messages).set({ sentAt: now }).where(eq(messages.id, sentMessageId));
-      const sent = await markSent(tx, auditorFor(tenantId, sendWorkerActor), draftId, {
-        sentAt: now,
-        sentMessageId,
-      });
+      const sent = await markSent(
+        tx,
+        { tenantId, actor: sendWorkerActor, requestId: null },
+        draftId,
+        {
+          sentAt: now,
+          sentMessageId,
+        },
+      );
       if (sent.outcome !== "changed") throw new Error("send-reply: draft changed while sending");
       await tx
         .update(conversations)

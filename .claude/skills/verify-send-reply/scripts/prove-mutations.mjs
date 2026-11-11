@@ -34,7 +34,7 @@ const variants = [
     mutate: (source) =>
       replace(
         source,
-        "await markSendFailed(tx, auditorFor(payload.tenantId, sendWorkerActor), payload.draftId);",
+        "await markSendFailed(\n    tx,\n    { tenantId: payload.tenantId, actor: sendWorkerActor, requestId: null },\n    payload.draftId,\n  );",
         "return;",
       ),
   },

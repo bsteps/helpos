@@ -1,5 +1,6 @@
 import { schema, type TenantTx, uuidv7 } from "@helpos/db";
-import { type AuditActor, recordAudit } from "../audit/audit.ts";
+import type { Actor } from "@helpos/db/actor";
+import { recordAudit } from "../audit/audit.ts";
 import { generateToken } from "./token.ts";
 
 export type ApiTokenRow = typeof schema.apiTokens.$inferSelect;
@@ -15,7 +16,7 @@ export async function createApiToken(
     tenantId: string;
     name: string;
     scopes: schema.ApiTokenScope[];
-    actor: AuditActor;
+    actor: Actor;
     requestId: string | null;
   },
 ): Promise<{ row: ApiTokenRow; token: string }> {

@@ -1,5 +1,32 @@
 # Issue 130 verification
 
+## Issue 193 actor boundary
+
+Lifecycle mutations now receive an `AuditContext` containing the actor, tenant and
+request ID. They record their audit events from that context in the same transaction.
+The shared actor definition and built-in actor registry preserve stored identities.
+
+Semantic review compared `change`, approval, retry, discard, uncertainty resolution,
+the send worker and give-up with their mapped model actions. The context replaces
+the bound audit closure. Status predicates, conditional updates, row locks, Message-ID
+generation, queue keys and enqueue order are unchanged. Preparation still commits
+the uncertainty marker before SMTP. The second transaction rechecks its message
+identity before sending. SMTP acceptance, the final database commit and pg-boss
+settlement remain separate. The model does not include audit identity, so no action,
+guard, promise or known finding changes.
+
+The first focused replay run exposed an observation race in the existing
+`NoHiddenDelivery` test. It observed the committed uncertainty marker and immediately
+read zero Mailpit copies, although SMTP had not yet accepted the reply. The repair
+uses the existing bounded polling helper to wait for one actual copy before the
+unchanged exact-count assertion. It adds no retries or longer deadline. The original
+COMMIT-failure, rejection, physical-crash and settlement checks remain intact.
+
+New integration cases exercise nested lifecycle audit attribution for user, agent
+and built-in actors, and prove a mismatched audit tenant rolls back the draft write.
+The send mutation runner targets the new give-up call signature. The separate
+lost-retry and give-up failures remain known `NoSilentStall` findings.
+
 ## Issue 213 composer extraction
 
 The outbound composer now owns MIME construction, reply headers, notice headers and

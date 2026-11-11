@@ -12,6 +12,7 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
 import {
@@ -29,7 +30,7 @@ import { draftWhere } from "./lifecycle.ts";
 
 const { auditEvents, drafts, mailboxes, memberships, messages, conversations } = schema;
 
-export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
+export const noticeWorkerActor = builtInActors.noticeWorker;
 
 /**
  * Queues the "a draft is waiting" notice, `delaySeconds` from now (`noticeDelaySeconds`): a
