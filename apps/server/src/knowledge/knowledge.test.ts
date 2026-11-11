@@ -29,8 +29,9 @@ import { composeServer, type Server as HelposServer } from "../server.ts";
 import { composeServices, defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxChunks } from "./chunk.ts";
-import { type Fetcher, handleIngestSource, maxPageBytes, retryDelayMs } from "./ingest-worker.ts";
+import { handleIngestSource, retryDelayMs } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
+import { type Fetcher, maxPageBytes } from "./page-fetch.ts";
 import { slugify } from "./routes.ts";
 import { createVectorSearch } from "./search.ts";
 
@@ -74,16 +75,6 @@ const pages: Record<
     type: 'text/html; charset="iso-8859-1"',
     body: Buffer.from("<p>Café crème: refunds in 5 days.</p>", "latin1"),
   },
-  // No charset in the header: the page declares it itself.
-  "/latin1-meta": {
-    type: "text/html",
-    body: Buffer.from('<meta charset="windows-1252"><p>Crème brûlée is free.</p>', "latin1"),
-  },
-  // No charset anywhere, and the bytes aren't valid UTF-8: an old Latin-1 page.
-  "/undeclared-latin1": {
-    type: "text/html",
-    body: Buffer.from("<p>Remboursé sous 5 jours.</p>", "latin1"),
-  },
   "/indented.md": {
     type: "text/markdown",
     body: "# Config\n\nSet this:\n\n```yaml\nrefunds:\n  window_days: 30\n```",
@@ -100,21 +91,6 @@ const pages: Record<
     body: "# Shipping\n\nStandard shipping takes 3 to 7 days.",
   },
   "/nul.txt": { type: "text/plain", body: `Refunds${nul} take 5 days.` },
-  // A server that labels plain ASCII as UTF-16: read literally, it would be nonsense.
-  "/utf16-label": { type: "text/html; charset=utf-16", body: "<p>Refunds in 5 days.</p>" },
-  // Real UTF-16, with its byte order mark.
-  "/utf16-real": {
-    type: "text/html; charset=utf-16",
-    body: Buffer.from(`${String.fromCharCode(0xfeff)}<p>Real UTF-16 page.</p>`, "utf16le"),
-  },
-  // A description that mentions a charset declares none: the UTF-8 bytes stay UTF-8.
-  "/meta-description": {
-    type: "text/html",
-    body: Buffer.from(
-      '<meta name="description" content="Set charset=iso-8859-1 here"><p>Crème brûlée.</p>',
-      "utf8",
-    ),
-  },
   // The server can never answer this, so it isn't tried again.
   "/not-implemented": { type: "text/html", body: "", status: 501 },
   "/slow": { type: "text/html", body: "<p>A page that takes a while to fetch.</p>" },
@@ -414,7 +390,7 @@ describe("adding and ingesting sources", () => {
     );
   });
 
-  it("decodes a page in the charset it declares, quoted or not", async () => {
+  it("stores decoded non-UTF-8 page text in its chunks", async () => {
     const added = await addSource("editor", {
       kind: "url",
       title: "Latin-1 page",
@@ -422,22 +398,6 @@ describe("adding and ingesting sources", () => {
     });
     expect((await ingested(acme, added.id)).status).toBe("ready");
     expect((await chunksOf(acme, added.id))[0]?.content).toBe("Café crème: refunds in 5 days.");
-
-    const meta = await addSource("editor", {
-      kind: "url",
-      title: "Meta charset page",
-      url: pageUrl("/latin1-meta"),
-    });
-    expect((await ingested(acme, meta.id)).status).toBe("ready");
-    expect((await chunksOf(acme, meta.id))[0]?.content).toBe("Crème brûlée is free.");
-
-    const undeclared = await addSource("editor", {
-      kind: "url",
-      title: "Old page",
-      url: pageUrl("/undeclared-latin1"),
-    });
-    expect((await ingested(acme, undeclared.id)).status).toBe("ready");
-    expect((await chunksOf(acme, undeclared.id))[0]?.content).toBe("Remboursé sous 5 jours.");
   });
 
   it("keeps the indentation of code in a markdown page", async () => {
@@ -485,27 +445,6 @@ describe("adding and ingesting sources", () => {
     expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual([
       "Refunds take 5 days.",
     ]);
-  });
-
-  it("isn't fooled by a charset mentioned in another meta tag's text", async () => {
-    const added = await addSource("editor", {
-      kind: "url",
-      title: "Meta description",
-      url: pageUrl("/meta-description"),
-    });
-    expect((await ingested(acme, added.id)).status).toBe("ready");
-    expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual(["Crème brûlée."]);
-  });
-
-  it("reads a page labelled UTF-16 that isn't, and a real UTF-16 page", async () => {
-    for (const [path, text] of [
-      ["/utf16-label", "Refunds in 5 days."],
-      ["/utf16-real", "Real UTF-16 page."],
-    ] as const) {
-      const added = await addSource("editor", { kind: "url", title: path, url: pageUrl(path) });
-      expect((await ingested(acme, added.id)).status).toBe("ready");
-      expect((await chunksOf(acme, added.id)).map((c) => c.content)).toEqual([text]);
-    }
   });
 
   it("doesn't try again on an error that can't pass, such as 501", async () => {

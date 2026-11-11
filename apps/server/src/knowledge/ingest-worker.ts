@@ -7,47 +7,28 @@ import {
   tokenBound,
 } from "@helpos/ai";
 import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
-import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
-import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
 import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
-import { extractHtml, tidyAuthored } from "./extract.ts";
+import { tidyAuthored } from "./extract.ts";
 import { ingestSourceJob } from "./jobs.ts";
+import { type Fetcher, fetchPageText, type PageText } from "./page-fetch.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;
-
-/** The SSRF-safe fetch. A parameter only so tests can reach a local test server. */
-export type Fetcher = typeof safeFetch;
 
 export interface IngestWorkerDeps {
   embeddingModel: EmbeddingModel;
   fetch: Fetcher;
   logger: Pick<Logger, "info" | "warn">;
   clock: Clock;
-  /**
-   * Embedding tokens count toward the same daily budget as drafting. `fetchRetryDelaysMs`:
-   * waits before each new try of a page that failed on a temporary error.
-   */
   config: Pick<ServerConfig, "dailyTokenBudget" | "fetchRetryDelaysMs">;
-  /** Aborts the embedding calls in flight when the server shuts down. */
   shutdown?: AbortSignal | undefined;
 }
 
 const ingestActor = { type: "system", id: "ingest-source" } as const;
 
-/** A help-center page is far smaller; anything bigger is not an article. */
-export const maxPageBytes = 2 * 1024 * 1024;
-const fetchTimeoutMs = 15_000;
-
-type PageText = { ok: true; text: string } | { ok: false; error: string };
-
-/**
- * A site mid-deploy or briefly overloaded: worth another try in a few seconds. Not 501 or 505
- * (the server can't ever answer this), and not a name that doesn't resolve (usually a typo).
- */
 const temporaryErrors = new Set([
   "timeout",
   "network",
@@ -61,11 +42,6 @@ const temporaryErrors = new Set([
 ]);
 const isTemporary = (error: string) => temporaryErrors.has(error);
 
-/**
- * The page's answer says the old passages no longer describe it: it's gone, or it now has no
- * text, too much (too many passages, or too many bytes), or isn't a page. They're removed, so drafts stop citing them. Other failures
- * (a 5xx, a timeout, a blocked address) may pass, so the last good passages stay.
- */
 const supersededBy = new Set([
   "http_404",
   "http_410",
@@ -78,46 +54,8 @@ const supersededBy = new Set([
   "http_451",
 ]);
 
-/**
- * How long a source waits after a temporary problem (the site or the embedding provider down)
- * before its one more try.
- */
 export const retryDelayMs = 15 * 60_000;
 
-const htmlTypes = new Set(["text/html", "application/xhtml+xml"]);
-const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
-
-/**
- * The charset a page declares in `<meta charset>` or `<meta http-equiv content>`, looked for
- * in its first 1024 bytes as browsers do. Bounded, so a huge page costs nothing extra.
- */
-function metaCharset(bytes: Uint8Array): string | undefined {
-  const head = new TextDecoder("latin1").decode(bytes.subarray(0, 1024));
-  let label: string | undefined;
-  // Parsed, not searched: "charset=" in another tag's text (a description) declares nothing.
-  const parser = new Parser(
-    {
-      onopentag(name, attribs) {
-        if (label || name !== "meta") return;
-        if (attribs.charset) label = attribs.charset.trim();
-        else if (attribs["http-equiv"]?.trim().toLowerCase() === "content-type") {
-          label = /charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(attribs.content ?? "")?.[1];
-        }
-      },
-    },
-    { lowerCaseTags: true, lowerCaseAttributeNames: true, decodeEntities: true },
-  );
-  parser.write(head);
-  parser.end();
-  // A page readable as ASCII so far can't really be UTF-16; browsers read it as UTF-8.
-  return label && /^utf-16/i.test(label) ? "utf-8" : label || undefined;
-}
-
-/**
- * Fetches a page, trying again soon after a quick temporary error. Not after a timeout: that
- * try already took the whole timeout, and ingest jobs run one at a time, so it waits for its
- * later try instead of holding up every other source. No transaction is open meanwhile.
- */
 async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<PageText> {
   let page = await fetchPageText(deps, url);
   for (const delay of deps.config.fetchRetryDelaysMs) {
@@ -128,93 +66,12 @@ async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<Pa
   return page;
 }
 
-/** Fetches one page through the SSRF-safe fetch and returns its text, or why it couldn't. */
-async function fetchPageText(deps: IngestWorkerDeps, url: string): Promise<PageText> {
-  let res: Awaited<ReturnType<Fetcher>>;
-  try {
-    res = await deps.fetch(url, {
-      maxBytes: maxPageBytes,
-      timeoutMs: fetchTimeoutMs,
-      headers: { accept: "text/html, text/markdown;q=0.9, text/plain;q=0.8" },
-      logger: deps.logger,
-    });
-  } catch (error) {
-    // A blocked or failed fetch is the source's problem, not a reason to retry the job.
-    if (error instanceof SafeFetchError) return { ok: false, error: error.code };
-    throw error;
-  }
-  if (res.status < 200 || res.status > 299) return { ok: false, error: `http_${res.status}` };
-
-  const [mediaType = "", ...params] = String(res.headers["content-type"] ?? "")
-    .toLowerCase()
-    .split(";")
-    .map((p) => p.trim());
-  const isHtml = htmlTypes.has(mediaType);
-  if (!isHtml && !textTypes.has(mediaType)) return { ok: false, error: "unsupported_content_type" };
-
-  // `charset="iso-8859-1"` is valid too: the quotes aren't part of the label. Without one in
-  // the header, a page can still say it in a <meta> tag.
-  const declared =
-    params
-      .find((p) => p.startsWith("charset="))
-      ?.slice(8)
-      .replaceAll(/^["']|["']$/g, "")
-      .trim() || (isHtml ? metaCharset(res.body) : undefined);
-  const body = decode(res.body, declared);
-  return { ok: true, text: isHtml ? extractHtml(body).text : tidyAuthored(body) };
-}
-
-/**
- * Bytes to text in the declared charset. Undeclared (or unknown): UTF-8 when the bytes are
- * valid UTF-8, as nearly all pages are, else windows-1252, the old web's default.
- */
-function decode(bytes: Uint8Array, declared: string | undefined): string {
-  // A byte order mark settles it, whatever the page or the server says.
-  const bom =
-    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
-      ? "utf-8"
-      : bytes[0] === 0xfe && bytes[1] === 0xff
-        ? "utf-16be"
-        : bytes[0] === 0xff && bytes[1] === 0xfe
-          ? "utf-16le"
-          : undefined;
-  // UTF-16 text has a zero byte in nearly every Latin character. A "utf-16" label on bytes
-  // without one is a misconfigured server, and reading it as UTF-16 would make it nonsense.
-  const misread =
-    !bom && declared && /^utf-16/i.test(declared) && !bytes.subarray(0, 1024).includes(0);
-  const charset = bom ?? (misread ? undefined : declared);
-  if (charset) {
-    try {
-      return new TextDecoder(charset).decode(bytes);
-    } catch {
-      // An unknown label: guess as if none was given.
-    }
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return new TextDecoder("windows-1252").decode(bytes);
-  }
-}
-
-/** The vector for one chunk. The count was checked, so a missing one is a bug: say so. */
 function vectorAt(embeddings: number[][], position: number): number[] {
   const vector = embeddings[position];
   if (!vector) throw new Error(`ingest: no vector for chunk ${position}`);
   return vector;
 }
 
-/**
- * Runs once every attempt failed. The handler throws only on database errors (everything
- * else marks the source itself), so this is a database that stayed broken: the source is
- * marked `failed` with `ingest_error`, for someone to re-ingest, instead of staying `pending`
- * with no job left to run it. The last good passages stay in use.
- *
- * Only if no newer ingest request came in since the job was queued (`requests`): an edit or a
- * re-ingest asked for after that has its own run waiting, and failing the source here would
- * make that run quit ("not pending") and the change never get ingested. That request's run may
- * be this very job (a pending source reuses its queued one), so a fresh job is queued for it.
- */
 export async function handleIngestGaveUp(
   payload: { tenantId: string; sourceId: string; requests: number },
   tx: TenantTx,
@@ -243,20 +100,6 @@ export async function handleIngestGaveUp(
   });
 }
 
-/**
- * Turns one knowledge source into embedded chunks. A page that fails on a temporary error is
- * tried again a few seconds later. If the site or the embedding provider is still down, the
- * source waits, `pending` with the reason, for one more try 15 minutes later. A spent daily
- * budget is a wait too, until it resets. A source that can't be used (blocked URL, 404, no
- * text, wrong embedding key, still down after its wait) is marked `failed` with a short
- * reason, so a source never stays `pending` with no job to run it. Only database errors
- * throw, and pg-boss retries those. When a re-ingest fails, the chunks from the last
- * good ingest stay in use, so a flaky site doesn't empty the knowledge base, unless the page's
- * answer shows they no longer describe it (`supersededBy`).
- *
- * The fetch and the embedding call run with no transaction open, so a slow site holds no
- * connection or row lock: a delete or re-ingest of the source never waits for it.
- */
 export function handleIngestSource(deps: IngestWorkerDeps) {
   const budget = aiBudget(deps);
   return async (
@@ -274,11 +117,6 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     // the result is from before it: see `lockIfCurrent`.
     const requests = source.ingestRequests;
 
-    /**
-     * Locks the source and checks this run's result is still wanted. Deleted: nothing to
-     * write. Asked to ingest again meanwhile: that request gets a run of its own, because its
-     * job may be this one (a pending source reuses its queued job).
-     */
     const lockIfCurrent = async (tx: TenantTx): Promise<boolean> => {
       const [current] = await tx
         .select({ status: knowledgeSources.status, requests: knowledgeSources.ingestRequests })
@@ -316,7 +154,6 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
 
     const started = now();
 
-    /** Not a failure: the source stays `pending` with the reason, and runs again by itself. */
     const waitUntil = (reason: string, startAfter: Date, singletonKey: string) =>
       transaction(async (tx) => {
         if (!(await lockIfCurrent(tx))) return;
