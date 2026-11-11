@@ -30,4 +30,4 @@ HelpOS is pre-1.0 and has no releases yet. Security fixes land on `main`. After 
 
 ## Scope
 
-Especially welcome: cross-tenant data access, authentication or token bypass, prompt injection that leads to unauthorised actions, SSRF, and stored XSS in email rendering.
+Especially welcome: cross-tenant data access, authentication or token bypass, prompt injection that leads to unauthorised actions, SSRF, and stored XSS in email rendering. The [threat model](docs/security/threat-model.md) lists what we defend against and how.
