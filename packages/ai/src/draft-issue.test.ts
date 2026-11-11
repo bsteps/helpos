@@ -5,9 +5,12 @@ import {
   failedDraftCost,
   formatIssue,
   issueDraftTokenEstimate,
+  issueInstructions,
   sanitizeIssue,
   sanitizeIssueText,
 } from "./draft-issue.ts";
+import { fenceEmail } from "./draft-reply.ts";
+import { tokenBound } from "./estimate.ts";
 import { mockModel } from "./testing.ts";
 
 describe("sanitizeIssueText", () => {
@@ -201,6 +204,26 @@ describe("formatIssue", () => {
 });
 
 describe("issueDraftTokenEstimate", () => {
+  it("reserves the exact structured-output schema passed to the model", async () => {
+    const model = mockModel({
+      text: JSON.stringify({
+        title: "t",
+        summary: "s",
+        stepsToReproduce: [],
+        expected: "e",
+        actual: "a",
+      }),
+    });
+    const input = { from: "a@b.test", subject: "s", body: "字" };
+    await draftGithubIssue(model, input);
+    const format = model.doGenerateCalls[0]?.responseFormat;
+    expect(format?.type).toBe("json");
+    if (format?.type !== "json" || !format.schema) throw new Error("Missing output schema");
+    expect(issueDraftTokenEstimate(input)).toBe(
+      tokenBound(issueInstructions, fenceEmail(input), JSON.stringify(format.schema)) + 2_000,
+    );
+  });
+
   it("counts UTF-8 bytes, so text in any language is never underestimated", () => {
     const ascii = issueDraftTokenEstimate({
       from: "a@b.test",
