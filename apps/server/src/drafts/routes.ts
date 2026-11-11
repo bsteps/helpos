@@ -2,7 +2,7 @@ import { quotesInternalPassage } from "@helpos/ai";
 import { and, asc, type Database, enqueue, eq, inArray, schema, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
-import { aiBudget } from "../ai-budget/budget.ts";
+import { aiBudget, dailyBudgetRefusal, mapAiRefusal } from "../ai-budget/budget.ts";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute, Grant } from "../auth/access.ts";
 import type { Principal } from "../auth/principal.ts";
@@ -392,7 +392,14 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         if (lock.closed) return "conversation_closed" as const;
         // Checked before anything is discarded: a refused regenerate leaves the current draft
         // alone, and the caller hears why instead of waiting for a draft that never comes.
-        if ((await budget.today(tx, tenantId)).paused) return "daily_budget_reached" as const;
+        const refusal = dailyBudgetRefusal(await budget.today(tx, tenantId));
+        const refused =
+          refusal &&
+          mapAiRefusal(refusal, {
+            busy: () => null,
+            over_budget: () => "daily_budget_reached" as const,
+          });
+        if (refused) return refused;
         const stale = await discardStale(tx, context, {
           conversationIds: [conversationId],
           kind: "reply",

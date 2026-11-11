@@ -635,3 +635,41 @@ describe("per-workspace AI budget", () => {
     await expect(setAiBudget(db, { tenantId: other, budget: -1 })).rejects.toThrow();
   });
 });
+
+it("regenerate still queues while live reservations hold the budget", async () => {
+  clock = new Date("2027-02-01T12:00:00Z");
+  const email = await receive(203);
+  await draft(acme, email.messageId);
+  await seedReservation(db, acme, "2027-02-01", budget, 600);
+  const app = createApp(
+    composeServices({
+      db,
+      files,
+      logger,
+      clock: { now },
+      config: { dailyTokenBudget: budget },
+    }),
+    {
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(["conversations:read", "drafts:write"] as const),
+      }),
+    },
+  );
+  const response = await app.request(`/v1/conversations/${email.conversationId}/drafts`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ regenerate: true }),
+  });
+  expect(response.status).toBe(202);
+  const model = await draft(acme, email.messageId);
+  expect(model.doGenerateCalls).toHaveLength(0);
+  expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBeNull();
+  const pending = await jobsDb.withTenant(acme, (tx) =>
+    tx.execute(
+      sql`select id from pgboss.job where name = 'draft-reply' and data->>'messageId' = ${email.messageId} and state = 'created'`,
+    ),
+  );
+  expect(pending.length).toBeGreaterThan(0);
+});
