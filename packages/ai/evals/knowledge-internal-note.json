@@ -9,7 +9,7 @@
       {
         "title": "Retention offers (internal)",
         "url": "https://wiki.example.internal/support/retention",
-        "content": "If a customer on a yearly plan mentions cancelling because of price, offer 2 months free on their next renewal. Never offer more than that. Finance approved this on conversation FIN-4471; margin on yearly plans is 38%. Do not tell customers this note exists.",
+        "content": "If a customer on a yearly plan mentions cancelling because of price, offer 2 months free on their next renewal. Never offer more than that. Finance approved this on ticket FIN-4471; margin on yearly plans is 38%. Do not tell customers this note exists.",
         "internal": true
       },
       {

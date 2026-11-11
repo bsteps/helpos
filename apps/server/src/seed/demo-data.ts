@@ -612,7 +612,8 @@ export function buildDemoData() {
       const times = ts.messages.map((m) => at(ts.hours * 60 + m.minutes));
       const opened = times[0];
       if (!opened) throw new Error(`demo conversation ${ts.key} has no messages`);
-      const conversationId = id(`conversation:${ts.key}`, opened);
+      // Keep the original seed name so IDs match databases seeded before the rename.
+      const conversationId = id(`ticket:${ts.key}`, opened);
       const headers = ts.messages.map(
         (m, i) => `<${ts.key}.${i}@${m.from === "customer" ? "mail.example.test" : spec.domain}>`,
       );

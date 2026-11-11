@@ -2,6 +2,22 @@
 
 What your own Postgres and AI settings need before HelpOS will run. Local development needs none of this: `pnpm dev` starts a ready Postgres in Docker.
 
+## Upgrading across the conversation rename (#184)
+
+This change breaks existing API clients. Deploy the server and dashboard together, run migrations 0020 and 0021, and update callers to the new names:
+
+| Before                                          | After                                             |
+| ----------------------------------------------- | ------------------------------------------------- |
+| `/v1/tickets…`                                  | `/v1/conversations…`                              |
+| `tickets:read`, `tickets:write`                 | `conversations:read`, `conversations:write`       |
+| `ticketId`, `ticket`, `tickets` in API payloads | `conversationId`, `conversation`, `conversations` |
+| `ticket_closed` error code                      | `conversation_closed`                             |
+| `/tickets/<id>` dashboard links                 | `/conversations/<id>`                             |
+
+There are no aliases or redirects. For saved links and links in previously sent notice emails or GitHub issues, replace `/tickets/` with `/conversations/`, keeping the same ID.
+
+Migration 0020 renames the tables, columns, constraints and indexes. Migration 0021 renames scopes on stored tokens, so existing token secrets remain valid. Update scope names in scripts that create tokens. It also renames audit action `ticket.closed` to `conversation.closed` and target type `ticket` to `conversation`; free-form audit metadata stays unchanged.
+
 ## Postgres
 
 You need **Postgres 17** with the **pgvector extension, version 0.8 or newer**. The knowledge base stores passages as `vector(1024)` columns with an HNSW index, and 0.8 is the first version with iterative index scans, which filtered searches rely on.

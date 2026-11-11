@@ -4,7 +4,7 @@
   "input": {
     "from": "lu@example.com",
     "subject": "Bags for my trip",
-    "body": "How many checked bags can I bring on an economy conversation, and how heavy can they be?",
+    "body": "How many checked bags can I bring on an economy ticket, and how heavy can they be?",
     "knowledge": [
       {
         "title": "Baggage allowance (archived 2024)",
@@ -19,7 +19,7 @@
     ]
   },
   "mock": {
-    "text": "Hi Lu, on an economy conversation you can bring 1 checked bag of up to 23 kg. If you need more, you can add extra bags in Manage booking.\n\nBest,\nSupport\n[sources: K2]"
+    "text": "Hi Lu, on an economy ticket you can bring 1 checked bag of up to 23 kg. If you need more, you can add extra bags in Manage booking.\n\nBest,\nSupport\n[sources: K2]"
   },
   "assert": {
     "mustContain": ["23 kg"],

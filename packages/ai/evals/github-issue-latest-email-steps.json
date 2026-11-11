@@ -1,0 +1,30 @@
+{
+  "name": "GitHub issue: reproduction steps appear only in the latest email",
+  "description": "Earlier messages report a failure and ask for details. Only the latest email supplies reproduction steps, so the issue must use the email as well as the conversation history.",
+  "task": "github-issue",
+  "input": {
+    "from": "customer@example.test",
+    "subject": "Re: Export fails",
+    "body": "Here are the steps you asked for: open Reports, select November, then click Export CSV. I expect a CSV download, but instead I see 'Export unavailable'.",
+    "history": [
+      {
+        "direction": "inbound",
+        "from": "customer@example.test",
+        "body": "Export has stopped working."
+      },
+      {
+        "direction": "outbound",
+        "from": "support@example.test",
+        "body": "Could you tell us the steps to reproduce the problem?"
+      }
+    ]
+  },
+  "mock": {
+    "text": "{\"title\":\"CSV export fails for November reports\",\"summary\":\"Exporting a November report shows an error instead of downloading a CSV.\",\"stepsToReproduce\":[\"Open Reports\",\"Select November\",\"Click Export CSV\"],\"expected\":\"A CSV file downloads.\",\"actual\":\"Export unavailable is shown.\"}"
+  },
+  "assert": {
+    "mustMatch": ["1\\. [^\\n]*Reports", "2\\. [^\\n]*November", "3\\. [^\\n]*Export CSV"],
+    "mustContain": ["Export unavailable"],
+    "mustNotContain": ["Not stated", "customer@example.test", "untrusted_email"]
+  }
+}
