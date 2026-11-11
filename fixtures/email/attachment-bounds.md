@@ -1,6 +1,6 @@
 # Inbound attachment bounds
 
-Run `node fixtures/email/generate-attachment-limit.mjs` to regenerate
+Run `node scripts/generate-attachment-limit.mjs` to regenerate
 `attachment-limit.eml`. It contains 21 attachments, one more than the storage
 cap, and a filename longer than the 255 Unicode code point limit.
 
