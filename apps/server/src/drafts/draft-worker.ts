@@ -301,10 +301,11 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
       .filter((m) => m.automatedReason === null)
       .map((m) => ({ direction: m.direction, from: m.from, body: messageText(m) })),
   };
-  const query = {
+  const query: SearchQuery = {
     tenantId: payload.tenantId,
     text: retrievalQuery(row.subject, emailBody),
     limit: knowledgeLimit,
+    audience: "approver",
   };
   // The search's embedding of the email, and the reply with as many passages as it may find.
   const estimate =

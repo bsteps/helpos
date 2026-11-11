@@ -40,6 +40,7 @@ export {
   tenantTransactions,
 } from "./jobs.ts";
 export {
+  hasSearchableKnowledge,
   isKnowledgeUrlTaken,
   type KnowledgeHit,
   type KnowledgeQuery,
