@@ -119,26 +119,9 @@ The AI only fills text fields, and the API sends GitHub only a title and a body,
 
 ## Core data model
 
-Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`. Owner columns, roles, special grants and how to add a table are in [data-model.md](data-model.md).
+Every tenant table has `tenant_id` with RLS enabled and forced (ADR 0003), except `tenants` itself, and users live in the separate `auth` schema (ADR 0009), linked to workspaces by `memberships`. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
 
-| Table                  | What it is                                                                                                             |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `tenants`              | A workspace (the UI says "workspace")                                                                                  |
-| `users`                | Humans (Better Auth tables in the `auth` schema, no `tenant_id`)                                                       |
-| `memberships`          | Which workspaces a user belongs to (tenant table, RLS)                                                                 |
-| `mailboxes`            | Support addresses. Inbound mail is routed to a tenant by address                                                       |
-| `customers`            | People who write in                                                                                                    |
-| `tickets`              | A conversation with a customer                                                                                         |
-| `messages`             | Inbound and outbound emails on a ticket                                                                                |
-| `attachments`          | Metadata; the bytes live in the files adapter                                                                          |
-| `drafts`               | Replies and "fixed" notices: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed |
-| `draft_citations`      | Knowledge passages a draft was written with, and which it cited                                                        |
-| `knowledge_sources`    | Pages and docs for the AI, `public` or `internal`; app or git (ADR 0010)                                               |
-| `knowledge_chunks`     | Embedded passages of a source (pgvector, searched per ADR 0009 §4)                                                     |
-| `api_tokens`           | Agent tokens: hashed, scoped, revocable (`hos_…`)                                                                      |
-| `audit_events`         | Append-only log of every human and agent action                                                                        |
-| `integrations`         | The linked GitHub repo, its token and webhook secret (both encrypted)                                                  |
-| `ticket_github_issues` | The GitHub issue made from a ticket, and whether it's open or closed                                                   |
+Each table, its owner column, the roles and special grants, and how to add a table are in [data-model.md](data-model.md). A leak test keeps that page complete.
 
 ## Trust boundaries
 
