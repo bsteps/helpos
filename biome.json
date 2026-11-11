@@ -23,7 +23,8 @@
     "./biome-plugins/route-audit.grit",
     "./biome-plugins/github-integration.grit",
     "./biome-plugins/draft-writes.grit",
-    "./biome-plugins/ai-usage.grit"
+    "./biome-plugins/ai-usage.grit",
+    "./biome-plugins/paid-ai.grit"
   ],
   "formatter": {
     "enabled": true,
@@ -80,7 +81,9 @@
           "style": {
             "noExcessiveLinesPerFile": {
               "level": "error",
-              "options": { "maxLines": 600 }
+              "options": {
+                "maxLines": 600
+              }
             }
           }
         }

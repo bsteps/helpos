@@ -13,6 +13,7 @@ import {
   replyDraftTokenEstimate,
 } from "./draft-reply.ts";
 import { tokenBound } from "./estimate.ts";
+import { withPaidModels } from "./paid-model.ts";
 import { mockModel } from "./testing.ts";
 
 const email = { from: "jane@customer.test", subject: "Late order", body: "Where is my order?" };
@@ -20,7 +21,9 @@ const email = { from: "jane@customer.test", subject: "Late order", body: "Where 
 describe("draftReply", () => {
   it("sends the rules as the system message and the email only as quoted data", async () => {
     const model = mockModel({ text: "Hi Jane" });
-    const result = await draftReply(model, email);
+    const result = await withPaidModels(new AbortController().signal, (models) =>
+      draftReply(models(model), email),
+    );
     expect(result.text).toBe("Hi Jane");
 
     const prompt = model.doGenerateCalls[0]?.prompt ?? [];
@@ -34,12 +37,20 @@ describe("draftReply", () => {
 
   it("returns the token usage the model reports", async () => {
     const model = mockModel({ text: "Hi", usage: { inputTokens: 120, outputTokens: 30 } });
-    expect((await draftReply(model, email)).usage).toEqual({ inputTokens: 120, outputTokens: 30 });
+    expect(
+      (
+        await withPaidModels(new AbortController().signal, (models) =>
+          draftReply(models(model), email),
+        )
+      ).usage,
+    ).toEqual({ inputTokens: 120, outputTokens: 30 });
   });
 
   it("offers the model no tools", async () => {
     const model = mockModel({ text: "Hi" });
-    await draftReply(model, email);
+    await withPaidModels(new AbortController().signal, (models) =>
+      draftReply(models(model), email),
+    );
     expect(model.doGenerateCalls[0]?.tools ?? []).toEqual([]);
     expect(model.doGenerateCalls).toHaveLength(1);
   });
@@ -79,7 +90,9 @@ describe("draftReply", () => {
         execute: async () => "Noted.",
       },
     };
-    const result = await draftReply(model, email, { tools });
+    const result = await withPaidModels(new AbortController().signal, (models) =>
+      draftReply(models(model), email, { tools }),
+    );
     expect(result.text).toBe("Hi Jane, a teammate will follow up.");
     expect(result.toolCalls).toEqual(["escalate_to_human"]);
     // Both steps' tokens count.
@@ -141,7 +154,9 @@ const articles = [
 describe("draftReply with knowledge", () => {
   it("adds the knowledge rules and quotes the passages as data, apart from the email", async () => {
     const model = mockModel({ text: "Hi, refunds take 5 days.\n[sources: K1]" });
-    const result = await draftReply(model, { ...email, knowledge: articles });
+    const result = await withPaidModels(new AbortController().signal, (models) =>
+      draftReply(models(model), { ...email, knowledge: articles }),
+    );
 
     const prompt = model.doGenerateCalls[0]?.prompt ?? [];
     const system = JSON.stringify(prompt.filter((m) => m.role === "system"));
@@ -157,7 +172,9 @@ describe("draftReply with knowledge", () => {
 
   it("keeps the plain rules, and the text untouched, when nothing was retrieved", async () => {
     const model = mockModel({ text: "Hi\n[sources: K1]" });
-    const result = await draftReply(model, { ...email, knowledge: [] });
+    const result = await withPaidModels(new AbortController().signal, (models) =>
+      draftReply(models(model), { ...email, knowledge: [] }),
+    );
     expect(model.doGenerateCalls[0]?.prompt[0]).toEqual({
       role: "system",
       content: draftInstructions,
@@ -386,7 +403,9 @@ describe("replyDraftTokenEstimate", () => {
     };
     const knowledge = Array.from({ length: 5 }, () => passage);
     const model = mockModel({ text: "Hi" });
-    await draftReply(model, { ...email, knowledge });
+    await withPaidModels(new AbortController().signal, (models) =>
+      draftReply(models(model), { ...email, knowledge }),
+    );
     const call = model.doGenerateCalls[0];
     expect(call?.maxOutputTokens).toBe(2_000);
     const prompt = tokenBound(
@@ -420,7 +439,12 @@ describe("one provider attempt per reservation", () => {
           });
         },
       });
-      await expect(generate(model, email)).rejects.toThrow("response lost");
+      await expect(
+        withPaidModels(
+          new AbortController().signal,
+          async (models) => await generate(models(model), email),
+        ),
+      ).rejects.toThrow("response lost");
       expect(calls).toBe(1);
     },
   );

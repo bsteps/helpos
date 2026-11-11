@@ -1,0 +1,20 @@
+language js
+
+or {
+  `import $imports from $source`,
+  `import $source`,
+  `export { $exports } from $source`,
+  `export * from $source`,
+  `import($source)`,
+  `require($source)`
+} as $load where {
+  $filename <: not r".*packages[/\\]ai[/\\].*",
+  or {
+    $source <: r".(?:ai(?:/.*)?|@ai-sdk/.*).",
+    and {
+      $source <: r".(?:@helpos/ai/budget|.*paid-model.*).",
+      $filename <: not r".*apps[/\\]server[/\\]src[/\\]ai-budget[/\\]budget\.ts"
+    }
+  },
+  register_diagnostic(span=$load, message="AI SDK imports belong only in packages/ai. Only ai-budget/budget.ts may open a paid model context through @helpos/ai/budget.", severity="error")
+}

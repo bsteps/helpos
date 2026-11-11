@@ -3,6 +3,7 @@ import { APICallError, type EmbeddingModel, embedMany, RetryError } from "ai";
 import { z } from "zod";
 import { AiConfigError } from "./config.ts";
 import { tokenBound } from "./estimate.ts";
+import { type PaidModel, paidModelOptions } from "./paid-model.ts";
 
 /**
  * The vector size every stored embedding has. Fixed, because the database column and its index
@@ -116,9 +117,8 @@ export class EmbedError extends Error {
  * later. A failure carries earlier usage plus the failed batch bound, since it may be billed.
  */
 export async function embedTexts(
-  model: EmbeddingModel,
+  model: PaidModel<EmbeddingModel>,
   values: string[],
-  options: { abortSignal?: AbortSignal } = {},
 ): Promise<EmbedResult> {
   const embeddings: number[][] = [];
   let tokens = 0;
@@ -127,12 +127,9 @@ export async function embedTexts(
     let result: Awaited<ReturnType<typeof embedMany>>;
     try {
       result = await embedMany({
-        // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
-        maxRetries: 0,
-        model,
+        ...paidModelOptions(model),
         values: batch,
         dimensions: embeddingDimensions,
-        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });
     } catch (cause) {
       throw new EmbedError(tokens + tokenBound(...batch), { cause });

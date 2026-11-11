@@ -20,7 +20,7 @@ import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { createSafeFetch, isBlockedAddress, safeFetch } from "@helpos/safe-fetch";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { utcDay } from "../ai-budget/budget.ts";
+import { aiBudget, utcDay } from "../ai-budget/budget.ts";
 import { usageOn } from "../ai-budget/testing.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
@@ -803,7 +803,7 @@ describe("embedding model changes", () => {
 
   it("a new model never compares against old vectors, and skips the embedding call", async () => {
     const newModel = mockEmbeddingModel("new-model");
-    const result = await createVectorSearch(newModel).search(tenantTransactions(db, acme), {
+    const result = await paidSearch(createVectorSearch(newModel), tenantTransactions(db, acme), {
       tenantId: acme,
       text: "refunds",
       limit: 5,
@@ -1419,7 +1419,7 @@ describe("drafting with knowledge", () => {
           inTransaction = false;
         }
       });
-    const result = await createVectorSearch(model).search(transaction, {
+    const result = await paidSearch(createVectorSearch(model), transaction, {
       tenantId: acme,
       text: "refunds",
       limit: 5,
@@ -1430,7 +1430,7 @@ describe("drafting with knowledge", () => {
 
   it("leak: vector search as Acme never returns Other's chunks", async () => {
     const search = createVectorSearch(embeddingModel);
-    const result = await search.search(tenantTransactions(db, acme), {
+    const result = await paidSearch(search, tenantTransactions(db, acme), {
       tenantId: acme,
       text: "refunds refunds OTHER-SECRET",
       limit: 20,
@@ -1442,7 +1442,7 @@ describe("drafting with knowledge", () => {
 
   it("a public-only search in a workspace with only internal notes makes no embedding call", async () => {
     const fresh = mockEmbeddingModel();
-    const result = await createVectorSearch(fresh).search(tenantTransactions(db, other), {
+    const result = await paidSearch(createVectorSearch(fresh), tenantTransactions(db, other), {
       tenantId: other,
       text: "refunds",
       limit: 5,
@@ -1454,7 +1454,7 @@ describe("drafting with knowledge", () => {
 
   it("a search that allows no visibility finds nothing, and makes no call", async () => {
     const fresh = mockEmbeddingModel();
-    const result = await createVectorSearch(fresh).search(tenantTransactions(db, acme), {
+    const result = await paidSearch(createVectorSearch(fresh), tenantTransactions(db, acme), {
       tenantId: acme,
       text: "refunds",
       limit: 5,
@@ -1466,7 +1466,7 @@ describe("drafting with knowledge", () => {
 
   it("a public-only search never returns internal notes", async () => {
     const search = createVectorSearch(embeddingModel);
-    const result = await search.search(tenantTransactions(db, acme), {
+    const result = await paidSearch(search, tenantTransactions(db, acme), {
       tenantId: acme,
       text: "refunds password shipping",
       limit: 20,
@@ -1598,7 +1598,7 @@ describe("editing sources", () => {
         .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id)),
     );
   const search = (tenantId: string, text: string, visibility?: ("public" | "internal")[]) =>
-    createVectorSearch(embeddingModel).search(tenantTransactions(db, tenantId), {
+    paidSearch(createVectorSearch(embeddingModel), tenantTransactions(db, tenantId), {
       tenantId,
       text,
       limit: 20,
@@ -1615,8 +1615,13 @@ describe("editing sources", () => {
     const ready = await ingested(acme, added.id);
     const chunksBefore = (await chunksOf(acme, added.id)).map((c) => c.id);
     const tokensBefore = await tokensToday();
-    const publicIds = async () =>
-      (await search(acme, "gift cards expire", ["public"])).hits.map((h) => h.sourceId);
+    let searchTokens = 0;
+    const publicSearch = async () => {
+      const result = await search(acme, "gift cards expire", ["public"]);
+      searchTokens += result.tokens;
+      return result.hits;
+    };
+    const publicIds = async () => (await publicSearch()).map((h) => h.sourceId);
     expect(await publicIds()).not.toContain(added.id);
 
     const res = await edit(added.id, { visibility: "public", title: "Gift card rules" });
@@ -1628,16 +1633,15 @@ describe("editing sources", () => {
       visibility: "public",
       status: "ready",
     });
-    const hits = (await search(acme, "gift cards expire", ["public"])).hits;
+    const hits = await publicSearch();
     expect(hits.find((h) => h.sourceId === added.id)?.title).toBe("Gift card rules");
 
     expect((await edit(added.id, { visibility: "internal" })).status).toBe(200);
     expect(await publicIds()).not.toContain(added.id);
 
-    // Nothing re-ingested: the same passages, no new ingest, no embedding spend.
     expect((await chunksOf(acme, added.id)).map((c) => c.id)).toEqual(chunksBefore);
     expect((await sourceOf(acme, added.id))?.ingestedAt).toEqual(ready.ingestedAt);
-    expect(await tokensToday()).toBe(tokensBefore);
+    expect(await tokensToday()).toBe(tokensBefore + searchTokens);
     const actions = (await auditOf(acme, added.id)).map((e) => e.action);
     expect(actions).toHaveLength(5);
     expect(actions.slice(0, 2)).toEqual(["knowledge_source.created", "knowledge_source.ingested"]);
@@ -1812,3 +1816,24 @@ describe("editing sources", () => {
     expect(await sourceOf(acme, git?.id ?? "")).toMatchObject({ visibility: "internal" });
   });
 });
+
+async function paidSearch(
+  search: ReturnType<typeof createVectorSearch>,
+  transaction: Parameters<typeof search.search>[0],
+  query: Parameters<typeof search.search>[1],
+) {
+  const budget = aiBudget({ clock: systemClock, config: defaultConfig, logger });
+  const reservation = await transaction((tx) =>
+    budget.reserve(tx, query.tenantId, tokenBound(query.text)),
+  );
+  if (reservation === "busy" || "refused" in reservation) throw new Error("Search budget refused");
+  return budget.spend(
+    transaction,
+    reservation,
+    (_signal, models) => search.search(transaction, query, models),
+    {
+      of: (result) => ({ inputTokens: result.tokens, outputTokens: 0 }),
+      ofFailure: () => "unknown",
+    },
+  );
+}
