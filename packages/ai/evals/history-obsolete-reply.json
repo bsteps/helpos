@@ -1,0 +1,40 @@
+{
+  "name": "Correct an obsolete earlier reply",
+  "description": "An earlier outbound reply gave an obsolete upload limit. Current knowledge and the latest question require the new limit. Mock proves transport; live judges whether the reply corrects the old answer.",
+  "input": {
+    "from": "customer@example.test",
+    "subject": "Upload limit",
+    "body": "Has the upload limit changed since your earlier reply? What is the current limit?",
+    "history": [
+      {
+        "direction": "inbound",
+        "from": "customer@example.test",
+        "body": "What is the upload limit?"
+      },
+      {
+        "direction": "outbound",
+        "from": "support@shop.test",
+        "body": "The upload limit is 10 MB per file."
+      }
+    ],
+    "knowledge": [
+      {
+        "title": "Current upload limit",
+        "content": "The current upload limit is 25 MB per file. This replaces the previous limit."
+      }
+    ]
+  },
+  "mock": {
+    "text": "The current upload limit is 25 MB per file. Sorry for the outdated information in our earlier reply.\n[sources: K1]"
+  },
+  "assert": {
+    "mustMatch": ["25\\s*MB"],
+    "mustNotMatch": ["(?:limit is|up to|maximum of)\\s*10\\s*MB"],
+    "exactCitations": ["Current upload limit"],
+    "promptMustContain": [
+      "What is the upload limit?",
+      "The upload limit is 10 MB per file.",
+      "Has the upload limit changed since your earlier reply? What is the current limit?"
+    ]
+  }
+}

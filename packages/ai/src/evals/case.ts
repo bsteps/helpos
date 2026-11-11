@@ -25,6 +25,15 @@ export const evalCaseSchema = z.strictObject({
     from: z.string(),
     subject: z.string(),
     body: z.string(),
+    history: z
+      .array(
+        z.strictObject({
+          direction: z.enum(["inbound", "outbound"]),
+          from: z.string(),
+          body: z.string(),
+        }),
+      )
+      .optional(),
     /**
      * Knowledge passages, as retrieval would hand them to the drafter, best match first.
      * Titles are unique: mustCite and mustNotCite name a passage by its title.

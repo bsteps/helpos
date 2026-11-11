@@ -35,7 +35,11 @@ export type TaskOutput = {
 
 /** The task evals run: the same draftReply() and prompt the draft-reply job uses. */
 export async function draftReplyTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
-  const { text, toolCalls, cited } = await draftReply(model, input, { tools: evalTools });
+  const { text, toolCalls, cited } = await draftReply(
+    model,
+    { ...input, history: input.history ?? [] },
+    { tools: evalTools },
+  );
   const titles = cited.map((i) => input.knowledge?.[i]?.title ?? `K${i + 1}`);
   const internal = (input.knowledge ?? []).filter((k) => k.internal).map((k) => k.content);
   return {
@@ -51,6 +55,6 @@ export async function draftReplyTask(model: LanguageModel, input: EvalInput): Pr
  * drafts are never given the knowledge base, so there is no internal note they could quote.
  */
 export async function draftIssueTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
-  const { title, body } = await draftGithubIssue(model, input);
+  const { title, body } = await draftGithubIssue(model, { ...input, history: input.history ?? [] });
   return { text: `${title}\n\n${body}`, toolCalls: [], cited: [], quotesInternal: false };
 }
