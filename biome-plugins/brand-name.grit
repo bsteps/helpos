@@ -1,0 +1,14 @@
+language js
+
+or {
+  JsStringLiteralExpression(),
+  JsxString(),
+  JsTemplateChunkElement(),
+  JsxText()
+} as $name where {
+  $name <: r"(?s).*\bHelpOS\b.*",
+  $filename <: r".*[/\\](?:apps|packages)[/\\].*",
+  $filename <: not r".*[/\\]packages[/\\]brand[/\\].*",
+  $filename <: not r".*\.(?:test|spec)\.[cm]?[jt]sx?$",
+  register_diagnostic(span=$name, message="Import brand from @helpos/brand instead of hardcoding the product display name.", severity="error")
+}

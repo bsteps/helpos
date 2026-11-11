@@ -1,0 +1,13 @@
+language js
+
+or {
+  `$context.req.json($...)`,
+  `$context.req.text($...)`,
+  `$context.req.parseBody($...)`,
+  `$context.req.formData($...)`,
+  `$context.req.arrayBuffer($...)`
+} as $read where {
+  $filename <: r".*[/\\]apps[/\\]server[/\\]src[/\\].*",
+  $filename <: not r".*[/\\]apps[/\\]server[/\\]src[/\\](?:inbound-email[/\\]route|github[/\\]webhook)\.ts$",
+  register_diagnostic(span=$read, message="Use c.req.valid() with the route's Zod schema. Raw request bodies belong only in inbound-email/route.ts and github/webhook.ts.", severity="error")
+}

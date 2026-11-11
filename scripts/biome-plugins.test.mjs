@@ -22,7 +22,7 @@ function lint(source, name) {
     out = execFileSync(process.execPath, [biome, "lint", file, "--reporter=json"], {
       cwd: root,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "ignore"],
     });
   } catch (error) {
     out = error.stdout;
@@ -125,4 +125,118 @@ test("a route file past 600 lines is reported", () => {
   assert.ok(ids.includes("lint/style/noExcessiveLinesPerFile"), JSON.stringify(ids));
   // Other files are not held to the limit.
   assert.ok(!lint(long, "helpers.ts").some((d) => d.category.endsWith("noExcessiveLinesPerFile")));
+});
+for (const source of [
+  "export function f() { try { work(); } catch {} }",
+  "export function f() { try { work(); } catch (error) {} }",
+  "export function f() { try { work(); } catch { /* ignored */ } }",
+]) {
+  test(`empty catch is rejected: ${source}`, () => {
+    assert.ok(pluginMessages(source, "helper.mjs").some((m) => /empty catch/.test(m)));
+  });
+}
+test("intentional no-op callbacks and handled errors are allowed", () => {
+  assert.deepEqual(
+    pluginMessages(
+      "export const f = () => {}; export function g() { try { work(); } catch { return false; } }",
+      "helper.mjs",
+    ),
+    [],
+  );
+});
+for (const method of ["json", "text", "parseBody", "formData", "arrayBuffer"]) {
+  test(`raw request ${method} is rejected outside the raw routes`, () => {
+    assert.ok(
+      pluginMessages(`export const f = (ctx) => ctx.req.${method}();`, "handler.ts").some((m) =>
+        /req.valid/.test(m),
+      ),
+    );
+  });
+}
+test("validated request and response body reads are allowed", () => {
+  assert.deepEqual(
+    pluginMessages('export const f = (c, response) => [c.req.valid("json"), response.json()];'),
+    [],
+  );
+});
+test("hardcoded display name is rejected", () => {
+  assert.ok(
+    pluginMessages('export const title = "HelpOS";').some((m) => /product display name/.test(m)),
+  );
+});
+test("brand imports and test display strings are allowed", () => {
+  assert.deepEqual(
+    pluginMessages('import { brand } from "@helpos/brand"; export const title = brand.name;'),
+    [],
+  );
+  assert.deepEqual(pluginMessages('export const title = "HelpOS";', "brand.test.ts"), []);
+});
+test("filenames must be kebab case", () => {
+  assert.ok(
+    lint("export const a = 1;", "BadName.ts").some(
+      (d) => d.category === "lint/style/useFilenamingConvention",
+    ),
+  );
+  assert.ok(
+    !lint("export const a = 1;", "good-name.test.ts").some(
+      (d) => d.category === "lint/style/useFilenamingConvention",
+    ),
+  );
+});
+
+for (const path of [
+  "apps/server/src/inbound-email/route.ts",
+  "apps/server/src/github/webhook.ts",
+]) {
+  test(`raw body owner is allowed: ${path}`, () => {
+    const diagnostics = lint("export const f = (c) => c.req.arrayBuffer();", path);
+    assert.deepEqual(
+      diagnostics.filter((d) => d.category === "plugin"),
+      [],
+    );
+  });
+}
+for (const path of [
+  "apps/server/src/copy/inbound-email/route.ts",
+  "apps/server/src/github/webhook-copy.ts",
+  "apps/server/src/handler.test.ts",
+]) {
+  test(`raw body lookalike is rejected: ${path}`, () => {
+    assert.ok(
+      lint("export const f = (c) => c.req.json();", path).some((d) => /req.valid/.test(d.message)),
+    );
+  });
+}
+for (const source of [
+  'export const title = "Welcome to HelpOS";',
+  "export const title = 'HelpOS';",
+  "export const title = `HelpOS ${" + "version}`;",
+  'export const title = <h1 title="HelpOS">HelpOS</h1>;',
+]) {
+  test(`brand text is rejected: ${source}`, () => {
+    assert.ok(pluginMessages(source, "title.tsx").some((m) => /product display name/.test(m)));
+  });
+}
+test("only the brand package defines the display name", () => {
+  assert.deepEqual(
+    lint('export const name = "HelpOS";', "packages/brand/src/index.ts").filter(
+      (d) => d.category === "plugin",
+    ),
+    [],
+  );
+  assert.ok(
+    lint('export const name = "HelpOS";', "packages/files/src/brand/index.ts").some((d) =>
+      /product display name/.test(d.message),
+    ),
+  );
+});
+test("comments and package identifiers are not display strings", () => {
+  assert.deepEqual(pluginMessages('// HelpOS\nexport const name = "@helpos/brand";'), []);
+});
+test("empty catches are checked in verification scripts too", () => {
+  assert.ok(
+    lint("try { work(); } catch {}", ".claude/skills/verify-helpos/scripts/probe.mjs").some((d) =>
+      /empty catch/.test(d.message),
+    ),
+  );
 });
