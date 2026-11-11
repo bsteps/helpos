@@ -77,7 +77,7 @@ async function approved() {
     const audit = auditorFor(tenantId, { type: "system", id: "invariant-test" });
     const draft = await createReply(tx, audit, {
       tenantId,
-      ticketId: received.ticketId,
+      conversationId: received.conversationId,
       messageId: received.messageId,
       body: "Reply",
       noticeDelaySeconds: 3600,

@@ -1,6 +1,6 @@
 # Verification evidence
 
-Checked against 801b81e15e31 on 2026-11-12. No product source changes are retained.
+Reconfirmed against 38c9ab9fc2b4 on 2026-11-12 after the #184 conversation rename. No product source changes are retained.
 
 ## Results
 
@@ -78,7 +78,7 @@ All 24 scenario/invariant results were successfully processed with the installed
 
 The shortest #130 duplicate-delivery path has nine transitions; hidden delivery after commit failure has eleven. The lost-retry path has eleven. Worker death strands an approved draft in eight; give-up transaction failure does so in ten. These match the code ordering and the integration replays where exercised. Worker death remains a modeled, source-mapped case rather than a live process-kill test.
 
-`/deslop` and `/no-comments` review corrected the model's merged transaction/job-settlement actions, missing registration coverage and CRLF-sensitive coverage parsing. #184 remains open, so coverage uses current ticket names. `pnpm verify` and `pnpm verify:send-reply` are the final handoff checks; successful model-runner exit still includes the known findings.
+`/deslop` and `/no-comments` review corrected the model's merged transaction/job-settlement actions, missing registration coverage and CRLF-sensitive coverage parsing. #184 merged; the tests and coverage record now use conversation names. The covered changes rename identifiers and preserve the modeled event order. `pnpm verify` and `pnpm verify:send-reply` are the final handoff checks; successful model-runner exit still includes the known findings.
 
 ## Independent review follow-up
 

@@ -54,16 +54,16 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `801b81e15e31`.
+Last confirmed at commit `38c9ab9fc2b4`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `474b418223f2` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `98fb03313cd5` |
 | apps/server/src/drafts/send-worker.ts | handleSendGaveUp | GiveUpMarksFailed, GiveUpFails | `e1ea62598776` |
 | apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `8fa462cc759f` |
 | apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `b8bcb5acfa88` |
 | apps/server/src/drafts/lifecycle.ts | queueSend | Enqueue | `1d94c013aa00` |
-| apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `cd185c05f0b3` |
+| apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `285f1303dcf8` |
 | apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `6b1c318536b9` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `c56a8fd6629c` |
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `7cf4398e8c1d` |
@@ -85,7 +85,7 @@ Last confirmed at commit `801b81e15e31`.
 
 **Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.0 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
 
-**Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per ticket, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
+**Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
 
 ## Known findings
 

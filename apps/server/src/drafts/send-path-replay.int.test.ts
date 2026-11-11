@@ -126,15 +126,15 @@ async function approvedDraft() {
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(result.kind);
   const pending = await waitFor(async () =>
-    (await draftOf(result.ticketId))?.status === "pending"
-      ? await draftOf(result.ticketId)
+    (await draftOf(result.conversationId))?.status === "pending"
+      ? await draftOf(result.conversationId)
       : undefined,
   );
   const app = createApp(helpos.services, {
     authenticate: async () => ({
       tenantId: acme,
       actor: { type: "agent", id: "replay" },
-      scopes: new Set(["tickets:read", "drafts:write", "drafts:approve"] as const),
+      scopes: new Set(["conversations:read", "drafts:write", "drafts:approve"] as const),
     }),
   });
   const res = await app.request(`/v1/drafts/${pending.id}/approve`, {
@@ -143,13 +143,13 @@ async function approvedDraft() {
     body: JSON.stringify({ body: pending.body }),
   });
   expect(res.status).toBe(200);
-  return { ticketId: result.ticketId, subject, draftId: pending.id };
+  return { conversationId: result.conversationId, subject, draftId: pending.id };
 }
 
-const draftOf = async (ticketId: string) =>
+const draftOf = async (conversationId: string) =>
   (
     await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, ticketId)),
+      tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, conversationId)),
     )
   )[0];
 async function copies(subject: string) {
@@ -168,24 +168,26 @@ async function waitFor<T>(fn: () => Promise<T | undefined>): Promise<T> {
 
 it("#130 NoResendWithoutPerson: SmtpAccepts, TransactionCommitFails, retry, SmtpAccepts", async () => {
   script = ["accept-then-throw", "accept"];
-  const { ticketId, subject } = await approvedDraft();
-  await waitFor(async () => ((await draftOf(ticketId))?.status === "sent" ? true : undefined));
+  const { conversationId, subject } = await approvedDraft();
+  await waitFor(async () =>
+    (await draftOf(conversationId))?.status === "sent" ? true : undefined,
+  );
   await waitFor(async () => ((await copies(subject)) >= 2 ? true : undefined));
   expect(await copies(subject)).toBe(2);
 }, 60_000);
 
 it("#130 NoHiddenDelivery: SmtpAccepts, TransactionCommitFails, retry, SmtpRejects, GiveUpMarksFailed", async () => {
   script = ["accept-then-throw", "down"];
-  const { ticketId, subject } = await approvedDraft();
+  const { conversationId, subject } = await approvedDraft();
   await waitFor(async () =>
-    (await draftOf(ticketId))?.status === "send_failed" ? true : undefined,
+    (await draftOf(conversationId))?.status === "send_failed" ? true : undefined,
   );
   expect(await copies(subject)).toBe(1);
 }, 60_000);
 
 it("Give-up failure NoSilentStall: SmtpRejects, retry, SmtpRejects, GiveUpFails", async () => {
   script = ["down", "down-and-give-up-fails"];
-  const { ticketId } = await approvedDraft();
+  const { conversationId } = await approvedDraft();
   await waitFor(async () =>
     jobErrors.mock.calls.some(
       ([error]) => error instanceof Error && error.message === "give-up transaction unavailable",
@@ -193,17 +195,17 @@ it("Give-up failure NoSilentStall: SmtpRejects, retry, SmtpRejects, GiveUpFails"
       ? true
       : undefined,
   );
-  expect((await draftOf(ticketId))?.status).toBe("approved");
+  expect((await draftOf(conversationId))?.status).toBe("approved");
 }, 60_000);
 
 it("retry between give-up commit and job settlement is lost", async () => {
   giveUpCommitted = Promise.withResolvers<void>();
   releaseGiveUp = Promise.withResolvers<void>();
   script = ["down", "down-and-pause-give-up"];
-  const { ticketId, draftId, subject } = await approvedDraft();
+  const { conversationId, draftId, subject } = await approvedDraft();
   try {
     await giveUpCommitted.promise;
-    expect((await draftOf(ticketId))?.status).toBe("send_failed");
+    expect((await draftOf(conversationId))?.status).toBe("send_failed");
     const result = await db.withTenant(acme, (tx) =>
       retrySend(tx, auditorFor(acme, { type: "system", id: "replay" }), draftId),
     );
@@ -212,6 +214,6 @@ it("retry between give-up commit and job settlement is lost", async () => {
     releaseGiveUp.resolve();
   }
   await helpos.runner.stop();
-  expect((await draftOf(ticketId))?.status).toBe("approved");
+  expect((await draftOf(conversationId))?.status).toBe("approved");
   expect(await copies(subject)).toBe(0);
 }, 60_000);
