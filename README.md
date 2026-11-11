@@ -1,21 +1,23 @@
 # HelpOS
 
-**The open-source, agent-first helpdesk.**
+**A helpdesk that runs and improves itself. You approve.**
 
 > 🚧 **Pre-alpha.** We're building the foundation in public. Nothing is usable yet. Star or watch the repo to follow along.
 
 ## Why HelpOS?
 
-Small support teams drown in repetitive tickets, and most helpdesks still treat AI as a bolt-on chatbot.
-HelpOS flips that: AI agents do the routine support work, and humans approve risky actions, handle the exceptions and teach the agents.
-Agents are first-class users, so anything you can do in the UI, an agent can do through the public API, and every action is scoped and audit-logged.
-It's open source (AGPL-3.0) and self-hostable, so you own your data and your support stack.
+Today's helpdesks are huge systems built for a human to set up, read and operate, and nobody really does.
+HelpOS is the **desk** where AI agents (ours, or your own Claude Code, Codex or custom agent) do the support work and keep improving the desk itself. You decide, correct and teach.
+Agents propose, and the desk decides: every action passes one gate, is audited, and goes out only once that agent has earned trust for it.
+
+The whole vision fits on one page: [docs/vision.md](docs/vision.md).
 
 ## What makes it different
 
-- **Agent-first.** AI agents handle support, and humans approve, handle exceptions and teach.
-- **Bring your own agent or AI key, for free.** Every feature is available through the public API, MCP server and webhooks.
-- **Simple pricing on the hosted version.** One price by conversations, unlimited team members, AI included. No per-seat fees and no AI tolls.
+- **Agents propose, the desk decides.** Trust is earned per agent and per action type. Your home screen is the decisions waiting for you, not a ticket list.
+- **Bring any agent.** Your own agents plug in through the API and MCP, and HelpOS ships skills that teach them to run it.
+- **Pipes, not features.** We build what agents can't safely do alone, and leave the rest to the agent.
+- **Simple pricing on the hosted version.** One slider by conversations, every feature on every plan. AI isn't where we make money: bring your own key, or use ours at cost.
 - **Self-host anywhere, free.** One Docker image + Postgres, on any VPS, cloud or your laptop.
 - **Secure by design.** Database-level tenant isolation, scoped agent permissions, approvals and a full audit log.
 
