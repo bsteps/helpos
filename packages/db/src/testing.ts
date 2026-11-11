@@ -11,6 +11,8 @@ import {
   apiTokens,
   attachments,
   auditEvents,
+  conversationGithubIssues,
+  conversations,
   customers,
   draftCitations,
   drafts,
@@ -22,8 +24,6 @@ import {
   memberships,
   messages,
   tenants,
-  ticketGithubIssues,
-  tickets,
 } from "./schema.ts";
 import { uuidv7 } from "./uuid.ts";
 
@@ -180,7 +180,7 @@ export interface LeakTenant {
     mailbox: string;
     membership: string;
     customer: string;
-    ticket: string;
+    conversation: string;
     message: string;
     attachment: string;
     draft: string;
@@ -221,7 +221,7 @@ export async function seedLeakTenant(
       mailbox: uuidv7(),
       membership: uuidv7(),
       customer: uuidv7(),
-      ticket: uuidv7(),
+      conversation: uuidv7(),
       message: uuidv7(),
       attachment: uuidv7(),
       draft: uuidv7(),
@@ -253,8 +253,8 @@ export async function seedLeakTenant(
       email: seeded.customerEmail,
       name: `${tag} customer`,
     });
-    await tx.insert(tickets).values({
-      id: ids.ticket,
+    await tx.insert(conversations).values({
+      id: ids.conversation,
       tenantId,
       customerId: ids.customer,
       mailboxId: ids.mailbox,
@@ -263,7 +263,7 @@ export async function seedLeakTenant(
     await tx.insert(messages).values({
       id: ids.message,
       tenantId,
-      ticketId: ids.ticket,
+      conversationId: ids.conversation,
       direction: "inbound",
       fromAddress: seeded.customerEmail,
       fromName: `${tag} customer`,
@@ -286,7 +286,7 @@ export async function seedLeakTenant(
     await tx.insert(drafts).values({
       id: ids.draft,
       tenantId,
-      ticketId: ids.ticket,
+      conversationId: ids.conversation,
       messageId: ids.message,
       body: `Hi from ${tag}`,
       status: input.draftStatus ?? "pending",
@@ -331,7 +331,7 @@ export async function seedLeakTenant(
       tenantId,
       name: seeded.tokenName,
       tokenHash: seeded.tokenHash,
-      scopes: ["tickets:read"],
+      scopes: ["conversations:read"],
     });
     await tx.insert(integrations).values({
       id: ids.integration,
@@ -341,10 +341,10 @@ export async function seedLeakTenant(
       tokenCiphertext: `v1.${tag}-sealed-token`,
       webhookSecretCiphertext: `v1.${tag}-sealed-secret`,
     });
-    await tx.insert(ticketGithubIssues).values({
+    await tx.insert(conversationGithubIssues).values({
       id: ids.githubIssue,
       tenantId,
-      ticketId: ids.ticket,
+      conversationId: ids.conversation,
       repo,
       issueNumber: 7,
       issueUrl: `https://github.com/${repo}/issues/7`,

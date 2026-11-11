@@ -52,11 +52,12 @@ let allowShadowModeOff = false;
 
 /** Test credentials: the bearer value names a principal (real tokens: tokens.int.test.ts). */
 const principals: Record<string, () => Principal> = {
-  approver: () => principal(acme, ["tickets:read", "drafts:write", "drafts:approve"]),
-  drafter: () => principal(acme, ["tickets:read", "drafts:write"]),
-  outsider: () => principal(other, ["tickets:read", "drafts:write", "drafts:approve"]),
-  shadowApprover: () => principal(shadowed, ["tickets:read", "drafts:write", "drafts:approve"]),
-  shadowAdmin: () => principal(shadowed, ["tickets:read", "workspace:admin"]),
+  approver: () => principal(acme, ["conversations:read", "drafts:write", "drafts:approve"]),
+  drafter: () => principal(acme, ["conversations:read", "drafts:write"]),
+  outsider: () => principal(other, ["conversations:read", "drafts:write", "drafts:approve"]),
+  shadowApprover: () =>
+    principal(shadowed, ["conversations:read", "drafts:write", "drafts:approve"]),
+  shadowAdmin: () => principal(shadowed, ["conversations:read", "workspace:admin"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -123,13 +124,13 @@ async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promi
   throw new Error(`timed out waiting for ${what}`);
 }
 
-const draftsOf = (ticketId: string) =>
+const draftsOf = (conversationId: string) =>
   db.withTenant(acme, (tx) =>
-    tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, ticketId)),
+    tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, conversationId)),
   );
-const waitForDraft = (ticketId: string, status: string) =>
+const waitForDraft = (conversationId: string, status: string) =>
   waitFor(`draft ${status}`, async () =>
-    (await draftsOf(ticketId)).find((d) => d.status === status),
+    (await draftsOf(conversationId)).find((d) => d.status === status),
   );
 const auditOf = (draftId: string) =>
   db.withTenant(acme, (tx) =>
@@ -224,7 +225,7 @@ describe("draft → approve → send", () => {
     expect(email.draftReply).toBe(true);
 
     // The worker drafts it with the model. The customer's text reaches it only as quoted data.
-    const pending = await waitForDraft(email.ticketId, "pending");
+    const pending = await waitForDraft(email.conversationId, "pending");
     expect(pending.body).toBe(draftText);
     const prompt = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt);
     expect(prompt).toMatch(/<untrusted_email>.*I cannot log in.*<\/untrusted_email>/);
@@ -232,7 +233,7 @@ describe("draft → approve → send", () => {
     // Pending means unsent.
     expect((await mailpitMessages()).some((m) => m.Subject.includes(email.subject))).toBe(false);
 
-    const list = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, "drafter");
+    const list = await call("GET", `/v1/conversations/${email.conversationId}/drafts`, "drafter");
     expect(list.status).toBe(200);
     expect(await list.json()).toMatchObject({ drafts: [{ id: pending.id, status: "pending" }] });
 
@@ -268,7 +269,7 @@ describe("draft → approve → send", () => {
       (await call("PATCH", `/v1/drafts/${pending.id}`, "drafter", { body: "changed" })).status,
     ).toBe(409);
 
-    const sent = await waitForDraft(email.ticketId, "sent");
+    const sent = await waitForDraft(email.conversationId, "sent");
     expect(sent.sentAt).not.toBeNull();
 
     // It arrived, threaded onto the customer's email.
@@ -290,14 +291,14 @@ describe("draft → approve → send", () => {
     };
     expect(text.Text.trim()).toBe(edited);
 
-    // The reply is on the ticket as an outbound message.
+    // The reply is on the conversation as an outbound message.
     const [outbound] = await db.withTenant(acme, (tx) =>
       tx
         .select()
         .from(schema.messages)
         .where(eq(schema.messages.id, sent.sentMessageId ?? "")),
     );
-    expect(outbound).toMatchObject({ direction: "outbound", ticketId: email.ticketId });
+    expect(outbound).toMatchObject({ direction: "outbound", conversationId: email.conversationId });
 
     // Every step is in the audit log, with who did it.
     const audit = await auditOf(pending.id);
@@ -323,7 +324,10 @@ describe("shadow mode", () => {
     const pending = await waitFor("shadowed draft", async () =>
       (
         await db.withTenant(shadowed, (tx) =>
-          tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+          tx
+            .select()
+            .from(schema.drafts)
+            .where(eq(schema.drafts.conversationId, email.conversationId)),
         )
       ).find((d) => d.status === "pending"),
     );
@@ -349,10 +353,10 @@ describe("shadow mode", () => {
     expect(detail.Text).toContain("It would have gone to: jane@customer.test");
 
     // Not one copy reached the customer, not even as Cc or Bcc in the SMTP envelope.
-    const forThisTicket = (await mailpitMessages()).filter((m) =>
+    const forThisConversation = (await mailpitMessages()).filter((m) =>
       m.Subject.includes(email.subject),
     );
-    expect(forThisTicket).toHaveLength(1);
+    expect(forThisConversation).toHaveLength(1);
     const full = (await (await fetch(`${mailpitApi}/api/v1/message/${mail.ID}`)).json()) as {
       Cc: { Address: string }[];
       Bcc: { Address: string }[];
@@ -360,14 +364,14 @@ describe("shadow mode", () => {
     const everyone = [...mail.To, ...full.Cc, ...full.Bcc].map((t) => t.Address);
     expect(everyone).not.toContain("jane@customer.test");
 
-    // The ticket records who really got it.
+    // The conversation records who really got it.
     const [outbound] = await db.withTenant(shadowed, (tx) =>
       tx
         .select()
         .from(schema.messages)
         .where(
           and(
-            eq(schema.messages.ticketId, email.ticketId),
+            eq(schema.messages.conversationId, email.conversationId),
             eq(schema.messages.direction, "outbound"),
           ),
         ),
@@ -424,14 +428,14 @@ function shadowAudit() {
 }
 
 describe("draft waiting notice", () => {
-  /** Notices in Mailpit that link to this ticket. */
-  async function noticesFor(ticketId: string) {
+  /** Notices in Mailpit that link to this conversation. */
+  async function noticesFor(conversationId: string) {
     const found: { to: string[]; subject: string; text: string }[] = [];
     for (const m of await mailpitMessages()) {
       if (m.Subject !== noticeSubject) continue;
       const res = await fetch(`${mailpitApi}/api/v1/message/${m.ID}`);
       const detail = (await res.json()) as { Text: string };
-      if (detail.Text.includes(ticketId)) {
+      if (detail.Text.includes(conversationId)) {
         found.push({ to: m.To.map((t) => t.Address), subject: m.Subject, text: detail.Text });
       }
     }
@@ -440,20 +444,20 @@ describe("draft waiting notice", () => {
 
   it("a pending draft sends one notice; a second draft within 15 minutes doesn't", async () => {
     const email = await receiveEmail("Hi, I cannot log in since this morning. My code is 4711.");
-    await waitForDraft(email.ticketId, "pending");
+    await waitForDraft(email.conversationId, "pending");
     const [notice, ...more] = await waitFor("notice", async () => {
-      const found = await noticesFor(email.ticketId);
+      const found = await noticesFor(email.conversationId);
       return found.length > 0 ? found : undefined;
     });
     expect(more).toEqual([]);
     // Only Acme's owner, never another workspace's.
     expect(notice?.to).toEqual(["owner@acme.test"]);
     expect(notice?.subject).not.toContain(email.subject);
-    expect(notice?.text).toContain(`http://helpdesk.test/tickets/${email.ticketId}`);
+    expect(notice?.text).toContain(`http://helpdesk.test/conversations/${email.conversationId}`);
     expect(notice?.text).toContain("> Hi, I cannot log in since this morning.");
 
-    // A second pending draft on the same ticket, through the API and forced through the worker.
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+    // A second pending draft on the same conversation, through the API and forced through the worker.
+    const res = await call("POST", `/v1/conversations/${email.conversationId}/drafts`, "drafter", {
       body: "Hi Jane, I've reset your account myself.",
     });
     expect(res.status).toBe(201);
@@ -468,9 +472,12 @@ describe("draft waiting notice", () => {
     );
     // Give the queued job time to run too: it must not send either.
     await new Promise((r) => setTimeout(r, 2_000));
-    expect(await noticesFor(email.ticketId)).toHaveLength(1);
+    expect(await noticesFor(email.conversationId)).toHaveLength(1);
     const audit = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.auditEvents).where(eq(schema.auditEvents.targetId, email.ticketId)),
+      tx
+        .select()
+        .from(schema.auditEvents)
+        .where(eq(schema.auditEvents.targetId, email.conversationId)),
     );
     expect(audit.filter((e) => e.action === "draft.notice_sent")).toHaveLength(1);
   });
@@ -479,7 +486,7 @@ describe("draft waiting notice", () => {
 describe("nothing is sent without approval", () => {
   it("the send worker refuses a pending draft, even if a send job is forced", async () => {
     const email = await receiveEmail();
-    const pending = await waitForDraft(email.ticketId, "pending");
+    const pending = await waitForDraft(email.conversationId, "pending");
     const send = vi.fn<EmailTransport["send"]>();
     await db.withTenant(acme, (tx) =>
       handleSendReply({ transport: { send, close: () => {} }, files, logger })(
@@ -488,12 +495,12 @@ describe("nothing is sent without approval", () => {
       ),
     );
     expect(send).not.toHaveBeenCalled();
-    expect((await draftsOf(email.ticketId))[0]?.status).toBe("pending");
+    expect((await draftsOf(email.conversationId))[0]?.status).toBe("pending");
   });
 
   it("a failed send keeps the draft approved and writes nothing, so a retry can send it", async () => {
     const email = await receiveEmail();
-    const pending = await waitForDraft(email.ticketId, "pending");
+    const pending = await waitForDraft(email.conversationId, "pending");
     // Approve directly, so the running worker doesn't race this test for the job.
     await db.withTenant(acme, (tx) =>
       tx
@@ -516,7 +523,7 @@ describe("nothing is sent without approval", () => {
       ),
     ).rejects.toThrow("SMTP down");
 
-    expect((await draftsOf(email.ticketId))[0]?.status).toBe("approved");
+    expect((await draftsOf(email.conversationId))[0]?.status).toBe("approved");
     expect((await auditOf(pending.id)).map((e) => e.action)).toEqual(["draft.created"]);
     const outbound = await db.withTenant(acme, (tx) =>
       tx
@@ -531,17 +538,19 @@ describe("nothing is sent without approval", () => {
 describe("drafting in context", () => {
   it("a follow-up is drafted with the earlier messages, and discards the stale pending draft", async () => {
     const first = await receiveEmail("My invoice for March is missing.");
-    const stale = await waitForDraft(first.ticketId, "pending");
+    const stale = await waitForDraft(first.conversationId, "pending");
     const followUp = await receiveEmail("Also, the April one has the wrong VAT number.", {
       replyTo: first.header,
     });
-    expect(followUp.ticketId).toBe(first.ticketId);
+    expect(followUp.conversationId).toBe(first.conversationId);
 
     const fresh = await waitFor("a second draft", async () =>
-      (await draftsOf(first.ticketId)).find((d) => d.id !== stale.id && d.status === "pending"),
+      (await draftsOf(first.conversationId)).find(
+        (d) => d.id !== stale.id && d.status === "pending",
+      ),
     );
     expect(fresh.messageId).toBe(followUp.messageId);
-    const old = (await draftsOf(first.ticketId)).find((d) => d.id === stale.id);
+    const old = (await draftsOf(first.conversationId)).find((d) => d.id === stale.id);
     expect(old?.status).toBe("discarded");
     expect((await auditOf(stale.id)).map((e) => [e.action, e.actorId])).toEqual([
       ["draft.created", "draft-reply"],
@@ -557,10 +566,10 @@ describe("drafting in context", () => {
 
   it("a late job for an older message never discards the newer message's draft", async () => {
     const first = await receiveEmail("Question one.");
-    await waitForDraft(first.ticketId, "pending");
+    await waitForDraft(first.conversationId, "pending");
     const second = await receiveEmail("Question two.", { replyTo: first.header });
     const newer = await waitFor("the newer draft", async () =>
-      (await draftsOf(first.ticketId)).find(
+      (await draftsOf(first.conversationId)).find(
         (d) => d.messageId === second.messageId && d.status === "pending",
       ),
     );
@@ -571,7 +580,7 @@ describe("drafting in context", () => {
       clock: systemClock,
       config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: acme, messageId: first.messageId }, tenantTransactions(db, acme));
-    const live = (await draftsOf(first.ticketId)).filter((d) => d.status !== "discarded");
+    const live = (await draftsOf(first.conversationId)).filter((d) => d.status !== "discarded");
     expect(live.map((d) => d.id)).toEqual([newer.id]);
   });
 
@@ -579,7 +588,7 @@ describe("drafting in context", () => {
     const email = await receiveEmail("<p>My <b>export</b> button&nbsp;is greyed out.</p>", {
       html: true,
     });
-    await waitForDraft(email.ticketId, "pending");
+    await waitForDraft(email.conversationId, "pending");
     const prompt = JSON.stringify(
       model.doGenerateCalls.find((c) => JSON.stringify(c.prompt).includes("greyed out"))?.prompt,
     );
@@ -590,7 +599,7 @@ describe("drafting in context", () => {
 describe("discarding", () => {
   it("a discarded draft can never be approved or sent", async () => {
     const email = await receiveEmail();
-    const pending = await waitForDraft(email.ticketId, "pending");
+    const pending = await waitForDraft(email.conversationId, "pending");
     const res = await call("POST", `/v1/drafts/${pending.id}/discard`, "drafter");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "discarded" });
@@ -608,21 +617,21 @@ describe("discarding", () => {
   });
 });
 
-describe("POST /v1/tickets/{id}/drafts", () => {
-  const live = async (ticketId: string) =>
-    (await draftsOf(ticketId)).filter((d) => d.status !== "discarded");
+describe("POST /v1/conversations/{id}/drafts", () => {
+  const live = async (conversationId: string) =>
+    (await draftsOf(conversationId)).filter((d) => d.status !== "discarded");
 
   it("saves a hand-written draft and discards the AI one it replaces", async () => {
     const email = await receiveEmail();
-    const ai = await waitForDraft(email.ticketId, "pending");
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+    const ai = await waitForDraft(email.conversationId, "pending");
+    const res = await call("POST", `/v1/conversations/${email.conversationId}/drafts`, "drafter", {
       body: "Hi Jane, I've reset your account myself.",
     });
     expect(res.status).toBe(201);
     const created = (await res.json()) as { id: string; status: string; messageId: string };
     expect(created).toMatchObject({ status: "pending", messageId: email.messageId });
 
-    expect((await live(email.ticketId)).map((d) => d.id)).toEqual([created.id]);
+    expect((await live(email.conversationId)).map((d) => d.id)).toEqual([created.id]);
     expect((await auditOf(ai.id)).map((e) => [e.action, e.actorType])).toEqual([
       ["draft.created", "system"],
       ["draft.discarded", "agent"],
@@ -634,25 +643,27 @@ describe("POST /v1/tickets/{id}/drafts", () => {
 
   it("regenerate queues a fresh AI draft after the last one was discarded", async () => {
     const email = await receiveEmail();
-    const first = await waitForDraft(email.ticketId, "pending");
+    const first = await waitForDraft(email.conversationId, "pending");
     await call("POST", `/v1/drafts/${first.id}/discard`, "drafter");
 
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+    const res = await call("POST", `/v1/conversations/${email.conversationId}/drafts`, "drafter", {
       regenerate: true,
     });
     expect(res.status).toBe(202);
     const fresh = await waitFor("a regenerated draft", async () =>
-      (await draftsOf(email.ticketId)).find((d) => d.id !== first.id && d.status === "pending"),
+      (await draftsOf(email.conversationId)).find(
+        (d) => d.id !== first.id && d.status === "pending",
+      ),
     );
     expect(fresh).toMatchObject({ messageId: email.messageId, body: draftText });
-    expect(await live(email.ticketId)).toHaveLength(1);
+    expect(await live(email.conversationId)).toHaveLength(1);
   });
 
   it("refuses once the latest message already has an approved reply", async () => {
     const email = await receiveEmail();
-    const pending = await waitForDraft(email.ticketId, "pending");
+    const pending = await waitForDraft(email.conversationId, "pending");
     await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", { body: pending.body });
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "drafter", {
+    const res = await call("POST", `/v1/conversations/${email.conversationId}/drafts`, "drafter", {
       body: "A second answer",
     });
     expect(res.status).toBe(409);
@@ -661,8 +672,8 @@ describe("POST /v1/tickets/{id}/drafts", () => {
 
   it("checks scope, workspace and input", async () => {
     const email = await receiveEmail();
-    await waitForDraft(email.ticketId, "pending");
-    const path = `/v1/tickets/${email.ticketId}/drafts`;
+    await waitForDraft(email.conversationId, "pending");
+    const path = `/v1/conversations/${email.conversationId}/drafts`;
     expect((await call("POST", path, "outsider", { body: "x" })).status).toBe(404);
     expect((await call("POST", path, "drafter", { regenerate: false })).status).toBe(400);
     expect((await call("POST", path, "drafter", { body: "x", regenerate: true })).status).toBe(400);
@@ -672,7 +683,7 @@ describe("POST /v1/tickets/{id}/drafts", () => {
 
 describe("draft API access", () => {
   it.each([
-    ["GET", "/v1/tickets/00000000-0000-7000-8000-000000000000/drafts"],
+    ["GET", "/v1/conversations/00000000-0000-7000-8000-000000000000/drafts"],
     ["PATCH", "/v1/drafts/00000000-0000-7000-8000-000000000000"],
     ["POST", "/v1/drafts/00000000-0000-7000-8000-000000000000/approve"],
     ["POST", "/v1/drafts/00000000-0000-7000-8000-000000000000/discard"],
@@ -695,12 +706,12 @@ describe("draft API access", () => {
     expect(res.status).toBe(401);
   });
 
-  it("another workspace sees Acme's ticket and draft as not found, and can't approve it", async () => {
+  it("another workspace sees Acme's conversation and draft as not found, and can't approve it", async () => {
     const email = await receiveEmail();
-    const pending = await waitForDraft(email.ticketId, "pending");
-    expect((await call("GET", `/v1/tickets/${email.ticketId}/drafts`, "outsider")).status).toBe(
-      404,
-    );
+    const pending = await waitForDraft(email.conversationId, "pending");
+    expect(
+      (await call("GET", `/v1/conversations/${email.conversationId}/drafts`, "outsider")).status,
+    ).toBe(404);
     expect(
       (await call("PATCH", `/v1/drafts/${pending.id}`, "outsider", { body: "x" })).status,
     ).toBe(404);
@@ -708,14 +719,14 @@ describe("draft API access", () => {
       (await call("POST", `/v1/drafts/${pending.id}/approve`, "outsider", { body: pending.body }))
         .status,
     ).toBe(404);
-    expect((await draftsOf(email.ticketId))[0]?.status).toBe("pending");
+    expect((await draftsOf(email.conversationId))[0]?.status).toBe("pending");
   });
 
   it("the routes are in the OpenAPI spec", async () => {
     const spec = (await (await app().request("/openapi.json")).json()) as {
       paths: Record<string, Record<string, unknown>>;
     };
-    expect(Object.keys(spec.paths["/v1/tickets/{id}/drafts"] ?? {})).toEqual(["get", "post"]);
+    expect(Object.keys(spec.paths["/v1/conversations/{id}/drafts"] ?? {})).toEqual(["get", "post"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}"] ?? {})).toEqual(["patch"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}/approve"] ?? {})).toEqual(["post"]);
     expect(Object.keys(spec.paths["/v1/drafts/{id}/discard"] ?? {})).toEqual(["post"]);

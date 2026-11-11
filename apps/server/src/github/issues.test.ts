@@ -55,7 +55,7 @@ describe("judgeEarlierLookup (what to do after searching for a dead request's is
     });
   });
 
-  it("gives up on an old repo the token can't see any more, so the ticket isn't blocked for good", () => {
+  it("gives up on an old repo the token can't see any more, so the conversation isn't blocked for good", () => {
     const refused = { ok: false, reason: "repo_not_found", uncertain: false } as const;
     expect(judgeEarlierLookup(refused, other, connected)).toEqual({ action: "open_new" });
   });

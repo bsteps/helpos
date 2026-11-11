@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { draftStatsQuery, openTicketsQuery } from "@/api/queries.ts";
+import { draftStatsQuery, openConversationsQuery } from "@/api/queries.ts";
 import { Alert, AlertContent, AlertDescription, AlertIcon } from "@/components/ui/alert.tsx";
 import { AnimatedBadge } from "@/components/ui/animated-badge.tsx";
 import {
@@ -14,9 +14,9 @@ import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
 import { cn } from "@/lib/utils.ts";
 
-/** Open tickets, and closed ones whose reply couldn't be sent, most recent activity first. */
+/** Open conversations, and closed ones whose reply couldn't be sent, most recent activity first. */
 export function InboxPage() {
-  const tickets = useQuery(openTicketsQuery);
+  const conversations = useQuery(openConversationsQuery);
 
   return (
     <section aria-labelledby="inbox-title" className="flex flex-col gap-4">
@@ -24,19 +24,19 @@ export function InboxPage() {
         <h1 id="inbox-title" className="font-semibold text-2xl tracking-tight">
           Inbox
         </h1>
-        {tickets.data ? (
+        {conversations.data ? (
           <span className="text-muted-foreground text-sm tabular-nums">
-            {tickets.data.filter((t) => t.status === "open").length} open
+            {conversations.data.filter((c) => c.status === "open").length} open
           </span>
         ) : null}
       </div>
       <DraftStatsLine />
 
-      {tickets.isPending ? (
+      {conversations.isPending ? (
         <div className="flex justify-center py-12">
-          <Loader size={24} label="Loading tickets" />
+          <Loader size={24} label="Loading conversations" />
         </div>
-      ) : tickets.isError ? (
+      ) : conversations.isError ? (
         <Alert variant="destructive">
           <AlertIcon />
           <AlertContent>
@@ -45,7 +45,7 @@ export function InboxPage() {
             </AlertDescription>
           </AlertContent>
         </Alert>
-      ) : tickets.data.length === 0 ? (
+      ) : conversations.data.length === 0 ? (
         <Card variant="muted" size="compact">
           <CardHeader>
             <CardTitle>Nothing open</CardTitle>
@@ -54,43 +54,45 @@ export function InboxPage() {
         </Card>
       ) : (
         <ul className="flex flex-col gap-2">
-          {tickets.data.map((ticket) => (
-            <li key={ticket.id}>
+          {conversations.data.map((conversation) => (
+            <li key={conversation.id}>
               <Card interactive size="compact">
                 <CardHeader>
                   <CardTitle as="h2" className="min-w-0">
                     <Link
-                      to="/tickets/$id"
-                      params={{ id: ticket.id }}
+                      to="/conversations/$id"
+                      params={{ id: conversation.id }}
                       className={cn("block truncate outline-none", CARD_TARGET_CLASS)}
                     >
-                      {ticket.subject || "(no subject)"}
+                      {conversation.subject || "(no subject)"}
                     </Link>
                   </CardTitle>
                   <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="truncate">
-                      {ticket.customer.name ?? ticket.customer.email}
+                      {conversation.customer.name ?? conversation.customer.email}
                     </span>
                     <span aria-hidden>·</span>
-                    <time dateTime={ticket.lastMessageAt}>
-                      {formatDateTime(ticket.lastMessageAt)}
+                    <time dateTime={conversation.lastMessageAt}>
+                      {formatDateTime(conversation.lastMessageAt)}
                     </time>
-                    {ticket.replyNotSent ? (
+                    {conversation.replyNotSent ? (
                       <AnimatedBadge status="danger" size="sm">
                         Reply not sent
                       </AnimatedBadge>
                     ) : null}
-                    {ticket.status === "closed" ? (
+                    {conversation.status === "closed" ? (
                       <AnimatedBadge status="neutral" size="sm">
                         Closed
                       </AnimatedBadge>
                     ) : null}
-                    {ticket.aiPausedReason ? (
+                    {conversation.aiPausedReason ? (
                       <AnimatedBadge status="warning" size="sm">
-                        {ticket.aiPausedReason === "draft_failed" ? "No AI draft" : "AI paused"}
+                        {conversation.aiPausedReason === "draft_failed"
+                          ? "No AI draft"
+                          : "AI paused"}
                       </AnimatedBadge>
                     ) : null}
-                    {ticket.automated ? (
+                    {conversation.automated ? (
                       <AnimatedBadge status="neutral" size="sm">
                         Automated
                       </AnimatedBadge>

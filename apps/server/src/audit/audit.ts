@@ -16,7 +16,7 @@ export interface AuditEvent {
     | "draft.send_retried"
     | "draft.notice_sent"
     | "draft.notice_failed"
-    | "ticket.closed"
+    | "conversation.closed"
     | "ai.paused"
     | "ai.draft_failed"
     | "knowledge_source.created"
@@ -42,7 +42,7 @@ export interface AuditEvent {
     | "github_issue.reopened"
     | "github_issue.recheck_failed";
   target: {
-    type: "draft" | "ticket" | "knowledge_source" | "workspace" | "api_token" | "integration";
+    type: "draft" | "conversation" | "knowledge_source" | "workspace" | "api_token" | "integration";
     id: string;
   };
   /** The HTTP request ID, or null when a background job acts. */
@@ -60,7 +60,7 @@ export interface AuditTrail {
 export const auditTrail = new AsyncLocalStorage<AuditTrail>();
 
 /**
- * Says a write request succeeded without changing anything (closing a closed ticket, say),
+ * Says a write request succeeded without changing anything (closing a closed conversation, say),
  * so it has no audit event to record. Without it, such a success fails the request's audit
  * check. The reason is for the reader.
  */

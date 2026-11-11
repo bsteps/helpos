@@ -39,7 +39,7 @@ if (usage.paused || usage.remainingTokens < neededTokens) {
   );
 }
 
-// The person's {ticket}, {token}… survive a selftest run in the middle of their checklist.
+// The person's {conversation}, {token}… survive a selftest run in the middle of their checklist.
 const saved = existsSync(lastFile) ? readFileSync(lastFile, "utf8") : undefined;
 // Its time too: lastCreated() compares it with the seed marker to spot IDs from before a reset.
 const savedAt = saved === undefined ? undefined : statSync(lastFile).mtime;
@@ -111,7 +111,7 @@ const json = (r) => JSON.parse(r.out.slice(r.out.indexOf("\n")));
  */
 const steps = [
   [
-    "new-email prints 201 and the ticket",
+    "new-email prints 201 and the conversation",
     () => run("new-email.mjs", []),
     (r) => r.code === 0 && /^201 created/.test(r.out),
   ],
@@ -120,16 +120,18 @@ const steps = [
     () => run("new-email.mjs", ["--subject", "How much does gift wrap cost?"]),
     (r) =>
       r.code === 0 &&
-      json(api("northwind:triage-bot", "GET", "v1/tickets/{ticket}")).messages[0].text.trim() ===
-        "How much does gift wrap cost?",
+      json(
+        api("northwind:triage-bot", "GET", "v1/conversations/{conversation}"),
+      ).messages[0].text.trim() === "How much does gift wrap cost?",
   ],
   [
     "new-email --subject --body",
     () => run("new-email.mjs", ["--subject", "Order question", "--body", "Do you ship to Norway?"]),
     (r) =>
       r.code === 0 &&
-      json(api("northwind:triage-bot", "GET", "v1/tickets/{ticket}")).messages[0].text.trim() ===
-        "Do you ship to Norway?",
+      json(
+        api("northwind:triage-bot", "GET", "v1/conversations/{conversation}"),
+      ).messages[0].text.trim() === "Do you ship to Norway?",
   ],
   [
     "new-email xss --body is refused",
@@ -151,7 +153,8 @@ const steps = [
     () => run("new-email.mjs", ["out-of-office"]),
     (r) =>
       r.code === 0 &&
-      json(api("northwind:triage-bot", "GET", "v1/tickets/{ticket}")).automated === true,
+      json(api("northwind:triage-bot", "GET", "v1/conversations/{conversation}")).automated ===
+        true,
   ],
   ["new-email xss", () => run("new-email.mjs", ["xss"]), (r) => r.code === 0],
   [
@@ -222,39 +225,39 @@ const steps = [
     (r) => status(r) === 204,
   ],
 
-  ["fresh ticket for section 3", () => run("new-email.mjs", []), (r) => r.code === 0],
+  ["fresh conversation for section 3", () => run("new-email.mjs", []), (r) => r.code === 0],
   [
-    "list open tickets",
-    () => api("northwind:triage-bot", "GET", "v1/tickets?status=open"),
-    (r) => status(r) === 200 && json(r).tickets.length > 0,
+    "list open conversations",
+    () => api("northwind:triage-bot", "GET", "v1/conversations?status=open"),
+    (r) => status(r) === 200 && json(r).conversations.length > 0,
   ],
   [
     "limit=2 returns 2",
-    () => api("northwind:triage-bot", "GET", "v1/tickets?status=open&limit=2"),
-    (r) => status(r) === 200 && json(r).tickets.length === 2,
+    () => api("northwind:triage-bot", "GET", "v1/conversations?status=open&limit=2"),
+    (r) => status(r) === 200 && json(r).conversations.length === 2,
   ],
   [
-    "read {ticket}",
-    () => api("northwind:triage-bot", "GET", "v1/tickets/{ticket}"),
-    (r) => status(r) === 200 && json(r).id === lastCreated().ticket,
+    "read {conversation}",
+    () => api("northwind:triage-bot", "GET", "v1/conversations/{conversation}"),
+    (r) => status(r) === 200 && json(r).id === lastCreated().conversation,
   ],
   [
     "other workspace → 404",
-    () => api("lumen:support-agent", "GET", "v1/tickets/{ticket}"),
+    () => api("lumen:support-agent", "GET", "v1/conversations/{conversation}"),
     (r) => status(r) === 404,
   ],
   [
     "approver can't close → 403",
-    () => api("northwind:approver-bot", "POST", "v1/tickets/{ticket}/close"),
+    () => api("northwind:approver-bot", "POST", "v1/conversations/{conversation}/close"),
     (r) => status(r) === 403,
   ],
   [
     "owner closes",
-    () => api("owner", "POST", "v1/tickets/{ticket}/close"),
+    () => api("owner", "POST", "v1/conversations/{conversation}/close"),
     (r) => status(r) === 200 && json(r).status === "closed",
   ],
 
-  ["fresh ticket for section 4", () => run("new-email.mjs", []), (r) => r.code === 0],
+  ["fresh conversation for section 4", () => run("new-email.mjs", []), (r) => r.code === 0],
   [
     "edit {draft} (waits for the AI)",
     () =>
@@ -283,7 +286,7 @@ const steps = [
     () => run("approve-draft.mjs", ["new"]),
     (r) => r.code === 0 && /approve → 200 approved/.test(r.out) && /sent at/.test(r.out),
   ],
-  ["fresh ticket for discard", () => run("new-email.mjs", []), (r) => r.code === 0],
+  ["fresh conversation for discard", () => run("new-email.mjs", []), (r) => r.code === 0],
   [
     "approver can't discard → 403",
     () => api("northwind:approver-bot", "POST", "v1/drafts/{draft}/discard"),
@@ -301,13 +304,24 @@ const steps = [
   ],
   [
     "regenerate → 202",
-    () => api("northwind:triage-bot", "POST", "v1/tickets/{ticket}/drafts", '{"regenerate":true}'),
+    () =>
+      api(
+        "northwind:triage-bot",
+        "POST",
+        "v1/conversations/{conversation}/drafts",
+        '{"regenerate":true}',
+      ),
     (r) => status(r) === 202,
   ],
   [
     "own reply → 201",
     () =>
-      api("northwind:triage-bot", "POST", "v1/tickets/{ticket}/drafts", '{"body":"My own reply"}'),
+      api(
+        "northwind:triage-bot",
+        "POST",
+        "v1/conversations/{conversation}/drafts",
+        '{"body":"My own reply"}',
+      ),
     (r) => status(r) === 201,
   ],
 
@@ -385,7 +399,12 @@ const steps = [
   [
     "token can't mint → 403",
     () =>
-      api("northwind:triage-bot", "POST", "v1/tokens", '{"name":"x","scopes":["tickets:read"]}'),
+      api(
+        "northwind:triage-bot",
+        "POST",
+        "v1/tokens",
+        '{"name":"x","scopes":["conversations:read"]}',
+      ),
     (r) => status(r) === 403 && json(r).error === "session_required",
   ],
   [
@@ -394,8 +413,8 @@ const steps = [
     (r) => status(r) === 400,
   ],
   [
-    "stats-reader can't list tickets → 403",
-    () => api("northwind:stats-reader", "GET", "v1/tickets"),
+    "stats-reader can't list conversations → 403",
+    () => api("northwind:stats-reader", "GET", "v1/conversations"),
     (r) => status(r) === 403,
   ],
 

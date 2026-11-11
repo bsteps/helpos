@@ -45,9 +45,9 @@ let smtpDown = false;
 let sendAttempts = 0;
 
 const principals: Record<string, () => Principal> = {
-  approver: () => principal(acme, ["tickets:read", "drafts:write", "drafts:approve"]),
-  drafter: () => principal(acme, ["tickets:read", "drafts:write"]),
-  outsider: () => principal(other, ["tickets:read", "drafts:write", "drafts:approve"]),
+  approver: () => principal(acme, ["conversations:read", "drafts:write", "drafts:approve"]),
+  drafter: () => principal(acme, ["conversations:read", "drafts:write"]),
+  outsider: () => principal(other, ["conversations:read", "drafts:write", "drafts:approve"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -84,7 +84,7 @@ async function receiveEmail() {
   ].join("\r\n");
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(`ingest: ${result.kind}`);
-  return { ticketId: result.ticketId, subject };
+  return { conversationId: result.conversationId, subject };
 }
 
 async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
@@ -97,13 +97,13 @@ async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promi
   throw new Error(`timed out waiting for ${what}`);
 }
 
-const draftsOf = (ticketId: string) =>
+const draftsOf = (conversationId: string) =>
   db.withTenant(acme, (tx) =>
-    tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, ticketId)),
+    tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, conversationId)),
   );
-const waitForDraft = (ticketId: string, status: string) =>
+const waitForDraft = (conversationId: string, status: string) =>
   waitFor(`draft ${status}`, async () =>
-    (await draftsOf(ticketId)).find((d) => d.status === status),
+    (await draftsOf(conversationId)).find((d) => d.status === status),
   );
 const auditOf = async (draftId: string) =>
   (
@@ -123,16 +123,16 @@ async function mailFor(subject: string): Promise<MailpitMessage[]> {
   return messages.filter((m) => m.Subject === `Re: ${subject}`);
 }
 
-/** A ticket whose approved reply failed every attempt, while SMTP was down. */
+/** A conversation whose approved reply failed every attempt, while SMTP was down. */
 async function failedDraft() {
   const email = await receiveEmail();
-  const pending = await waitForDraft(email.ticketId, "pending");
+  const pending = await waitForDraft(email.conversationId, "pending");
   smtpDown = true;
   const approve = await call("POST", `/v1/drafts/${pending.id}/approve`, "approver", {
     body: pending.body,
   });
   expect(approve.status).toBe(200);
-  const failed = await waitForDraft(email.ticketId, "send_failed");
+  const failed = await waitForDraft(email.conversationId, "send_failed");
   smtpDown = false;
   return { ...email, draft: failed };
 }
@@ -212,7 +212,7 @@ function setShadowMode(on: boolean) {
 describe("a send that fails for good", () => {
   it("becomes send_failed with an audit event, visible in the drafts list, and nothing is stored as sent", async () => {
     const before = sendAttempts;
-    const { ticketId, draft } = await failedDraft();
+    const { conversationId, draft } = await failedDraft();
     // The first attempt and its one retry.
     expect(sendAttempts - before).toBe(2);
     expect(await auditOf(draft.id)).toEqual([
@@ -221,14 +221,14 @@ describe("a send that fails for good", () => {
       ["draft.send_failed", "system"],
     ]);
 
-    const list = await call("GET", `/v1/tickets/${ticketId}/drafts`, "drafter");
+    const list = await call("GET", `/v1/conversations/${conversationId}/drafts`, "drafter");
     expect(await list.json()).toMatchObject({
       drafts: [{ id: draft.id, status: "send_failed", sentAt: null }],
     });
     const outbound = await db.withTenant(acme, (tx) =>
       tx.select().from(schema.messages).where(eq(schema.messages.direction, "outbound")),
     );
-    expect(outbound.filter((m) => m.ticketId === ticketId)).toEqual([]);
+    expect(outbound.filter((m) => m.conversationId === conversationId)).toEqual([]);
     // Approve and edit still refuse it: retry and discard are the ways out.
     expect(
       (await call("POST", `/v1/drafts/${draft.id}/approve`, "approver", { body: draft.body }))
@@ -240,7 +240,7 @@ describe("a send that fails for good", () => {
   });
 
   it("retry sends it once, with the same Message-ID, however often it is asked", async () => {
-    const { ticketId, subject, draft } = await failedDraft();
+    const { conversationId, subject, draft } = await failedDraft();
 
     // Retrying is approving: it needs drafts:approve, and another workspace can't see it.
     expect((await call("POST", `/v1/drafts/${draft.id}/retry`, "drafter")).status).toBe(403);
@@ -254,7 +254,7 @@ describe("a send that fails for good", () => {
     expect([first.status, second.status]).toEqual([200, 200]);
     expect(await first.json()).toMatchObject({ id: draft.id, status: expect.any(String) });
 
-    const sent = await waitForDraft(ticketId, "sent");
+    const sent = await waitForDraft(conversationId, "sent");
     const again = await call("POST", `/v1/drafts/${draft.id}/retry`, "approver");
     expect(again.status).toBe(200);
     expect(await again.json()).toMatchObject({ status: "sent" });
@@ -285,12 +285,12 @@ describe("a send that fails for good", () => {
   });
 
   it("a retry respects shadow mode as it is when the reply is sent", async () => {
-    const { ticketId, subject, draft } = await failedDraft();
+    const { conversationId, subject, draft } = await failedDraft();
     // Shadow mode was off when it was approved; it's on now.
     await setShadowMode(true);
     try {
       expect((await call("POST", `/v1/drafts/${draft.id}/retry`, "approver")).status).toBe(200);
-      await waitForDraft(ticketId, "sent");
+      await waitForDraft(conversationId, "sent");
       const [mail] = await waitFor("the shadowed reply", async () => {
         const found = await mailFor(subject);
         return found.length > 0 ? found : undefined;
@@ -303,7 +303,7 @@ describe("a send that fails for good", () => {
   });
 
   it("discard takes it out for good: never retried, never sent", async () => {
-    const { ticketId, subject, draft } = await failedDraft();
+    const { conversationId, subject, draft } = await failedDraft();
     expect((await call("POST", `/v1/drafts/${draft.id}/discard`, "outsider")).status).toBe(404);
     const discard = await call("POST", `/v1/drafts/${draft.id}/discard`, "drafter");
     expect(discard.status).toBe(200);
@@ -312,7 +312,7 @@ describe("a send that fails for good", () => {
     const retry = await call("POST", `/v1/drafts/${draft.id}/retry`, "approver");
     expect(retry.status).toBe(409);
     expect(await retry.json()).toEqual({ error: "not_send_failed" });
-    expect((await draftsOf(ticketId))[0]?.status).toBe("discarded");
+    expect((await draftsOf(conversationId))[0]?.status).toBe("discarded");
     expect(await mailFor(subject)).toEqual([]);
     expect(await auditOf(draft.id)).toEqual([
       ["draft.created", "system"],
@@ -321,19 +321,19 @@ describe("a send that fails for good", () => {
       ["draft.discarded", "agent"],
     ]);
 
-    // With it gone, the ticket can be answered again.
-    const fresh = await call("POST", `/v1/tickets/${ticketId}/drafts`, "drafter", {
+    // With it gone, the conversation can be answered again.
+    const fresh = await call("POST", `/v1/conversations/${conversationId}/drafts`, "drafter", {
       body: "Let me try that again.",
     });
     expect(fresh.status).toBe(201);
   });
 
   it("a draft that was never approved can't be retried", async () => {
-    const { ticketId } = await receiveEmail();
-    const pending = await waitForDraft(ticketId, "pending");
+    const { conversationId } = await receiveEmail();
+    const pending = await waitForDraft(conversationId, "pending");
     const retry = await call("POST", `/v1/drafts/${pending.id}/retry`, "approver");
     expect(retry.status).toBe(409);
-    expect((await draftsOf(ticketId))[0]?.status).toBe("pending");
+    expect((await draftsOf(conversationId))[0]?.status).toBe("pending");
   });
 
   it("the retry route is in the OpenAPI spec", async () => {
@@ -343,8 +343,8 @@ describe("a send that fails for good", () => {
     expect(Object.keys(spec.paths["/v1/drafts/{id}/retry"] ?? {})).toEqual(["post"]);
   });
   it("retry recovers an approved draft whose send job was lost, and still sends it once", async () => {
-    const { ticketId, subject } = await receiveEmail();
-    const pending = await waitForDraft(ticketId, "pending");
+    const { conversationId, subject } = await receiveEmail();
+    const pending = await waitForDraft(conversationId, "pending");
     // Approved with no job behind it, as when the last attempt expired before giving up.
     await db.withTenant(acme, (tx) =>
       tx
@@ -357,7 +357,7 @@ describe("a send that fails for good", () => {
       call("POST", `/v1/drafts/${pending.id}/retry`, "approver"),
     ]);
     expect(retries.map((r) => r.status)).toEqual([200, 200]);
-    await waitForDraft(ticketId, "sent");
+    await waitForDraft(conversationId, "sent");
     await waitFor("the reply in Mailpit", async () => (await mailFor(subject))[0]);
     await new Promise((r) => setTimeout(r, 2_000));
     expect(await mailFor(subject)).toHaveLength(1);

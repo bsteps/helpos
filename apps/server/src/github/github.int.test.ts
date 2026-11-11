@@ -32,7 +32,7 @@ import { octokitGithub } from "./github-api.ts";
 import { registerGithubWebhook } from "./webhook.ts";
 import { signWebhook } from "./webhook-signature.ts";
 
-// Ticket → GitHub issue → customer told when it's fixed, against real Postgres, RLS, pg-boss and
+// Conversation → GitHub issue → customer told when it's fixed, against real Postgres, RLS, pg-boss and
 // the real Octokit. GitHub itself is a fake `fetch`: no test ever calls GitHub.
 
 const pat = "github_pat_11TESTTOKEN0abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";
@@ -187,8 +187,8 @@ const transport: EmailTransport = {
 // --- Callers ------------------------------------------------------------------------------------
 
 const allScopes: Scope[] = [
-  "tickets:read",
-  "tickets:write",
+  "conversations:read",
+  "conversations:write",
   "drafts:write",
   "drafts:approve",
   "knowledge:read",
@@ -201,13 +201,13 @@ const principals: Record<string, () => Principal> = {
     actor: { type: "user", id: "owner-user" },
     scopes: new Set([...allScopes, "workspace:admin"]),
   }),
-  githubAgent: () => agent(acme, ["tickets:read", "github:write"]),
-  // Can use the GitHub routes, but can't read tickets.
+  githubAgent: () => agent(acme, ["conversations:read", "github:write"]),
+  // Can use the GitHub routes, but can't read conversations.
   githubOnly: () => agent(acme, ["github:write"]),
   // An agent can't hold workspace:admin, but even a caller claiming it as an agent is refused.
   adminAgent: () => agent(acme, [...allScopes, "workspace:admin"]),
-  readOnly: () => agent(acme, ["tickets:read", "drafts:write", "drafts:approve"]),
-  approver: () => agent(acme, ["tickets:read", "drafts:approve"]),
+  readOnly: () => agent(acme, ["conversations:read", "drafts:write", "drafts:approve"]),
+  approver: () => agent(acme, ["conversations:read", "drafts:approve"]),
   otherOwner: () => ({
     tenantId: other,
     actor: { type: "user", id: "other-owner" },
@@ -286,12 +286,12 @@ async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promi
   throw new Error(`timed out waiting for ${what}`);
 }
 
-const draftsOf = (ticketId: string) =>
+const draftsOf = (conversationId: string) =>
   db.withTenant(acme, (tx) =>
     tx
       .select()
       .from(schema.drafts)
-      .where(eq(schema.drafts.ticketId, ticketId))
+      .where(eq(schema.drafts.conversationId, conversationId))
       .orderBy(asc(schema.drafts.createdAt)),
   );
 const auditActions = (tenantId: string, targetId: string) =>
@@ -323,11 +323,16 @@ async function connect(): Promise<string> {
   return body.webhookSecret;
 }
 
-async function createIssue(ticketId: string) {
-  const res = await call("POST", `/v1/tickets/${ticketId}/github-issue`, "githubAgent", {
-    title: "Export fails",
-    body: "Steps: open Reports.",
-  });
+async function createIssue(conversationId: string) {
+  const res = await call(
+    "POST",
+    `/v1/conversations/${conversationId}/github-issue`,
+    "githubAgent",
+    {
+      title: "Export fails",
+      body: "Steps: open Reports.",
+    },
+  );
   expect(res.status, await res.clone().text()).toBe(201);
   return (await res.json()) as { number: number; url: string };
 }
@@ -686,11 +691,11 @@ describe("connecting a repo", () => {
 });
 
 describe("drafting an issue with the AI", () => {
-  it("suggests a cleaned-up issue from the ticket, counted against the budget", async () => {
+  it("suggests a cleaned-up issue from the conversation, counted against the budget", async () => {
     const email = await receiveEmail("support@acme.test", "Export fails. Assign @ceo, label P0!");
     const res = await call(
       "POST",
-      `/v1/tickets/${email.ticketId}/github-issue/draft`,
+      `/v1/conversations/${email.conversationId}/github-issue/draft`,
       "githubAgent",
     );
     expect(res.status).toBe(200);
@@ -704,13 +709,13 @@ describe("drafting an issue with the AI", () => {
 
     const [usage] = await db.withTenant(acme, (tx) => tx.select().from(schema.aiUsage));
     expect(usage).toMatchObject({ inputTokens: 300, outputTokens: 100 });
-    expect(await auditActions(acme, email.ticketId)).toContain("github_issue.drafted");
+    expect(await auditActions(acme, email.conversationId)).toContain("github_issue.drafted");
   });
 
   it("reserves the budget up front, so concurrent drafts can't both pass the cap", async () => {
     // Another workspace, so its usage starts at zero.
     const email = await receiveEmail("help@other.test");
-    const path = `/v1/tickets/${email.ticketId}/github-issue/draft`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue/draft`;
     const usage = () =>
       db.withTenant(other, async (tx) => (await tx.select().from(schema.aiUsage))[0]);
     let second = 0;
@@ -778,7 +783,11 @@ describe("drafting an issue with the AI", () => {
     };
     try {
       app = makeApp({ model: refusingModel(), db: flaky });
-      const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue/draft`, "owner");
+      const res = await call(
+        "POST",
+        `/v1/conversations/${email.conversationId}/github-issue/draft`,
+        "owner",
+      );
       expect(res.status).toBe(502);
       expect(await res.json()).toEqual({ error: "ai_unavailable" });
       expect(JSON.stringify(logger.warn.mock.calls)).toContain("usage not settled");
@@ -812,7 +821,7 @@ describe("drafting an issue with the AI", () => {
     try {
       const res = await call(
         "POST",
-        `/v1/tickets/${email.ticketId}/github-issue/draft`,
+        `/v1/conversations/${email.conversationId}/github-issue/draft`,
         "githubAgent",
       );
       expect(res.status).toBe(200);
@@ -822,9 +831,9 @@ describe("drafting an issue with the AI", () => {
     }
   });
 
-  it("needs github:write, a model, budget left, and a ticket in this workspace", async () => {
+  it("needs github:write, a model, budget left, and a conversation in this workspace", async () => {
     const email = await receiveEmail();
-    const path = `/v1/tickets/${email.ticketId}/github-issue/draft`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue/draft`;
     expect((await call("POST", path, "readOnly")).status).toBe(403);
     expect((await call("POST", path, "otherOwner")).status).toBe(404);
     app = makeApp({ model: undefined });
@@ -838,10 +847,10 @@ describe("drafting an issue with the AI", () => {
 });
 
 describe("creating the issue", () => {
-  it("sends only the title and body, and links the issue to the ticket", async () => {
+  it("sends only the title and body, and links the issue to the conversation", async () => {
     const email = await receiveEmail();
     const before = githubCalls.length;
-    const issue = await createIssue(email.ticketId);
+    const issue = await createIssue(email.conversationId);
     expect(issue.url).toBe(`https://github.com/acme/app/issues/${issue.number}`);
 
     // One create, then one read of its state (it could have been closed already).
@@ -862,56 +871,76 @@ describe("creating the issue", () => {
       ),
     });
 
-    const ticket = await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly");
-    expect(await ticket.json()).toMatchObject({
+    const conversation = await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly");
+    expect(await conversation.json()).toMatchObject({
       githubIssue: { repo: "acme/app", number: issue.number, url: issue.url, state: "open" },
     });
-    expect(await auditActions(acme, email.ticketId)).toContain("github_issue.created");
+    expect(await auditActions(acme, email.conversationId)).toContain("github_issue.created");
 
-    // One issue per ticket.
-    const again = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "Again",
-      body: "",
-    });
+    // One issue per conversation.
+    const again = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "Again",
+        body: "",
+      },
+    );
     expect(again.status).toBe(409);
     expect(await again.json()).toEqual({ error: "already_linked" });
   });
 
   it("refuses extra fields such as labels or assignees", async () => {
     const email = await receiveEmail();
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-      labels: ["P0"],
-      assignees: ["ceo"],
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+        labels: ["P0"],
+        assignees: ["ceo"],
+      },
+    );
     expect(res.status).toBe(400);
   });
 
   it("links nothing when GitHub refuses, so it can be tried again at once", async () => {
     const email = await receiveEmail();
     rejectCreate = true;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(502);
     const text = await res.text();
     // GitHub's 422: the issue itself was refused, so "try again later" would never help.
     expect(JSON.parse(text)).toEqual({ error: "issue_rejected" });
     expect(text).not.toContain(pat);
     rejectCreate = false;
-    await createIssue(email.ticketId);
+    await createIssue(email.conversationId);
     expect(everythingLogged()).not.toContain(pat);
   });
 
-  it("holds the ticket when GitHub is down, since a 5xx may come after the issue was opened", async () => {
+  it("holds the conversation when GitHub is down, since a 5xx may come after the issue was opened", async () => {
     const email = await receiveEmail();
     githubDown = true;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(502);
     const text = await res.text();
     expect(JSON.parse(text)).toEqual({ error: "github_outcome_unknown" });
@@ -923,10 +952,15 @@ describe("creating the issue", () => {
     const email = await receiveEmail();
     loseCreateAnswer = true;
     const before = githubCalls.length;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "Lost answer",
-      body: "Line one\nLine two",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "Lost answer",
+        body: "Line one\nLine two",
+      },
+    );
     expect(res.status, await res.clone().text()).toBe(201);
     const linked = (await res.json()) as { number: number };
     const calls = githubCalls.slice(before).map((c) => `${c.method} ${c.path}`);
@@ -939,7 +973,7 @@ describe("creating the issue", () => {
     ]);
     expect(linked.number).toBe(openedIssues[0]?.number);
     expect(
-      await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json(),
+      await (await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")).json(),
     ).toMatchObject({
       githubIssue: { number: linked.number, state: "open" },
     });
@@ -950,9 +984,9 @@ describe("creating the issue", () => {
     // A claim from a request that died before GitHub opened anything.
     const longAgo = new Date(Date.now() - 10 * 60_000);
     await db.withTenant(acme, (tx) =>
-      tx.insert(schema.ticketGithubIssues).values({
+      tx.insert(schema.conversationGithubIssues).values({
         tenantId: acme,
-        ticketId: email.ticketId,
+        conversationId: email.conversationId,
         repo: "acme/app",
         state: "creating",
         createdAt: longAgo,
@@ -961,10 +995,15 @@ describe("creating the issue", () => {
     );
     loseCreateAnswer = true;
     const before = githubCalls.length;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status, await res.clone().text()).toBe(201);
     const opened = openedIssues[0]?.number;
     expect(githubCalls.slice(before).map((c) => `${c.method} ${c.path}`)).toEqual([
@@ -981,44 +1020,56 @@ describe("creating the issue", () => {
     expect(((await res.json()) as { number: number }).number).toBe(opened);
   });
 
-  it("never links an issue that another ticket already links", async () => {
+  it("never links an issue that another conversation already links", async () => {
     const first = await receiveEmail();
     const email = await receiveEmail();
-    const link = (ticketId: string, number: number) => ({
+    const link = (conversationId: string, number: number) => ({
       tenantId: acme,
-      ticketId,
+      conversationId,
       repo: "acme/app",
       issueNumber: number,
       issueUrl: `https://github.com/acme/app/issues/${number}`,
       state: "open" as const,
     });
-    // The issue GitHub just opened is, somehow, already another ticket's.
+    // The issue GitHub just opened is, somehow, already another conversation's.
     duringCreate = () =>
       db.withTenant(acme, async (tx) => {
         const opened = openedIssues[0];
         if (!opened) throw new Error("no issue opened");
-        await tx.insert(schema.ticketGithubIssues).values(link(first.ticketId, opened.number));
+        await tx
+          .insert(schema.conversationGithubIssues)
+          .values(link(first.conversationId, opened.number));
       });
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
-    // Its "fixed" notice belongs to the first ticket's customer alone.
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
+    // Its "fixed" notice belongs to the first conversation's customer alone.
     expect(res.status).toBe(500);
     expect(await res.json()).toMatchObject({ error: "issue_not_linked" });
-    // This ticket's claim is released, so it isn't held only to find that same issue again.
+    // This conversation's claim is released, so it isn't held only to find that same issue again.
     duringCreate = undefined;
-    const retry = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const retry = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(retry.status, await retry.clone().text()).toBe(201);
     // The database refuses a second link outright, too.
     const third = await receiveEmail();
     const number = openedIssues[1]?.number ?? 0;
     await expect(
       db.withTenant(acme, (tx) =>
-        tx.insert(schema.ticketGithubIssues).values(link(third.ticketId, number)),
+        tx.insert(schema.conversationGithubIssues).values(link(third.conversationId, number)),
       ),
     ).rejects.toThrow();
   });
@@ -1032,20 +1083,25 @@ describe("creating the issue", () => {
       if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
     };
     stateFailures = 2;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ state: "open" });
     const fixed = await waitFor("the recheck's fixed draft", async () => {
-      const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+      const drafts = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
       return drafts.length > 0 ? drafts : undefined;
     });
     expect(fixed).toHaveLength(1);
     expect(stateFailures).toBe(0);
     expect(
-      await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json(),
+      await (await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")).json(),
     ).toMatchObject({ githubIssue: { state: "closed" } });
   });
 
@@ -1053,9 +1109,9 @@ describe("creating the issue", () => {
     const email = await receiveEmail();
     const longAgo = new Date(Date.now() - 10 * 60_000);
     await db.withTenant(acme, (tx) =>
-      tx.insert(schema.ticketGithubIssues).values({
+      tx.insert(schema.conversationGithubIssues).values({
         tenantId: acme,
-        ticketId: email.ticketId,
+        conversationId: email.conversationId,
         repo: "acme/app",
         state: "creating",
         createdAt: longAgo,
@@ -1064,22 +1120,27 @@ describe("creating the issue", () => {
     );
     // The token lost access: retrying won't help, fixing the token will.
     userHidden = true;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "token_rejected" });
   });
 
-  it("doesn't block a ticket on a stale claim in a repo the token can no longer see", async () => {
+  it("doesn't block a conversation on a stale claim in a repo the token can no longer see", async () => {
     const email = await receiveEmail();
     // A claim from before the workspace switched repos; this token can't see that one at all.
     const longAgo = new Date(Date.now() - 10 * 60_000);
     await db.withTenant(acme, (tx) =>
-      tx.insert(schema.ticketGithubIssues).values({
+      tx.insert(schema.conversationGithubIssues).values({
         tenantId: acme,
-        ticketId: email.ticketId,
+        conversationId: email.conversationId,
         repo: "acme/gone",
         state: "creating",
         createdAt: longAgo,
@@ -1088,10 +1149,15 @@ describe("creating the issue", () => {
     );
     const posts = () => githubCalls.filter((c) => c.method === "POST").length;
     const before = posts();
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status, await res.clone().text()).toBe(201);
     expect(await res.json()).toMatchObject({ repo: "acme/app", number: openedIssues[0]?.number });
     expect(posts() - before).toBe(1);
@@ -1106,13 +1172,18 @@ describe("creating the issue", () => {
     // GitHub refuses the token for the check after linking and for the first recheck.
     stateFailureStatus = 401;
     stateFailures = 2;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     const fixed = await waitFor("the recheck's fixed draft", async () => {
-      const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+      const drafts = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
       return drafts.length > 0 ? drafts : undefined;
     });
     expect(fixed).toHaveLength(1);
@@ -1123,10 +1194,10 @@ describe("creating the issue", () => {
     const longAgo = new Date(Date.now() - 10 * 60_000);
     const [stale] = await db.withTenant(acme, (tx) =>
       tx
-        .insert(schema.ticketGithubIssues)
+        .insert(schema.conversationGithubIssues)
         .values({
           tenantId: acme,
-          ticketId: email.ticketId,
+          conversationId: email.conversationId,
           repo: "acme/app",
           state: "creating",
           createdAt: longAgo,
@@ -1144,10 +1215,15 @@ describe("creating the issue", () => {
     };
     try {
       app = makeApp({ db: flaky });
-      const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-        title: "t",
-        body: "b",
-      });
+      const res = await call(
+        "POST",
+        `/v1/conversations/${email.conversationId}/github-issue`,
+        "githubAgent",
+        {
+          title: "t",
+          body: "b",
+        },
+      );
       expect(res.status).toBe(502);
     } finally {
       app = makeApp();
@@ -1156,8 +1232,8 @@ describe("creating the issue", () => {
     const [claim] = await db.withTenant(acme, (tx) =>
       tx
         .select()
-        .from(schema.ticketGithubIssues)
-        .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+        .from(schema.conversationGithubIssues)
+        .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
     );
     expect(claim?.id).toBe(stale?.id);
     expect(claim?.state).toBe("creating");
@@ -1178,10 +1254,15 @@ describe("creating the issue", () => {
       stateFailures = 1;
       await db.withTenant(acme, (tx) => tx.delete(schema.integrations));
     };
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     await waitFor("the recheck to wait", async () =>
       JSON.stringify(logger.warn.mock.calls).includes("github recheck: waiting") ? true : undefined,
@@ -1189,7 +1270,7 @@ describe("creating the issue", () => {
     // Connected again: the waiting recheck applies the close.
     await db.withTenant(acme, (tx) => tx.insert(schema.integrations).values(saved));
     const fixed = await waitFor("the recheck's fixed draft", async () => {
-      const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+      const drafts = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
       return drafts.length > 0 ? drafts : undefined;
     });
     expect(fixed).toHaveLength(1);
@@ -1218,14 +1299,19 @@ describe("creating the issue", () => {
     };
     try {
       app = makeApp({ db: flaky });
-      const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-        title: "t",
-        body: "b",
-      });
+      const res = await call(
+        "POST",
+        `/v1/conversations/${email.conversationId}/github-issue`,
+        "githubAgent",
+        {
+          title: "t",
+          body: "b",
+        },
+      );
       expect(res.status, await res.clone().text()).toBe(201);
       expect(await res.json()).toMatchObject({ state: "open" });
       const fixed = await waitFor("the recheck's fixed draft", async () => {
-        const drafts = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+        const drafts = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
         return drafts.length > 0 ? drafts : undefined;
       });
       expect(fixed).toHaveLength(1);
@@ -1238,9 +1324,9 @@ describe("creating the issue", () => {
     const email = await receiveEmail();
     const longAgo = new Date(Date.now() - 10 * 60_000);
     await db.withTenant(acme, (tx) =>
-      tx.insert(schema.ticketGithubIssues).values({
+      tx.insert(schema.conversationGithubIssues).values({
         tenantId: acme,
-        ticketId: email.ticketId,
+        conversationId: email.conversationId,
         repo: "acme/app",
         state: "creating",
         createdAt: longAgo,
@@ -1249,7 +1335,7 @@ describe("creating the issue", () => {
     );
     const posts = () => githubCalls.filter((c) => c.method === "POST").length;
     const before = posts();
-    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue`;
     const answers = await Promise.all([
       call("POST", path, "githubAgent", { title: "t", body: "b" }),
       call("POST", path, "githubAgent", { title: "t", body: "b" }),
@@ -1263,36 +1349,46 @@ describe("creating the issue", () => {
     duringCreate = () =>
       db.withTenant(acme, async (tx) => {
         await tx
-          .delete(schema.ticketGithubIssues)
-          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId));
+          .delete(schema.conversationGithubIssues)
+          .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId));
       });
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
-    expect(await auditActions(acme, email.ticketId)).toContain("github_issue.created");
+    expect(await auditActions(acme, email.conversationId)).toContain("github_issue.created");
   });
 
   it("gives the issue's address when it was opened but can't be linked", async () => {
     const email = await receiveEmail();
-    // Another request claimed the ticket while GitHub was opening this one's issue.
+    // Another request claimed the conversation while GitHub was opening this one's issue.
     duringCreate = () =>
       db.withTenant(acme, async (tx) => {
         await tx
-          .delete(schema.ticketGithubIssues)
-          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId));
-        await tx.insert(schema.ticketGithubIssues).values({
+          .delete(schema.conversationGithubIssues)
+          .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId));
+        await tx.insert(schema.conversationGithubIssues).values({
           tenantId: acme,
-          ticketId: email.ticketId,
+          conversationId: email.conversationId,
           repo: "acme/app",
           state: "creating",
         });
       });
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(500);
     const opened = openedIssues[0]?.number;
     expect(await res.json()).toEqual({
@@ -1305,7 +1401,7 @@ describe("creating the issue", () => {
 
   it("never opens a second issue when GitHub's answer is lost and the issue isn't listed yet", async () => {
     const email = await receiveEmail();
-    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue`;
     const posts = () => githubCalls.filter((c) => c.method === "POST").length;
     const before = posts();
     loseCreateAnswer = true;
@@ -1322,9 +1418,9 @@ describe("creating the issue", () => {
     // Once the claim is stale, the next try finds the earlier issue by its marker.
     await db.withTenant(acme, (tx) =>
       tx
-        .update(schema.ticketGithubIssues)
+        .update(schema.conversationGithubIssues)
         .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
-        .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+        .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
     );
     const later = await call("POST", path, "githubAgent", { title: "t", body: "b" });
     expect(later.status, await later.clone().text()).toBe(201);
@@ -1334,15 +1430,15 @@ describe("creating the issue", () => {
 
   it("keeps a stale claim's marker searchable when GitHub is down while it's looked for", async () => {
     const email = await receiveEmail();
-    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue`;
     const posts = () => githubCalls.filter((c) => c.method === "POST").length;
     const claimOf = async () =>
       (
         await db.withTenant(acme, (tx) =>
           tx
             .select()
-            .from(schema.ticketGithubIssues)
-            .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+            .from(schema.conversationGithubIssues)
+            .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
         )
       )[0];
     const before = posts();
@@ -1354,9 +1450,9 @@ describe("creating the issue", () => {
     listLags = false;
     await db.withTenant(acme, (tx) =>
       tx
-        .update(schema.ticketGithubIssues)
+        .update(schema.conversationGithubIssues)
         .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
-        .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+        .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
     );
     // GitHub is down while the stale claim's issue is looked for: that claim comes back.
     githubDown = true;
@@ -1380,10 +1476,15 @@ describe("creating the issue", () => {
       if (!ours) throw new Error("no issue opened");
       openedIssues.unshift({ ...ours, number: 9_999, user: { login: "mallory" } });
     };
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     const linked = ((await res.json()) as { number: number }).number;
     expect(linked).not.toBe(9_999);
@@ -1398,29 +1499,40 @@ describe("creating the issue", () => {
         const opened = openedIssues[0];
         if (!opened) throw new Error("no issue opened");
         await tx
-          .update(schema.ticketGithubIssues)
+          .update(schema.conversationGithubIssues)
           .set({
             state: "open",
             issueNumber: opened.number,
             issueUrl: `https://github.com/acme/app/issues/${opened.number}`,
           })
-          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId));
+          .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId));
       });
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     expect(((await res.json()) as { number: number }).number).toBe(openedIssues[0]?.number);
   });
 
   it("cleans an agent's text like an AI draft, and sends a person's as written", async () => {
     const written = { title: "Ping @ceo", body: "See torvalds/linux#1 and https://evil.test." };
-    const agentTicket = (await receiveEmail()).ticketId;
+    const agentConversation = (await receiveEmail()).conversationId;
     const before = githubCalls.length;
     expect(
-      (await call("POST", `/v1/tickets/${agentTicket}/github-issue`, "githubAgent", written))
-        .status,
+      (
+        await call(
+          "POST",
+          `/v1/conversations/${agentConversation}/github-issue`,
+          "githubAgent",
+          written,
+        )
+      ).status,
     ).toBe(201);
     const fromAgent = githubCalls.slice(before).find((c) => c.method === "POST")?.body as {
       title: string;
@@ -1429,10 +1541,11 @@ describe("creating the issue", () => {
     expect(fromAgent.title).toBe("Ping `@ceo`");
     expect(fromAgent.body).toMatch(/^See `torvalds\/linux#1` and \[link removed\]\./);
 
-    const personTicket = (await receiveEmail()).ticketId;
+    const personConversation = (await receiveEmail()).conversationId;
     const mid = githubCalls.length;
     expect(
-      (await call("POST", `/v1/tickets/${personTicket}/github-issue`, "owner", written)).status,
+      (await call("POST", `/v1/conversations/${personConversation}/github-issue`, "owner", written))
+        .status,
     ).toBe(201);
     const fromPerson = githubCalls.slice(mid).find((c) => c.method === "POST")?.body as {
       title: string;
@@ -1449,30 +1562,42 @@ describe("creating the issue", () => {
       const opened = openedIssues[0];
       if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
     };
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ state: "closed" });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toHaveLength(
+      1,
+    );
   });
 
   it("calls an endless issue list 'don't know', never 'not there'", async () => {
     const email = await receiveEmail();
     loseCreateAnswer = true;
     endlessList = true;
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "github_outcome_unknown" });
   });
 
   it("links an earlier claim's issue under its own repo after the workspace switched repos", async () => {
     const email = await receiveEmail();
-    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue`;
     loseCreateAnswer = true;
     listLags = true;
     expect((await call("POST", path, "githubAgent", { title: "t", body: "b" })).status).toBe(502);
@@ -1487,15 +1612,17 @@ describe("creating the issue", () => {
       expect(moved.status).toBe(200);
       await db.withTenant(acme, (tx) =>
         tx
-          .update(schema.ticketGithubIssues)
+          .update(schema.conversationGithubIssues)
           .set({ updatedAt: new Date(Date.now() - 10 * 60_000) })
-          .where(eq(schema.ticketGithubIssues.ticketId, email.ticketId)),
+          .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
       );
       const res = await call("POST", path, "githubAgent", { title: "t", body: "b" });
       expect(res.status, await res.clone().text()).toBe(201);
       expect(await res.json()).toMatchObject({ repo: "acme/app", number: openedIssues[0]?.number });
-      const ticket = await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json();
-      expect(ticket).toMatchObject({ githubIssue: { repo: "acme/app" } });
+      const conversation = await (
+        await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")
+      ).json();
+      expect(conversation).toMatchObject({ githubIssue: { repo: "acme/app" } });
     } finally {
       await call("PUT", "/v1/integrations/github", "owner", { repo: "acme/app", token: pat });
     }
@@ -1505,28 +1632,29 @@ describe("creating the issue", () => {
     const email = await receiveEmail();
     expect(
       (
-        await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, null, {
+        await call("POST", `/v1/conversations/${email.conversationId}/github-issue`, null, {
           title: "t",
           body: "b",
         })
       ).status,
     ).toBe(401);
     expect(
-      (await call("POST", `/v1/tickets/${email.ticketId}/github-issue/draft`, null)).status,
+      (await call("POST", `/v1/conversations/${email.conversationId}/github-issue/draft`, null))
+        .status,
     ).toBe(401);
   });
 
-  it("is refused without github:write or tickets:read, in another workspace, or with nothing connected", async () => {
+  it("is refused without github:write or conversations:read, in another workspace, or with nothing connected", async () => {
     const email = await receiveEmail();
-    const path = `/v1/tickets/${email.ticketId}/github-issue`;
+    const path = `/v1/conversations/${email.conversationId}/github-issue`;
     expect((await call("POST", path, "readOnly", { title: "t", body: "b" })).status).toBe(403);
-    // It would pick which customer is told "it's fixed" without being able to read the ticket.
+    // It would pick which customer is told "it's fixed" without being able to read the conversation.
     expect((await call("POST", path, "githubOnly", { title: "t", body: "b" })).status).toBe(403);
     expect((await call("POST", path, "otherOwner", { title: "t", body: "b" })).status).toBe(404);
     const otherEmail = await receiveEmail("help@other.test");
     const res = await call(
       "POST",
-      `/v1/tickets/${otherEmail.ticketId}/github-issue`,
+      `/v1/conversations/${otherEmail.conversationId}/github-issue`,
       "otherOwner",
       {
         title: "t",
@@ -1546,7 +1674,7 @@ describe("the webhook", () => {
 
   it("refuses a bad, missing or foreign signature, and an unknown workspace, all with 401", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const payload = closed(number);
     const refused = [
       await deliver("wrong secret", payload),
@@ -1573,7 +1701,7 @@ describe("the webhook", () => {
     });
     expect(tampered.status).toBe(401);
     // Nothing changed.
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toEqual([]);
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toEqual([]);
   });
 
   it("answers GitHub's ping and ignores other events", async () => {
@@ -1583,9 +1711,9 @@ describe("the webhook", () => {
       { event: "ping" },
     );
     expect(ping.status).toBe(200);
-    expect(await ping.json()).toEqual({ status: "ignored", tickets: 0 });
+    expect(await ping.json()).toEqual({ status: "ignored", conversations: 0 });
     const push = await deliver(secret, { ref: "refs/heads/main" }, { event: "push" });
-    expect(await push.json()).toEqual({ status: "ignored", tickets: 0 });
+    expect(await push.json()).toEqual({ status: "ignored", conversations: 0 });
   });
 
   it("treats the workspace ID in any letter case as the same workspace", async () => {
@@ -1628,11 +1756,11 @@ describe("the webhook", () => {
 
   it("asks GitHub when a close and a reopen share a second, instead of guessing", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     // GitHub's times are to the second.
     const second = new Date(Date.now() + 5_000).toISOString().replace(/\.\d+Z$/, "Z");
     const closing = closed(number, "completed", "acme/App", second);
-    expect(await (await deliver(secret, closing)).json()).toMatchObject({ tickets: 1 });
+    expect(await (await deliver(secret, closing)).json()).toMatchObject({ conversations: 1 });
     // Reopened in that same second: which came last can't be told from the times.
     const issue = openedIssues.find((i) => i.number === number);
     if (!issue) throw new Error("no issue");
@@ -1640,19 +1768,21 @@ describe("the webhook", () => {
     const reopened = { ...closed(number, null, "acme/App", second), action: "reopened" };
     expect(await (await deliver(secret, reopened)).json()).toEqual({
       status: "ignored",
-      tickets: 0,
+      conversations: 0,
     });
     // The worker reads the state from GitHub, open, and applies that: no "it's fixed" waits.
     const stateOf = async () =>
       (
-        (await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json()) as {
+        (await (
+          await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")
+        ).json()) as {
           githubIssue: { state: string };
         }
       ).githubIssue.state;
     await waitFor("the reopen read from GitHub", async () =>
       (await stateOf()) === "open" ? true : undefined,
     );
-    const live = (await draftsOf(email.ticketId)).filter(
+    const live = (await draftsOf(email.conversationId)).filter(
       (d) => d.kind === "fixed" && d.status !== "discarded",
     );
     expect(live).toEqual([]);
@@ -1660,27 +1790,31 @@ describe("the webhook", () => {
 
   it("closed as completed → a pending 'fixed' draft; a replay changes nothing", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const res = await deliver(secret, closed(number));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "processed", tickets: 1 });
+    expect(await res.json()).toEqual({ status: "processed", conversations: 1 });
 
-    const fixed = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+    const fixed = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
     expect(fixed).toHaveLength(1);
     expect(fixed[0]).toMatchObject({ status: "pending", body: fixedNoticeBody });
     expect(fixed[0]?.messageId).toBe(email.messageId);
-    expect(await auditActions(acme, email.ticketId)).toContain("github_issue.closed");
-    const ticket = await (await call("GET", `/v1/tickets/${email.ticketId}`, "readOnly")).json();
-    expect(ticket).toMatchObject({ githubIssue: { number, state: "closed" } });
+    expect(await auditActions(acme, email.conversationId)).toContain("github_issue.closed");
+    const conversation = await (
+      await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")
+    ).json();
+    expect(conversation).toMatchObject({ githubIssue: { number, state: "closed" } });
 
     // GitHub retries, or someone replays the delivery: still one draft.
     const replay = await deliver(secret, closed(number));
-    expect(await replay.json()).toEqual({ status: "ignored", tickets: 0 });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+    expect(await replay.json()).toEqual({ status: "ignored", conversations: 0 });
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toHaveLength(
+      1,
+    );
 
     // Reopened: the fix didn't hold, so the notice still waiting is withdrawn, never sent.
     await deliver(secret, { ...closed(number), action: "reopened" });
-    const afterReopen = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+    const afterReopen = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
     expect(afterReopen.map((d) => d.status)).toEqual(["discarded"]);
     expect(await auditActions(acme, afterReopen[0]?.id ?? "")).toEqual([
       "draft.created",
@@ -1689,9 +1823,9 @@ describe("the webhook", () => {
     // Closed again: one fresh notice, for the fix that holds this time.
     expect(await (await deliver(secret, closed(number))).json()).toEqual({
       status: "processed",
-      tickets: 1,
+      conversations: 1,
     });
-    const live = (await draftsOf(email.ticketId)).filter(
+    const live = (await draftsOf(email.conversationId)).filter(
       (d) => d.kind === "fixed" && d.status !== "discarded",
     );
     expect(live).toHaveLength(1);
@@ -1708,21 +1842,28 @@ describe("the webhook", () => {
       Object.assign(opened, { state: "closed", state_reason: "completed" });
       expect(await (await deliver(secret, closed(opened.number))).json()).toEqual({
         status: "processed",
-        tickets: 1,
+        conversations: 1,
       });
     };
-    const res = await call("POST", `/v1/tickets/${email.ticketId}/github-issue`, "githubAgent", {
-      title: "t",
-      body: "b",
-    });
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue`,
+      "githubAgent",
+      {
+        title: "t",
+        body: "b",
+      },
+    );
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ state: "closed" });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toHaveLength(
+      1,
+    );
   });
 
   it("takes GitHub's form content type too, and refuses any other once signed", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const send = (type: string, body: string) =>
       app.request(`/v1/integrations/github/webhook?workspace=${acme}`, {
         method: "POST",
@@ -1739,32 +1880,32 @@ describe("the webhook", () => {
       "application/x-www-form-urlencoded",
       `payload=${encodeURIComponent(event)}`,
     );
-    expect(await form.json()).toEqual({ status: "processed", tickets: 1 });
+    expect(await form.json()).toEqual({ status: "processed", conversations: 1 });
     expect((await send("application/x-www-form-urlencoded", "payload=not-json")).status).toBe(400);
   });
 
   it("ignores a late close, delivered again after the issue was reopened", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
     const closedEarly = closed(number, "completed", "acme/App", at(1));
-    expect(await (await deliver(secret, closedEarly)).json()).toMatchObject({ tickets: 1 });
+    expect(await (await deliver(secret, closedEarly)).json()).toMatchObject({ conversations: 1 });
     const reopened = { ...closed(number, null, "acme/App", at(2)), action: "reopened" };
-    expect(await (await deliver(secret, reopened)).json()).toMatchObject({ tickets: 1 });
+    expect(await (await deliver(secret, reopened)).json()).toMatchObject({ conversations: 1 });
     // GitHub retries the first close: it is older than the reopen, so the issue stays open and
     // no customer is told it's fixed.
     expect(await (await deliver(secret, closedEarly)).json()).toEqual({
       status: "ignored",
-      tickets: 0,
+      conversations: 0,
     });
-    const live = (await draftsOf(email.ticketId)).filter(
+    const live = (await draftsOf(email.conversationId)).filter(
       (d) => d.kind === "fixed" && d.status !== "discarded",
     );
     expect(live).toEqual([]);
     // A real, later close still counts.
     expect(
       await (await deliver(secret, closed(number, "completed", "acme/App", at(3)))).json(),
-    ).toMatchObject({ tickets: 1 });
+    ).toMatchObject({ conversations: 1 });
   });
 
   it("checks only a few deliveries at once, turning away what doesn't fit before the database", async () => {
@@ -1842,29 +1983,29 @@ describe("the webhook", () => {
 
   it("ignores a late close even when its reopen was delivered first", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
     // Closed at +1 and reopened at +2, but GitHub delivers the reopen first.
     const reopened = { ...closed(number, null, "acme/App", at(2)), action: "reopened" };
     await deliver(secret, reopened);
     expect(
       await (await deliver(secret, closed(number, "completed", "acme/App", at(1)))).json(),
-    ).toEqual({ status: "ignored", tickets: 0 });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toEqual([]);
+    ).toEqual({ status: "ignored", conversations: 0 });
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toEqual([]);
   });
 
   it("acknowledges an event with no repository instead of refusing it", async () => {
     const res = await deliver(secret, { action: "created", repository: null }, { event: "issues" });
-    expect(await res.json()).toEqual({ status: "ignored", tickets: 0 });
+    expect(await res.json()).toEqual({ status: "ignored", conversations: 0 });
   });
 
-  it("never leaves two 'fixed' drafts waiting on one ticket, even after the customer wrote again", async () => {
+  it("never leaves two 'fixed' drafts waiting on one conversation, even after the customer wrote again", async () => {
     const email = await receiveEmail();
     const add = () =>
       db.withTenant(acme, (tx) =>
         addFixedDraft(tx, {
           tenantId: acme,
-          ticketId: email.ticketId,
+          conversationId: email.conversationId,
           actor: githubWebhookActor,
           requestId: null,
           noticeDelaySeconds: 3600,
@@ -1875,7 +2016,7 @@ describe("the webhook", () => {
     await db.withTenant(acme, (tx) =>
       tx.insert(schema.messages).values({
         tenantId: acme,
-        ticketId: email.ticketId,
+        conversationId: email.conversationId,
         direction: "inbound",
         fromAddress: "jane@customer.test",
         toAddresses: ["support@acme.test"],
@@ -1886,7 +2027,7 @@ describe("the webhook", () => {
       }),
     );
     expect(await add()).toBeNull();
-    const waiting = (await draftsOf(email.ticketId)).filter(
+    const waiting = (await draftsOf(email.conversationId)).filter(
       (d) => d.kind === "fixed" && d.status === "pending",
     );
     expect(waiting).toHaveLength(1);
@@ -1894,7 +2035,7 @@ describe("the webhook", () => {
 
   it("drafts a fresh fix notice when an issue whose notice was sent is reopened and closed again", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const at = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
     await deliver(secret, closed(number, "completed", "acme/App", at(1)));
     // The first notice went out.
@@ -1902,34 +2043,39 @@ describe("the webhook", () => {
       tx
         .update(schema.drafts)
         .set({ status: "sent" })
-        .where(and(eq(schema.drafts.ticketId, email.ticketId), eq(schema.drafts.kind, "fixed"))),
+        .where(
+          and(
+            eq(schema.drafts.conversationId, email.conversationId),
+            eq(schema.drafts.kind, "fixed"),
+          ),
+        ),
     );
     // The fix didn't hold: reopened, then closed for good.
     await deliver(secret, { ...closed(number, null, "acme/App", at(2)), action: "reopened" });
     await deliver(secret, closed(number, "completed", "acme/App", at(3)));
-    const fixed = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+    const fixed = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
     expect(fixed.map((d) => d.status)).toEqual(["sent", "pending"]);
   });
 
   it("closed as not planned or duplicate → no 'fixed' draft", async () => {
     for (const reason of ["not_planned", "duplicate"]) {
       const email = await receiveEmail();
-      const { number } = await createIssue(email.ticketId);
+      const { number } = await createIssue(email.conversationId);
       expect(await (await deliver(secret, closed(number, reason))).json()).toEqual({
         status: "processed",
-        tickets: 1,
+        conversations: 1,
       });
-      expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toEqual([]);
+      expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toEqual([]);
     }
   });
 
-  it("still closes a ticket linked while another repo was connected", async () => {
+  it("still closes a conversation linked while another repo was connected", async () => {
     const email = await receiveEmail();
     // A link from before the workspace switched repos.
     await db.withTenant(acme, (tx) =>
-      tx.insert(schema.ticketGithubIssues).values({
+      tx.insert(schema.conversationGithubIssues).values({
         tenantId: acme,
-        ticketId: email.ticketId,
+        conversationId: email.conversationId,
         repo: "acme/old",
         issueNumber: 9,
         issueUrl: "https://github.com/acme/old/issues/9",
@@ -1937,40 +2083,47 @@ describe("the webhook", () => {
       }),
     );
     const res = await deliver(secret, closed(9, "completed", "Acme/Old"));
-    expect(await res.json()).toEqual({ status: "processed", tickets: 1 });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toHaveLength(1);
+    expect(await res.json()).toEqual({ status: "processed", conversations: 1 });
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toHaveLength(
+      1,
+    );
   });
 
-  it("ignores an issue in a repo no ticket is linked to, even with this workspace's secret", async () => {
+  it("ignores an issue in a repo no conversation is linked to, even with this workspace's secret", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     const res = await deliver(secret, closed(number, "completed", "someone/else"));
-    expect(await res.json()).toEqual({ status: "ignored", tickets: 0 });
-    expect((await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed")).toEqual([]);
+    expect(await res.json()).toEqual({ status: "ignored", conversations: 0 });
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toEqual([]);
   });
 
   it("keeps a pending 'fixed' draft when the customer writes again or a reply is written", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     await deliver(secret, closed(number));
     // A new reply draft for the same message replaces pending replies, not the fixed notice.
-    const reply = await call("POST", `/v1/tickets/${email.ticketId}/drafts`, "readOnly", {
-      body: "A reply written by hand.",
-    });
+    const reply = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/drafts`,
+      "readOnly",
+      {
+        body: "A reply written by hand.",
+      },
+    );
     expect(reply.status).toBe(201);
-    const live = (await draftsOf(email.ticketId)).filter((d) => d.status === "pending");
+    const live = (await draftsOf(email.conversationId)).filter((d) => d.status === "pending");
     expect(live.map((d) => d.kind).sort()).toEqual(["fixed", "reply"]);
     const list = await (
-      await call("GET", `/v1/tickets/${email.ticketId}/drafts`, "readOnly")
+      await call("GET", `/v1/conversations/${email.conversationId}/drafts`, "readOnly")
     ).json();
     expect((list as { drafts: { kind: string }[] }).drafts.map((d) => d.kind)).toContain("fixed");
   });
 
   it("the approved 'fixed' email goes to the shadow recipient, never the customer", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     await deliver(secret, closed(number));
-    const [fixed] = (await draftsOf(email.ticketId)).filter((d) => d.kind === "fixed");
+    const [fixed] = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
     if (!fixed) throw new Error("no fixed draft");
 
     const approve = await call("POST", `/v1/drafts/${fixed.id}/approve`, "approver", {
@@ -1989,22 +2142,22 @@ describe("the webhook", () => {
     expect(mail.raw).toContain("This reply was NOT sent to the customer");
     expect(sent.some((m) => m.to.includes("jane@customer.test"))).toBe(false);
     await waitFor("the draft marked sent", async () =>
-      (await draftsOf(email.ticketId)).find((d) => d.id === fixed.id && d.status === "sent"),
+      (await draftsOf(email.conversationId)).find((d) => d.id === fixed.id && d.status === "sent"),
     );
   });
 
   it("is refused once the repo is disconnected, and the stored token is gone", async () => {
     const email = await receiveEmail();
-    const { number } = await createIssue(email.ticketId);
+    const { number } = await createIssue(email.conversationId);
     expect((await call("DELETE", "/v1/integrations/github", "owner")).status).toBe(204);
     expect(await db.withTenant(acme, (tx) => tx.select().from(schema.integrations))).toEqual([]);
     expect((await deliver(secret, closed(number))).status).toBe(401);
-    // The ticket keeps its link.
+    // The conversation keeps its link.
     const [link] = await db.withTenant(acme, (tx) =>
       tx
         .select()
-        .from(schema.ticketGithubIssues)
-        .where(and(eq(schema.ticketGithubIssues.ticketId, email.ticketId))),
+        .from(schema.conversationGithubIssues)
+        .where(and(eq(schema.conversationGithubIssues.conversationId, email.conversationId))),
     );
     expect(link?.state).toBe("open");
     secret = await connect();

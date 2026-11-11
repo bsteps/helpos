@@ -34,16 +34,16 @@ const record = (action: AuditAction) =>
     tenantId: "0190d6a4-0000-7000-8000-000000000001",
     actor: { type: "system", id: "test" },
     action,
-    target: { type: "ticket", id: "0190d6a4-0000-7000-8000-000000000002" },
+    target: { type: "conversation", id: "0190d6a4-0000-7000-8000-000000000002" },
     requestId: null,
   });
 
-/** One write route that records `ticket.closed`, whose handler does `handle` then answers. */
+/** One write route that records `conversation.closed`, whose handler does `handle` then answers. */
 function appWith(handle: () => Promise<void> | void, status: 200 | 409 = 200) {
   const app = new OpenAPIHono();
   const route = apiRoute({
     access: { noCaller: "a test route, called without any principal" },
-    audit: { records: ["ticket.closed"] },
+    audit: { records: ["conversation.closed"] },
     method: "post",
     path: "/close",
     responses: { 200: { description: "closed" }, 409: { description: "refused" } },
@@ -63,7 +63,7 @@ async function post(app: OpenAPIHono) {
 
 describe("a write route's audit is checked after its handler", () => {
   it("passes a success that records a declared action", async () => {
-    expect((await post(appWith(() => record("ticket.closed")))).status).toBe(200);
+    expect((await post(appWith(() => record("conversation.closed")))).status).toBe(200);
   });
 
   it("fails a success that records nothing, and says how to fix it", async () => {

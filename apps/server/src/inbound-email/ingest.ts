@@ -15,7 +15,7 @@ import type { FileStore } from "@helpos/files";
 import { draftReplyJob } from "../drafts/jobs.ts";
 import { type ParsedEmail, parseEmail } from "./parse.ts";
 
-const { attachments, customers, messages, tickets } = schema;
+const { attachments, customers, messages, conversations } = schema;
 
 export type IngestResult =
   /** No recipient matches a mailbox. Nothing was stored. */
@@ -23,10 +23,10 @@ export type IngestResult =
   /** The email has no usable From address. Nothing was stored. */
   | { kind: "invalid"; reason: "missing_from" }
   /** This Message-ID was already stored for the workspace (a provider retry). */
-  | { kind: "duplicate"; ticketId: string; messageId: string }
+  | { kind: "duplicate"; conversationId: string; messageId: string }
   | {
       kind: "created";
-      ticketId: string;
+      conversationId: string;
       messageId: string;
       threaded: boolean;
       /** True when a draft-reply job was queued. False for machine-sent mail. */
@@ -39,7 +39,7 @@ export interface IngestDeps {
 }
 
 /**
- * Turns a raw inbound email into a ticket message in the right workspace. The content is
+ * Turns a raw inbound email into a conversation message in the right workspace. The content is
  * stored as data and never acted on (ADR 0004).
  */
 export async function ingestEmail(deps: IngestDeps, raw: Uint8Array): Promise<IngestResult> {
@@ -98,26 +98,26 @@ async function store(
   }
 
   const customerId = await upsertCustomer(tx, tenantId, from);
-  const threadTicketId = await findThread(tx, customerId, email.threadIds);
+  const threadConversationId = await findThread(tx, customerId, email.threadIds);
   const now = new Date();
 
-  let ticketId: string;
-  if (threadTicketId) {
-    ticketId = threadTicketId;
+  let conversationId: string;
+  if (threadConversationId) {
+    conversationId = threadConversationId;
     await tx
-      .update(tickets)
-      // An out-of-office reply to a closed ticket must not reopen it. A person writing on a
-      // ticket a machine opened (e.g. answering a bounce) makes it a normal ticket.
+      .update(conversations)
+      // An out-of-office reply to a closed conversation must not reopen it. A person writing on a
+      // conversation a machine opened (e.g. answering a bounce) makes it a normal conversation.
       .set(
         email.automated
           ? { lastMessageAt: now }
           : { lastMessageAt: now, status: "open", automated: false },
       )
-      .where(eq(tickets.id, ticketId));
+      .where(eq(conversations.id, conversationId));
   } else {
-    ticketId = uuidv7();
-    await tx.insert(tickets).values({
-      id: ticketId,
+    conversationId = uuidv7();
+    await tx.insert(conversations).values({
+      id: conversationId,
       tenantId,
       customerId,
       mailboxId: route.mailboxId,
@@ -136,7 +136,7 @@ async function store(
   await tx.insert(messages).values({
     id: messageId,
     tenantId,
-    ticketId,
+    conversationId,
     direction: "inbound",
     fromAddress: from.address,
     fromName: from.name,
@@ -174,16 +174,16 @@ async function store(
 
   return {
     kind: "created",
-    ticketId,
+    conversationId,
     messageId,
-    threaded: threadTicketId !== null,
+    threaded: threadConversationId !== null,
     draftReply,
   };
 }
 
 async function findByMessageId(tx: TenantTx, messageIdHeader: string) {
   const rows = await tx
-    .select({ ticketId: messages.ticketId, messageId: messages.id })
+    .select({ conversationId: messages.conversationId, messageId: messages.id })
     .from(messages)
     .where(eq(messages.messageIdHeader, messageIdHeader))
     .limit(1);
@@ -211,7 +211,7 @@ async function upsertCustomer(
 }
 
 /**
- * The ticket this email replies to, if any. Only the same customer's tickets count: a
+ * The conversation this email replies to, if any. Only the same customer's conversations count: a
  * Message-ID alone must not let a stranger add messages to someone else's conversation.
  */
 async function findThread(
@@ -221,11 +221,13 @@ async function findThread(
 ): Promise<string | null> {
   if (threadIds.length === 0) return null;
   const rows = await tx
-    .select({ ticketId: messages.ticketId })
+    .select({ conversationId: messages.conversationId })
     .from(messages)
-    .innerJoin(tickets, eq(tickets.id, messages.ticketId))
-    .where(and(inArray(messages.messageIdHeader, threadIds), eq(tickets.customerId, customerId)))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(
+      and(inArray(messages.messageIdHeader, threadIds), eq(conversations.customerId, customerId)),
+    )
     .orderBy(desc(messages.createdAt))
     .limit(1);
-  return rows[0]?.ticketId ?? null;
+  return rows[0]?.conversationId ?? null;
 }

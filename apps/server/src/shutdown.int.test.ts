@@ -97,7 +97,7 @@ describe("shutting down while an AI call is in flight", () => {
     expect(after.calls).toBe(1);
     // No draft, and the job is left to be tried again after the restart.
     const drafts = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+      tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, email.conversationId)),
     );
     expect(drafts).toEqual([]);
     const jobs = await jobsDb.withTenant(acme, (tx) =>

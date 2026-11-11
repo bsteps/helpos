@@ -20,7 +20,7 @@ import { queueDraftNotice } from "./notice-worker.ts";
 // in their own transaction; the draft-writes Biome plugin fails on a drafts insert, update or
 // delete anywhere else, so a new status can't be handled in one caller and missed in another.
 
-const { drafts, mailboxes, messages, tickets } = schema;
+const { drafts, mailboxes, messages, conversations } = schema;
 
 export type DraftRow = typeof drafts.$inferSelect;
 type DraftStatus = schema.DraftStatus;
@@ -46,7 +46,7 @@ export const draftTransitions = {
   /** A person drops a draft that shouldn't go out, or a send that kept failing. */
   discard: { from: ["pending", "send_failed"], to: "discarded", audit: "draft.discarded" },
   /**
-   * Something newer replaced it: a newer reply on the ticket, or the issue a "fixed" notice was
+   * Something newer replaced it: a newer reply on the conversation, or the issue a "fixed" notice was
    * about was reopened. Only a pending one: a failed send waits for a person to decide.
    */
   discardStale: { from: ["pending"], to: "discarded", audit: "draft.discarded" },
@@ -138,8 +138,8 @@ export async function approveDraft(
   const [found] = await tx
     .select({ mailbox: mailboxes.address })
     .from(drafts)
-    .innerJoin(tickets, eq(tickets.id, drafts.ticketId))
-    .innerJoin(mailboxes, eq(mailboxes.id, tickets.mailboxId))
+    .innerJoin(conversations, eq(conversations.id, drafts.conversationId))
+    .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
     .where(eq(drafts.id, id));
   if (!found) return { outcome: "not_found" };
   const domain = found.mailbox.split("@").pop() ?? "localhost";
@@ -205,7 +205,7 @@ export function markSendFailed(tx: TenantTx, audit: Auditor, id: string): Promis
 }
 
 /**
- * Discards the tickets' pending drafts of `kind`, auditing each, and returns their IDs. A new
+ * Discards the conversations' pending drafts of `kind`, auditing each, and returns their IDs. A new
  * reply replaces pending replies (`createReply` does it itself); a reopened issue withdraws the
  * pending "fixed" notice. The two kinds never replace each other: "it's fixed" is still news
  * when the customer writes again.
@@ -213,16 +213,16 @@ export function markSendFailed(tx: TenantTx, audit: Auditor, id: string): Promis
 export async function discardStale(
   tx: TenantTx,
   audit: Auditor,
-  where: { ticketIds: string[]; kind: DraftKind },
+  where: { conversationIds: string[]; kind: DraftKind },
 ): Promise<string[]> {
-  if (where.ticketIds.length === 0) return [];
+  if (where.conversationIds.length === 0) return [];
   const { from, to, audit: action } = draftTransitions.discardStale;
   const stale = await tx
     .update(drafts)
     .set({ status: to })
     .where(
       and(
-        inArray(drafts.ticketId, where.ticketIds),
+        inArray(drafts.conversationId, where.conversationIds),
         eq(drafts.kind, where.kind),
         inArray(drafts.status, [...from]),
       ),
@@ -233,35 +233,35 @@ export async function discardStale(
 }
 
 /**
- * Locks the ticket for drafting and says which message a draft answers: the ticket's latest
+ * Locks the conversation for drafting and says which message a draft answers: the conversation's latest
  * message from a person (machine mail is never answered), or null when it has none. Every
- * writer of a ticket's drafts takes this lock first, so two can't both add a live draft, and a
+ * writer of a conversation's drafts takes this lock first, so two can't both add a live draft, and a
  * slow AI draft can't land after something that happened meanwhile. Also says whether the
- * ticket is closed. Null when there's no such ticket in this workspace.
+ * conversation is closed. Null when there's no such conversation in this workspace.
  */
-export async function lockTicketForDrafting(
+export async function lockConversationForDrafting(
   tx: TenantTx,
-  ticketId: string,
+  conversationId: string,
 ): Promise<{ answering: string | null; closed: boolean } | null> {
-  const [ticket] = await tx
-    .select({ id: tickets.id, status: tickets.status })
-    .from(tickets)
-    .where(eq(tickets.id, ticketId))
+  const [conversation] = await tx
+    .select({ id: conversations.id, status: conversations.status })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
     .for("update");
-  if (!ticket) return null;
+  if (!conversation) return null;
   const [latest] = await tx
     .select({ id: messages.id })
     .from(messages)
     .where(
       and(
-        eq(messages.ticketId, ticketId),
+        eq(messages.conversationId, conversationId),
         eq(messages.direction, "inbound"),
         isNull(messages.automatedReason),
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(1);
-  return { answering: latest?.id ?? null, closed: ticket.status === "closed" };
+  return { answering: latest?.id ?? null, closed: conversation.status === "closed" };
 }
 
 /**
@@ -295,7 +295,7 @@ async function insertPending(
   audit: Auditor,
   values: {
     tenantId: string;
-    ticketId: string;
+    conversationId: string;
     messageId: string;
     kind: DraftKind;
     body: string;
@@ -311,31 +311,34 @@ async function insertPending(
 }
 
 /**
- * Saves a pending reply to `messageId`, from a person or the AI. The ticket's older pending
+ * Saves a pending reply to `messageId`, from a person or the AI. The conversation's older pending
  * replies are discarded first, so nobody approves an answer to a question the customer has moved
- * past, and the ticket stops waiting on a paused or failed AI. Call it under
- * `lockTicketForDrafting`, after checking the message has no live reply.
+ * past, and the conversation stops waiting on a paused or failed AI. Call it under
+ * `lockConversationForDrafting`, after checking the message has no live reply.
  */
 export async function createReply(
   tx: TenantTx,
   audit: Auditor,
   input: {
     tenantId: string;
-    ticketId: string;
+    conversationId: string;
     messageId: string;
     body: string;
     noticeDelaySeconds: number;
   },
 ): Promise<DraftRow> {
-  await discardStale(tx, audit, { ticketIds: [input.ticketId], kind: "reply" });
+  await discardStale(tx, audit, { conversationIds: [input.conversationId], kind: "reply" });
   const draft = await insertPending(tx, audit, { ...input, kind: "reply" });
-  await tx.update(tickets).set({ aiPausedReason: null }).where(eq(tickets.id, input.ticketId));
+  await tx
+    .update(conversations)
+    .set({ aiPausedReason: null })
+    .where(eq(conversations.id, input.conversationId));
   return draft;
 }
 
 /**
- * Adds a pending "fixed" notice to the ticket, answering the customer's latest message. Null,
- * with nothing written, when the ticket has no message from a person or already has a "fixed"
+ * Adds a pending "fixed" notice to the conversation, answering the customer's latest message. Null,
+ * with nothing written, when the conversation has no message from a person or already has a "fixed"
  * notice open (waiting, being sent or waiting on a retry), whichever message it answers: the
  * customer is never told twice at once. One already sent (a fix that didn't hold, reopened, now
  * closed again) is no reason not to tell them about this one. A pending reply stays: the two
@@ -344,16 +347,16 @@ export async function createReply(
 export async function createFixedNotice(
   tx: TenantTx,
   audit: Auditor,
-  input: { tenantId: string; ticketId: string; body: string; noticeDelaySeconds: number },
+  input: { tenantId: string; conversationId: string; body: string; noticeDelaySeconds: number },
 ): Promise<DraftRow | null> {
-  const lock = await lockTicketForDrafting(tx, input.ticketId);
+  const lock = await lockConversationForDrafting(tx, input.conversationId);
   if (!lock?.answering) return null;
   const [open] = await tx
     .select({ id: drafts.id })
     .from(drafts)
     .where(
       and(
-        eq(drafts.ticketId, input.ticketId),
+        eq(drafts.conversationId, input.conversationId),
         eq(drafts.kind, "fixed"),
         inArray(drafts.status, [...openStatuses]),
       ),

@@ -23,7 +23,7 @@ function prng(key: string): () => number {
 
 /**
  * A UUIDv7-shaped ID from a name: the timestamp is the row's own, the rest comes from a hash of
- * the name. Derived per name rather than drawn in sequence, so adding a ticket later doesn't
+ * the name. Derived per name rather than drawn in sequence, so adding a conversation later doesn't
  * change the IDs of all the others.
  */
 function seedId(name: string, at: Date): string {
@@ -63,7 +63,7 @@ type DraftSpec = {
    */
   editedBy?: string[];
 };
-type TicketSpec = {
+type ConversationSpec = {
   key: string;
   customer: string;
   subject: string;
@@ -77,7 +77,7 @@ type TicketSpec = {
   /** Replies to the last customer message. */
   draft?: DraftSpec;
   /**
-   * A GitHub issue made from the ticket. The workspace has no repo connected (a token can't be
+   * A GitHub issue made from the conversation. The workspace has no repo connected (a token can't be
    * seeded), so it shows the link; closing it needs a real repo and webhook.
    */
   githubIssue?: { repo: string; number: number };
@@ -97,7 +97,7 @@ type TenantSpec = {
   customers: { email: string; name: string }[];
   tokens: { name: string; scopes: schema.ApiTokenScope[]; revoked?: boolean }[];
   sources: SourceSpec[];
-  tickets: TicketSpec[];
+  conversations: ConversationSpec[];
 };
 
 const tenantSpecs: TenantSpec[] = [
@@ -118,8 +118,8 @@ const tenantSpecs: TenantSpec[] = [
       { email: "ahmed.k@example.test", name: "Ahmed Karimi" },
     ],
     tokens: [
-      { name: "triage-bot", scopes: ["tickets:read", "drafts:write", "knowledge:read"] },
-      { name: "approver-bot", scopes: ["tickets:read", "drafts:approve"] },
+      { name: "triage-bot", scopes: ["conversations:read", "drafts:write", "knowledge:read"] },
+      { name: "approver-bot", scopes: ["conversations:read", "drafts:approve"] },
       { name: "old-import-script", scopes: ["knowledge:write"], revoked: true },
       { name: "stats-reader", scopes: ["stats:read"] },
     ],
@@ -153,7 +153,7 @@ const tenantSpecs: TenantSpec[] = [
           "# Refund exceptions\n\nTeam leads may approve a refund up to 45 days after delivery for loyal customers (3+ orders). Never promise this to a customer before a lead approves it.",
       },
     ],
-    tickets: [
+    conversations: [
       {
         key: "where-is-order",
         customer: "sam.rivera@example.test",
@@ -367,10 +367,10 @@ const tenantSpecs: TenantSpec[] = [
     tokens: [
       {
         name: "support-agent",
-        scopes: ["tickets:read", "drafts:write", "drafts:approve", "knowledge:read"],
+        scopes: ["conversations:read", "drafts:write", "drafts:approve", "knowledge:read"],
       },
       { name: "docs-sync", scopes: ["knowledge:read", "knowledge:write"] },
-      { name: "issue-bot", scopes: ["tickets:read", "github:write"] },
+      { name: "issue-bot", scopes: ["conversations:read", "github:write"] },
       { name: "stats-reader", scopes: ["stats:read"] },
     ],
     sources: [
@@ -403,7 +403,7 @@ const tenantSpecs: TenantSpec[] = [
           "# Known issues\n\nDashboards with more than 40 charts may time out on first load since release 4.12. Workaround: split the dashboard. Fix planned for 4.14.",
       },
     ],
-    tickets: [
+    conversations: [
       {
         key: "csv-import-error",
         customer: "kenji@tidewater.test",
@@ -598,29 +598,32 @@ export function buildDemoData() {
       },
     );
 
-    const tickets: (typeof schema.tickets.$inferInsert & { createdAt: Date })[] = [];
+    const conversations: (typeof schema.conversations.$inferInsert & { createdAt: Date })[] = [];
     const messages: (typeof schema.messages.$inferInsert & { id: string; createdAt: Date })[] = [];
     const drafts: (typeof schema.drafts.$inferInsert & { id: string })[] = [];
     const citations: (typeof schema.draftCitations.$inferInsert & { id: string })[] = [];
-    const githubIssues: (typeof schema.ticketGithubIssues.$inferInsert & { id: string })[] = [];
-    for (const ts of spec.tickets) {
+    const githubIssues: (typeof schema.conversationGithubIssues.$inferInsert & { id: string })[] =
+      [];
+    for (const ts of spec.conversations) {
       const customer = customerByEmail.get(ts.customer);
-      if (!customer) throw new Error(`demo ticket ${ts.key}: unknown customer ${ts.customer}`);
-      // The ticket opens when its first message arrives, to the second.
+      if (!customer)
+        throw new Error(`demo conversation ${ts.key}: unknown customer ${ts.customer}`);
+      // The conversation opens when its first message arrives, to the second.
       const times = ts.messages.map((m) => at(ts.hours * 60 + m.minutes));
       const opened = times[0];
-      if (!opened) throw new Error(`demo ticket ${ts.key} has no messages`);
-      const ticketId = id(`ticket:${ts.key}`, opened);
+      if (!opened) throw new Error(`demo conversation ${ts.key} has no messages`);
+      // Keep the original seed name so IDs match databases seeded before the rename.
+      const conversationId = id(`ticket:${ts.key}`, opened);
       const headers = ts.messages.map(
         (m, i) => `<${ts.key}.${i}@${m.from === "customer" ? "mail.example.test" : spec.domain}>`,
       );
-      const ticketMessages = ts.messages.map((m, i) => {
+      const conversationMessages = ts.messages.map((m, i) => {
         const sentAt = times[i] ?? opened;
         const inbound = m.from === "customer";
         return {
           id: id(`message:${ts.key}:${i}`, sentAt),
           tenantId,
-          ticketId,
+          conversationId,
           direction: inbound ? ("inbound" as const) : ("outbound" as const),
           fromAddress: inbound ? customer.email : spec.mailbox,
           fromName: inbound ? customer.name : spec.name,
@@ -639,11 +642,11 @@ export function buildDemoData() {
           updatedAt: sentAt,
         };
       });
-      messages.push(...ticketMessages);
-      const last = ticketMessages[ticketMessages.length - 1];
-      if (!last) throw new Error(`demo ticket ${ts.key} has no messages`);
-      tickets.push({
-        id: ticketId,
+      messages.push(...conversationMessages);
+      const last = conversationMessages[conversationMessages.length - 1];
+      if (!last) throw new Error(`demo conversation ${ts.key} has no messages`);
+      conversations.push({
+        id: conversationId,
         tenantId,
         customerId: customer.id,
         mailboxId: mailbox.id,
@@ -661,7 +664,7 @@ export function buildDemoData() {
         githubIssues.push({
           id: id(`github-issue:${ts.key}`, filedAt),
           tenantId,
-          ticketId,
+          conversationId,
           repo: ts.githubIssue.repo,
           issueNumber: ts.githubIssue.number,
           issueUrl: `https://github.com/${ts.githubIssue.repo}/issues/${ts.githubIssue.number}`,
@@ -677,14 +680,14 @@ export function buildDemoData() {
       // answers the latest customer message.
       const sentReply =
         d.status === "sent"
-          ? ticketMessages.findLast((m) => m.direction === "outbound")
+          ? conversationMessages.findLast((m) => m.direction === "outbound")
           : undefined;
-      const repliesTo = ticketMessages.findLast(
+      const repliesTo = conversationMessages.findLast(
         (m) => m.direction === "inbound" && (!sentReply || m.createdAt < sentReply.createdAt),
       );
-      if (!repliesTo) throw new Error(`demo ticket ${ts.key}: draft has no inbound message`);
+      if (!repliesTo) throw new Error(`demo conversation ${ts.key}: draft has no inbound message`);
       if (d.status === "sent" && !sentReply) {
-        throw new Error(`demo ticket ${ts.key}: sent draft needs an outbound message`);
+        throw new Error(`demo conversation ${ts.key}: sent draft needs an outbound message`);
       }
       const draftedAt = new Date(repliesTo.createdAt.getTime() + 2 * 60_000);
       const approvedAt = d.status === "sent" ? new Date(draftedAt.getTime() + 10 * 60_000) : null;
@@ -692,7 +695,7 @@ export function buildDemoData() {
       drafts.push({
         id: draftId,
         tenantId,
-        ticketId,
+        conversationId,
         messageId: repliesTo.id,
         body: d.text,
         status: d.status,
@@ -705,7 +708,7 @@ export function buildDemoData() {
       });
       (d.editedBy ?? []).forEach((name, i) => {
         const token = tokens.find((t) => t.name === name);
-        if (!token) throw new Error(`demo ticket ${ts.key}: unknown token ${name}`);
+        if (!token) throw new Error(`demo conversation ${ts.key}: unknown token ${name}`);
         const when = new Date(draftedAt.getTime() + (i + 1) * 60_000);
         audit.push({
           id: id(`audit:draft.edited:${ts.key}:${i}`, when),
@@ -721,7 +724,7 @@ export function buildDemoData() {
       });
       d.sources.forEach((ref, rank) => {
         const source = sourceBySlug.get(ref.slug);
-        if (!source) throw new Error(`demo ticket ${ts.key}: unknown source ${ref.slug}`);
+        if (!source) throw new Error(`demo conversation ${ts.key}: unknown source ${ref.slug}`);
         citations.push({
           id: id(`citation:${ts.key}:${rank}`, draftedAt),
           tenantId,
@@ -749,7 +752,7 @@ export function buildDemoData() {
       sources,
       tokens,
       audit,
-      tickets,
+      conversations,
       messages,
       drafts,
       citations,

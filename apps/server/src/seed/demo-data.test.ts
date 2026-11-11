@@ -16,14 +16,37 @@ describe("buildDemoData", () => {
     );
   });
 
-  it("seeds two workspaces with users, tokens, tickets, drafts and knowledge", () => {
+  it("preserves conversation IDs from databases seeded before the rename", () => {
+    expect(buildDemoData().tenants.map((t) => t.conversations.map((c) => c.id))).toEqual([
+      [
+        "019bb1a6-0470-7a4b-9bab-c3880f4dd3c3",
+        "019bb24b-50d8-763b-a58a-d6e1396698c8",
+        "019bb6cc-4ce8-781b-8186-9f3a32bc24b2",
+        "019bb7a8-87d0-7713-95e4-62bc4a578ba9",
+        "019bbbf3-2db8-77d4-9e93-7bcc94e128ca",
+        "019bbcce-d048-749e-a3b6-153621d7ca42",
+        "019bbdaa-ebf0-7810-b68e-7a2cc1860453",
+        "019bbc61-2228-7a78-a518-30b7916c4932",
+        "019bc03d-9138-71da-9d0f-cea64a47f424",
+      ],
+      [
+        "019bb1dd-6c08-7014-a625-c342855ab267",
+        "019bb2f0-2428-73cf-b35d-b426143741b6",
+        "019bb703-e360-70bc-a84b-0f7fb2918d40",
+        "019bbb85-29a8-7114-ade2-e121e52b2557",
+        "019bbbbb-ba68-7fbb-8bd4-5c6911a107eb",
+      ],
+    ]);
+  });
+
+  it("seeds two workspaces with users, tokens, conversations, drafts and knowledge", () => {
     const { tenants, users } = buildDemoData();
     expect(tenants).toHaveLength(2);
     expect(new Set(users.map((u) => u.email)).size).toBe(users.length);
     for (const t of tenants) {
       expect(t.memberships.some((m) => m.role === "owner")).toBe(true);
       expect(t.tokens.length).toBeGreaterThan(0);
-      expect(t.tickets.length).toBeGreaterThan(3);
+      expect(t.conversations.length).toBeGreaterThan(3);
       expect(t.sources.length).toBeGreaterThan(0);
       for (const status of ["pending", "sent"]) {
         expect(t.drafts.some((d) => d.status === status)).toBe(true);
@@ -31,7 +54,7 @@ describe("buildDemoData", () => {
     }
   });
 
-  it("links a demo ticket to a GitHub issue, and gives an agent github:write", () => {
+  it("links a demo conversation to a GitHub issue, and gives an agent github:write", () => {
     const lumen = buildDemoData().tenants.find((t) => t.key === "lumen");
     expect(lumen?.githubIssues).toEqual([
       expect.objectContaining({
@@ -68,7 +91,7 @@ describe("buildDemoData", () => {
         t.sources,
         t.tokens,
         t.audit,
-        t.tickets,
+        t.conversations,
         t.messages,
         t.drafts,
         t.citations,

@@ -71,9 +71,9 @@ const webhookRoute = apiRoute({
   description:
     "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the " +
     "workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's " +
-    "webhook secret. Tickets are matched by the event's repo and issue number, so issues made " +
+    "webhook secret. Conversations are matched by the event's repo and issue number, so issues made " +
     "while another repo was connected still close, as long as that repo's webhook has the " +
-    "current secret. When an issue linked to tickets is closed as completed, each ticket gets " +
+    "current secret. When an issue linked to conversations is closed as completed, each conversation gets " +
     "a `fixed` draft for a human to approve. A delivery for an issue already closed changes " +
     "nothing, so a replay is harmless. Other events are acknowledged and ignored.",
   security: [{ githubSignature: [] }],
@@ -92,8 +92,8 @@ const webhookRoute = apiRoute({
   },
   responses: {
     200: json(
-      z.object({ status: z.enum(["processed", "ignored"]), tickets: z.int() }),
-      "Handled. `tickets` is how many linked tickets changed",
+      z.object({ status: z.enum(["processed", "ignored"]), conversations: z.int() }),
+      "Handled. `conversations` is how many linked conversations changed",
     ),
     401: json(errorSchema, "Unknown workspace, no repo connected, or a missing or wrong signature"),
     400: json(errorSchema, "Not a GitHub event payload"),
@@ -228,9 +228,9 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     );
     if (payload === "unsupported") return c.json({ error: "unsupported_media_type" }, 415);
     if (payload === "invalid") return c.json({ error: "invalid_payload" }, 400);
-    const ignored = { status: "ignored" as const, tickets: 0 };
+    const ignored = { status: "ignored" as const, conversations: 0 };
     if (event !== "issues" || !payload.issue || !payload.repository) return c.json(ignored, 200);
-    // The event's own repo, not only the connected one: a ticket linked while another repo was
+    // The event's own repo, not only the connected one: a conversation linked while another repo was
     // connected keeps its link, and still hears when that issue closes. Only a webhook that
     // signs with this workspace's secret gets here, so every repo it speaks for is one an
     // admin of this workspace set it up on.
@@ -249,7 +249,10 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     };
     const answer = (changed: number) =>
       c.json(
-        { status: changed > 0 ? ("processed" as const) : ("ignored" as const), tickets: changed },
+        {
+          status: changed > 0 ? ("processed" as const) : ("ignored" as const),
+          conversations: changed,
+        },
         200,
       );
     // An event in the same second as the link's last change can't be ordered against it, so
@@ -267,7 +270,7 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
         await recheckTied(tx, "open");
         return markIssueClosed(tx, { ...change, stateReason: issue.state_reason });
       });
-      deps.logger.info({ issue: issue.number, tickets: changed }, "github issue closed");
+      deps.logger.info({ issue: issue.number, conversations: changed }, "github issue closed");
       return answer(changed);
     }
     if (payload.action === "reopened") {

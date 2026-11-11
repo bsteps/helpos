@@ -18,7 +18,7 @@ export interface InboundEmailDeps extends IngestDeps {
 const resultSchema = z
   .object({
     status: z.enum(["created", "threaded", "duplicate"]),
-    ticketId: z.uuid(),
+    conversationId: z.uuid(),
     messageId: z.uuid(),
   })
   .openapi("InboundEmailResult");
@@ -33,7 +33,7 @@ const inboundEmailRoute = apiRoute({
   summary: "Receive an inbound email",
   description:
     "Called by an email provider or relay with the raw MIME message as the body. The " +
-    "recipient address picks the workspace. Replies are threaded onto their ticket using " +
+    "recipient address picks the workspace. Replies are threaded onto their conversation using " +
     "In-Reply-To and References. The content is stored as data and never acted on.",
   security: [{ inboundSecret: [] }],
   request: {
@@ -44,7 +44,7 @@ const inboundEmailRoute = apiRoute({
   },
   responses: {
     200: json(resultSchema, "Duplicate delivery: already stored"),
-    201: json(resultSchema, "Stored as a new ticket or a reply"),
+    201: json(resultSchema, "Stored as a new conversation or a reply"),
     401: json(errorSchema, "Missing or wrong secret"),
     404: json(errorSchema, "No workspace has this address. Nothing was stored"),
     413: json(errorSchema, `Larger than ${maxEmailBytes} bytes`),
@@ -88,18 +88,26 @@ export function registerInboundEmail(app: OpenAPIHono, deps: InboundEmailDeps): 
         return c.json({ error: result.reason }, 422);
       case "duplicate":
         return c.json(
-          { status: "duplicate" as const, ticketId: result.ticketId, messageId: result.messageId },
+          {
+            status: "duplicate" as const,
+            conversationId: result.conversationId,
+            messageId: result.messageId,
+          },
           200,
         );
       case "created":
         deps.logger.info(
-          { ticketId: result.ticketId, threaded: result.threaded, draftReply: result.draftReply },
+          {
+            conversationId: result.conversationId,
+            threaded: result.threaded,
+            draftReply: result.draftReply,
+          },
           "inbound email stored",
         );
         return c.json(
           {
             status: result.threaded ? ("threaded" as const) : ("created" as const),
-            ticketId: result.ticketId,
+            conversationId: result.conversationId,
             messageId: result.messageId,
           },
           201,

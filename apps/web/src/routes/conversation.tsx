@@ -4,11 +4,11 @@ import { ArrowLeft, CircleCheck } from "lucide-react";
 import { useState } from "react";
 import { ApiError, type Draft, type Message } from "@/api/client.ts";
 import {
+  conversationQuery,
   draftsQuery,
   keys,
-  ticketQuery,
   useApproveDraft,
-  useCloseTicket,
+  useCloseConversation,
   useCreateDraft,
   useDiscardDraft,
   useEditDraft,
@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/card.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
+import { GithubIssuePanel } from "./conversation-github.tsx";
 import {
   type Ask,
   type DraftView,
@@ -46,50 +47,51 @@ import {
   newestReply,
   waitingOn,
 } from "./draft-view.ts";
-import { GithubIssuePanel } from "./ticket-github.tsx";
 
 const isConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
 
-export function TicketPage() {
-  const { id } = useParams({ from: "/signed-in/tickets/$id" });
-  // Keyed, so a reply being written on one ticket doesn't follow you to the next.
-  return <Ticket key={id} id={id} />;
+export function ConversationPage() {
+  const { id } = useParams({ from: "/signed-in/conversations/$id" });
+  // Keyed, so a reply being written on one conversation doesn't follow you to the next.
+  return <Conversation key={id} id={id} />;
 }
 
-function Ticket({ id }: { id: string }) {
+function Conversation({ id }: { id: string }) {
   const queryClient = useQueryClient();
   // Up here, not in the cards: whether a new draft was asked for decides the polling, and a
   // reply being written must survive a draft arriving meanwhile.
   const redraft = useCreateDraft(id);
   const [ask, setAsk] = useState<Ask>();
   const [composing, setComposing] = useState(false);
-  const ticket = useQuery({
-    ...ticketQuery(id),
-    // The AI giving up shows only on the ticket (`draft_failed`), not in the drafts: while a
-    // draft is awaited, look at the ticket again too.
+  const conversation = useQuery({
+    ...conversationQuery(id),
+    // The AI giving up shows only on the conversation (`draft_failed`), not in the drafts: while a
+    // draft is awaited, look at the conversation again too.
     refetchInterval: (query) =>
       waitingOn(query.state.data, ask)(queryClient.getQueryData(keys.drafts(id)) ?? [])
         ? 2_000
         : false,
   });
-  const drafts = useQuery(draftsQuery(id, waitingOn(ticket.data, ask)));
-  const close = useCloseTicket(id);
+  const drafts = useQuery(draftsQuery(id, waitingOn(conversation.data, ask)));
+  const close = useCloseConversation(id);
 
-  if (ticket.isPending) {
+  if (conversation.isPending) {
     return (
       <div className="flex justify-center py-12">
-        <Loader size={24} label="Loading ticket" />
+        <Loader size={24} label="Loading conversation" />
       </div>
     );
   }
-  if (ticket.isError) {
-    const missing = ticket.error instanceof ApiError && ticket.error.status === 404;
+  if (conversation.isError) {
+    const missing = conversation.error instanceof ApiError && conversation.error.status === 404;
     return (
       <Alert variant="destructive">
         <AlertIcon />
         <AlertContent>
           <AlertDescription>
-            {missing ? "This ticket doesn't exist in your workspace." : "Couldn't load the ticket."}{" "}
+            {missing
+              ? "This conversation doesn't exist in your workspace."
+              : "Couldn't load the conversation."}{" "}
             <Link to="/">Back to the inbox</Link>
           </AlertDescription>
         </AlertContent>
@@ -97,9 +99,9 @@ function Ticket({ id }: { id: string }) {
     );
   }
 
-  const t = ticket.data;
+  const c = conversation.data;
   return (
-    <article aria-labelledby="ticket-subject" className="flex flex-col gap-6">
+    <article aria-labelledby="conversation-subject" className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Link
           to="/"
@@ -110,30 +112,33 @@ function Ticket({ id }: { id: string }) {
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 id="ticket-subject" className="break-words font-semibold text-2xl tracking-tight">
-              {t.subject || "(no subject)"}
+            <h1
+              id="conversation-subject"
+              className="break-words font-semibold text-2xl tracking-tight"
+            >
+              {c.subject || "(no subject)"}
             </h1>
-            {/* Status sits with the ticket's details, away from the button, so the two don't
+            {/* Status sits with the conversation's details, away from the button, so the two don't
                 read as an Open/Close pair of buttons. */}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-sm">
               <span>
-                {t.customer.name ? `${t.customer.name} · ` : ""}
-                {t.customer.email}
+                {c.customer.name ? `${c.customer.name} · ` : ""}
+                {c.customer.email}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
                   aria-hidden
                   className={
-                    t.status === "open"
+                    c.status === "open"
                       ? "size-2 rounded-full bg-emerald-500"
                       : "size-2 rounded-full bg-muted-foreground/50"
                   }
                 />
-                {t.status === "open" ? "Open" : "Closed"}
+                {c.status === "open" ? "Open" : "Closed"}
               </span>
             </div>
           </div>
-          {t.status === "open" ? (
+          {c.status === "open" ? (
             <Button
               variant="outline"
               size="sm"
@@ -141,7 +146,7 @@ function Ticket({ id }: { id: string }) {
               onClick={() => close.mutate()}
             >
               <CircleCheck aria-hidden className="size-4" />
-              Close ticket
+              Close conversation
             </Button>
           ) : null}
         </div>
@@ -149,20 +154,20 @@ function Ticket({ id }: { id: string }) {
           <Alert variant="destructive">
             <AlertIcon />
             <AlertContent>
-              <AlertDescription>Couldn't close the ticket. Try again.</AlertDescription>
+              <AlertDescription>Couldn't close the conversation. Try again.</AlertDescription>
             </AlertContent>
           </Alert>
         ) : null}
       </div>
 
       <section aria-label="Conversation" className="flex flex-col gap-3">
-        {t.messages.map((message) => (
+        {c.messages.map((message) => (
           <MessageCard key={message.id} message={message} />
         ))}
       </section>
 
       <section aria-label="GitHub issue" className="flex flex-col gap-3">
-        <GithubIssuePanel key={t.id} ticket={t} />
+        <GithubIssuePanel key={c.id} conversation={c} />
       </section>
 
       <section aria-label="Draft" className="flex flex-col gap-3">
@@ -175,8 +180,8 @@ function Ticket({ id }: { id: string }) {
           </Alert>
         ) : (
           <DraftPanel
-            ticketId={t.id}
-            view={draftView(t, drafts.data, ask, composing)}
+            conversationId={c.id}
+            view={draftView(c, drafts.data, ask, composing)}
             redraft={redraft}
             askAi={() => {
               const replacing = newestReply(drafts.data)?.id ?? null;
@@ -186,9 +191,9 @@ function Ticket({ id }: { id: string }) {
                 {
                   onError: () => setAsk(undefined),
                   onSuccess: async () => {
-                    // The server cleared the old `draft_failed`: with the ticket fetched again, a
+                    // The server cleared the old `draft_failed`: with the conversation fetched again, a
                     // `draft_failed` that shows up later is this ask failing too.
-                    await queryClient.invalidateQueries({ queryKey: keys.ticket(id) });
+                    await queryClient.invalidateQueries({ queryKey: keys.conversation(id) });
                     setAsk((now) =>
                       now?.replacing === replacing ? { replacing, queued: true } : now,
                     );
@@ -203,7 +208,7 @@ function Ticket({ id }: { id: string }) {
 
       {drafts.data && liveFixNotice(drafts.data) ? (
         <section aria-label="Fix notice" className="flex flex-col gap-3">
-          <FixNotice ticketId={t.id} drafts={drafts.data} />
+          <FixNotice conversationId={c.id} drafts={drafts.data} />
         </section>
       ) : null}
     </article>
@@ -251,13 +256,13 @@ const chooseNote = {
 } as const;
 
 function DraftPanel({
-  ticketId,
+  conversationId,
   view,
   redraft,
   askAi,
   setComposing,
 }: {
-  ticketId: string;
+  conversationId: string;
   view: DraftView;
   redraft: ReturnType<typeof useCreateDraft>;
   askAi: () => void;
@@ -286,7 +291,7 @@ function DraftPanel({
     case "compose":
       return (
         <Composer
-          ticketId={ticketId}
+          conversationId={conversationId}
           meanwhile={view.meanwhile}
           done={() => {
             setComposing(false);
@@ -304,8 +309,8 @@ function DraftPanel({
               <AlertContent>
                 <AlertTitle>AI paused</AlertTitle>
                 <AlertDescription>
-                  Today's AI budget for this workspace is spent, so this ticket has no draft. It
-                  resumes at midnight UTC.
+                  Today's AI budget for this workspace is spent, so this conversation has no draft.
+                  It resumes at midnight UTC.
                 </AlertDescription>
               </AlertContent>
             </Alert>
@@ -316,8 +321,8 @@ function DraftPanel({
               <AlertContent>
                 <AlertTitle>No AI draft</AlertTitle>
                 <AlertDescription>
-                  The AI couldn't write a draft for this ticket: every try failed. Nothing has gone
-                  to the customer.
+                  The AI couldn't write a draft for this conversation: every try failed. Nothing has
+                  gone to the customer.
                 </AlertDescription>
               </AlertContent>
             </Alert>
@@ -345,7 +350,7 @@ function DraftPanel({
     case "draft":
       // Keyed by draft only: a refetched body must not remount the card, or an approval refused
       // because the text changed would lose its "this draft changed" message (and any typed text).
-      return <DraftCard key={view.draft.id} ticketId={ticketId} draft={view.draft} />;
+      return <DraftCard key={view.draft.id} conversationId={conversationId} draft={view.draft} />;
   }
 }
 
@@ -371,15 +376,15 @@ const meanwhileNote = {
 } as const;
 
 function Composer({
-  ticketId,
+  conversationId,
   meanwhile,
   done,
 }: {
-  ticketId: string;
+  conversationId: string;
   meanwhile: Meanwhile | undefined;
   done: () => void;
 }) {
-  const write = useCreateDraft(ticketId);
+  const write = useCreateDraft(conversationId);
   const [body, setBody] = useState("");
   return (
     <Card variant="muted" size="compact">
@@ -416,16 +421,16 @@ function Composer({
   );
 }
 
-function FixNotice({ ticketId, drafts }: { ticketId: string; drafts: Draft[] }) {
+function FixNotice({ conversationId, drafts }: { conversationId: string; drafts: Draft[] }) {
   const draft = liveFixNotice(drafts);
-  return draft ? <DraftCard key={draft.id} ticketId={ticketId} draft={draft} /> : null;
+  return draft ? <DraftCard key={draft.id} conversationId={conversationId} draft={draft} /> : null;
 }
 
-function DraftCard({ ticketId, draft }: { ticketId: string; draft: Draft }) {
-  const edit = useEditDraft(ticketId);
-  const approve = useApproveDraft(ticketId);
-  const retry = useRetryDraft(ticketId);
-  const discard = useDiscardDraft(ticketId);
+function DraftCard({ conversationId, draft }: { conversationId: string; draft: Draft }) {
+  const edit = useEditDraft(conversationId);
+  const approve = useApproveDraft(conversationId);
+  const retry = useRetryDraft(conversationId);
+  const discard = useDiscardDraft(conversationId);
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(draft.body);
   const badge = statusBadge[draft.status];

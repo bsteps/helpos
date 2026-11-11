@@ -17,7 +17,7 @@ import { openGithubAccess } from "./integration.ts";
 import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
 import { recheckIssueJob } from "./jobs.ts";
 
-const { ticketGithubIssues } = schema;
+const { conversationGithubIssues } = schema;
 
 /** Checks stop a day after the link's last change: the issue's later webhooks still arrive. */
 const recheckForMs = 24 * 60 * 60 * 1000;
@@ -52,22 +52,22 @@ export interface RecheckDeps {
 /**
  * Checks stopped without reading the issue's state: GitHub stayed unreachable for a day, or
  * the job failed every retry. The link keeps the last state it knew, and the audit event on
- * the ticket says it may be stale, so someone can look at the issue.
+ * the conversation says it may be stale, so someone can look at the issue.
  */
 export async function handleRecheckGaveUp(
   payload: { tenantId: string; linkId: string },
   tx: TenantTx,
 ): Promise<void> {
   const [link] = await tx
-    .select({ ticketId: ticketGithubIssues.ticketId })
-    .from(ticketGithubIssues)
-    .where(eq(ticketGithubIssues.id, payload.linkId));
+    .select({ conversationId: conversationGithubIssues.conversationId })
+    .from(conversationGithubIssues)
+    .where(eq(conversationGithubIssues.id, payload.linkId));
   if (!link) return;
   await recordAudit(tx, {
     tenantId: payload.tenantId,
     actor: githubWebhookActor,
     action: "github_issue.recheck_failed",
-    target: { type: "ticket", id: link.ticketId },
+    target: { type: "conversation", id: link.conversationId },
     requestId: null,
   });
 }
@@ -81,16 +81,16 @@ export function handleRecheckIssue(
     const target = await transaction(async (tx) => {
       const [link] = await tx
         .select({
-          repo: ticketGithubIssues.repo,
-          number: ticketGithubIssues.issueNumber,
-          since: ticketGithubIssues.stateChangedAt,
-          createdAt: ticketGithubIssues.createdAt,
+          repo: conversationGithubIssues.repo,
+          number: conversationGithubIssues.issueNumber,
+          since: conversationGithubIssues.stateChangedAt,
+          createdAt: conversationGithubIssues.createdAt,
         })
-        .from(ticketGithubIssues)
+        .from(conversationGithubIssues)
         .where(
           and(
-            eq(ticketGithubIssues.id, linkId),
-            inArray(ticketGithubIssues.state, ["open", "closed"]),
+            eq(conversationGithubIssues.id, linkId),
+            inArray(conversationGithubIssues.state, ["open", "closed"]),
           ),
         );
       // Gone (unlinked, or never more than a claim): nothing to do.

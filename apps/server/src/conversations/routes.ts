@@ -6,16 +6,16 @@ import { messageText } from "../drafts/html-text.ts";
 import { auditor, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 
-const { customers, drafts, messages, ticketGithubIssues, tickets } = schema;
+const { customers, drafts, messages, conversationGithubIssues, conversations } = schema;
 
-/** Whether the ticket has a reply that was approved but couldn't be sent, for anyone to retry. */
-const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.ticketId} = ${tickets.id} and ${drafts.status} = 'send_failed')`;
+/** Whether the conversation has a reply that was approved but couldn't be sent, for anyone to retry. */
+const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${drafts.status} = 'send_failed')`;
 
-export interface TicketRoutesDeps {
+export interface ConversationRoutesDeps {
   db: Pick<Database, "withTenant">;
 }
 
-const ticketSchema = z
+const conversationSchema = z
   .object({
     id: z.uuid(),
     subject: z.string(),
@@ -26,19 +26,19 @@ const ticketSchema = z
     /** Opened by machine-sent mail (out-of-office, bounce, list). Never gets an AI draft. */
     automated: z.boolean(),
     /**
-     * Why the AI skipped drafting for this ticket, or null. `daily_budget`: the workspace's AI
+     * Why the AI skipped drafting for this conversation, or null. `daily_budget`: the workspace's AI
      * budget for the day was spent. `draft_failed`: every attempt to draft failed (the AI
      * provider stayed down, say). Either way a human can write a reply or ask the AI again.
      */
     aiPausedReason: z.enum(schema.aiPausedReasons).nullable(),
     /**
-     * True while a reply on this ticket is `send_failed`: approved, but every attempt to send
+     * True while a reply on this conversation is `send_failed`: approved, but every attempt to send
      * it failed. Retry or discard it (see the drafts routes); until then the customer has
-     * heard nothing, even if the ticket is closed.
+     * heard nothing, even if the conversation is closed.
      */
     replyNotSent: z.boolean(),
   })
-  .openapi("Ticket");
+  .openapi("Conversation");
 const messageSchema = z
   .object({
     id: z.uuid(),
@@ -60,11 +60,11 @@ const messageSchema = z
     createdAt: z.iso.datetime(),
   })
   .openapi("Message");
-const ticketDetailSchema = ticketSchema
+const conversationDetailSchema = conversationSchema
   .extend({
     messages: z.array(messageSchema),
     /**
-     * The GitHub issue made from this ticket (`POST /v1/tickets/{id}/github-issue`), or null.
+     * The GitHub issue made from this conversation (`POST /v1/conversations/{id}/github-issue`), or null.
      * `closed` once GitHub says it was closed.
      */
     githubIssue: z
@@ -76,20 +76,20 @@ const ticketDetailSchema = ticketSchema
       })
       .nullable(),
   })
-  .openapi("TicketDetail");
+  .openapi("ConversationDetail");
 
 const maxLimit = 100;
 
-const listTicketsRoute = apiRoute({
-  access: { allScopes: ["tickets:read"] },
+const listConversationsRoute = apiRoute({
+  access: { allScopes: ["conversations:read"] },
   method: "get",
-  path: "/v1/tickets",
-  summary: "List tickets",
+  path: "/v1/conversations",
+  summary: "List conversations",
   description:
-    `The workspace's tickets, most recent activity first, at most \`limit\` (default 50, max ` +
+    `The workspace's conversations, most recent activity first, at most \`limit\` (default 50, max ` +
     `${maxLimit}). \`status\` keeps only open or only closed ones. \`status=open\` with ` +
-    "`orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they " +
-    "aren't missed, listed first. Needs `tickets:read`.",
+    "`orReplyNotSent=true` also keeps closed conversations whose reply couldn't be sent, so they " +
+    "aren't missed, listed first. Needs `conversations:read`.",
   request: {
     query: z.object({
       limit: z.coerce.number().int().min(1).max(maxLimit).default(50),
@@ -98,62 +98,62 @@ const listTicketsRoute = apiRoute({
     }),
   },
   responses: {
-    200: json(z.object({ tickets: z.array(ticketSchema) }), "The tickets"),
+    200: json(z.object({ conversations: z.array(conversationSchema) }), "The conversations"),
   },
 });
 
-const getTicketRoute = apiRoute({
-  access: { allScopes: ["tickets:read"] },
+const getConversationRoute = apiRoute({
+  access: { allScopes: ["conversations:read"] },
   method: "get",
-  path: "/v1/tickets/{id}",
-  summary: "Read a ticket and its messages",
-  description: "One ticket with its emails, oldest first. Needs `tickets:read`.",
+  path: "/v1/conversations/{id}",
+  summary: "Read a conversation and its messages",
+  description: "One conversation with its emails, oldest first. Needs `conversations:read`.",
   request: { params: idParams },
   responses: {
-    200: json(ticketDetailSchema, "The ticket"),
+    200: json(conversationDetailSchema, "The conversation"),
     404: notFoundResponse,
   },
 });
 
-const closeTicketRoute = apiRoute({
-  // tickets:read too: the answer is the ticket, with its customer.
-  access: { allScopes: ["tickets:write", "tickets:read"] },
-  audit: { records: ["ticket.closed"] },
+const closeConversationRoute = apiRoute({
+  // conversations:read too: the answer is the conversation, with its customer.
+  access: { allScopes: ["conversations:write", "conversations:read"] },
+  audit: { records: ["conversation.closed"] },
   method: "post",
-  path: "/v1/tickets/{id}/close",
-  summary: "Close a ticket",
+  path: "/v1/conversations/{id}/close",
+  summary: "Close a conversation",
   description:
-    "Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. " +
-    "Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.",
+    "Marks the conversation `closed` and audit-logs it. Closing a closed conversation changes nothing. " +
+    "Pending drafts are left as they are. Needs `conversations:write` and `conversations:read`.",
   request: { params: idParams },
   responses: {
-    200: json(ticketSchema, "The closed ticket"),
+    200: json(conversationSchema, "The closed conversation"),
     404: notFoundResponse,
   },
 });
 
-/** Tickets with their customer: the shape both routes return. */
-function ticketsWithCustomer(tx: TenantTx) {
+/** Conversations with their customer: the shape both routes return. */
+function conversationsWithCustomer(tx: TenantTx) {
   return tx
     .select({
-      id: tickets.id,
-      subject: tickets.subject,
-      status: tickets.status,
-      createdAt: tickets.createdAt,
-      lastMessageAt: tickets.lastMessageAt,
-      automated: tickets.automated,
-      aiPausedReason: tickets.aiPausedReason,
+      id: conversations.id,
+      subject: conversations.subject,
+      status: conversations.status,
+      createdAt: conversations.createdAt,
+      lastMessageAt: conversations.lastMessageAt,
+      automated: conversations.automated,
+      aiPausedReason: conversations.aiPausedReason,
       replyNotSent: hasUnsentReply,
       customerEmail: customers.email,
       customerName: customers.name,
     })
-    .from(tickets)
-    .innerJoin(customers, eq(customers.id, tickets.customerId))
+    .from(conversations)
+    .innerJoin(customers, eq(customers.id, conversations.customerId))
     .$dynamic();
 }
-type TicketRow = Awaited<ReturnType<typeof ticketsWithCustomer>>[number];
+type ConversationRow = Awaited<ReturnType<typeof conversationsWithCustomer>>[number];
 
-function serialize(t: TicketRow): z.infer<typeof ticketSchema> {
+function serialize(t: ConversationRow): z.infer<typeof conversationSchema> {
   return {
     id: t.id,
     subject: t.subject,
@@ -167,13 +167,13 @@ function serialize(t: TicketRow): z.infer<typeof ticketSchema> {
   };
 }
 
-export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): void {
-  app.openapi(listTicketsRoute, async (c) => {
+export function registerConversationRoutes(app: OpenAPIHono, deps: ConversationRoutesDeps): void {
+  app.openapi(listConversationsRoute, async (c) => {
     const principal = c.get("principal");
     const { limit, status, orReplyNotSent } = c.req.valid("query");
-    const statusFilter = status ? eq(tickets.status, status) : undefined;
+    const statusFilter = status ? eq(conversations.status, status) : undefined;
     const rows = await deps.db.withTenant(principal.tenantId, (tx) =>
-      ticketsWithCustomer(tx)
+      conversationsWithCustomer(tx)
         .where(
           statusFilter && orReplyNotSent === "true"
             ? or(statusFilter, hasUnsentReply)
@@ -182,37 +182,42 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
         // A failed reply first, so the limit can never push one out of the inbox.
         .orderBy(
           ...(orReplyNotSent === "true" ? [desc(hasUnsentReply)] : []),
-          desc(tickets.lastMessageAt),
-          desc(tickets.id),
+          desc(conversations.lastMessageAt),
+          desc(conversations.id),
         )
         .limit(limit),
     );
-    return c.json({ tickets: rows.map(serialize) }, 200);
+    return c.json({ conversations: rows.map(serialize) }, 200);
   });
 
-  app.openapi(getTicketRoute, async (c) => {
+  app.openapi(getConversationRoute, async (c) => {
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const [ticket] = await ticketsWithCustomer(tx).where(eq(tickets.id, id));
-      if (!ticket) return null;
+      const [conversation] = await conversationsWithCustomer(tx).where(eq(conversations.id, id));
+      if (!conversation) return null;
       const rows = await tx
         .select()
         .from(messages)
-        .where(eq(messages.ticketId, id))
+        .where(eq(messages.conversationId, id))
         .orderBy(asc(messages.createdAt), asc(messages.id));
       const [issue] = await tx
         .select()
-        .from(ticketGithubIssues)
+        .from(conversationGithubIssues)
         // One still being created isn't shown until GitHub has answered.
-        .where(and(eq(ticketGithubIssues.ticketId, id), ne(ticketGithubIssues.state, "creating")));
-      return { ticket, rows, issue };
+        .where(
+          and(
+            eq(conversationGithubIssues.conversationId, id),
+            ne(conversationGithubIssues.state, "creating"),
+          ),
+        );
+      return { conversation, rows, issue };
     });
-    // Another workspace's ticket looks exactly like one that doesn't exist.
+    // Another workspace's conversation looks exactly like one that doesn't exist.
     if (!result) return notFound(c);
     return c.json(
       {
-        ...serialize(result.ticket),
+        ...serialize(result.conversation),
         messages: result.rows.map((m) => ({
           id: m.id,
           direction: m.direction,
@@ -237,26 +242,26 @@ export function registerTicketRoutes(app: OpenAPIHono, deps: TicketRoutesDeps): 
     );
   });
 
-  app.openapi(closeTicketRoute, async (c) => {
+  app.openapi(closeConversationRoute, async (c) => {
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const audit = auditor(c);
-    const ticket = await deps.db.withTenant(principal.tenantId, async (tx) => {
+    const conversation = await deps.db.withTenant(principal.tenantId, async (tx) => {
       // Conditional on `open`, so closing twice writes one audit event, not two.
       const [closed] = await tx
-        .update(tickets)
+        .update(conversations)
         .set({ status: "closed" })
-        .where(and(eq(tickets.id, id), eq(tickets.status, "open")))
-        .returning({ id: tickets.id });
+        .where(and(eq(conversations.id, id), eq(conversations.status, "open")))
+        .returning({ id: conversations.id });
       if (closed) {
-        await audit(tx, "ticket.closed", { type: "ticket", id });
+        await audit(tx, "conversation.closed", { type: "conversation", id });
       } else {
         nothingToAudit("already closed, or not found");
       }
-      const [row] = await ticketsWithCustomer(tx).where(eq(tickets.id, id));
+      const [row] = await conversationsWithCustomer(tx).where(eq(conversations.id, id));
       return row ?? null;
     });
-    if (!ticket) return notFound(c);
-    return c.json(serialize(ticket), 200);
+    if (!conversation) return notFound(c);
+    return c.json(serialize(conversation), 200);
   });
 }

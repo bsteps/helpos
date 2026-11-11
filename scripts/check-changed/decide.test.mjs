@@ -15,7 +15,7 @@ test("the lint list drops doc files and keeps code and config", () => {
 });
 
 test("one package checks that package and its dependents", () => {
-  const d = decide(["apps/server/src/routes/tickets.ts", "AGENTS.md"]);
+  const d = decide(["apps/server/src/routes/conversations.ts", "AGENTS.md"]);
   assert.equal(d.scope, "affected");
   assert.equal(d.evals, false);
 });

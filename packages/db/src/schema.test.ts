@@ -42,6 +42,8 @@ describe("migrations", () => {
       "api_tokens",
       "attachments",
       "audit_events",
+      "conversation_github_issues",
+      "conversations",
       "customers",
       "draft_citations",
       "drafts",
@@ -51,8 +53,6 @@ describe("migrations", () => {
       "mailboxes",
       "memberships",
       "messages",
-      "ticket_github_issues",
-      "tickets",
     ]);
     for (const row of rows) {
       expect(row, row.table).toMatchObject({ enabled: true, forced: true, policy: true });
@@ -168,7 +168,7 @@ describe("api_tokens: the app role can only create and revoke", () => {
     await asApp(async (tx) => {
       await tx`insert into tenants (id, name) values (${tenantId}, 'tokens')`;
       await tx`insert into api_tokens (id, tenant_id, name, token_hash, scopes)
-        values (gen_random_uuid(), ${tenantId}, 'bot', ${hash}, array['tickets:read'])`;
+        values (gen_random_uuid(), ${tenantId}, 'bot', ${hash}, array['conversations:read'])`;
     });
   });
 

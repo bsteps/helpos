@@ -12,9 +12,9 @@ import {
 
 export const keys = {
   me: ["me"] as const,
-  openTickets: ["tickets", "open"] as const,
-  ticket: (id: string) => ["ticket", id] as const,
-  drafts: (id: string) => ["ticket", id, "drafts"] as const,
+  openConversations: ["conversations", "open"] as const,
+  conversation: (id: string) => ["conversation", id] as const,
+  drafts: (id: string) => ["conversation", id, "drafts"] as const,
   github: ["integrations", "github"] as const,
   draftStats: ["stats", "drafts"] as const,
   shadowMode: ["workspace", "shadow-mode"] as const,
@@ -36,23 +36,23 @@ export const meQuery = queryOptions({
   staleTime: 60_000,
 });
 
-export const openTicketsQuery = queryOptions({
-  queryKey: keys.openTickets,
+export const openConversationsQuery = queryOptions({
+  queryKey: keys.openConversations,
   queryFn: async () =>
     (
       await unwrap(
-        // Closed tickets too, while their reply couldn't be sent: the customer still waits.
-        api.GET("/v1/tickets", {
+        // Closed conversations too, while their reply couldn't be sent: the customer still waits.
+        api.GET("/v1/conversations", {
           params: { query: { status: "open", orReplyNotSent: "true", limit: 100 } },
         }),
       )
-    ).tickets,
+    ).conversations,
 });
 
-export const ticketQuery = (id: string) =>
+export const conversationQuery = (id: string) =>
   queryOptions({
-    queryKey: keys.ticket(id),
-    queryFn: () => unwrap(api.GET("/v1/tickets/{id}", { params: { path: { id } } })),
+    queryKey: keys.conversation(id),
+    queryFn: () => unwrap(api.GET("/v1/conversations/{id}", { params: { path: { id } } })),
   });
 
 /** No realtime yet: while a draft is being written or sent, look again every 2 seconds. */
@@ -60,7 +60,7 @@ export const draftsQuery = (id: string, waiting: (drafts: Draft[]) => boolean) =
   queryOptions({
     queryKey: keys.drafts(id),
     queryFn: async () =>
-      (await unwrap(api.GET("/v1/tickets/{id}/drafts", { params: { path: { id } } }))).drafts,
+      (await unwrap(api.GET("/v1/conversations/{id}/drafts", { params: { path: { id } } }))).drafts,
     refetchInterval: (query) => (waiting(query.state.data ?? []) ? 2_000 : false),
   });
 
@@ -106,88 +106,93 @@ export function useSetPassword() {
   });
 }
 
-export function useEditDraft(ticketId: string) {
+export function useEditDraft(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: string }) =>
       unwrap(api.PATCH("/v1/drafts/{id}", { params: { path: { id } }, body: { body } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.drafts(conversationId) }),
   });
 }
 
-export function useApproveDraft(ticketId: string) {
+export function useApproveDraft(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     // The exact text the approver saw: if someone edited it since, the API refuses (409).
     mutationFn: ({ id, body }: { id: string; body: string }) =>
       unwrap(api.POST("/v1/drafts/{id}/approve", { params: { path: { id } }, body: { body } })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.drafts(conversationId) }),
   });
 }
 
 /** Queues a draft whose send failed for good to be sent again. Safe to repeat. */
-export function useRetryDraft(ticketId: string) {
+export function useRetryDraft(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       unwrap(api.POST("/v1/drafts/{id}/retry", { params: { path: { id } } })),
     onSettled: () =>
       Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
-        // The inbox flags tickets whose reply couldn't be sent.
-        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+        queryClient.invalidateQueries({ queryKey: keys.drafts(conversationId) }),
+        // The inbox flags conversations whose reply couldn't be sent.
+        queryClient.invalidateQueries({ queryKey: keys.openConversations }),
       ]),
   });
 }
 
-export function useDiscardDraft(ticketId: string) {
+export function useDiscardDraft(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       unwrap(api.POST("/v1/drafts/{id}/discard", { params: { path: { id } } })),
     onSettled: () =>
       Promise.all([
-        invalidateDraftState(queryClient, ticketId),
-        // The inbox flags tickets whose reply couldn't be sent.
-        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+        invalidateDraftState(queryClient, conversationId),
+        // The inbox flags conversations whose reply couldn't be sent.
+        queryClient.invalidateQueries({ queryKey: keys.openConversations }),
       ]),
   });
 }
 
 /** Saves a person's draft, or asks the AI for a fresh one (it shows up in the drafts list once written). */
-export function useCreateDraft(ticketId: string) {
+export function useCreateDraft(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: { regenerate: true } | { body: string }): Promise<void> => {
       await unwrap(
-        api.POST("/v1/tickets/{id}/drafts", { params: { path: { id: ticketId } }, body: input }),
+        api.POST("/v1/conversations/{id}/drafts", {
+          params: { path: { id: conversationId } },
+          body: input,
+        }),
       );
     },
-    onSettled: () => invalidateDraftState(queryClient, ticketId),
+    onSettled: () => invalidateDraftState(queryClient, conversationId),
   });
 }
 
 /**
- * A new draft can lift the ticket's "AI paused" state, and asking the AI again clears a failed
- * one, so the ticket is fetched again too, and the inbox that shows the state.
+ * A new draft can lift the conversation's "AI paused" state, and asking the AI again clears a failed
+ * one, so the conversation is fetched again too, and the inbox that shows the state.
  */
-function invalidateDraftState(queryClient: QueryClient, ticketId: string) {
+function invalidateDraftState(queryClient: QueryClient, conversationId: string) {
   return Promise.all([
-    queryClient.invalidateQueries({ queryKey: keys.drafts(ticketId) }),
-    queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
-    queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+    queryClient.invalidateQueries({ queryKey: keys.drafts(conversationId) }),
+    queryClient.invalidateQueries({ queryKey: keys.conversation(conversationId) }),
+    queryClient.invalidateQueries({ queryKey: keys.openConversations }),
   ]);
 }
 
-export function useCloseTicket(ticketId: string) {
+export function useCloseConversation(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      unwrap(api.POST("/v1/tickets/{id}/close", { params: { path: { id: ticketId } } })),
+      unwrap(
+        api.POST("/v1/conversations/{id}/close", { params: { path: { id: conversationId } } }),
+      ),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
-        queryClient.invalidateQueries({ queryKey: keys.openTickets }),
+        queryClient.invalidateQueries({ queryKey: keys.conversation(conversationId) }),
+        queryClient.invalidateQueries({ queryKey: keys.openConversations }),
       ]);
     },
   });
@@ -225,26 +230,31 @@ export function useRotateGithubWebhookSecret() {
 }
 
 /** Asks the AI for a title and body. Nothing is created until the issue is confirmed. */
-export function useDraftGithubIssue(ticketId: string) {
+export function useDraftGithubIssue(conversationId: string) {
   return useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/v1/tickets/{id}/github-issue/draft", { params: { path: { id: ticketId } } }),
+        api.POST("/v1/conversations/{id}/github-issue/draft", {
+          params: { path: { id: conversationId } },
+        }),
       ),
   });
 }
 
-export function useCreateGithubIssue(ticketId: string) {
+export function useCreateGithubIssue(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { title: string; body: string }) =>
       unwrap(
-        api.POST("/v1/tickets/{id}/github-issue", { params: { path: { id: ticketId } }, body }),
+        api.POST("/v1/conversations/{id}/github-issue", {
+          params: { path: { id: conversationId } },
+          body,
+        }),
       ),
-    // Refetched either way: a 409 means the ticket already has an issue to show. The returned
+    // Refetched either way: a 409 means the conversation already has an issue to show. The returned
     // promise is awaited before a caller's own onSuccess runs, so the composer closes only
-    // once the ticket shows its issue, never flashing the "Create GitHub issue" button back.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.ticket(ticketId) }),
+    // once the conversation shows its issue, never flashing the "Create GitHub issue" button back.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.conversation(conversationId) }),
   });
 }
 

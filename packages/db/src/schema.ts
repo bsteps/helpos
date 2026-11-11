@@ -259,8 +259,8 @@ export const aiPausedReasons = ["daily_budget", "draft_failed"] as const;
 export type AiPausedReason = (typeof aiPausedReasons)[number];
 
 /** A conversation with a customer. */
-export const tickets = pgTable(
-  "tickets",
+export const conversations = pgTable(
+  "conversations",
   {
     ...tenantColumns(),
     customerId: uuid("customer_id").notNull(),
@@ -273,39 +273,42 @@ export const tickets = pgTable(
     /** Opened by machine-sent mail (out-of-office, bounce, list). Never gets an AI draft. */
     automated: boolean("automated").notNull().default(false),
     /**
-     * Why the ticket has no AI draft: `daily_budget` (the budget was spent) or `draft_failed`
+     * Why the conversation has no AI draft: `daily_budget` (the budget was spent) or `draft_failed`
      * (every attempt failed). Cleared when a draft is made.
      */
     aiPausedReason: text("ai_paused_reason", { enum: aiPausedReasons }),
   },
   (t) => [
-    unique("tickets_tenant_id_id").on(t.tenantId, t.id),
-    check("tickets_status", sql`${t.status} in ('open', 'closed')`),
-    check("tickets_ai_paused_reason", sql`${t.aiPausedReason} in ('daily_budget', 'draft_failed')`),
+    unique("conversations_tenant_id_id").on(t.tenantId, t.id),
+    check("conversations_status", sql`${t.status} in ('open', 'closed')`),
+    check(
+      "conversations_ai_paused_reason",
+      sql`${t.aiPausedReason} in ('daily_budget', 'draft_failed')`,
+    ),
     // Composite keys: a row can never point at another tenant's row, even if RLS were off.
     foreignKey({
-      name: "tickets_customer_fk",
+      name: "conversations_customer_fk",
       columns: [t.tenantId, t.customerId],
       foreignColumns: [customers.tenantId, customers.id],
     }),
     foreignKey({
-      name: "tickets_mailbox_fk",
+      name: "conversations_mailbox_fk",
       columns: [t.tenantId, t.mailboxId],
       foreignColumns: [mailboxes.tenantId, mailboxes.id],
     }),
-    index("tickets_tenant_last_message").on(t.tenantId, t.lastMessageAt),
-    // The inbox: open tickets, newest activity first.
-    index("tickets_tenant_status_last_message").on(t.tenantId, t.status, t.lastMessageAt),
+    index("conversations_tenant_last_message").on(t.tenantId, t.lastMessageAt),
+    // The inbox: open conversations, newest activity first.
+    index("conversations_tenant_status_last_message").on(t.tenantId, t.status, t.lastMessageAt),
     tenantIsolation(),
   ],
 );
 
-/** An email on a ticket. Bodies are stored as received: data, never instructions (ADR 0004). */
+/** An email on a conversation. Bodies are stored as received: data, never instructions (ADR 0004). */
 export const messages = pgTable(
   "messages",
   {
     ...tenantColumns(),
-    ticketId: uuid("ticket_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
     direction: text("direction", { enum: ["inbound", "outbound"] }).notNull(),
     fromAddress: text("from_address").notNull(),
     fromName: text("from_name"),
@@ -331,11 +334,11 @@ export const messages = pgTable(
     unique("messages_tenant_message_id").on(t.tenantId, t.messageIdHeader),
     check("messages_direction", sql`${t.direction} in ('inbound', 'outbound')`),
     foreignKey({
-      name: "messages_ticket_fk",
-      columns: [t.tenantId, t.ticketId],
-      foreignColumns: [tickets.tenantId, tickets.id],
+      name: "messages_conversation_fk",
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
     }),
-    index("messages_tenant_ticket").on(t.tenantId, t.ticketId),
+    index("messages_tenant_conversation").on(t.tenantId, t.conversationId),
     tenantIsolation(),
   ],
 );
@@ -367,7 +370,7 @@ export const draftStatuses = ["pending", "approved", "sent", "send_failed", "dis
 export type DraftStatus = (typeof draftStatuses)[number];
 /**
  * `reply` answers the customer's message. `fixed` tells them the GitHub issue made from their
- * ticket was closed as done. Both go through the same approval and the same send worker.
+ * conversation was closed as done. Both go through the same approval and the same send worker.
  */
 export const draftKinds = ["reply", "fixed"] as const;
 export type DraftKind = (typeof draftKinds)[number];
@@ -383,7 +386,7 @@ export const drafts = pgTable(
   "drafts",
   {
     ...tenantColumns(),
-    ticketId: uuid("ticket_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
     /**
      * The inbound message this replies to. At most one live (not discarded) draft of each kind
      * per message, so a job retry or a repeated webhook can't add a second one.
@@ -415,9 +418,9 @@ export const drafts = pgTable(
     ),
     check("drafts_kind", sql`${t.kind} in ('reply', 'fixed')`),
     foreignKey({
-      name: "drafts_ticket_fk",
-      columns: [t.tenantId, t.ticketId],
-      foreignColumns: [tickets.tenantId, tickets.id],
+      name: "drafts_conversation_fk",
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
     }),
     foreignKey({
       name: "drafts_message_fk",
@@ -429,7 +432,7 @@ export const drafts = pgTable(
       columns: [t.tenantId, t.sentMessageId],
       foreignColumns: [messages.tenantId, messages.id],
     }),
-    index("drafts_tenant_ticket").on(t.tenantId, t.ticketId),
+    index("drafts_tenant_conversation").on(t.tenantId, t.conversationId),
     tenantIsolation(),
   ],
 );
@@ -471,18 +474,18 @@ export const auditEvents = pgTable(
  * only `workspace:admin`). A new scope is one line here plus a generated migration (the CHECK
  * below follows this list; `schema.test.ts` fails if the migration is missing).
  *
- * `tickets:write` changes a ticket itself (closing it, #46). `drafts:approve` is separate so an
+ * `conversations:write` changes a conversation itself (closing it, #46). `drafts:approve` is separate so an
  * agent can draft without sending. `knowledge:write` is separate from reading, because what's in
  * the knowledge base shapes every draft. `github:write` drafts and opens GitHub issues from
- * tickets (#37); connecting the repo and its token is `workspace:admin`. `stats:read` reads
+ * conversations (#37); connecting the repo and its token is `workspace:admin`. `stats:read` reads
  * workspace numbers such as how many drafts are approved unchanged (#116).
  *
  * Workspace administration (`workspace:admin`: shadow mode, minting tokens) is deliberately
  * missing: that stays with humans signed in to a session.
  */
 export const apiTokenScopes = [
-  "tickets:read",
-  "tickets:write",
+  "conversations:read",
+  "conversations:write",
   "drafts:write",
   "drafts:approve",
   "knowledge:read",
@@ -749,14 +752,14 @@ export const githubIssueStates = ["creating", "open", "closed"] as const;
 export type GithubIssueState = (typeof githubIssueStates)[number];
 
 /**
- * The GitHub issue made from a ticket. `creating` holds the ticket's place while GitHub is
+ * The GitHub issue made from a conversation. `creating` holds the conversation's place while GitHub is
  * called, so a double click can't open two issues; the call runs with no transaction open.
  */
-export const ticketGithubIssues = pgTable(
-  "ticket_github_issues",
+export const conversationGithubIssues = pgTable(
+  "conversation_github_issues",
   {
     ...tenantColumns(),
-    ticketId: uuid("ticket_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
     /** The repo the issue is in, lowercase `owner/name`. Kept if the workspace changes repo. */
     repo: text("repo").notNull(),
     issueNumber: integer("issue_number"),
@@ -770,23 +773,23 @@ export const ticketGithubIssues = pgTable(
     stateChangedAt: timestamp("state_changed_at", { withTimezone: true }),
   },
   (t) => [
-    // One issue per ticket.
-    unique("ticket_github_issues_tenant_ticket").on(t.tenantId, t.ticketId),
+    // One issue per conversation.
+    unique("conversation_github_issues_tenant_conversation").on(t.tenantId, t.conversationId),
     foreignKey({
-      name: "ticket_github_issues_ticket_fk",
-      columns: [t.tenantId, t.ticketId],
-      foreignColumns: [tickets.tenantId, tickets.id],
+      name: "conversation_github_issues_conversation_fk",
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
     }),
-    // The webhook finds tickets by the closed issue. Unique: an issue is made from one ticket,
-    // so its "fixed" notice can only ever go to that ticket's customer. (A claim has no number
+    // The webhook finds conversations by the closed issue. Unique: an issue is made from one conversation,
+    // so its "fixed" notice can only ever go to that conversation's customer. (A claim has no number
     // yet, and nulls never clash.)
-    uniqueIndex("ticket_github_issues_tenant_issue").on(t.tenantId, t.repo, t.issueNumber),
-    check("ticket_github_issues_state", sql`${t.state} in ('creating', 'open', 'closed')`),
+    uniqueIndex("conversation_github_issues_tenant_issue").on(t.tenantId, t.repo, t.issueNumber),
+    check("conversation_github_issues_state", sql`${t.state} in ('creating', 'open', 'closed')`),
     check(
-      "ticket_github_issues_created",
+      "conversation_github_issues_created",
       sql`${t.state} = 'creating' or (${t.issueNumber} is not null and ${t.issueUrl} is not null)`,
     ),
-    isLowercase("ticket_github_issues_repo_lowercase", sql`${t.repo}`),
+    isLowercase("conversation_github_issues_repo_lowercase", sql`${t.repo}`),
     tenantIsolation(),
   ],
 );

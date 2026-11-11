@@ -79,7 +79,7 @@ services:
       AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-}
       AI_EMBEDDING_API_KEY: ${AI_EMBEDDING_API_KEY:-}
       AI_EMBEDDING_BASE_URL: ${AI_EMBEDDING_BASE_URL:-}
-      # GitHub (ticket → issue → "it's fixed"). Empty key: no repo can be connected.
+      # GitHub (conversation → issue → "it's fixed"). Empty key: no repo can be connected.
       HELPOS_ENCRYPTION_KEY: ${HELPOS_ENCRYPTION_KEY:-}
       HELPOS_GITHUB_API_URL: ${HELPOS_GITHUB_API_URL:-https://api.github.com}
       # The demo runs in shadow mode only: every reply goes to the workspace owner, never to a

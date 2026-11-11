@@ -72,14 +72,16 @@ async function draft(tenantId: string, messageId: string, model = mockModel(call
 }
 const callCost = { text: "Thanks, we're on it.", usage: { inputTokens: 100, outputTokens: 20 } };
 
-const ticket = (tenantId: string, id: string) =>
-  db
-    .withTenant(tenantId, (tx) => tx.select().from(schema.tickets).where(eq(schema.tickets.id, id)))
-    .then((rows) => rows[0]);
-const draftCount = (tenantId: string, ticketId: string) =>
+const conversation = (tenantId: string, id: string) =>
   db
     .withTenant(tenantId, (tx) =>
-      tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, ticketId)),
+      tx.select().from(schema.conversations).where(eq(schema.conversations.id, id)),
+    )
+    .then((rows) => rows[0]);
+const draftCount = (tenantId: string, conversationId: string) =>
+  db
+    .withTenant(tenantId, (tx) =>
+      tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, conversationId)),
     )
     .then((rows) => rows.length);
 
@@ -119,20 +121,23 @@ describe("daily AI budget", () => {
     const second = await receive(2);
     await draft(acme, first.messageId);
     await draft(acme, second.messageId);
-    expect(await draftCount(acme, second.ticketId)).toBe(1);
+    expect(await draftCount(acme, second.conversationId)).toBe(1);
 
     const third = await receive(3);
     const model = await draft(acme, third.messageId);
     // The call after the budget is reached never reaches the model.
     expect(model.doGenerateCalls).toHaveLength(0);
-    expect(await draftCount(acme, third.ticketId)).toBe(0);
-    expect((await ticket(acme, third.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect(await draftCount(acme, third.conversationId)).toBe(0);
+    expect((await conversation(acme, third.conversationId))?.aiPausedReason).toBe("daily_budget");
 
     const audit = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.auditEvents).where(eq(schema.auditEvents.targetId, third.ticketId)),
+      tx
+        .select()
+        .from(schema.auditEvents)
+        .where(eq(schema.auditEvents.targetId, third.conversationId)),
     );
     expect(audit.map((e) => [e.action, e.actorType, e.targetType])).toEqual([
-      ["ai.paused", "system", "ticket"],
+      ["ai.paused", "system", "conversation"],
     ]);
   });
 
@@ -140,7 +145,7 @@ describe("daily AI budget", () => {
     const email = await receive(4, "help@other.test");
     const model = await draft(other, email.messageId);
     expect(model.doGenerateCalls).toHaveLength(1);
-    expect(await draftCount(other, email.ticketId)).toBe(1);
+    expect(await draftCount(other, email.conversationId)).toBe(1);
   });
 
   it("is visible through the API", async () => {
@@ -158,7 +163,7 @@ describe("daily AI budget", () => {
         authenticate: async () => ({
           tenantId: acme,
           actor: { type: "agent", id: "t" },
-          scopes: new Set(["tickets:read"] as const),
+          scopes: new Set(["conversations:read"] as const),
         }),
       },
     );
@@ -215,10 +220,10 @@ describe("daily AI budget", () => {
       reservedTokens: 0,
       calls: 1,
     });
-    // Its retry finds the budget spent (100 + 120), and pauses the ticket without a call.
+    // Its retry finds the budget spent (100 + 120), and pauses the conversation without a call.
     const retry = await draft(acme, b.messageId);
     expect(retry.doGenerateCalls).toHaveLength(0);
-    expect((await ticket(acme, b.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect((await conversation(acme, b.conversationId))?.aiPausedReason).toBe("daily_budget");
   });
 
   it("regenerate is refused up front when the budget is spent, and keeps the current draft", async () => {
@@ -240,11 +245,11 @@ describe("daily AI budget", () => {
         authenticate: async () => ({
           tenantId: acme,
           actor: { type: "agent", id: "t" },
-          scopes: new Set(["tickets:read", "drafts:write"] as const),
+          scopes: new Set(["conversations:read", "drafts:write"] as const),
         }),
       },
     );
-    const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
+    const res = await app.request(`/v1/conversations/${email.conversationId}/drafts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ regenerate: true }),
@@ -252,7 +257,7 @@ describe("daily AI budget", () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "daily_budget_reached" });
     const drafts = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+      tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, email.conversationId)),
     );
     expect(drafts.map((d) => d.status)).toEqual(["pending"]);
   });
@@ -260,7 +265,7 @@ describe("daily AI budget", () => {
   it("a hand-written draft clears the pause", async () => {
     const email = await receive(10);
     await draft(acme, email.messageId); // still 2026-11-10, over budget: paused
-    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBe("daily_budget");
     const app = createApp(
       composeServices({
         db,
@@ -275,17 +280,17 @@ describe("daily AI budget", () => {
         authenticate: async () => ({
           tenantId: acme,
           actor: { type: "agent", id: "t" },
-          scopes: new Set(["tickets:read", "drafts:write"] as const),
+          scopes: new Set(["conversations:read", "drafts:write"] as const),
         }),
       },
     );
-    const res = await app.request(`/v1/tickets/${email.ticketId}/drafts`, {
+    const res = await app.request(`/v1/conversations/${email.conversationId}/drafts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ body: "Hi Jane, answering by hand." }),
     });
     expect(res.status).toBe(201);
-    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBeNull();
+    expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBeNull();
   });
 
   it("resets at UTC midnight, and a new draft clears the pause", async () => {
@@ -294,18 +299,18 @@ describe("daily AI budget", () => {
     const paused = await receive(6);
     await db.withTenant(acme, (tx) =>
       tx
-        .update(schema.tickets)
+        .update(schema.conversations)
         .set({ aiPausedReason: "daily_budget" })
-        .where(eq(schema.tickets.id, paused.ticketId)),
+        .where(eq(schema.conversations.id, paused.conversationId)),
     );
     const model = await draft(acme, email.messageId);
     expect(model.doGenerateCalls).toHaveLength(1);
     await draft(acme, paused.messageId);
-    expect((await ticket(acme, paused.ticketId))?.aiPausedReason).toBeNull();
+    expect((await conversation(acme, paused.conversationId))?.aiPausedReason).toBeNull();
   });
 });
 
-describe("a ticket paused by the budget", () => {
+describe("a conversation paused by the budget", () => {
   const waitingJobs = (messageId: string) =>
     jobsDb.withTenant(acme, (tx) =>
       tx.execute<{ data: { tenantId: string; messageId: string }; start: string }>(
@@ -319,7 +324,7 @@ describe("a ticket paused by the budget", () => {
     await seedUsage(db, acme, "2026-11-20", budget);
     const email = await receive(30);
     await draft(acme, email.messageId);
-    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBe("daily_budget");
 
     // Its job waits in the queue until just after midnight UTC.
     const waiting = await waitingJobs(email.messageId);
@@ -330,13 +335,13 @@ describe("a ticket paused by the budget", () => {
     await draft(acme, email.messageId);
     expect(await waitingJobs(email.messageId)).toHaveLength(1);
 
-    // When that job runs, the budget has reset: the ticket gets its draft.
+    // When that job runs, the budget has reset: the conversation gets its draft.
     clock = new Date("2026-11-21T00:01:00Z");
     const [job] = waiting;
     if (!job) throw new Error("no waiting job");
     await draft(job.data.tenantId, job.data.messageId);
-    expect(await draftCount(acme, email.ticketId)).toBe(1);
-    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBeNull();
+    expect(await draftCount(acme, email.conversationId)).toBe(1);
+    expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBeNull();
   });
 
   it("closed while it waits, it gets no draft, no notice and costs nothing", async () => {
@@ -344,7 +349,7 @@ describe("a ticket paused by the budget", () => {
     await seedUsage(db, acme, "2026-11-22", budget);
     const email = await receive(31);
     await draft(acme, email.messageId);
-    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBe("daily_budget");
     const [job] = await waitingJobs(email.messageId);
     if (!job) throw new Error("no waiting job");
 
@@ -353,10 +358,12 @@ describe("a ticket paused by the budget", () => {
       authenticate: async () => ({
         tenantId: acme,
         actor: { type: "agent", id: "t" },
-        scopes: new Set(["tickets:read", "tickets:write", "drafts:write"] as const),
+        scopes: new Set(["conversations:read", "conversations:write", "drafts:write"] as const),
       }),
     });
-    const closed = await app.request(`/v1/tickets/${email.ticketId}/close`, { method: "POST" });
+    const closed = await app.request(`/v1/conversations/${email.conversationId}/close`, {
+      method: "POST",
+    });
     expect(closed.status).toBe(200);
     // The next day its waiting job runs: no model call, no reservation, no draft.
     clock = new Date("2026-11-23T00:01:00Z");
@@ -367,7 +374,7 @@ describe("a ticket paused by the budget", () => {
     const noticesBefore = (await notices()).length;
     const model = await draft(job.data.tenantId, job.data.messageId);
     expect(model.doGenerateCalls).toHaveLength(0);
-    expect(await draftCount(acme, email.ticketId)).toBe(0);
+    expect(await draftCount(acme, email.conversationId)).toBe(0);
     expect(await notices()).toHaveLength(noticesBefore);
     expect(await usageOn(db, acme, clock)).toMatchObject({
       totalTokens: 0,
@@ -561,9 +568,9 @@ describe("per-workspace AI budget", () => {
     expect((await draft(other, a.messageId)).doGenerateCalls).toHaveLength(1);
     // 120 used: under the ceiling, but over the workspace's own 100.
     expect((await draft(other, b.messageId)).doGenerateCalls).toHaveLength(0);
-    expect((await ticket(other, b.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect((await conversation(other, b.conversationId))?.aiPausedReason).toBe("daily_budget");
 
-    const res = await usageFor(other, ["tickets:read"]).request("/v1/ai-usage");
+    const res = await usageFor(other, ["conversations:read"]).request("/v1/ai-usage");
     expect(await res.json()).toMatchObject({ dailyTokenBudget: 100, paused: true });
   });
 
@@ -577,13 +584,13 @@ describe("per-workspace AI budget", () => {
     // 0 and 120 are under 200; at 240 the ceiling stops the third.
     expect(calls).toEqual([1, 1, 0]);
 
-    const res = await usageFor(other, ["tickets:read"]).request("/v1/ai-usage");
+    const res = await usageFor(other, ["conversations:read"]).request("/v1/ai-usage");
     expect(await res.json()).toMatchObject({ dailyTokenBudget: budget, remainingTokens: 0 });
   });
 
   it("a workspace token can't change its own budget", async () => {
     await setAiBudget(db, { tenantId: other, budget: 50 });
-    const app = usageFor(other, ["tickets:read", "workspace:admin", "drafts:write"]);
+    const app = usageFor(other, ["conversations:read", "workspace:admin", "drafts:write"]);
     // The only workspace settings route rejects fields it doesn't know.
     const res = await app.request("/v1/workspace/shadow-mode", {
       method: "PATCH",
@@ -619,7 +626,7 @@ describe("per-workspace AI budget", () => {
       "workspace",
       other,
     ]);
-    const res = await usageFor(other, ["tickets:read"]).request("/v1/ai-usage");
+    const res = await usageFor(other, ["conversations:read"]).request("/v1/ai-usage");
     expect(await res.json()).toMatchObject({ dailyTokenBudget: budget });
   });
 

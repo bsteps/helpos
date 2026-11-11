@@ -194,11 +194,11 @@ const pageUrl = (path: string) => `http://help.acme.test:${port}${path}`;
 
 const principals: Record<string, () => Principal> = {
   editor: () =>
-    principal(acme, ["knowledge:read", "knowledge:write", "tickets:read", "drafts:write"]),
-  reader: () => principal(acme, ["knowledge:read", "tickets:read"]),
-  /** Can read tickets and their drafts, but not the knowledge base. */
-  ticketsOnly: () => principal(acme, ["tickets:read"]),
-  outsider: () => principal(other, ["knowledge:read", "knowledge:write", "tickets:read"]),
+    principal(acme, ["knowledge:read", "knowledge:write", "conversations:read", "drafts:write"]),
+  reader: () => principal(acme, ["knowledge:read", "conversations:read"]),
+  /** Can read conversations and their drafts, but not the knowledge base. */
+  conversationsOnly: () => principal(acme, ["conversations:read"]),
+  outsider: () => principal(other, ["knowledge:read", "knowledge:write", "conversations:read"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -1490,7 +1490,7 @@ describe("drafting with knowledge", () => {
 
     const draft = await waitFor("draft", async () => {
       const [row] = await db.withTenant(acme, (tx) =>
-        tx.select().from(drafts).where(eq(drafts.ticketId, email.ticketId)),
+        tx.select().from(drafts).where(eq(drafts.conversationId, email.conversationId)),
       );
       return row;
     });
@@ -1517,7 +1517,7 @@ describe("drafting with knowledge", () => {
       excerpt: string;
     };
     const sourcesOfDraft = async (as = "editor"): Promise<Source[]> => {
-      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
+      const res = await call("GET", `/v1/conversations/${email.conversationId}/drafts`, as);
       expect(res.status).toBe(200);
       const { drafts: list } = (await res.json()) as { drafts: { sources: Source[] }[] };
       return list[0]?.sources ?? [];
@@ -1538,10 +1538,10 @@ describe("drafting with knowledge", () => {
     expect(sources.map((s) => s.title)).not.toContain("Other refund policy");
     // Reading drafts isn't a way around knowledge:read: no titles, links or passages.
     expect(sources.length).toBeGreaterThan(0);
-    expect(await sourcesOfDraft("ticketsOnly")).toEqual([]);
+    expect(await sourcesOfDraft("conversationsOnly")).toEqual([]);
     // But every reader learns an internal note was involved, so an approver knows to check.
-    for (const as of ["editor", "ticketsOnly"]) {
-      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
+    for (const as of ["editor", "conversationsOnly"]) {
+      const res = await call("GET", `/v1/conversations/${email.conversationId}/drafts`, as);
       const { drafts: list } = (await res.json()) as { drafts: { internalKnowledge: boolean }[] };
       expect(list[0]?.internalKnowledge).toBe(true);
     }
@@ -1549,7 +1549,7 @@ describe("drafting with knowledge", () => {
     // The draft follows the notes without quoting them: not flagged. Pasting one in (as a model
     // steered by the email might) flags it for every reader; editing it out clears the flag.
     const quotes = async (as: string) => {
-      const res = await call("GET", `/v1/tickets/${email.ticketId}/drafts`, as);
+      const res = await call("GET", `/v1/conversations/${email.conversationId}/drafts`, as);
       const { drafts: list } = (await res.json()) as { drafts: { quotesInternalNote: boolean }[] };
       return list[0]?.quotesInternalNote;
     };
@@ -1562,7 +1562,7 @@ describe("drafting with knowledge", () => {
     expect((await edit(`${draftText}\n\nStaff notes: ${note}`)).status).toBe(200);
     expect(await quotes("editor")).toBe(true);
     // Not to a caller without knowledge:read: edit after edit, the flag would let them guess the note.
-    expect(await quotes("ticketsOnly")).toBe(false);
+    expect(await quotes("conversationsOnly")).toBe(false);
     expect((await edit(draftText)).status).toBe(200);
     expect(await quotes("editor")).toBe(false);
 

@@ -9,12 +9,12 @@ import {
 import { meQuery } from "./api/queries.ts";
 import { safeRedirect } from "./lib/redirect.ts";
 import { AppShell } from "./routes/app-shell.tsx";
+import { ConversationPage } from "./routes/conversation.tsx";
 import { InboxPage } from "./routes/inbox.tsx";
 import { KnowledgePage } from "./routes/knowledge.tsx";
 import { LoginPage } from "./routes/login.tsx";
 import { SetPasswordPage } from "./routes/set-password.tsx";
 import { SettingsPage } from "./routes/settings.tsx";
-import { TicketPage } from "./routes/ticket.tsx";
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
@@ -57,10 +57,10 @@ const inboxRoute = createRoute({
   component: InboxPage,
 });
 
-export const ticketRoute = createRoute({
+export const conversationRoute = createRoute({
   getParentRoute: () => signedInRoute,
-  path: "/tickets/$id",
-  component: TicketPage,
+  path: "/conversations/$id",
+  component: ConversationPage,
 });
 
 const settingsRoute = createRoute({
@@ -81,7 +81,7 @@ const knowledgeRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setPasswordRoute,
-  signedInRoute.addChildren([inboxRoute, ticketRoute, knowledgeRoute, settingsRoute]),
+  signedInRoute.addChildren([inboxRoute, conversationRoute, knowledgeRoute, settingsRoute]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {

@@ -14,7 +14,7 @@ async function approveAndWaitForFailure(page: Page, subject: string): Promise<vo
   await expect(page.getByTestId("send-failed-alert")).toContainText("This reply wasn't sent");
 }
 
-test("a reply that failed to send is retried from the ticket and arrives once", async ({
+test("a reply that failed to send is retried from the conversation and arrives once", async ({
   page,
   request,
 }) => {
@@ -23,7 +23,7 @@ test("a reply that failed to send is retried from the ticket and arrives once", 
   await approveAndWaitForFailure(page, subject);
 
   // Closed, it still stays in the inbox, flagged, while the customer hasn't heard back.
-  await page.getByRole("button", { name: "Close ticket" }).click();
+  await page.getByRole("button", { name: "Close conversation" }).click();
   await expect(page.getByText("Closed", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Inbox" }).first().click();
   const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: subject }) });
@@ -35,7 +35,7 @@ test("a reply that failed to send is retried from the ticket and arrives once", 
   await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("send-failed-alert")).toBeHidden();
 
-  // Sent now, so the closed ticket leaves the inbox.
+  // Sent now, so the closed conversation leaves the inbox.
   await page.getByRole("link", { name: "Inbox" }).first().click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(page.getByRole("link", { name: subject })).toBeHidden();

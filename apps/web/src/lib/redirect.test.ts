@@ -3,7 +3,7 @@ import { safeRedirect } from "./redirect.ts";
 
 describe("safeRedirect", () => {
   it("keeps a path on this site, with its query and fragment", () => {
-    expect(safeRedirect("/tickets/abc?x=1#y")).toBe("/tickets/abc?x=1#y");
+    expect(safeRedirect("/conversations/abc?x=1#y")).toBe("/conversations/abc?x=1#y");
     expect(safeRedirect("/")).toBe("/");
   });
 
@@ -16,7 +16,7 @@ describe("safeRedirect", () => {
     "/\t/evil.test",
     "/\n/evil.test",
     "javascript:alert(1)",
-    "tickets/abc",
+    "conversations/abc",
     "",
     42,
     undefined,

@@ -13,10 +13,10 @@ Two independent research passes (Nov 2026, web sources at the bottom) agreed on 
 | Data                               | How to search it                                                                                                                                                                                         | Notes                                                                                                                                                                               |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Help articles, docs, website pages | Hybrid: Postgres full-text (per-language config, `simple` + `unaccent` fallback, trigram/bigram for CJK) + multilingual vectors, merged with RRF, then an optional cross-encoder reranker on the top ~40 | Plain vector search isn't enough. Anthropic: hybrid + rerank cut failed retrievals ~67%. Prefix chunks with title and heading path. Fill a token budget (~3–5k), not a fixed top-k. |
-| Past tickets                       | Separate index: embed the problem statement and the resolution, not the whole thread                                                                                                                     | Used for "answered before", duplicate tickets (#71) and affected customers. Kept apart so internal chatter is never cited to customers.                                             |
-| GitHub issues and PRs              | Hybrid search on title/body + structured filters (state, labels, linked tickets)                                                                                                                         | Mostly metadata.                                                                                                                                                                    |
+| Past conversations                 | Separate index: embed the problem statement and the resolution, not the whole thread                                                                                                                     | Used for "answered before", duplicate conversations (#71) and affected customers. Kept apart so internal chatter is never cited to customers.                                       |
+| GitHub issues and PRs              | Hybrid search on title/body + structured filters (state, labels, linked conversations)                                                                                                                   | Mostly metadata.                                                                                                                                                                    |
 | Code                               | Agentic search (grep, glob, read files) in a sandboxed shallow clone. **No code embedding index**                                                                                                        | Claude Code dropped its vector index for this. Index goes stale on every commit and chunking breaks code. _Historical: HelpOS doesn't search customer code._                        |
-| Relationships                      | Plain SQL over our own tables: customer → ticket → issue → PR → release → article                                                                                                                        | This is the useful "graph". **No GraphRAG**: 100×+ indexing cost, loses on single-hop questions, which support mostly is.                                                           |
+| Relationships                      | Plain SQL over our own tables: customer → conversation → issue → PR → release → article                                                                                                                  | This is the useful "graph". **No GraphRAG**: 100×+ indexing cost, loses on single-hop questions, which support mostly is.                                                           |
 
 Models (check current leaderboards before choosing):
 - Embeddings, 1024 dims, multilingual: Qwen3-Embedding-0.6B (Apache, Ollama), BGE-M3, Harrier-0.6B (MIT), EmbeddingGemma; hosted Voyage-4-lite, Cohere embed-v4. OpenAI text-embedding-3-small is weak on non-English.
@@ -26,7 +26,7 @@ Models (check current leaderboards before choosing):
 ## 2. Runtime: two paths, one tool layer
 
 - **Customer-facing reply:** a fixed pipeline (condense query → retrieve → rerank → draft → check). Fast (ADR 0006), cheap, eval-able. Fin, Sierra and Decagon all constrain this path.
-- **Back-office work:** an agent loop with tools in the background worker: investigate a ticket cluster, write the bug brief, look things up. Read-only tools by default; any write goes through the policy layer (#13) and the audit log.
+- **Back-office work:** an agent loop with tools in the background worker: investigate a conversation cluster, write the bug brief, look things up. Read-only tools by default; any write goes through the policy layer (#13) and the audit log.
 - **One tool and retrieval layer serves both, and is exposed over the API and MCP (#19).** Anything our AI can do, an outside agent can do. Don't build a general agent framework; the AI SDK loop is enough.
 - **Don't build our own coding agent.** A team's own coding agent fixes code. HelpOS tells customers when the fix ships (#71).
 
@@ -37,27 +37,27 @@ Models (check current leaderboards before choosing):
 3. Quote-then-answer, quotes checked by string match.
 4. A claim check pass against the cited text (later: a small CPU verifier such as LettuceDetect or HHEM-2.1-Open).
 5. Policy, not prompts, for dangerous facts: no prices, refunds or dates unless a source says so.
-6. Eval sets from real tickets in at least 3 languages, replayed on every model, prompt or retrieval change. North star: the one number in docs/vision.md (fewer decisions, customers just as happy).
+6. Eval sets from real conversations in at least 3 languages, replayed on every model, prompt or retrieval change. North star: the one number in docs/vision.md (fewer decisions, customers just as happy).
 
 ## 4. Reading customers' code (superseded)
 
-Not our job. A team's own coding agent reads their code with its own access. HelpOS keeps the waiting list and tells customers when the fix ships (#71). Prompt-injection rule that still applies everywhere: a ticket is untrusted input, never instructions.
+Not our job. A team's own coding agent reads their code with its own access. HelpOS keeps the waiting list and tells customers when the fix ships (#71). Prompt-injection rule that still applies everywhere: a conversation is untrusted input, never instructions.
 
 ## 5. Data sources we haven't planned yet
 
-| Source                                                              | What it gives                                    | Why                                                                      |
-| ------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| Error monitoring (Sentry, PostHog, LogRocket, Datadog)              | Stack trace, replay, error count behind a ticket | Strongest bug evidence; groups duplicates by shared error (#71).         |
-| Releases and deploys (GitHub releases, changelog, deploy events)    | What changed and when                            | "Started after Tuesday's deploy"; when to notify that a fix shipped.     |
-| Incidents / status (our status page, Statuspage, incident.io)       | A live outage                                    | One answer for 50 tickets.                                               |
-| Saved replies / macros (from Zendesk, Help Scout, Intercom imports) | The team's approved best answers                 | Often better than the help center; free with imports.                    |
-| Internal notes, runbooks, policies                                  | Refund policy, escalation rules, workarounds     | **Internal only**: never cited to customers or shown in the help center. |
-| Billing and CRM (Stripe, HubSpot, Attio)                            | Plan, revenue, owner                             | Revenue-weighted requests, priority.                                     |
-| The customer's own app data, via actions (#13)                      | Account state, flags, last login                 | "Why can't I…?" answers live in the account.                             |
-| Community (Discord, Slack Connect, GitHub Discussions, forums)      | Where dev-tool users ask                         | Often bigger than email for many products.                               |
-| API reference (OpenAPI spec)                                        | Exact endpoints and params                       | Precise for developer questions.                                         |
-| Screenshots in tickets                                              | The error the customer didn't type               | Already ours; read with a vision model.                                  |
-| Feedback (CSAT, draft edits, approve/reject)                        | What worked                                      | Teach, evals, gap detection. Capture draft-vs-sent diffs from day one.   |
+| Source                                                              | What it gives                                          | Why                                                                      |
+| ------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| Error monitoring (Sentry, PostHog, LogRocket, Datadog)              | Stack trace, replay, error count behind a conversation | Strongest bug evidence; groups duplicates by shared error (#71).         |
+| Releases and deploys (GitHub releases, changelog, deploy events)    | What changed and when                                  | "Started after Tuesday's deploy"; when to notify that a fix shipped.     |
+| Incidents / status (our status page, Statuspage, incident.io)       | A live outage                                          | One answer for 50 conversations.                                         |
+| Saved replies / macros (from Zendesk, Help Scout, Intercom imports) | The team's approved best answers                       | Often better than the help center; free with imports.                    |
+| Internal notes, runbooks, policies                                  | Refund policy, escalation rules, workarounds           | **Internal only**: never cited to customers or shown in the help center. |
+| Billing and CRM (Stripe, HubSpot, Attio)                            | Plan, revenue, owner                                   | Revenue-weighted requests, priority.                                     |
+| The customer's own app data, via actions (#13)                      | Account state, flags, last login                       | "Why can't I…?" answers live in the account.                             |
+| Community (Discord, Slack Connect, GitHub Discussions, forums)      | Where dev-tool users ask                               | Often bigger than email for many products.                               |
+| API reference (OpenAPI spec)                                        | Exact endpoints and params                             | Precise for developer questions.                                         |
+| Screenshots in conversations                                        | The error the customer didn't type                     | Already ours; read with a vision model.                                  |
+| Feedback (CSAT, draft edits, approve/reject)                        | What worked                                            | Teach, evals, gap detection. Capture draft-vs-sent diffs from day one.   |
 
 **Don't build all these connectors.** Sentry, Stripe, Linear, PostHog, HubSpot and Datadog ship MCP servers. Besides exposing MCP (#19), **consume** it: a workspace plugs in MCP servers as read-only tools for the back-office agent, behind policy and audit. We build no per-tool connectors (#174).
 
@@ -72,7 +72,7 @@ The goal: adding a connector is writing one adapter; search, tenancy, citations,
    - `tools`: live lookups/actions, MCP-shaped (name, input schema, scope).
      A built-in connector and a workspace's MCP server look the same to the agent.
 2. **One document model.** Everything indexed becomes a document: connector, kind, external_id, url, title, language, **visibility (public / internal)**, updated_at, metadata → chunks. Connectors only map their data into it.
-3. **One links table** for relationships (ticket ↔ issue ↔ PR ↔ release ↔ customer ↔ article). That's the graph.
+3. **One links table** for relationships (conversation ↔ issue ↔ PR ↔ release ↔ customer ↔ article). That's the graph.
 4. **One tool registry**: scopes, policy check, audit log, per-tenant budget. The same registry backs our agent, the public API and MCP.
 5. **Events in, jobs out.** Connectors emit events (deploy, release, incident, issue closed) into the job queue; features subscribe (notify affected customers, re-sync, re-cluster).
 6. **Search is a provider per corpus** behind one `search(query, {corpora, visibility, language})` call (the `SearchProvider` from #61 grows into this).

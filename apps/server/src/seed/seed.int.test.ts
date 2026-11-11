@@ -49,7 +49,10 @@ async function snapshot() {
       customers: await tx.select().from(schema.customers).orderBy(asc(schema.customers.id)),
       apiTokens: await tx.select().from(schema.apiTokens).orderBy(asc(schema.apiTokens.id)),
       audit: await tx.select().from(schema.auditEvents).orderBy(asc(schema.auditEvents.id)),
-      tickets: await tx.select().from(schema.tickets).orderBy(asc(schema.tickets.id)),
+      conversations: await tx
+        .select()
+        .from(schema.conversations)
+        .orderBy(asc(schema.conversations.id)),
       messages: await tx.select().from(schema.messages).orderBy(asc(schema.messages.id)),
       drafts: await tx.select().from(schema.drafts).orderBy(asc(schema.drafts.id)),
       sources: await tx
@@ -81,8 +84,10 @@ describe("seedDemoData", () => {
     // What was written is exactly what was planned, with the planned IDs.
     const plan = buildDemoData();
     for (const t of plan.tenants) {
-      const got = before[t.key] as { tickets: { id: string }[]; drafts: { id: string }[] };
-      expect(got.tickets.map((r) => r.id).sort()).toEqual(t.tickets.map((r) => r.id).sort());
+      const got = before[t.key] as { conversations: { id: string }[]; drafts: { id: string }[] };
+      expect(got.conversations.map((r) => r.id).sort()).toEqual(
+        t.conversations.map((r) => r.id).sort(),
+      );
       expect(got.drafts.map((r) => r.id).sort()).toEqual(t.drafts.map((r) => r.id).sort());
     }
   });
@@ -91,9 +96,9 @@ describe("seedDemoData", () => {
     const [northwind, lumen] = buildDemoData().tenants;
     if (!northwind || !lumen) throw new Error("expected two demo workspaces");
     const seen = await db.withTenant(northwind.tenant.id, (tx) =>
-      tx.select({ tenantId: schema.tickets.tenantId }).from(schema.tickets),
+      tx.select({ tenantId: schema.conversations.tenantId }).from(schema.conversations),
     );
-    expect(seen.length).toBe(northwind.tickets.length);
+    expect(seen.length).toBe(northwind.conversations.length);
     expect(seen.every((r) => r.tenantId === northwind.tenant.id)).toBe(true);
   });
 

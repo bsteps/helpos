@@ -43,17 +43,17 @@ Warnings (`warn`) name features that will not work: knowledge sources still `pen
 | `<as>` | Who | Scopes |
 | --- | --- | --- |
 | `owner` | Maya, Northwind owner, session cookie | all, including `workspace:admin` |
-| `northwind:triage-bot` | agent | `tickets:read`, `drafts:write`, `knowledge:read` |
-| `northwind:approver-bot` | agent | `tickets:read`, `drafts:approve` |
+| `northwind:triage-bot` | agent | `conversations:read`, `drafts:write`, `knowledge:read` |
+| `northwind:approver-bot` | agent | `conversations:read`, `drafts:approve` |
 | `northwind:stats-reader` | agent | `stats:read` |
 | `lumen:support-agent` | agent in the *other* workspace | use it to prove tenant isolation |
 | `hos_…` | a token you minted with `owner POST v1/tokens` | what you gave it |
 | `inbound` | the email provider | body `@fixtures/email/<name>.eml`; `support@acme.test` is swapped for the Northwind mailbox |
 | `none` | nobody | proves auth is required |
 
-**Placeholders instead of copied IDs.** `api.mjs` and `new-email.mjs` remember what they last created in `.helpos/verify-state/last.json` (kept out of `.helpos/verify/`, the evidence you may share, because it holds a live token). Write `{ticket}`, `{draft}` (that ticket's draft, waiting for the AI if needed), `{draftBody}` (its exact text as a JSON string, for `'{"body":{draftBody}}'`), `{token}`, `{tokenId}` or `{source}` in the path, body or `<as>`. Never pipe `api.mjs` output into another `node` command: Git Bash runs `node` through `winpty`, which breaks pipes into it.
+**Placeholders instead of copied IDs.** `api.mjs` and `new-email.mjs` remember what they last created in `.helpos/verify-state/last.json` (kept out of `.helpos/verify/`, the evidence you may share, because it holds a live token). Write `{conversation}`, `{draft}` (that conversation's draft, waiting for the AI if needed), `{draftBody}` (its exact text as a JSON string, for `'{"body":{draftBody}}'`), `{token}`, `{tokenId}` or `{source}` in the path, body or `<as>`. Never pipe `api.mjs` output into another `node` command: Git Bash runs `node` through `winpty`, which breaks pipes into it.
 
-No seed token has `tickets:write`, `knowledge:write` or `github:write` in Northwind. Use `owner`, or mint a token.
+No seed token has `conversations:write`, `knowledge:write` or `github:write` in Northwind. Use `owner`, or mint a token.
 
 **Dashboard.** Playwright from `apps/web`, the repo's only copy (browsers are already installed for it). Use roles and labels. They are stable, and the e2e suite in `apps/web/e2e/` uses the same ones:
 
@@ -66,19 +66,19 @@ const { chromium } = createRequire(join(repoRoot, "apps", "web", "package.json")
 
 `$V/journey-reply.mjs` is a complete example of both surfaces. Copy its shape for a new journey.
 
-**New customer email.** `pnpm new-email [fixture] [--subject "text"] [--body "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new ticket: a fresh Message-ID and a unique subject, so it is never a duplicate. With the default sample, `--subject` alone is also the body. `--body` works only on single-part plain-text samples. The last line it prints is the ticket ID.
+**New customer email.** `pnpm new-email [fixture] [--subject "text"] [--body "text"]` sends a sample from `fixtures/email/` (default `plain`) as a brand-new conversation: a fresh Message-ID and a unique subject, so it is never a duplicate. With the default sample, `--subject` alone is also the body. `--body` works only on single-part plain-text samples. The last line it prints is the conversation ID.
 
 **GitHub webhook.** `pnpm github-webhook <issueNumber> --secret <webhook secret> [--action closed|reopened] [--reason completed|not_planned|duplicate] [--bad-signature]` signs and sends an `issues` event for the connected repo, since GitHub can't reach localhost.
 
-**Agent approval.** `pnpm approve-draft <ticketId | new>` reads the pending draft as `triage-bot`, approves that exact text as `approver-bot`, and waits for `sent`. `new` sends a fresh customer email first. Use it instead of piping `api.mjs` into other commands: Git Bash runs `node` through `winpty`, which breaks pipes into `node`.
+**Agent approval.** `pnpm approve-draft <conversationId | new>` reads the pending draft as `triage-bot`, approves that exact text as `approver-bot`, and waits for `sent`. `new` sends a fresh customer email first. Use it instead of piping `api.mjs` into other commands: Git Bash runs `node` through `winpty`, which breaks pipes into `node`.
 
-**Main journey.** `pnpm app:journey --via web` or `--via api`. It sends a customer email, waits for the ticket and the real AI draft, approves it (owner in the browser, or `approver-bot` over the API), waits for `sent`, then checks Mailpit: the reply went to the shadow recipient only, with the approved text.
+**Main journey.** `pnpm app:journey --via web` or `--via api`. It sends a customer email, waits for the conversation and the real AI draft, approves it (owner in the browser, or `approver-bot` over the API), waits for `sent`, then checks Mailpit: the reply went to the shadow recipient only, with the approved text.
 
 **Feature map.** `features/README.md` lists every screen and endpoint with a recipe. Read the feature file before driving that feature, and cover every entry point it lists.
 
 ## Selftest
 
-`pnpm app:selftest [--with-browser]` runs every terminal step of the hand-test checklist through the real helpers and checks each result (61 steps with the browser). Run it after changing any helper or checklist step, before handing steps to a person. A step that fails here would have failed for them. A run writes about 15 AI drafts (roughly 20,000 tokens; `pnpm app:start` raises this instance's daily cap to 1,000,000), and it refuses to start below 30,000. Each run also leaves about a dozen tickets in the Inbox, so don't run it in the middle of someone's hand test. Scripts stop with `quit()` from `instance.mjs`, never `process.exit()`: exiting right after a fetch crashes Node on Windows (exit code 127).
+`pnpm app:selftest [--with-browser]` runs every terminal step of the hand-test checklist through the real helpers and checks each result (61 steps with the browser). Run it after changing any helper or checklist step, before handing steps to a person. A step that fails here would have failed for them. A run writes about 15 AI drafts (roughly 20,000 tokens; `pnpm app:start` raises this instance's daily cap to 1,000,000), and it refuses to start below 30,000. Each run also leaves about a dozen conversations in the Inbox, so don't run it in the middle of someone's hand test. Scripts stop with `quit()` from `instance.mjs`, never `process.exit()`: exiting right after a fetch crashes Node on Windows (exit code 127).
 
 ## Evidence
 

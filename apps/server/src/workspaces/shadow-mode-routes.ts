@@ -23,12 +23,12 @@ const shadowModeSchema = z
 const path = "/v1/workspace/shadow-mode";
 
 const getRoute = apiRoute({
-  access: { allScopes: ["tickets:read"] },
+  access: { allScopes: ["conversations:read"] },
   method: "get",
   path,
   summary: "Read the workspace's shadow mode",
   description:
-    "Whether replies go to the shadow recipient instead of customers. Needs `tickets:read`.",
+    "Whether replies go to the shadow recipient instead of customers. Needs `conversations:read`.",
   responses: { 200: json(shadowModeSchema, "Shadow mode") },
 });
 

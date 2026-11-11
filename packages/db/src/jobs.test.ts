@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createDatabase, type Database } from "./client.ts";
 import { createJobRunner, defineTenantJob, enqueue, type JobRunner } from "./jobs.ts";
-import { customers, mailboxes, tenants, tickets } from "./schema.ts";
+import { conversations, customers, mailboxes, tenants } from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
@@ -19,8 +19,8 @@ let appSql: postgres.Sql;
 
 const tenantA = uuidv7();
 const tenantB = uuidv7();
-const probe = defineTenantJob("test-probe", { ticketId: z.uuid() });
-const idle = defineTenantJob("test-idle", { ticketId: z.uuid() });
+const probe = defineTenantJob("test-probe", { conversationId: z.uuid() });
+const idle = defineTenantJob("test-idle", { conversationId: z.uuid() });
 
 beforeAll(async () => {
   testDb = await startTestDatabase();
@@ -84,18 +84,18 @@ describe("enqueue", () => {
     const helper = failure(
       db.withTenant(tenantA, (tx) =>
         // Simulates a caller that bypasses the types.
-        enqueue(tx, idle, { ticketId: uuidv7() } as unknown as z.infer<typeof idle.payload>),
+        enqueue(tx, idle, { conversationId: uuidv7() } as unknown as z.infer<typeof idle.payload>),
       ),
     );
     expect(await helper).toMatch(/tenantId/);
-    expect(await failure(rawEnqueueAsA({ ticketId: uuidv7() }))).toMatch(
+    expect(await failure(rawEnqueueAsA({ conversationId: uuidv7() }))).toMatch(
       /payload tenantId must be the current tenant/,
     );
     expect(await jobCount("test-idle")).toBe(before);
   });
 
   it("rejects a payload with content beyond IDs", async () => {
-    const extra = { tenantId: tenantA, ticketId: uuidv7(), body: "hello" };
+    const extra = { tenantId: tenantA, conversationId: uuidv7(), body: "hello" };
     const message = await failure(
       db.withTenant(tenantA, (tx) => enqueue(tx, idle, extra as z.infer<typeof idle.payload>)),
     );
@@ -107,7 +107,7 @@ describe("enqueue", () => {
     expect(
       await failure(
         db.withTenant(tenantA, (tx) =>
-          enqueue(tx, idle, { tenantId: tenantB, ticketId: uuidv7() }),
+          enqueue(tx, idle, { tenantId: tenantB, conversationId: uuidv7() }),
         ),
       ),
     ).toMatch(/payload tenantId must be the current tenant/);
@@ -119,23 +119,23 @@ describe("enqueue", () => {
 
   it("enqueue commits atomically with the action", async () => {
     const before = await jobCount("test-idle");
-    const ticketId = uuidv7();
+    const conversationId = uuidv7();
     await expect(
       db.withTenant(tenantA, async (tx) => {
-        await enqueue(tx, idle, { tenantId: tenantA, ticketId });
+        await enqueue(tx, idle, { tenantId: tenantA, conversationId });
         throw new Error("action failed after enqueue");
       }),
     ).rejects.toThrow("action failed");
     expect(await jobCount("test-idle")).toBe(before);
 
-    await db.withTenant(tenantA, (tx) => enqueue(tx, idle, { tenantId: tenantA, ticketId }));
+    await db.withTenant(tenantA, (tx) => enqueue(tx, idle, { tenantId: tenantA, conversationId }));
     expect(await jobCount("test-idle")).toBe(before + 1);
   });
 
   it("app_enqueue returns the existing job ID for a duplicate singleton key", async () => {
     const send = (tenantId: string) =>
       db.withTenant(tenantId, (tx) =>
-        enqueue(tx, idle, { tenantId, ticketId: uuidv7() }, { singletonKey: "same" }),
+        enqueue(tx, idle, { tenantId, conversationId: uuidv7() }, { singletonKey: "same" }),
       );
     const first = await send(tenantA);
     expect(await send(tenantA)).toBe(first);
@@ -160,7 +160,7 @@ describe("leak: pg-boss tables", () => {
 
 describe("job runner", () => {
   it("leak: job for tenant A cannot read tenant B rows", async () => {
-    const bTicket = uuidv7();
+    const bConversation = uuidv7();
     await db.withTenant(tenantB, async (tx) => {
       const mailboxId = uuidv7();
       const customerId = uuidv7();
@@ -169,39 +169,41 @@ describe("job runner", () => {
         .values({ id: mailboxId, tenantId: tenantB, address: "jobs@b.test" });
       await tx.insert(customers).values({ id: customerId, tenantId: tenantB, email: "c@b.test" });
       await tx
-        .insert(tickets)
-        .values({ id: bTicket, tenantId: tenantB, customerId, mailboxId, subject: "B only" });
+        .insert(conversations)
+        .values({ id: bConversation, tenantId: tenantB, customerId, mailboxId, subject: "B only" });
     });
 
-    let resolveSeen: (value: { tenant: string | undefined; ticketCount: number }) => void =
+    let resolveSeen: (value: { tenant: string | undefined; conversationCount: number }) => void =
       () => {};
-    const seen = new Promise<{ tenant: string | undefined; ticketCount: number }>((resolve) => {
-      resolveSeen = resolve;
-    });
+    const seen = new Promise<{ tenant: string | undefined; conversationCount: number }>(
+      (resolve) => {
+        resolveSeen = resolve;
+      },
+    );
     // Awaited, so the queue exists before the enqueue below.
     await runner.work(probe, {
       transaction: async (_payload, tx) => {
-        const rows = await tx.select().from(tickets);
+        const rows = await tx.select().from(conversations);
         const [setting] = await tx.execute<{ t: string }>(
           "select current_setting('app.tenant_id', true) as t",
         );
-        resolveSeen({ tenant: setting?.t, ticketCount: rows.length });
+        resolveSeen({ tenant: setting?.t, conversationCount: rows.length });
       },
       onGiveUp: async () => {},
     });
     await db.withTenant(tenantA, (tx) =>
-      enqueue(tx, probe, { tenantId: tenantA, ticketId: bTicket }),
+      enqueue(tx, probe, { tenantId: tenantA, conversationId: bConversation }),
     );
-    expect(await seen).toEqual({ tenant: tenantA, ticketCount: 0 });
+    expect(await seen).toEqual({ tenant: tenantA, conversationCount: 0 });
   });
 
   it("leak: a steps job opens separate transactions, each one only as its own tenant", async () => {
-    type Step = { tenant: string | undefined; txid: string; tickets: number };
+    type Step = { tenant: string | undefined; txid: string; conversations: number };
     let resolveSeen: (steps: Step[]) => void = () => {};
     const seen = new Promise<Step[]>((resolve) => {
       resolveSeen = resolve;
     });
-    const stepsProbe = defineTenantJob("test-steps-probe", { ticketId: z.uuid() });
+    const stepsProbe = defineTenantJob("test-steps-probe", { conversationId: z.uuid() });
     await runner.work(stepsProbe, {
       steps: async (_payload, transaction) => {
         const steps: Step[] = [];
@@ -211,8 +213,8 @@ describe("job runner", () => {
               const [row] = await tx.execute<{ t: string; txid: string }>(
                 "select current_setting('app.tenant_id', true) as t, txid_current()::text as txid",
               );
-              const rows = await tx.select().from(tickets);
-              return { tenant: row?.t, txid: row?.txid ?? "", tickets: rows.length };
+              const rows = await tx.select().from(conversations);
+              return { tenant: row?.t, txid: row?.txid ?? "", conversations: rows.length };
             }),
           );
         }
@@ -221,16 +223,16 @@ describe("job runner", () => {
       onGiveUp: async () => {},
     });
     await db.withTenant(tenantA, (tx) =>
-      enqueue(tx, stepsProbe, { tenantId: tenantA, ticketId: uuidv7() }),
+      enqueue(tx, stepsProbe, { tenantId: tenantA, conversationId: uuidv7() }),
     );
     const [first, second] = await seen;
-    // Tenant B has a ticket (seeded above); tenant A has none.
-    expect(first).toMatchObject({ tenant: tenantA, tickets: 0 });
-    expect(second).toMatchObject({ tenant: tenantA, tickets: 0 });
+    // Tenant B has a conversation (seeded above); tenant A has none.
+    expect(first).toMatchObject({ tenant: tenantA, conversations: 0 });
+    expect(second).toMatchObject({ tenant: tenantA, conversations: 0 });
     expect(first?.txid).not.toBe(second?.txid);
   });
   it("retries as the queue's policy says, then gives up once, in a fresh transaction", async () => {
-    const flaky = defineTenantJob("test-give-up", { ticketId: z.uuid() });
+    const flaky = defineTenantJob("test-give-up", { conversationId: z.uuid() });
     await runner.ensureQueue(flaky, { limit: 2, delaySeconds: 1, backoff: false });
     let attempts = 0;
     let resolveGaveUp: (tenant: string | undefined) => void = () => {};
@@ -252,7 +254,7 @@ describe("job runner", () => {
       },
     });
     await db.withTenant(tenantA, (tx) =>
-      enqueue(tx, flaky, { tenantId: tenantA, ticketId: uuidv7() }),
+      enqueue(tx, flaky, { tenantId: tenantA, conversationId: uuidv7() }),
     );
     expect(await gaveUp).toBe(tenantA);
     // The first attempt and two retries, and only the last one gives up.
@@ -264,7 +266,7 @@ describe("job runner", () => {
   });
 
   it("gives up a steps job too, once, as its own tenant", async () => {
-    const flakySteps = defineTenantJob("test-give-up-steps", { ticketId: z.uuid() });
+    const flakySteps = defineTenantJob("test-give-up-steps", { conversationId: z.uuid() });
     await runner.ensureQueue(flakySteps, { limit: 1, delaySeconds: 1, backoff: false });
     let attempts = 0;
     let giveUps = 0;
@@ -288,7 +290,7 @@ describe("job runner", () => {
       },
     });
     await db.withTenant(tenantB, (tx) =>
-      enqueue(tx, flakySteps, { tenantId: tenantB, ticketId: uuidv7() }),
+      enqueue(tx, flakySteps, { tenantId: tenantB, conversationId: uuidv7() }),
     );
     expect(await gaveUp).toBe(tenantB);
     expect(attempts).toBe(2);

@@ -32,7 +32,7 @@ import { generateToken, hashToken } from "./token.ts";
 const files = createMemoryFileStore();
 const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
 const allTokenScopes = [
-  "tickets:read",
+  "conversations:read",
   "drafts:write",
   "drafts:approve",
   "knowledge:read",
@@ -47,14 +47,14 @@ let auth: AuthStore;
 let runner: JobRunner;
 let acme: string;
 let other: string;
-let acmeTicket: string;
-let otherTicket: string;
+let acmeConversation: string;
+let otherConversation: string;
 
 /** Stand-in sessions, keyed by the `session` cookie's value. */
 const sessions: Record<string, () => { tenantId: string; scopes: Scope[] }> = {
   owner: () => ({ tenantId: acme, scopes: [...allTokenScopes, "workspace:admin"] }),
   member: () => ({ tenantId: acme, scopes: [...allTokenScopes] }),
-  readOnlyAdmin: () => ({ tenantId: acme, scopes: ["tickets:read", "workspace:admin"] }),
+  readOnlyAdmin: () => ({ tenantId: acme, scopes: ["conversations:read", "workspace:admin"] }),
   otherOwner: () => ({ tenantId: other, scopes: [...allTokenScopes, "workspace:admin"] }),
 };
 const session: Authenticate = async (request) => {
@@ -122,7 +122,7 @@ async function receiveEmail(to: string, n: number): Promise<string> {
   ].join("\r\n");
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(`ingest: ${result.kind}`);
-  return result.ticketId;
+  return result.conversationId;
 }
 
 beforeAll(async () => {
@@ -144,8 +144,8 @@ beforeAll(async () => {
   if (!a.ok || !o.ok) throw new Error("setup failed");
   acme = a.tenantId;
   other = o.tenantId;
-  acmeTicket = await receiveEmail("support@acme.test", 1);
-  otherTicket = await receiveEmail("help@other.test", 2);
+  acmeConversation = await receiveEmail("support@acme.test", 1);
+  otherConversation = await receiveEmail("help@other.test", 2);
 });
 
 afterAll(async () => {
@@ -156,21 +156,21 @@ afterAll(async () => {
 });
 
 describe("an agent token works the inbox", () => {
-  it("lists tickets and creates a draft, and the audit log shows the agent as actor", async () => {
+  it("lists conversations and creates a draft, and the audit log shows the agent as actor", async () => {
     const agent = await createToken(
-      ["tickets:read", "drafts:write"],
+      ["conversations:read", "drafts:write"],
       { session: "owner" },
       "triage",
     );
 
-    const list = await call("GET", "/v1/tickets", { token: agent.token });
+    const list = await call("GET", "/v1/conversations", { token: agent.token });
     expect(list.status).toBe(200);
-    const { tickets } = (await list.json()) as { tickets: { id: string }[] };
-    expect(tickets.map((t) => t.id)).toEqual([acmeTicket]);
+    const { conversations } = (await list.json()) as { conversations: { id: string }[] };
+    expect(conversations.map((t) => t.id)).toEqual([acmeConversation]);
 
     const created = await call(
       "POST",
-      `/v1/tickets/${acmeTicket}/drafts`,
+      `/v1/conversations/${acmeConversation}/drafts`,
       { token: agent.token },
       {
         body: "Hi Jane, we're looking into it.",
@@ -211,8 +211,8 @@ describe("an agent token works the inbox", () => {
   });
 
   it("uses the GitHub routes with github:write, but can never connect a repo", async () => {
-    const github = await createToken(["tickets:read", "github:write"]);
-    const reader = await createToken(["tickets:read"]);
+    const github = await createToken(["conversations:read", "github:write"]);
+    const reader = await createToken(["conversations:read"]);
     const read = await call("GET", "/v1/integrations/github", { token: github.token });
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual({ connected: false, repo: null, webhookUrl: null });
@@ -220,13 +220,16 @@ describe("an agent token works the inbox", () => {
       403,
     );
     // Past the scope check: this server has no AI model, so it says so instead of 403.
-    const draft = await call("POST", `/v1/tickets/${acmeTicket}/github-issue/draft`, {
+    const draft = await call("POST", `/v1/conversations/${acmeConversation}/github-issue/draft`, {
       token: github.token,
     });
     expect(draft.status).toBe(503);
     expect(
-      (await call("POST", `/v1/tickets/${acmeTicket}/github-issue/draft`, { token: reader.token }))
-        .status,
+      (
+        await call("POST", `/v1/conversations/${acmeConversation}/github-issue/draft`, {
+          token: reader.token,
+        })
+      ).status,
     ).toBe(403);
     // Storing a token is for a human owner: an agent token is refused whatever it holds.
     const connect = { repo: "acme/app", token: "github_pat_11AAAAAAAAAAAAAAAAAAAAAAAAAAAA" };
@@ -238,16 +241,16 @@ describe("an agent token works the inbox", () => {
     );
   });
 
-  it("sees another workspace's ticket as not found", async () => {
-    const agent = await createToken(["tickets:read", "drafts:write"]);
-    expect((await call("GET", `/v1/tickets/${otherTicket}`, { token: agent.token })).status).toBe(
-      404,
-    );
+  it("sees another workspace's conversation as not found", async () => {
+    const agent = await createToken(["conversations:read", "drafts:write"]);
+    expect(
+      (await call("GET", `/v1/conversations/${otherConversation}`, { token: agent.token })).status,
+    ).toBe(404);
     expect(
       (
         await call(
           "POST",
-          `/v1/tickets/${otherTicket}/drafts`,
+          `/v1/conversations/${otherConversation}/drafts`,
           { token: agent.token },
           { body: "x" },
         )
@@ -258,15 +261,15 @@ describe("an agent token works the inbox", () => {
 
 describe("token auth", () => {
   it("wrong scope: 403", async () => {
-    const reader = await createToken(["tickets:read"]);
-    const drafter = await createToken(["tickets:read", "drafts:write"]);
+    const reader = await createToken(["conversations:read"]);
+    const drafter = await createToken(["conversations:read", "drafts:write"]);
     const anyDraft = "/v1/drafts/00000000-0000-7000-8000-000000000000";
 
     expect(
       (
         await call(
           "POST",
-          `/v1/tickets/${acmeTicket}/drafts`,
+          `/v1/conversations/${acmeConversation}/drafts`,
           { token: reader.token },
           { body: "x" },
         )
@@ -290,10 +293,10 @@ describe("token auth", () => {
   });
 
   it("revoked: 401", async () => {
-    const agent = await createToken(["tickets:read"]);
-    expect((await call("GET", "/v1/tickets", { token: agent.token })).status).toBe(200);
+    const agent = await createToken(["conversations:read"]);
+    expect((await call("GET", "/v1/conversations", { token: agent.token })).status).toBe(200);
     expect((await call("DELETE", `/v1/tokens/${agent.id}`, { session: "owner" })).status).toBe(204);
-    expect((await call("GET", "/v1/tickets", { token: agent.token })).status).toBe(401);
+    expect((await call("GET", "/v1/conversations", { token: agent.token })).status).toBe(401);
     expect(await auditFor(acme, agent.id)).toEqual([
       { action: "api_token.created", actorType: "user", actorId: "user-owner" },
       { action: "api_token.revoked", actorType: "user", actorId: "user-owner" },
@@ -306,7 +309,11 @@ describe("token auth", () => {
     ["another scheme", () => ({ authorization: `Basic ${generateToken().token}` })],
     ["no credentials", () => null],
   ])("%s: 401", async (_, as) => {
-    for (const path of ["/v1/tickets", `/v1/tickets/${acmeTicket}`, "/v1/tokens"]) {
+    for (const path of [
+      "/v1/conversations",
+      `/v1/conversations/${acmeConversation}`,
+      "/v1/tokens",
+    ]) {
       const res = await call("GET", path, as());
       expect(res.status, path).toBe(401);
       expect(await res.json()).toEqual({ error: "unauthorized" });
@@ -314,17 +321,20 @@ describe("token auth", () => {
   });
 
   it("judges a request with a bad token on the token, even next to a valid session", async () => {
-    const res = await app().request("/v1/tickets", {
+    const res = await app().request("/v1/conversations", {
       headers: { cookie: "session=owner", authorization: `Bearer ${generateToken().token}` },
     });
     expect(res.status).toBe(401);
   });
 
   it("is on by default: createApp() accepts real tokens without being told to", async () => {
-    const agent = await createToken(["tickets:read"]);
-    const res = await createApp(composeServices({ db, files, logger })).request("/v1/tickets", {
-      headers: { authorization: `Bearer ${agent.token}` },
-    });
+    const agent = await createToken(["conversations:read"]);
+    const res = await createApp(composeServices({ db, files, logger })).request(
+      "/v1/conversations",
+      {
+        headers: { authorization: `Bearer ${agent.token}` },
+      },
+    );
     expect(res.status).toBe(200);
   });
 });
@@ -337,7 +347,7 @@ describe("creating tokens", () => {
       { session: "owner" },
       {
         name: " triage-bot ",
-        scopes: ["drafts:write", "tickets:read", "drafts:write"],
+        scopes: ["drafts:write", "conversations:read", "drafts:write"],
       },
     );
     expect(res.status).toBe(201);
@@ -345,7 +355,7 @@ describe("creating tokens", () => {
     const created = (await res.json()) as CreatedToken & { revokedAt: string | null };
     expect(created).toMatchObject({
       name: "triage-bot",
-      scopes: ["drafts:write", "tickets:read"],
+      scopes: ["conversations:read", "drafts:write"],
       revokedAt: null,
     });
     expect(created.token).toMatch(/^hos_[A-Za-z0-9_-]{43}$/);
@@ -369,15 +379,15 @@ describe("creating tokens", () => {
   });
 
   it("needs a human session: an agent token can't create, list or revoke others", async () => {
-    const agent = await createToken(["tickets:read"]);
-    const victim = await createToken(["tickets:read"]);
+    const agent = await createToken(["conversations:read"]);
+    const victim = await createToken(["conversations:read"]);
     const res = await call(
       "POST",
       "/v1/tokens",
       { token: agent.token },
       {
         name: "spare",
-        scopes: ["tickets:read"],
+        scopes: ["conversations:read"],
       },
     );
     expect(res.status).toBe(403);
@@ -386,7 +396,7 @@ describe("creating tokens", () => {
     expect((await call("DELETE", `/v1/tokens/${victim.id}`, { token: agent.token })).status).toBe(
       403,
     );
-    expect((await call("GET", "/v1/tickets", { token: victim.token })).status).toBe(200);
+    expect((await call("GET", "/v1/conversations", { token: victim.token })).status).toBe(200);
   });
 
   it("needs workspace:admin", async () => {
@@ -396,7 +406,7 @@ describe("creating tokens", () => {
       { session: "member" },
       {
         name: "bot",
-        scopes: ["tickets:read"],
+        scopes: ["conversations:read"],
       },
     );
     expect(res.status).toBe(403);
@@ -411,7 +421,7 @@ describe("creating tokens", () => {
       { session: "readOnlyAdmin" },
       {
         name: "bot",
-        scopes: ["tickets:read", "drafts:approve"],
+        scopes: ["conversations:read", "drafts:approve"],
       },
     );
     expect(res.status).toBe(403);
@@ -421,9 +431,9 @@ describe("creating tokens", () => {
   it.each([
     ["workspace:admin, which no token can hold", { name: "bot", scopes: ["workspace:admin"] }],
     ["no scopes", { name: "bot", scopes: [] }],
-    ["an unknown scope", { name: "bot", scopes: ["tickets:delete"] }],
-    ["no name", { name: "  ", scopes: ["tickets:read"] }],
-    ["an unknown field", { name: "bot", scopes: ["tickets:read"], expiresAt: "never" }],
+    ["an unknown scope", { name: "bot", scopes: ["conversations:delete"] }],
+    ["no name", { name: "  ", scopes: ["conversations:read"] }],
+    ["an unknown field", { name: "bot", scopes: ["conversations:read"], expiresAt: "never" }],
   ])("refuses %s with 400", async (_, body) => {
     expect((await call("POST", "/v1/tokens", { session: "owner" }, body)).status).toBe(400);
   });
@@ -431,11 +441,11 @@ describe("creating tokens", () => {
 
 describe("revoking tokens", () => {
   it("an agent can revoke its own token", async () => {
-    const agent = await createToken(["tickets:read"]);
+    const agent = await createToken(["conversations:read"]);
     expect((await call("DELETE", `/v1/tokens/${agent.id}`, { token: agent.token })).status).toBe(
       204,
     );
-    expect((await call("GET", "/v1/tickets", { token: agent.token })).status).toBe(401);
+    expect((await call("GET", "/v1/conversations", { token: agent.token })).status).toBe(401);
     expect(await auditFor(acme, agent.id)).toContainEqual({
       action: "api_token.revoked",
       actorType: "agent",
@@ -444,7 +454,7 @@ describe("revoking tokens", () => {
   });
 
   it("revoking twice changes nothing and logs once", async () => {
-    const agent = await createToken(["tickets:read"]);
+    const agent = await createToken(["conversations:read"]);
     expect((await call("DELETE", `/v1/tokens/${agent.id}`, { session: "owner" })).status).toBe(204);
     expect((await call("DELETE", `/v1/tokens/${agent.id}`, { session: "owner" })).status).toBe(204);
     const revocations = await db.withTenant(acme, (tx) =>
@@ -462,7 +472,7 @@ describe("revoking tokens", () => {
   });
 
   it("another workspace's token is not found, and stays usable", async () => {
-    const theirs = await createToken(["tickets:read"], { session: "otherOwner" });
+    const theirs = await createToken(["conversations:read"], { session: "otherOwner" });
     expect((await call("DELETE", `/v1/tokens/${theirs.id}`, { session: "owner" })).status).toBe(
       404,
     );
@@ -473,7 +483,7 @@ describe("revoking tokens", () => {
         })
       ).status,
     ).toBe(404);
-    expect((await call("GET", "/v1/tickets", { token: theirs.token })).status).toBe(200);
+    expect((await call("GET", "/v1/conversations", { token: theirs.token })).status).toBe(200);
     const list = await call("GET", "/v1/tokens", { session: "owner" });
     const { tokens } = (await list.json()) as { tokens: { id: string }[] };
     expect(tokens.map((t) => t.id)).not.toContain(theirs.id);
@@ -481,15 +491,15 @@ describe("revoking tokens", () => {
 });
 
 describe("OpenAPI", () => {
-  it("documents the token and ticket routes", async () => {
+  it("documents the token and conversation routes", async () => {
     const spec = (await (await app().request("/openapi.json")).json()) as {
       paths: Record<string, Record<string, { security?: unknown }>>;
       components: { securitySchemes: Record<string, unknown> };
     };
     expect(Object.keys(spec.paths["/v1/tokens"] ?? {})).toEqual(["post", "get"]);
     expect(Object.keys(spec.paths["/v1/tokens/{id}"] ?? {})).toEqual(["delete"]);
-    expect(Object.keys(spec.paths["/v1/tickets"] ?? {})).toEqual(["get"]);
-    expect(Object.keys(spec.paths["/v1/tickets/{id}"] ?? {})).toEqual(["get"]);
+    expect(Object.keys(spec.paths["/v1/conversations"] ?? {})).toEqual(["get"]);
+    expect(Object.keys(spec.paths["/v1/conversations/{id}"] ?? {})).toEqual(["get"]);
     expect(spec.paths["/v1/tokens"]?.post?.security).toEqual([{ apiAuth: [] }]);
     expect(spec.components.securitySchemes.apiAuth).toMatchObject({ scheme: "bearer" });
   });
@@ -517,17 +527,17 @@ describe("pnpm helpos:token", () => {
       "--name",
       "ops-bot",
       "--scopes",
-      "tickets:read, drafts:write",
+      "conversations:read, drafts:write",
     ]);
     expect(run.code).toBe(0);
     const token = run.stdout.trim();
     expect(token).toMatch(/^hos_[A-Za-z0-9_-]{43}$/);
     expect(run.stderr).not.toContain(token);
 
-    expect((await call("GET", "/v1/tickets", { token })).status).toBe(200);
+    expect((await call("GET", "/v1/conversations", { token })).status).toBe(200);
     const found = await db.resolveApiToken(hashToken(token));
     expect(found).toMatchObject({ tenantId: acme, name: "ops-bot" });
-    expect(found?.scopes).toEqual(["drafts:write", "tickets:read"]);
+    expect(found?.scopes).toEqual(["conversations:read", "drafts:write"]);
     expect(await auditFor(acme, found?.id ?? "")).toEqual([
       { action: "api_token.created", actorType: "system", actorId: "cli" },
     ]);
@@ -540,7 +550,7 @@ describe("pnpm helpos:token", () => {
       "--name",
       "x",
       "--scopes",
-      "tickets:read",
+      "conversations:read",
     ]);
     expect([unknown.code, unknown.stdout]).toEqual([1, ""]);
     const admin = await runCli([

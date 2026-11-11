@@ -33,9 +33,9 @@ import {
 import type { Clock, ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
 import { draftReplyJob } from "./jobs.ts";
-import { createReply, liveDraftFor, lockTicketForDrafting } from "./lifecycle.ts";
+import { createReply, liveDraftFor, lockConversationForDrafting } from "./lifecycle.ts";
 
-const { draftCitations, messages, tickets } = schema;
+const { draftCitations, messages, conversations } = schema;
 
 /** Passages retrieved per draft. More cost tokens and dilute the answer. */
 export const knowledgeLimit = Math.min(5, maxKnowledgeArticles);
@@ -116,32 +116,32 @@ async function searchOrNothing(
 type Payload = { tenantId: string; messageId: string };
 
 /**
- * Runs once every attempt to draft has failed (the model kept erroring, say). The ticket is
+ * Runs once every attempt to draft has failed (the model kept erroring, say). The conversation is
  * marked `draft_failed`, so the dashboard offers to ask the AI again or write the reply,
  * instead of waiting for a draft that will never come. Left alone when the message got a
  * draft meanwhile, or when the customer wrote again (that message's own job drafts for it).
  */
 export async function handleDraftGaveUp(payload: Payload, tx: TenantTx): Promise<void> {
   const [row] = await tx
-    .select({ ticketId: messages.ticketId })
+    .select({ conversationId: messages.conversationId })
     .from(messages)
     .where(eq(messages.id, payload.messageId));
   if (!row) return;
   // Locked, as every drafting path does, so a person's draft that arrives meanwhile can't end
   // up next to `draft_failed`.
-  const lock = await lockTicketForDrafting(tx, row.ticketId);
+  const lock = await lockConversationForDrafting(tx, row.conversationId);
   // The customer wrote again: that message's own job drafts for it.
   if (lock?.answering !== payload.messageId) return;
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
   await tx
-    .update(tickets)
+    .update(conversations)
     .set({ aiPausedReason: "draft_failed" })
-    .where(eq(tickets.id, row.ticketId));
+    .where(eq(conversations.id, row.conversationId));
   await recordAudit(tx, {
     tenantId: payload.tenantId,
     actor: draftWorkerActor,
     action: "ai.draft_failed",
-    target: { type: "ticket", id: row.ticketId },
+    target: { type: "conversation", id: row.conversationId },
     requestId: null,
   });
 }
@@ -218,25 +218,25 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
       // Not thrown: a retry would spend more tokens on the same answer. A person can
       // regenerate it instead.
       deps.logger.warn(
-        { ticketId: job.ticketId },
+        { conversationId: job.conversationId },
         "draft-reply: the model returned an empty draft",
       );
       return;
     }
     await transaction((tx) =>
-      save(deps, payload, tx, { ticketId: job.ticketId, body, result, hits }),
+      save(deps, payload, tx, { conversationId: job.conversationId, body, result, hits }),
     );
   };
 }
 
 /**
  * Step 1: whether the message still needs a draft, what to ask the model, and the cost
- * reserved. Over budget, the ticket is marked paused instead.
+ * reserved. Over budget, the conversation is marked paused instead.
  */
 async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload, tx: TenantTx) {
   const [row] = await tx
     .select({
-      ticketId: messages.ticketId,
+      conversationId: messages.conversationId,
       direction: messages.direction,
       fromAddress: messages.fromAddress,
       subject: messages.subject,
@@ -244,21 +244,21 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
       htmlBody: messages.htmlBody,
       createdAt: messages.createdAt,
       automatedReason: messages.automatedReason,
-      ticketAutomated: tickets.automated,
+      conversationAutomated: conversations.automated,
     })
     .from(messages)
-    .innerJoin(tickets, eq(tickets.id, messages.ticketId))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
     .where(eq(messages.id, payload.messageId));
   if (!row) {
     deps.logger.warn({ messageId: payload.messageId }, "draft-reply: message not found");
     return null;
   }
   // Ingest already skips these; checked again so a stray job can't draft for a machine.
-  if (row.direction !== "inbound" || row.automatedReason !== null || row.ticketAutomated) {
+  if (row.direction !== "inbound" || row.automatedReason !== null || row.conversationAutomated) {
     return null;
   }
   // Locked, as every drafting path does, so a person's draft can't land in between.
-  const lock = await lockTicketForDrafting(tx, row.ticketId);
+  const lock = await lockConversationForDrafting(tx, row.conversationId);
   // The customer wrote again: that message's own job drafts the answer.
   if (lock?.answering !== payload.messageId) return null;
   // Closed meanwhile (e.g. while it waited for the budget to reset): nothing to answer. A
@@ -268,7 +268,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   if (await liveDraftFor(tx, payload.messageId, "reply")) return null;
 
   // The conversation before this message, so a follow-up is answered in context. Machine
-  // mail on the ticket is left out: it's noise, and never something to answer.
+  // mail on the conversation is left out: it's noise, and never something to answer.
   const earlier = await tx
     .select({
       direction: messages.direction,
@@ -280,7 +280,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
     .from(messages)
     .where(
       and(
-        eq(messages.ticketId, row.ticketId),
+        eq(messages.conversationId, row.conversationId),
         ne(messages.id, payload.messageId),
         lt(messages.createdAt, row.createdAt),
       ),
@@ -312,14 +312,14 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   // Other drafts in flight hold the rest of today's budget: pg-boss tries again shortly.
   if (reservation === "busy") throw new AiBusyError();
   if ("refused" in reservation) {
-    await pause(deps, reservation.resetsAt, payload, tx, row.ticketId);
+    await pause(deps, reservation.resetsAt, payload, tx, row.conversationId);
     return null;
   }
-  return { ticketId: row.ticketId, input, query, reservation };
+  return { conversationId: row.conversationId, input, query, reservation };
 }
 
 /**
- * The hard cap: the ticket is marked, and the job runs again when the budget resets at UTC
+ * The hard cap: the conversation is marked, and the job runs again when the budget resets at UTC
  * midnight (one waiting job per message per day). By then the customer may have written
  * again, or someone answered by hand: it then ends without a draft.
  */
@@ -328,14 +328,17 @@ async function pause(
   resetsAt: Date,
   payload: Payload,
   tx: TenantTx,
-  ticketId: string,
+  conversationId: string,
 ): Promise<void> {
-  await tx.update(tickets).set({ aiPausedReason: "daily_budget" }).where(eq(tickets.id, ticketId));
+  await tx
+    .update(conversations)
+    .set({ aiPausedReason: "daily_budget" })
+    .where(eq(conversations.id, conversationId));
   await recordAudit(tx, {
     tenantId: payload.tenantId,
     actor: draftWorkerActor,
     action: "ai.paused",
-    target: { type: "ticket", id: ticketId },
+    target: { type: "conversation", id: conversationId },
     requestId: null,
   });
   await enqueue(tx, draftReplyJob, payload, {
@@ -345,7 +348,7 @@ async function pause(
     // the job would pause again under its own key, and nothing would be queued.
     startAfter: new Date(resetsAt.getTime() + 60_000),
   });
-  deps.logger.warn({ ticketId, resetsAt }, "AI paused: daily budget reached");
+  deps.logger.warn({ conversationId, resetsAt }, "AI paused: daily budget reached");
 }
 
 /** Step 3: the draft and the passages it was written from, unless things moved on meanwhile. */
@@ -353,12 +356,12 @@ async function save(
   deps: DraftWorkerDeps,
   payload: Payload,
   tx: TenantTx,
-  draft: { ticketId: string; body: string; result: DraftResult; hits: SearchResult["hits"] },
+  draft: { conversationId: string; body: string; result: DraftResult; hits: SearchResult["hits"] },
 ): Promise<void> {
-  const { ticketId, body, result, hits } = draft;
-  // The model call took a while. Lock the ticket (as the create endpoint does) and look again,
+  const { conversationId, body, result, hits } = draft;
+  // The model call took a while. Lock the conversation (as the create endpoint does) and look again,
   // so a slow job never overwrites what happened meanwhile.
-  const lock = await lockTicketForDrafting(tx, ticketId);
+  const lock = await lockConversationForDrafting(tx, conversationId);
   // The customer wrote again: that message's own job drafts the answer.
   if (lock?.answering !== payload.messageId) return;
   // Closed while the model wrote: a draft (and its notice) would be noise.
@@ -368,7 +371,7 @@ async function save(
   // This is the latest message, so createReply discards pending replies to earlier ones.
   const saved = await createReply(tx, auditorFor(payload.tenantId, draftWorkerActor), {
     tenantId: payload.tenantId,
-    ticketId,
+    conversationId,
     messageId: payload.messageId,
     body,
     noticeDelaySeconds: deps.config.noticeDelaySeconds,
@@ -389,5 +392,5 @@ async function save(
       })),
     );
   }
-  deps.logger.info({ draftId: saved.id, ticketId }, "draft created");
+  deps.logger.info({ draftId: saved.id, conversationId }, "draft created");
 }

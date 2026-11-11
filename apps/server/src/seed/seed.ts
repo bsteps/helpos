@@ -65,7 +65,7 @@ export async function seedDemoData(deps: {
         .values(t.tokens.map(({ token, ...row }) => ({ ...row, tokenHash: hashToken(token) })))
         .onConflictDoNothing();
       await tx.insert(schema.auditEvents).values(t.audit).onConflictDoNothing();
-      await tx.insert(schema.tickets).values(t.tickets).onConflictDoNothing();
+      await tx.insert(schema.conversations).values(t.conversations).onConflictDoNothing();
       await tx.insert(schema.messages).values(t.messages).onConflictDoNothing();
       await tx.insert(schema.drafts).values(t.drafts).onConflictDoNothing();
       // Inserted before the citations that point at them; only new ones are queued.
@@ -76,7 +76,10 @@ export async function seedDemoData(deps: {
         .returning({ id: schema.knowledgeSources.id });
       await tx.insert(schema.draftCitations).values(t.citations).onConflictDoNothing();
       if (t.githubIssues.length > 0) {
-        await tx.insert(schema.ticketGithubIssues).values(t.githubIssues).onConflictDoNothing();
+        await tx
+          .insert(schema.conversationGithubIssues)
+          .values(t.githubIssues)
+          .onConflictDoNothing();
       }
       for (const { id } of added) {
         await enqueue(

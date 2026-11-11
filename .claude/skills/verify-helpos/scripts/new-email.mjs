@@ -1,9 +1,9 @@
-// Sends a customer email as a brand-new ticket: a sample from fixtures/email/ (plain.eml by
+// Sends a customer email as a brand-new conversation: a sample from fixtures/email/ (plain.eml by
 // default) with a fresh Message-ID and a unique subject, so it is never a duplicate.
 //   node .claude/skills/verify-helpos/scripts/new-email.mjs [fixture] [--subject "text"] [--body "text"]
 // fixture: a name in fixtures/email/ (attachment, xss, html…) or a path to any .eml file.
 // With the default sample, --subject alone is also used as the body, so the email asks one thing.
-// Prints the result, then the ticket id on the last line, and saves it as {ticket} for api.mjs.
+// Prints the result, then the conversation id on the last line, and saves it as {conversation} for api.mjs.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,7 +116,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     quit(1);
   });
   process.stdout.write(`${status} ${json.status ?? json.error}: "${sent}"\n`);
-  if (!json.ticketId) quit(1);
-  process.stdout.write(`${json.ticketId}\n`);
-  remember({ ticket: json.ticketId });
+  if (!json.conversationId) quit(1);
+  process.stdout.write(`${json.conversationId}\n`);
+  remember({ conversation: json.conversationId });
 }

@@ -81,7 +81,7 @@ async function receiveEmail(n: number, to = "support@acme.test"): Promise<string
   ].join("\r\n");
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(`ingest: ${result.kind}`);
-  return result.ticketId;
+  return result.conversationId;
 }
 
 beforeAll(async () => {
@@ -133,7 +133,7 @@ describe("sign-in", () => {
     expect(body.actor).toEqual({ type: "user", id: ownerId });
     expect(body.workspace).toEqual({ id: acme, name: "Acme" });
     expect(body.scopes).toContain("workspace:admin");
-    expect(body.scopes).toContain("tickets:write");
+    expect(body.scopes).toContain("conversations:write");
   });
 
   it("answers a wrong password and an unknown email the same way, with no cookie", async () => {
@@ -172,9 +172,9 @@ describe("sign-in", () => {
 });
 
 describe("a session cookie", () => {
-  it("can close a ticket, audit-logged as the user", async () => {
+  it("can close a conversation, audit-logged as the user", async () => {
     const id = await receiveEmail(1);
-    const res = await call(`/v1/tickets/${id}/close`, {
+    const res = await call(`/v1/conversations/${id}/close`, {
       method: "POST",
       cookie: await signIn("owner@acme.test"),
     });
@@ -190,19 +190,19 @@ describe("a session cookie", () => {
 
   it("is ignored on a write sent from another site (CSRF), and nothing changes", async () => {
     const id = await receiveEmail(2);
-    const res = await call(`/v1/tickets/${id}/close`, {
+    const res = await call(`/v1/conversations/${id}/close`, {
       method: "POST",
       cookie: await signIn("owner@acme.test"),
       origin: "https://evil.test",
     });
     expect(res.status).toBe(401);
-    const ticket = await db.withTenant(acme, (tx) =>
+    const conversation = await db.withTenant(acme, (tx) =>
       tx
-        .select({ status: schema.tickets.status })
-        .from(schema.tickets)
-        .where(eq(schema.tickets.id, id)),
+        .select({ status: schema.conversations.status })
+        .from(schema.conversations)
+        .where(eq(schema.conversations.id, id)),
     );
-    expect(ticket).toEqual([{ status: "open" }]);
+    expect(conversation).toEqual([{ status: "open" }]);
   });
 
   it("never rescues a bad bearer token sent next to it", async () => {
@@ -224,7 +224,7 @@ describe("a session cookie", () => {
     const token = await call("/v1/tokens", {
       method: "POST",
       cookie,
-      body: { name: "bot", scopes: ["tickets:read"] },
+      body: { name: "bot", scopes: ["conversations:read"] },
     });
     expect(token.status).toBe(403);
   });
@@ -233,7 +233,7 @@ describe("a session cookie", () => {
     await withPassword("loner@acme.test");
     const cookie = await signIn("loner@acme.test");
     expect((await call("/v1/me", { cookie })).status).toBe(401);
-    expect((await call("/v1/tickets", { cookie })).status).toBe(401);
+    expect((await call("/v1/conversations", { cookie })).status).toBe(401);
   });
 
   it("leak: session of user in A cannot open tenant B", async () => {
@@ -242,7 +242,7 @@ describe("a session cookie", () => {
       { workspace: "Other", mailbox: "help@other.test", owner: "owner@other.test" },
     );
     if (!other.ok) throw new Error("setup failed");
-    const theirTicket = await receiveEmail(3, "help@other.test");
+    const theirConversation = await receiveEmail(3, "help@other.test");
     const memberId = await withPassword("analyst@acme.test");
     await db.withTenant(acme, (tx) =>
       tx.insert(schema.memberships).values({ tenantId: acme, userId: memberId, role: "member" }),
@@ -256,13 +256,13 @@ describe("a session cookie", () => {
       name: "Acme",
     });
 
-    const unknown = await call(`/v1/tickets/${uuidv7()}`, { cookie });
-    const theirs = await call(`/v1/tickets/${theirTicket}`, { cookie });
+    const unknown = await call(`/v1/conversations/${uuidv7()}`, { cookie });
+    const theirs = await call(`/v1/conversations/${theirConversation}`, { cookie });
     expect(theirs.status).toBe(404);
     expect(unknown.status).toBe(404);
     expect(await theirs.json()).toEqual(await unknown.json());
-    const list = await (await call("/v1/tickets", { cookie })).text();
-    expect(list).not.toContain(theirTicket);
+    const list = await (await call("/v1/conversations", { cookie })).text();
+    expect(list).not.toContain(theirConversation);
     expect(list).not.toContain(other.tenantId);
   });
 

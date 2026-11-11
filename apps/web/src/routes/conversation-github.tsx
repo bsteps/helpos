@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
 import { ExternalLink, GitBranch } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { ApiError, type TicketDetail } from "@/api/client.ts";
+import { ApiError, type ConversationDetail } from "@/api/client.ts";
 import { githubQuery, useCreateGithubIssue, useDraftGithubIssue } from "@/api/queries.ts";
 import { Textarea } from "@/components/textarea.tsx";
 import {
@@ -52,13 +52,13 @@ function createProblem(error: unknown): string {
     case "github_unavailable":
       return "Couldn't reach GitHub. Nothing was created; try again.";
     case "already_linked":
-      return "This ticket already has an issue.";
+      return "This conversation already has an issue.";
     case "github_outcome_unknown":
       return "GitHub didn't answer, so it isn't known whether the issue was opened. Check the repo; if it isn't there, try again in five minutes.";
     case "creation_pending":
-      return "An issue for this ticket is being opened, or GitHub's answer to the last try was lost. Try again in five minutes: nothing is opened twice.";
+      return "An issue for this conversation is being opened, or GitHub's answer to the last try was lost. Try again in five minutes: nothing is opened twice.";
     case "issue_not_linked":
-      return "The issue was opened on GitHub, but couldn't be linked to this ticket. Find it in the repo before creating another.";
+      return "The issue was opened on GitHub, but couldn't be linked to this conversation. Find it in the repo before creating another.";
     case "reconnect_required":
       return "The stored token can't be read any more. An owner needs to connect the repo again.";
     default:
@@ -66,15 +66,15 @@ function createProblem(error: unknown): string {
   }
 }
 
-/** The ticket's GitHub issue, or the way to create one. Nothing for callers without the scope. */
-export function GithubIssuePanel({ ticket }: { ticket: TicketDetail }) {
+/** The conversation's GitHub issue, or the way to create one. Nothing for callers without the scope. */
+export function GithubIssuePanel({ conversation }: { conversation: ConversationDetail }) {
   const { me } = useRouteContext({ from: "/signed-in" });
   const canWrite = me.scopes.includes("github:write");
-  const github = useQuery({ ...githubQuery, enabled: canWrite && !ticket.githubIssue });
+  const github = useQuery({ ...githubQuery, enabled: canWrite && !conversation.githubIssue });
   const [composing, setComposing] = useState(false);
   // Kept here, not in the form: cancelling and opening it again shows the same suggestion and
   // the edits made to it, without asking the AI (and spending its budget) again.
-  const draft = useDraftGithubIssue(ticket.id);
+  const draft = useDraftGithubIssue(conversation.id);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const open = () => {
@@ -90,12 +90,12 @@ export function GithubIssuePanel({ ticket }: { ticket: TicketDetail }) {
     }
   };
 
-  if (ticket.githubIssue) return <LinkedIssue issue={ticket.githubIssue} />;
+  if (conversation.githubIssue) return <LinkedIssue issue={conversation.githubIssue} />;
   if (!canWrite || !github.data?.connected || !github.data.repo) return null;
   if (composing) {
     return (
       <IssueComposer
-        ticketId={ticket.id}
+        conversationId={conversation.id}
         repo={github.data.repo}
         draft={draft}
         title={title}
@@ -116,7 +116,7 @@ export function GithubIssuePanel({ ticket }: { ticket: TicketDetail }) {
   );
 }
 
-function LinkedIssue({ issue }: { issue: NonNullable<TicketDetail["githubIssue"]> }) {
+function LinkedIssue({ issue }: { issue: NonNullable<ConversationDetail["githubIssue"]> }) {
   const open = issue.state === "open";
   return (
     <Card variant="muted" size="compact">
@@ -148,7 +148,7 @@ function LinkedIssue({ issue }: { issue: NonNullable<TicketDetail["githubIssue"]
 }
 
 function IssueComposer({
-  ticketId,
+  conversationId,
   repo,
   draft,
   title,
@@ -157,7 +157,7 @@ function IssueComposer({
   setBody,
   onDone,
 }: {
-  ticketId: string;
+  conversationId: string;
   repo: string;
   /** The AI's suggestion, asked for by the panel when the form first opened. */
   draft: ReturnType<typeof useDraftGithubIssue>;
@@ -167,7 +167,7 @@ function IssueComposer({
   setBody: (body: string) => void;
   onDone: () => void;
 }) {
-  const create = useCreateGithubIssue(ticketId);
+  const create = useCreateGithubIssue(conversationId);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

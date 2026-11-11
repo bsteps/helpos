@@ -2,6 +2,22 @@
 
 What your own Postgres and AI settings need before HelpOS will run. Local development needs none of this: `pnpm dev` starts a ready Postgres in Docker.
 
+## Upgrading across the conversation rename (#184)
+
+This change breaks existing API clients. Deploy the server and dashboard together, run migrations 0020 and 0021, and update callers to the new names:
+
+| Before                                          | After                                             |
+| ----------------------------------------------- | ------------------------------------------------- |
+| `/v1/tickets…`                                  | `/v1/conversations…`                              |
+| `tickets:read`, `tickets:write`                 | `conversations:read`, `conversations:write`       |
+| `ticketId`, `ticket`, `tickets` in API payloads | `conversationId`, `conversation`, `conversations` |
+| `ticket_closed` error code                      | `conversation_closed`                             |
+| `/tickets/<id>` dashboard links                 | `/conversations/<id>`                             |
+
+There are no aliases or redirects. For saved links and links in previously sent notice emails or GitHub issues, replace `/tickets/` with `/conversations/`, keeping the same ID.
+
+Migration 0020 renames the tables, columns, constraints and indexes. Migration 0021 renames scopes on stored tokens, so existing token secrets remain valid. Update scope names in scripts that create tokens. It also renames audit action `ticket.closed` to `conversation.closed` and target type `ticket` to `conversation`; free-form audit metadata stays unchanged.
+
 ## Postgres
 
 You need **Postgres 17** with the **pgvector extension, version 0.8 or newer**. The knowledge base stores passages as `vector(1024)` columns with an HNSW index, and 0.8 is the first version with iterative index scans, which filtered searches rely on.
@@ -88,7 +104,7 @@ AI_EMBEDDING_MODEL=mxbai-embed-large
 
 If HelpOS runs in Docker and Ollama on the host, use `http://host.docker.internal:11434/v1` instead of `localhost`. `bge-m3` also works.
 
-## GitHub (ticket → issue → "it's fixed")
+## GitHub (conversation → issue → "it's fixed")
 
 A workspace owner connects one repo under **Settings → GitHub**, with a fine-grained personal access token (`github_pat_…`) that has **Issues: read and write** on that repo. Classic `ghp_` tokens are refused: they reach every repo their owner can. The server stores the token encrypted, so it needs a key:
 
@@ -99,7 +115,7 @@ A workspace owner connects one repo under **Settings → GitHub**, with a fine-g
 
 Keep the key safe and don't change it casually: tokens stored under the old key can't be read, and each workspace has to connect its repo again.
 
-After connecting, the dashboard shows a webhook **Payload URL** and **secret** once. Connecting the same repo again (say, with a new token) keeps the secret, so the webhook keeps working; **New webhook secret** in Settings replaces it (e.g. after a leak), without the token. If the stored secret can't be read any more (the encryption key changed), connecting again gives a new one. In the repo's Settings → Webhooks, add a webhook with those values, content type `application/json` (the form type works too), and only the **Issues** event. The webhook URL needs no login, so if your proxy can rate-limit a path, give `/v1/integrations/github/webhook` a limit (GitHub sends a few deliveries a minute at most). With more than one server process, a rotated or disconnected secret can still be accepted by the others for up to 15 seconds. The token must be able to read its own account and the repo, and to open issues (**Issues: read and write**). When an issue made from a ticket is closed as completed, the ticket gets a "fixed" draft to approve; like every reply, it goes to the shadow recipient while shadow mode is on.
+After connecting, the dashboard shows a webhook **Payload URL** and **secret** once. Connecting the same repo again (say, with a new token) keeps the secret, so the webhook keeps working; **New webhook secret** in Settings replaces it (e.g. after a leak), without the token. If the stored secret can't be read any more (the encryption key changed), connecting again gives a new one. In the repo's Settings → Webhooks, add a webhook with those values, content type `application/json` (the form type works too), and only the **Issues** event. The webhook URL needs no login, so if your proxy can rate-limit a path, give `/v1/integrations/github/webhook` a limit (GitHub sends a few deliveries a minute at most). With more than one server process, a rotated or disconnected secret can still be accepted by the others for up to 15 seconds. The token must be able to read its own account and the repo, and to open issues (**Issues: read and write**). When an issue made from a conversation is closed as completed, the conversation gets a "fixed" draft to approve; like every reply, it goes to the shadow recipient while shadow mode is on.
 
 ## Demo instance
 

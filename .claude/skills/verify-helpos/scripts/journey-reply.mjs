@@ -1,4 +1,4 @@
-// The main loop, end to end: a customer email arrives → ticket → AI draft → approval → the reply
+// The main loop, end to end: a customer email arrives → conversation → AI draft → approval → the reply
 // is sent and caught by Mailpit. The approval goes through the dashboard (--via web, signed in
 // as the owner) or the agent API (--via api, the approver-bot token). Evidence goes to
 // .helpos/verify/<timestamp>-reply-<via>/.
@@ -100,20 +100,20 @@ const delivered = await jsonOf(inbound, "POST /v1/inbound/email");
 if (inbound.status !== 201) fail(`inbound email → ${inbound.status} ${JSON.stringify(delivered)}`);
 record("customer email delivered to POST /v1/inbound/email", { status: 201, ...delivered });
 
-const ticket = await api(`/v1/tickets/${delivered.ticketId}`);
-if (ticket.status !== 200 || ticket.body.subject !== subject)
-  fail(`ticket not readable: ${ticket.status}`);
-record("ticket exists with the email's subject", {
-  subject: ticket.body.subject,
-  status: ticket.body.status,
+const conversation = await api(`/v1/conversations/${delivered.conversationId}`);
+if (conversation.status !== 200 || conversation.body.subject !== subject)
+  fail(`conversation not readable: ${conversation.status}`);
+record("conversation exists with the email's subject", {
+  subject: conversation.body.subject,
+  status: conversation.body.status,
 });
 
 const draft = await until("the AI draft", 120, async () => {
-  const { body } = await api(`/v1/tickets/${delivered.ticketId}/drafts`);
+  const { body } = await api(`/v1/conversations/${delivered.conversationId}/drafts`);
   const found = body.drafts?.find((d) => d.status === "pending" && d.kind === "reply");
   if (found) return found;
   // Say at once when no draft can come (the AI budget is spent), instead of timing out.
-  const why = await whyNoDraft(inst, delivered.ticketId, reader);
+  const why = await whyNoDraft(inst, delivered.conversationId, reader);
   if (why) fail(`no AI draft will come: ${why}`);
   return undefined;
 });
@@ -154,9 +154,9 @@ if (via === "api") {
     await page.getByRole("heading", { name: subject }).waitFor();
     await page.getByText("Waiting for approval").waitFor();
     const shown = await page.getByTestId("draft-body").textContent();
-    await page.screenshot({ path: join(dir, "2-ticket-draft.png"), fullPage: true });
+    await page.screenshot({ path: join(dir, "2-conversation-draft.png"), fullPage: true });
     if (flat(shown ?? "") !== flat(draft.body)) fail("dashboard draft differs from the API draft");
-    record("ticket page shows the AI draft, waiting for approval", { url: page.url() });
+    record("conversation page shows the AI draft, waiting for approval", { url: page.url() });
 
     await page.getByRole("button", { name: "Approve & send" }).click();
     await page.getByText("Sent", { exact: true }).waitFor({ timeout: 60_000 });
@@ -173,7 +173,7 @@ if (via === "api") {
 }
 
 const sent = await until("the draft to be sent", 60, async () => {
-  const { body } = await api(`/v1/tickets/${delivered.ticketId}/drafts`);
+  const { body } = await api(`/v1/conversations/${delivered.conversationId}/drafts`);
   return body.drafts?.find((d) => d.id === draft.id && d.status === "sent");
 });
 record("draft is sent", { status: sent.status, sentAt: sent.sentAt });

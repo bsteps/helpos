@@ -36,8 +36,8 @@ const sampleBodies: Record<string, unknown> = {
   "POST /v1/inbound/email": `From: x@elsewhere.test\r\nTo: support@${bTag}.test\r\nSubject: hi\r\nMessage-ID: <leak-probe@elsewhere.test>\r\n\r\nhello`,
   "POST /v1/auth/sign-in": { email: `owner@${bTag}.test`, password: "a wrong password" },
   "POST /v1/auth/password": { token: "not-a-real-token", password: "a long enough password" },
-  "POST /v1/tokens": { name: "leak-probe", scopes: ["tickets:read"] },
-  "POST /v1/tickets/{id}/drafts": { body: "A reply." },
+  "POST /v1/tokens": { name: "leak-probe", scopes: ["conversations:read"] },
+  "POST /v1/conversations/{id}/drafts": { body: "A reply." },
   "PATCH /v1/drafts/{id}": { body: "An edited reply." },
   "POST /v1/drafts/{id}/approve": { body: "A reply." },
   "POST /v1/knowledge/sources": { kind: "markdown", title: "Probe", content: "A probe note." },
@@ -47,7 +47,7 @@ const sampleBodies: Record<string, unknown> = {
     repo: "leak-a-corp/app",
     token: `github_pat_${"A".repeat(30)}`,
   },
-  "POST /v1/tickets/{id}/github-issue": { title: "A title", body: "A body." },
+  "POST /v1/conversations/{id}/github-issue": { title: "A title", body: "A body." },
   "POST /v1/integrations/github/webhook": { action: "closed" },
 };
 
@@ -217,10 +217,10 @@ function expectedReplies(caller: Caller): Record<string, ExpectedReply> {
     "GET /v1/me": { status: 200, body: { workspace: { id: a.tenantId } } },
     "POST /v1/tokens": human({
       status: 201,
-      body: { name: "leak-probe", scopes: ["tickets:read"] },
+      body: { name: "leak-probe", scopes: ["conversations:read"] },
     }),
     "GET /v1/tokens": human({ status: 200, contains: a.ids.token }),
-    "GET /v1/tickets": { status: 200, contains: a.ids.ticket },
+    "GET /v1/conversations": { status: 200, contains: a.ids.conversation },
     "GET /v1/ai-usage": {
       status: 200,
       body: {
@@ -304,7 +304,7 @@ describe("leak: every API operation, called as tenant A", () => {
     ops.map((op) => ({
       ...op,
       name:
-        op.method === "GET" && op.path === "/v1/tickets/{id}"
+        op.method === "GET" && op.path === "/v1/conversations/{id}"
           ? "leak: fetching B's ticket ID as A returns 404"
           : `${op.method} ${op.path} shows nothing of B and changes nothing of B`,
     })),

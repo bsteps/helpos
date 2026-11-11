@@ -166,15 +166,15 @@ export function instance() {
 }
 
 /**
- * The last ticket, token and knowledge source the scripts created, so a person testing by hand
- * writes `{ticket}` instead of copying IDs between commands.
+ * The last conversation, token and knowledge source the scripts created, so a person testing by hand
+ * writes `{conversation}` instead of copying IDs between commands.
  */
 export const lastFile = join(stateRoot, "last.json");
 const seededMarker = join(repoRoot, ".helpos", "seeded");
 export function lastCreated() {
   if (!existsSync(lastFile)) return {};
   // Saved before the database was last seeded (a reset drops it and seeds again): those IDs
-  // are gone, so a stale {ticket} must not turn every call into a 404.
+  // are gone, so a stale {conversation} must not turn every call into a 404.
   if (existsSync(seededMarker) && statSync(lastFile).mtimeMs < statSync(seededMarker).mtimeMs) {
     return {};
   }
@@ -217,16 +217,16 @@ export function quit(code, message) {
 }
 
 /**
- * Why a ticket will never get an AI draft, or undefined while one may still come. Lets the
+ * Why a conversation will never get an AI draft, or undefined while one may still come. Lets the
  * scripts that wait for a draft stop at once with the reason instead of timing out.
  */
-export async function whyNoDraft(inst, ticketId, token) {
+export async function whyNoDraft(inst, conversationId, token) {
   const headers = { authorization: `Bearer ${token}` };
-  const ticket = await getJson(inst, `/v1/tickets/${ticketId}`, headers);
-  if (ticket.automated)
-    return "the ticket is an automated email (bounce, auto-reply): the AI never drafts for those";
+  const conversation = await getJson(inst, `/v1/conversations/${conversationId}`, headers);
+  if (conversation.automated)
+    return "the conversation is an automated email (bounce, auto-reply): the AI never drafts for those";
   const usage = await getJson(inst, "/v1/ai-usage", headers);
-  if (ticket.aiPausedReason === "daily_budget" || usage.paused) {
+  if (conversation.aiPausedReason === "daily_budget" || usage.paused) {
     return `today's AI budget is spent (${usage.totalTokens} of ${usage.dailyTokenBudget} tokens), so no draft will be written until midnight UTC`;
   }
   return undefined;

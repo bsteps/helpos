@@ -35,7 +35,7 @@
               "duplicate"
             ]
           },
-          "ticketId": {
+          "conversationId": {
             "type": "string",
             "format": "uuid"
           },
@@ -46,7 +46,7 @@
         },
         "required": [
           "status",
-          "ticketId",
+          "conversationId",
           "messageId"
         ]
       },
@@ -104,8 +104,8 @@
             "items": {
               "type": "string",
               "enum": [
-                "tickets:read",
-                "tickets:write",
+                "conversations:read",
+                "conversations:write",
                 "drafts:write",
                 "drafts:approve",
                 "knowledge:read",
@@ -144,8 +144,8 @@
       "TokenScope": {
         "type": "string",
         "enum": [
-          "tickets:read",
-          "tickets:write",
+          "conversations:read",
+          "conversations:write",
           "drafts:write",
           "drafts:approve",
           "knowledge:read",
@@ -190,7 +190,7 @@
           "revokedAt"
         ]
       },
-      "Ticket": {
+      "Conversation": {
         "type": "object",
         "properties": {
           "id": {
@@ -263,10 +263,10 @@
           "replyNotSent"
         ]
       },
-      "TicketDetail": {
+      "ConversationDetail": {
         "allOf": [
           {
-            "$ref": "#/components/schemas/Ticket"
+            "$ref": "#/components/schemas/Conversation"
           },
           {
             "type": "object",
@@ -388,7 +388,7 @@
             "type": "string",
             "format": "uuid"
           },
-          "ticketId": {
+          "conversationId": {
             "type": "string",
             "format": "uuid"
           },
@@ -453,7 +453,7 @@
         },
         "required": [
           "id",
-          "ticketId",
+          "conversationId",
           "messageId",
           "kind",
           "status",
@@ -902,7 +902,7 @@
     "/v1/inbound/email": {
       "post": {
         "summary": "Receive an inbound email",
-        "description": "Called by an email provider or relay with the raw MIME message as the body. The recipient address picks the workspace. Replies are threaded onto their ticket using In-Reply-To and References. The content is stored as data and never acted on.",
+        "description": "Called by an email provider or relay with the raw MIME message as the body. The recipient address picks the workspace. Replies are threaded onto their conversation using In-Reply-To and References. The content is stored as data and never acted on.",
         "security": [
           {
             "inboundSecret": []
@@ -937,7 +937,7 @@
             }
           },
           "201": {
-            "description": "Stored as a new ticket or a reply",
+            "description": "Stored as a new conversation or a reply",
             "content": {
               "application/json": {
                 "schema": {
@@ -1416,10 +1416,10 @@
         }
       }
     },
-    "/v1/tickets": {
+    "/v1/conversations": {
       "get": {
-        "summary": "List tickets",
-        "description": "The workspace's tickets, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they aren't missed, listed first. Needs `tickets:read`.",
+        "summary": "List conversations",
+        "description": "The workspace's conversations, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed conversations whose reply couldn't be sent, so they aren't missed, listed first. Needs `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -1427,7 +1427,7 @@
         ],
         "x-access": {
           "allScopes": [
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "parameters": [
@@ -1469,21 +1469,21 @@
         ],
         "responses": {
           "200": {
-            "description": "The tickets",
+            "description": "The conversations",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "tickets": {
+                    "conversations": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/Ticket"
+                        "$ref": "#/components/schemas/Conversation"
                       }
                     }
                   },
                   "required": [
-                    "tickets"
+                    "conversations"
                   ]
                 }
               }
@@ -1512,10 +1512,10 @@
         }
       }
     },
-    "/v1/tickets/{id}": {
+    "/v1/conversations/{id}": {
       "get": {
-        "summary": "Read a ticket and its messages",
-        "description": "One ticket with its emails, oldest first. Needs `tickets:read`.",
+        "summary": "Read a conversation and its messages",
+        "description": "One conversation with its emails, oldest first. Needs `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -1523,7 +1523,7 @@
         ],
         "x-access": {
           "allScopes": [
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "parameters": [
@@ -1539,11 +1539,11 @@
         ],
         "responses": {
           "200": {
-            "description": "The ticket",
+            "description": "The conversation",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TicketDetail"
+                  "$ref": "#/components/schemas/ConversationDetail"
                 }
               }
             }
@@ -1581,10 +1581,10 @@
         }
       }
     },
-    "/v1/tickets/{id}/close": {
+    "/v1/conversations/{id}/close": {
       "post": {
-        "summary": "Close a ticket",
-        "description": "Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.",
+        "summary": "Close a conversation",
+        "description": "Marks the conversation `closed` and audit-logs it. Closing a closed conversation changes nothing. Pending drafts are left as they are. Needs `conversations:write` and `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -1592,13 +1592,13 @@
         ],
         "x-access": {
           "allScopes": [
-            "tickets:write",
-            "tickets:read"
+            "conversations:write",
+            "conversations:read"
           ]
         },
         "x-audit": {
           "records": [
-            "ticket.closed"
+            "conversation.closed"
           ]
         },
         "parameters": [
@@ -1614,11 +1614,11 @@
         ],
         "responses": {
           "200": {
-            "description": "The closed ticket",
+            "description": "The closed conversation",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Ticket"
+                  "$ref": "#/components/schemas/Conversation"
                 }
               }
             }
@@ -1656,10 +1656,10 @@
         }
       }
     },
-    "/v1/tickets/{id}/drafts": {
+    "/v1/conversations/{id}/drafts": {
       "get": {
-        "summary": "List a ticket's drafts",
-        "description": "Every AI draft on the ticket, oldest first. Needs `tickets:read`.",
+        "summary": "List a conversation's drafts",
+        "description": "Every AI draft on the conversation, oldest first. Needs `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -1667,7 +1667,7 @@
         ],
         "x-access": {
           "allScopes": [
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "parameters": [
@@ -1737,7 +1737,7 @@
       },
       "post": {
         "summary": "Write a draft, or ask the AI for a new one",
-        "description": "Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `tickets:read`.",
+        "description": "Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -1746,7 +1746,7 @@
         "x-access": {
           "allScopes": [
             "drafts:write",
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "x-audit": {
@@ -1869,7 +1869,7 @@
             }
           },
           "409": {
-            "description": "No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed ticket (`ticket_closed`)",
+            "description": "No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed conversation (`conversation_closed`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2260,7 +2260,7 @@
     "/v1/ai-usage": {
       "get": {
         "summary": "Today's AI usage for this workspace",
-        "description": "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new tickets are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.",
+        "description": "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -2268,7 +2268,7 @@
         ],
         "x-access": {
           "allScopes": [
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "responses": {
@@ -2868,7 +2868,7 @@
     "/v1/workspace/shadow-mode": {
       "get": {
         "summary": "Read the workspace's shadow mode",
-        "description": "Whether replies go to the shadow recipient instead of customers. Needs `tickets:read`.",
+        "description": "Whether replies go to the shadow recipient instead of customers. Needs `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -2876,7 +2876,7 @@
         ],
         "x-access": {
           "allScopes": [
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "responses": {
@@ -3156,7 +3156,7 @@
       },
       "delete": {
         "summary": "Disconnect the GitHub repo",
-        "description": "Deletes the stored token and webhook secret. Tickets keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.",
+        "description": "Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.",
         "security": [
           {
             "apiAuth": []
@@ -3274,10 +3274,10 @@
         }
       }
     },
-    "/v1/tickets/{id}/github-issue/draft": {
+    "/v1/conversations/{id}/github-issue/draft": {
       "post": {
-        "summary": "Ask the AI to draft a GitHub issue from a ticket",
-        "description": "Suggests a title and body (steps to reproduce, expected, actual) from the ticket's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `tickets:read` and `github:write`.",
+        "summary": "Ask the AI to draft a GitHub issue from a conversation",
+        "description": "Suggests a title and body (steps to reproduce, expected, actual) from the conversation's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.",
         "security": [
           {
             "apiAuth": []
@@ -3286,7 +3286,7 @@
         "x-access": {
           "allScopes": [
             "github:write",
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "x-audit": {
@@ -3379,10 +3379,10 @@
         }
       }
     },
-    "/v1/tickets/{id}/github-issue": {
+    "/v1/conversations/{id}/github-issue": {
       "post": {
-        "summary": "Create a GitHub issue from a ticket",
-        "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `tickets:read` and `github:write`.",
+        "summary": "Create a GitHub issue from a conversation",
+        "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the conversation. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the conversation gets a `fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.",
         "security": [
           {
             "apiAuth": []
@@ -3391,7 +3391,7 @@
         "x-access": {
           "allScopes": [
             "github:write",
-            "tickets:read"
+            "conversations:read"
           ]
         },
         "x-audit": {
@@ -3440,7 +3440,7 @@
         },
         "responses": {
           "201": {
-            "description": "The issue, now linked to the ticket",
+            "description": "The issue, now linked to the conversation",
             "content": {
               "application/json": {
                 "schema": {
@@ -3480,7 +3480,7 @@
             }
           },
           "409": {
-            "description": "No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`)",
+            "description": "No repo is connected (`not_connected`), the conversation already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3490,7 +3490,7 @@
             }
           },
           "500": {
-            "description": "The issue was opened on GitHub, at `url`, but couldn't be linked to the ticket (`issue_not_linked`). Don't create it again: close that one or link it by hand",
+            "description": "The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation (`issue_not_linked`). Don't create it again: close that one or link it by hand",
             "content": {
               "application/json": {
                 "schema": {
@@ -3512,7 +3512,7 @@
             }
           },
           "502": {
-            "description": "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after five minutes first looks for that issue again",
+            "description": "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the conversation stays claimed, and a try after five minutes first looks for that issue again",
             "content": {
               "application/json": {
                 "schema": {
@@ -3537,7 +3537,7 @@
     "/v1/integrations/github/webhook": {
       "post": {
         "summary": "Receive a GitHub webhook",
-        "description": "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Tickets are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to tickets is closed as completed, each ticket gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.",
+        "description": "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Conversations are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to conversations is closed as completed, each conversation gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.",
         "security": [
           {
             "githubSignature": []
@@ -3585,7 +3585,7 @@
         },
         "responses": {
           "200": {
-            "description": "Handled. `tickets` is how many linked tickets changed",
+            "description": "Handled. `conversations` is how many linked conversations changed",
             "content": {
               "application/json": {
                 "schema": {
@@ -3598,13 +3598,13 @@
                         "ignored"
                       ]
                     },
-                    "tickets": {
+                    "conversations": {
                       "type": "integer"
                     }
                   },
                   "required": [
                     "status",
-                    "tickets"
+                    "conversations"
                   ]
                 }
               }

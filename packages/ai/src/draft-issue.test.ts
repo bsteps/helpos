@@ -187,7 +187,7 @@ describe("formatIssue", () => {
     expect(body).toContain("### Actual\nAn error page, see [link removed]");
   });
 
-  it("says when the ticket doesn't give steps", () => {
+  it("says when the conversation doesn't give steps", () => {
     const { body } = formatIssue({
       title: "t",
       summary: "s",
@@ -195,8 +195,8 @@ describe("formatIssue", () => {
       expected: "",
       actual: "",
     });
-    expect(body).toContain("1. Not stated in the ticket");
-    expect(body).toContain("### Expected\nNot stated in the ticket");
+    expect(body).toContain("1. Not stated in the conversation");
+    expect(body).toContain("### Expected\nNot stated in the conversation");
   });
 });
 
@@ -276,7 +276,7 @@ describe("draftGithubIssue", () => {
     expect(draft.usage).toEqual({ inputTokens: 120, outputTokens: 40 });
   });
 
-  it("quotes the ticket as data and keeps the rules out of the prompt", async () => {
+  it("quotes the conversation as data and keeps the rules out of the prompt", async () => {
     const model = mockModel({
       text: JSON.stringify({
         title: "t",

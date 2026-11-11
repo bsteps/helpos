@@ -99,9 +99,9 @@ const hit = (sourceId: string, i: number): KnowledgeHit => ({
   distance: i / 100,
 });
 
-const draftsOf = (ticketId: string) =>
+const draftsOf = (conversationId: string) =>
   db.withTenant(acme, (tx) =>
-    tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, ticketId)),
+    tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, conversationId)),
   );
 
 beforeAll(async () => {
@@ -151,7 +151,7 @@ describe("drafting when knowledge search fails", () => {
     logger.warn.mockClear();
     await draftWith(provider(), email.messageId);
 
-    const [draft] = await draftsOf(email.ticketId);
+    const [draft] = await draftsOf(email.conversationId);
     if (!draft) throw new Error("no draft was written");
     expect(draft).toMatchObject({ body: "A teammate will follow up.", status: "pending" });
     const citations = await db.withTenant(acme, (tx) =>
@@ -178,7 +178,7 @@ describe("drafting with knowledge: spend and limits", () => {
     expect(after.totalTokens - before.totalTokens).toBe(42);
     expect(after.calls - before.calls).toBe(1);
     expect(after.reservedTokens).toBe(before.reservedTokens);
-    expect(await draftsOf(email.ticketId)).toEqual([]);
+    expect(await draftsOf(email.conversationId)).toEqual([]);
   });
 
   it("counts the most a failed call could cost when its cost can't be told", async () => {
@@ -205,7 +205,7 @@ describe("drafting with knowledge: spend and limits", () => {
       },
     };
     await draftWith(search, email.messageId);
-    expect(await draftsOf(email.ticketId)).toHaveLength(1);
+    expect(await draftsOf(email.conversationId)).toHaveLength(1);
     expect((await usedToday()) - before).toBe(17);
   });
 
@@ -238,7 +238,7 @@ describe("drafting with knowledge: spend and limits", () => {
     expect(reserved).toMatchObject({ tenantId: acme, tokens: 0 });
     release();
     await run;
-    expect(await draftsOf(email.ticketId)).toHaveLength(1);
+    expect(await draftsOf(email.conversationId)).toHaveLength(1);
   });
 
   it("doesn't pay the model when another job drafted the message meanwhile", async () => {
@@ -250,7 +250,7 @@ describe("drafting with knowledge: spend and limits", () => {
         await transaction((tx) =>
           tx.insert(schema.drafts).values({
             tenantId: acme,
-            ticketId: email.ticketId,
+            conversationId: email.conversationId,
             messageId: email.messageId,
             body: "Drafted by the other job.",
           }),
@@ -261,7 +261,7 @@ describe("drafting with knowledge: spend and limits", () => {
     const model = mockModel({ text: "A second draft." });
     await draftWith(raced, email.messageId, model);
     expect(model.doGenerateCalls).toEqual([]);
-    expect((await draftsOf(email.ticketId)).map((d) => d.body)).toEqual([
+    expect((await draftsOf(email.conversationId)).map((d) => d.body)).toEqual([
       "Drafted by the other job.",
     ]);
     // The search was paid for, so it counts.
@@ -273,7 +273,7 @@ describe("drafting with knowledge: spend and limits", () => {
     const hits = Array.from({ length: maxKnowledgeArticles + 3 }, (_, i) => hit(sourceId, i));
     const email = await receive(++received);
     await draftWith({ search: async () => ({ hits, tokens: 0 }) }, email.messageId);
-    const [draft] = await draftsOf(email.ticketId);
+    const [draft] = await draftsOf(email.conversationId);
     if (!draft) throw new Error("no draft was written");
     const citations = await db.withTenant(acme, (tx) =>
       tx.select().from(schema.draftCitations).where(eq(schema.draftCitations.draftId, draft.id)),

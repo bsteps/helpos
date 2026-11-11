@@ -3,10 +3,10 @@ import { type AuditActor, auditorFor, recordAudit } from "../audit/audit.ts";
 import { discardStale } from "../drafts/lifecycle.ts";
 import { addFixedDraft } from "./fixed-notice.ts";
 
-const { ticketGithubIssues } = schema;
+const { conversationGithubIssues } = schema;
 
 /**
- * What happens to linked tickets when GitHub says an issue closed or reopened. One place, used
+ * What happens to linked conversations when GitHub says an issue closed or reopened. One place, used
  * by the webhook and by issue creation (an issue can close before its link is written), so both
  * paths follow the same rules.
  */
@@ -35,13 +35,13 @@ export interface IssueChange {
 function linksTo(change: IssueChange, state: "open" | "closed") {
   const after = change.current ? lte : lt;
   return and(
-    eq(ticketGithubIssues.repo, change.repo),
-    eq(ticketGithubIssues.issueNumber, change.number),
-    eq(ticketGithubIssues.state, state),
+    eq(conversationGithubIssues.repo, change.repo),
+    eq(conversationGithubIssues.issueNumber, change.number),
+    eq(conversationGithubIssues.state, state),
     change.changedAt
       ? or(
-          isNull(ticketGithubIssues.stateChangedAt),
-          after(ticketGithubIssues.stateChangedAt, change.changedAt),
+          isNull(conversationGithubIssues.stateChangedAt),
+          after(conversationGithubIssues.stateChangedAt, change.changedAt),
         )
       : undefined,
   );
@@ -59,14 +59,14 @@ export async function tiedLinks(
 ): Promise<string[]> {
   if (!change.changedAt) return [];
   const rows = await tx
-    .select({ id: ticketGithubIssues.id })
-    .from(ticketGithubIssues)
+    .select({ id: conversationGithubIssues.id })
+    .from(conversationGithubIssues)
     .where(
       and(
-        eq(ticketGithubIssues.repo, change.repo),
-        eq(ticketGithubIssues.issueNumber, change.number),
-        eq(ticketGithubIssues.state, state),
-        eq(ticketGithubIssues.stateChangedAt, change.changedAt),
+        eq(conversationGithubIssues.repo, change.repo),
+        eq(conversationGithubIssues.issueNumber, change.number),
+        eq(conversationGithubIssues.state, state),
+        eq(conversationGithubIssues.stateChangedAt, change.changedAt),
       ),
     );
   return rows.map((r) => r.id);
@@ -78,32 +78,32 @@ const changedAt = (change: IssueChange) =>
 
 /**
  * Marks the issue's open links closed. Closed as completed (or with no reason, as old
- * deliveries have), each ticket gets a "fixed" draft; "not planned" or "duplicate" isn't a fix,
+ * deliveries have), each conversation gets a "fixed" draft; "not planned" or "duplicate" isn't a fix,
  * so the customer is told nothing. Conditional on `open`, so a repeat or replay changes nothing.
- * Returns how many tickets changed.
+ * Returns how many conversations changed.
  */
 export async function markIssueClosed(
   tx: TenantTx,
   change: IssueChange & { stateReason: string | null | undefined },
 ): Promise<number> {
   const closed = await tx
-    .update(ticketGithubIssues)
+    .update(conversationGithubIssues)
     .set({ state: "closed", closedAt: sql`now()`, ...changedAt(change) })
     .where(linksTo(change, "open"))
-    .returning({ ticketId: ticketGithubIssues.ticketId });
+    .returning({ conversationId: conversationGithubIssues.conversationId });
   const fixed = (change.stateReason ?? "completed") === "completed";
-  for (const { ticketId } of closed) {
+  for (const { conversationId } of closed) {
     await recordAudit(tx, {
       tenantId: change.tenantId,
       actor: change.actor,
       action: "github_issue.closed",
-      target: { type: "ticket", id: ticketId },
+      target: { type: "conversation", id: conversationId },
       requestId: change.requestId,
     });
     if (fixed) {
       await addFixedDraft(tx, {
         tenantId: change.tenantId,
-        ticketId,
+        conversationId,
         actor: change.actor,
         requestId: change.requestId,
         noticeDelaySeconds: change.noticeDelaySeconds,
@@ -117,44 +117,44 @@ export async function markIssueClosed(
  * Marks the issue's closed links open again. A "fixed" notice still waiting for approval is
  * withdrawn (discarded): the fix didn't hold, and nobody should approve "it's fixed" while the
  * issue is open. One already approved or sent can't be called back. If the issue closes again,
- * a fresh notice is drafted then. Returns how many tickets changed.
+ * a fresh notice is drafted then. Returns how many conversations changed.
  */
 export async function markIssueReopened(tx: TenantTx, change: IssueChange): Promise<number> {
   const reopened = await tx
-    .update(ticketGithubIssues)
+    .update(conversationGithubIssues)
     .set({ state: "open", closedAt: null, ...changedAt(change) })
     .where(linksTo(change, "closed"))
-    .returning({ ticketId: ticketGithubIssues.ticketId });
+    .returning({ conversationId: conversationGithubIssues.conversationId });
   // A reopen with no closed link to change (its close not delivered yet) still records its
   // time on the open links, so that close, arriving late, is seen as older and ignored.
   if (change.changedAt) {
     await tx
-      .update(ticketGithubIssues)
+      .update(conversationGithubIssues)
       .set({ stateChangedAt: change.changedAt })
       .where(
         and(
-          eq(ticketGithubIssues.repo, change.repo),
-          eq(ticketGithubIssues.issueNumber, change.number),
-          eq(ticketGithubIssues.state, "open"),
+          eq(conversationGithubIssues.repo, change.repo),
+          eq(conversationGithubIssues.issueNumber, change.number),
+          eq(conversationGithubIssues.state, "open"),
           or(
-            isNull(ticketGithubIssues.stateChangedAt),
-            lt(ticketGithubIssues.stateChangedAt, change.changedAt),
+            isNull(conversationGithubIssues.stateChangedAt),
+            lt(conversationGithubIssues.stateChangedAt, change.changedAt),
           ),
         ),
       );
   }
   if (reopened.length === 0) return 0;
-  for (const { ticketId } of reopened) {
+  for (const { conversationId } of reopened) {
     await recordAudit(tx, {
       tenantId: change.tenantId,
       actor: change.actor,
       action: "github_issue.reopened",
-      target: { type: "ticket", id: ticketId },
+      target: { type: "conversation", id: conversationId },
       requestId: change.requestId,
     });
   }
   await discardStale(tx, auditorFor(change.tenantId, change.actor, change.requestId), {
-    ticketIds: reopened.map((r) => r.ticketId),
+    conversationIds: reopened.map((r) => r.conversationId),
     kind: "fixed",
   });
   return reopened.length;

@@ -56,14 +56,14 @@ docker compose exec server node src/cli/init.ts \
 
 - `--mailbox` is an address on **your demo domain**, not the owner's own address. Replies and notices are sent from it, and only your domain can pass SPF/DKIM. Mail sent "from" `support@acme.com` through your SMTP would be rejected or end up in spam.
 - `--owner` is the person trying it. They become the shadow recipient, so the drafts they approve come back to them, never to their customer.
-- `--owner` must be the owner's **personal** address, never the inbox they forward. Shadowed replies and notices go to the owner. If that inbox forwards them back, each one becomes a new ticket, and can loop.
+- `--owner` must be the owner's **personal** address, never the inbox they forward. Shadowed replies and notices go to the owner. If that inbox forwards them back, each one becomes a new conversation, and can loop.
 - It prints a one-time link (valid 24 hours) where the owner sets their password. Send it only to them.
 
-Then the owner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the Worker's `Delivered-To` header is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a ticket in their inbox, with the confirmation link in it.
+Then the owner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the Worker's `Delivered-To` header is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a conversation in their inbox, with the confirmation link in it.
 
 Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft appears in the inbox, and the owner can approve it.
 
-To show bugs turning into GitHub issues, set `HELPOS_ENCRYPTION_KEY` in `.env` (see [self-hosting](../self-hosting.md#github-ticket--issue--its-fixed)), then the owner connects their repo under **Settings → GitHub** and adds the webhook it shows. The "it's fixed" emails are shadowed like every other reply. Keep the key next to your backups: a restored database can't read the stored token without it.
+To show bugs turning into GitHub issues, set `HELPOS_ENCRYPTION_KEY` in `.env` (see [self-hosting](../self-hosting.md#github-conversation--issue--its-fixed)), then the owner connects their repo under **Settings → GitHub** and adds the webhook it shows. The "it's fixed" emails are shadowed like every other reply. Keep the key next to your backups: a restored database can't read the stored token without it.
 
 ## Data and privacy
 
@@ -95,11 +95,11 @@ sudo cat backups/helpos-$t.files.tar.gz | docker compose run --rm -T --no-deps -
 docker compose up -d
 ```
 
-CI runs these commands on every PR (`scripts/smoke-demo.sh`) and checks that the ticket and its stored email came back.
+CI runs these commands on every PR (`scripts/smoke-demo.sh`) and checks that the conversation and its stored email came back.
 
 ## Wipe it
 
-Everything: all workspaces, tickets, users and uploaded files. This cannot be undone.
+Everything: all workspaces, conversations, users and uploaded files. This cannot be undone.
 
 ```bash
 cd deploy/demo

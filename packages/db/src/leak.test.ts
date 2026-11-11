@@ -8,6 +8,7 @@ import { isUniqueViolation, sqlState } from "./errors.ts";
 import { searchKnowledge } from "./knowledge.ts";
 import {
   apiTokens,
+  conversations,
   customers,
   draftCitations,
   drafts,
@@ -17,7 +18,6 @@ import {
   memberships,
   messages,
   tenants,
-  tickets,
 } from "./schema.ts";
 import {
   type LeakTenant,
@@ -43,13 +43,13 @@ const tenantB = uuidv7();
 
 const dataModelDoc = new URL("../../../docs/architecture/data-model.md", import.meta.url);
 
-/** A minimal ticket in tenant A, so A-side tests have something valid to point at. */
-async function seedTicketInA(tx: TenantTx, address: string) {
-  const ids = { mailbox: uuidv7(), customer: uuidv7(), ticket: uuidv7() };
+/** A minimal conversation in tenant A, so A-side tests have something valid to point at. */
+async function seedConversationInA(tx: TenantTx, address: string) {
+  const ids = { mailbox: uuidv7(), customer: uuidv7(), conversation: uuidv7() };
   await tx.insert(mailboxes).values({ id: ids.mailbox, tenantId: tenantA, address });
   await tx.insert(customers).values({ id: ids.customer, tenantId: tenantA, email: address });
-  await tx.insert(tickets).values({
-    id: ids.ticket,
+  await tx.insert(conversations).values({
+    id: ids.conversation,
     tenantId: tenantA,
     customerId: ids.customer,
     mailboxId: ids.mailbox,
@@ -184,13 +184,13 @@ describe("leak: acting as tenant A", () => {
     ).rejects.toThrow();
   });
 
-  it("cannot point a message at B's ticket, even with its ID", async () => {
+  it("cannot point a message at B's conversation, even with its ID", async () => {
     await expect(
       db.withTenant(tenantA, async (tx) => {
-        await seedTicketInA(tx, "fk@a.test");
+        await seedConversationInA(tx, "fk@a.test");
         await tx.insert(messages).values({
           tenantId: tenantA,
-          ticketId: b.ids.ticket,
+          conversationId: b.ids.conversation,
           direction: "inbound",
           fromAddress: "x@c.test",
           toAddresses: [],
@@ -259,13 +259,13 @@ describe("leak: acting as tenant A", () => {
     const rollback = new Error("rollback");
     await expect(
       db.withTenant(tenantA, async (tx) => {
-        const ids = await seedTicketInA(tx, "cite@a.test");
+        const ids = await seedConversationInA(tx, "cite@a.test");
         const messageId = uuidv7();
         const draftId = uuidv7();
         await tx.insert(messages).values({
           id: messageId,
           tenantId: tenantA,
-          ticketId: ids.ticket,
+          conversationId: ids.conversation,
           direction: "inbound",
           fromAddress: "cite@a.test",
           toAddresses: ["cite@a.test"],
@@ -274,9 +274,13 @@ describe("leak: acting as tenant A", () => {
           rawFileKey: `${tenantA}/raw-cite`,
           messageIdHeader: "<cite@a.test>",
         });
-        await tx
-          .insert(drafts)
-          .values({ id: draftId, tenantId: tenantA, ticketId: ids.ticket, messageId, body: "x" });
+        await tx.insert(drafts).values({
+          id: draftId,
+          tenantId: tenantA,
+          conversationId: ids.conversation,
+          messageId,
+          body: "x",
+        });
         const citation = {
           tenantId: tenantA,
           draftId,
@@ -312,9 +316,9 @@ describe("leak: acting as tenant A", () => {
     );
   });
 
-  it("fetching B's ticket ID finds nothing, same as an unknown ID", async () => {
+  it("fetching B's conversation ID finds nothing, same as an unknown ID", async () => {
     const rows = await db.withTenant(tenantA, (tx) =>
-      tx.select().from(tickets).where(eq(tickets.id, b.ids.ticket)),
+      tx.select().from(conversations).where(eq(conversations.id, b.ids.conversation)),
     );
     expect(rows).toEqual([]);
   });
@@ -332,10 +336,10 @@ describe("leak: acting as tenant A", () => {
   it("a Message-ID that B already has is accepted in A", async () => {
     // Per-tenant uniqueness: no error tells A that B received this email.
     await db.withTenant(tenantA, async (tx) => {
-      const ids = await seedTicketInA(tx, "mid@a.test");
+      const ids = await seedConversationInA(tx, "mid@a.test");
       await tx.insert(messages).values({
         tenantId: tenantA,
-        ticketId: ids.ticket,
+        conversationId: ids.conversation,
         direction: "inbound",
         fromAddress: "m@c.test",
         toAddresses: [],
@@ -388,7 +392,7 @@ describe("agent token lookup", () => {
       tenantId: tenantB,
       name: b.tokenName,
       tokenHash: b.tokenHash,
-      scopes: ["tickets:read"],
+      scopes: ["conversations:read"],
       revokedAt: null,
     });
   });
@@ -405,7 +409,7 @@ describe("agent token lookup", () => {
         tenantId: tenantA,
         name: "a-bot",
         tokenHash: "a".repeat(64),
-        scopes: ["tickets:read"],
+        scopes: ["conversations:read"],
       }),
     );
     const rows = await db.withTenant(uuidv7(), async (tx) => {
@@ -469,7 +473,7 @@ describe("auth tables", () => {
   it("the auth role cannot read tenant tables", async () => {
     const authSql = postgres(testDb.authUrl, { max: 1, onnotice: () => {} });
     try {
-      await expect(authSql`select * from tickets`).rejects.toThrow();
+      await expect(authSql`select * from conversations`).rejects.toThrow();
     } finally {
       await authSql.end();
     }

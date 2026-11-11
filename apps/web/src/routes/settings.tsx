@@ -246,7 +246,7 @@ function AiUsageSettings() {
             <AlertContent>
               <AlertTitle>Drafting is paused</AlertTitle>
               <AlertDescription>
-                Today's budget is used up, so new tickets get no AI draft until midnight UTC.
+                Today's budget is used up, so new conversations get no AI draft until midnight UTC.
               </AlertDescription>
             </AlertContent>
           </Alert>
@@ -316,8 +316,8 @@ function GithubSettings() {
       <CardHeader>
         <CardTitle as="h2">GitHub</CardTitle>
         <CardDescription>
-          Turn tickets into GitHub issues. When an issue is closed as done, a fix notice for the
-          customer is drafted for you to approve.
+          Turn conversations into GitHub issues. When an issue is closed as done, a fix notice for
+          the customer is drafted for you to approve.
         </CardDescription>
         <CardAction>
           {status ? (
