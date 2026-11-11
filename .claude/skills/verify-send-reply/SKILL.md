@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `51285feb9989`.
+Last confirmed at commit `077f34bb526b`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -71,11 +71,11 @@ Last confirmed at commit `51285feb9989`.
 | apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `7a552dec2357` |
 | apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `185fefbe5193` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `86be6a5eba54` |
-| apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `21a7386e206b` |
-| apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `8069ced2b359` |
+| apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `1cbbda9a6c54` |
+| apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `67eb47b77809` |
 | apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `e9923bbac2bb` |
-| apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `59dc3b495975` |
-| apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `66f5f6db3884` |
+| apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `97968274f48d` |
+| apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `1ab4b0b08c2b` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `a99b2cee9f9e` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
