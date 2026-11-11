@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 const moduleUrl = new URL("./processes.mjs", import.meta.url).href;
+const packagePath = fileURLToPath(new URL("../../../../apps/server/package.json", import.meta.url));
 function run(setup, action) {
   return spawnSync(
     process.execPath,
@@ -14,6 +16,8 @@ function run(setup, action) {
     import childProcess from 'node:child_process';
     import fs from 'node:fs';
     import { syncBuiltinESMExports } from 'node:module';
+    const readFileSync = fs.readFileSync;
+    const packagePath = ${JSON.stringify(packagePath)};
     ${setup}
     syncBuiltinESMExports();
     const processes = await import(${JSON.stringify(moduleUrl)});
@@ -25,14 +29,20 @@ function run(setup, action) {
 }
 for (const body of ['"broken"', '"{}"']) {
   test(`process identification refuses invalid package metadata: ${body}`, () => {
-    const result = run(`fs.readFileSync = () => ${body};`, "");
+    const result = run(
+      `fs.readFileSync = (path, ...args) => path === packagePath ? ${body} : readFileSync(path, ...args);`,
+      "",
+    );
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /SyntaxError|must define scripts.dev/);
   });
 }
 test("process identification reports an unreadable package", () => {
   const result = run(
-    "fs.readFileSync = () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); };",
+    `fs.readFileSync = (path, ...args) => {
+      if (path === packagePath) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+      return readFileSync(path, ...args);
+    };`,
     "",
   );
   assert.notEqual(result.status, 0);
