@@ -25,7 +25,9 @@ for (const { error, status, headline } of creationFailures) {
     await page.getByRole("button", { name: "Create GitHub issue" }).click();
     await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(state().issueTitle);
     await page.getByRole("button", { name: "Create issue", exact: true }).click();
-    const alert = page.getByRole("alert");
+    const alert = page
+      .getByRole("region", { name: "GitHub issue", exact: true })
+      .getByRole("alert");
     await expect(alert.getByText(headline, { exact: true })).toBeVisible();
     await expect(
       alert.getByText(headline === "Check GitHub" ? "No issue was created" : "Check GitHub", {
@@ -49,7 +51,9 @@ test("a failed AI suggestion opens an empty form the owner can fill", async ({ p
   );
   await page.getByRole("link", { name: subject }).click();
   await page.getByRole("button", { name: "Create GitHub issue" }).click();
-  await expect(page.getByRole("alert")).toContainText("The AI couldn't draft this issue.");
+  await expect(
+    page.getByRole("region", { name: "GitHub issue", exact: true }).getByRole("alert"),
+  ).toContainText("The AI couldn't draft this issue.");
   const title = page.getByRole("textbox", { name: "Title" });
   const description = page.getByRole("textbox", { name: "Description" });
   await expect(title).toHaveValue("");
