@@ -41,10 +41,10 @@ test("a member sees owner-only settings and the API refuses administration", asy
   expect(shadowAfter.status()).toBe(200);
   expect(await shadowAfter.json()).toEqual(shadow);
 
-  for (const [method, path] of [
-    ["PUT", "/v1/integrations/github"],
-    ["DELETE", "/v1/integrations/github"],
-    ["POST", "/v1/integrations/github/webhook-secret"],
+  for (const { method, path } of [
+    { method: "PUT", path: "/v1/integrations/github" },
+    { method: "DELETE", path: "/v1/integrations/github" },
+    { method: "POST", path: "/v1/integrations/github/webhook-secret" },
   ]) {
     const response = await page.request.fetch(path, { method });
     expect(response.status()).toBe(403);
