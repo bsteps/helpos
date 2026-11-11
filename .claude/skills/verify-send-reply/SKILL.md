@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `38c9ab9fc2b4`.
+Last confirmed at commit `5859edc90104`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -69,11 +69,11 @@ Last confirmed at commit `38c9ab9fc2b4`.
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `7cf4398e8c1d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `66f5f6db3884` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `72daa0e06a72` |
-| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `a99b2cee9f9e` |
+| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
-| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `2aeaf7d934eb` |
-| packages/db/src/jobs.ts | createJobRunner.work | one transaction per attempt (`transaction`, not `steps`) | `20eda0869cc2` |
+| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `65fb76cae341` |
+| packages/db/src/jobs.ts | createJobRunner.work | one transaction per attempt (`transaction`, not `steps`) | `8f7f930f344f` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->
 
