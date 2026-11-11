@@ -1,3 +1,4 @@
+import type { schema } from "@helpos/db";
 import { SafeFetchError, type SafeFetchLogger, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import { extractHtml, tidyAuthored } from "./extract.ts";
@@ -8,7 +9,9 @@ export type Fetcher = typeof safeFetch;
 export const maxPageBytes = 2 * 1024 * 1024;
 const fetchTimeoutMs = 15_000;
 
-export type PageText = { ok: true; text: string } | { ok: false; error: string };
+export type PageText =
+  | { ok: true; text: string }
+  | { ok: false; reason: schema.KnowledgeFailureReason };
 
 const htmlTypes = new Set(["text/html", "application/xhtml+xml"]);
 const textTypes = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
@@ -53,17 +56,19 @@ export async function fetchPageText(
       logger: deps.logger,
     });
   } catch (error) {
-    if (error instanceof SafeFetchError) return { ok: false, error: error.code };
+    if (error instanceof SafeFetchError) return { ok: false, reason: { code: error.code } };
     throw error;
   }
-  if (res.status < 200 || res.status > 299) return { ok: false, error: `http_${res.status}` };
+  if (res.status < 200 || res.status > 299)
+    return { ok: false, reason: { code: "http_error", status: res.status } };
 
   const [mediaType = "", ...params] = String(res.headers["content-type"] ?? "")
     .toLowerCase()
     .split(";")
     .map((p) => p.trim());
   const isHtml = htmlTypes.has(mediaType);
-  if (!isHtml && !textTypes.has(mediaType)) return { ok: false, error: "unsupported_content_type" };
+  if (!isHtml && !textTypes.has(mediaType))
+    return { ok: false, reason: { code: "unsupported_content_type" } };
 
   // `charset="iso-8859-1"` is valid too: the quotes aren't part of the label. Without one in
   // the header, a page can still say it in a <meta> tag.

@@ -99,17 +99,7 @@ const sourceSchema = z
     title: z.string(),
     url: z.string().nullable(),
     visibility: z.enum(schema.knowledgeVisibilities),
-    /** `pending` until the ingest job has run, then `ready` or `failed`. */
-    status: z.enum(schema.knowledgeSourceStatuses),
-    /**
-     * Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`, or `too_long` (more
-     * passages than one source may have: split the document). On a `pending` source,
-     * `daily_budget_reached` means it waits for the daily AI budget to reset at midnight UTC.
-     * A temporary problem (`embedding_unavailable`, or the site's `http_503`, `timeout`…)
-     * means it tries once more in 15 minutes, and fails if the problem is still there. Either
-     * way it then runs by itself.
-     */
-    error: z.string().nullable(),
+    state: schema.knowledgeSourceStateSchema,
     chunkCount: z.number().int(),
     /** `git` items are changed in the workspace's repo, never through this API. */
     managedBy: z.enum(schema.managedByValues),
@@ -194,7 +184,7 @@ const reingestRoute = apiRoute({
   path: "/v1/knowledge/sources/{id}/reingest",
   summary: "Ingest a knowledge source again",
   description:
-    "Sets the source back to `pending` and queues it, e.g. after a `failed` ingest, after the " +
+    "Sets the source back to `pending` (or preserves a budget wait) and queues it, e.g. after a `failed` ingest, after the " +
     "page changed, or after the embedding model changed. Until the new ingest is done, drafts " +
     "keep using the current passages. If it fails on a temporary problem (the site is down, " +
     "the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable " +
@@ -203,7 +193,7 @@ const reingestRoute = apiRoute({
     "Needs `knowledge:write`.",
   request: { params: idParams },
   responses: {
-    202: json(sourceSchema, "The source, status `pending`"),
+    202: json(sourceSchema, "The source, pending or waiting for the daily budget"),
     404: notFoundResponse,
     409: json(
       errorSchema,
@@ -255,8 +245,7 @@ function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
     title: s.title,
     url: s.url,
     visibility: s.visibility,
-    status: s.status,
-    error: s.error,
+    state: s.state,
     chunkCount: s.chunkCount,
     managedBy: s.managedBy,
     sourcePath: s.sourcePath,
@@ -386,8 +375,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       const [found] = await tx
         .select({
           managedBy: knowledgeSources.managedBy,
-          status: knowledgeSources.status,
-          error: knowledgeSources.error,
+          state: knowledgeSources.state,
         })
         .from(knowledgeSources)
         .where(eq(knowledgeSources.id, id))
@@ -397,14 +385,11 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       const [row] = await tx
         .update(knowledgeSources)
         .set({
-          status: "pending",
-          // Waiting for the budget: asking again doesn't end that wait, so the reason stays.
-          // Any other reason (a site or provider that was down) is cleared: asking again is a
-          // fresh try, with its own one more try if it fails.
-          error:
-            found.status === "pending" && found.error === "daily_budget_reached"
-              ? found.error
-              : null,
+          state:
+            found.state.status === "waiting" && found.state.reason.code === "daily_budget_reached"
+              ? found.state
+              : { status: "pending" },
+          retryCount: 0,
           ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
         })
         .where(eq(knowledgeSources.id, id))
@@ -414,13 +399,14 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       // Already pending: reuse its job rather than queue two. If that job is already fetching,
       // it sees this request when it writes (the count went up) and queues a run for it.
       // Otherwise always queue a new one. The last job may have committed but still look
-      // unfinished to pg-boss, and reusing it would leave this source pending with no job. An
-      // extra job is harmless: the worker skips a source that isn't pending.
+      // unfinished to pg-boss, and reusing it would leave this source pending with no job.
       await enqueue(
         tx,
         ingestSourceJob,
         { tenantId, sourceId: id, requests: row.ingestRequests },
-        found.status === "pending" ? { singletonKey: id } : {},
+        found.state.status === "pending" || found.state.status === "waiting"
+          ? { singletonKey: id }
+          : {},
       );
       return row;
     });
@@ -463,8 +449,8 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
           ...(content
             ? {
                 content: input.content,
-                status: "pending" as const,
-                error: null,
+                state: { status: "pending" as const },
+                retryCount: 0,
                 chunkCount: 0,
                 embeddingModel: null,
                 // An ingest already fetching the old text sees this and doesn't write it.

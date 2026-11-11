@@ -1387,7 +1387,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest a knowledge source again
-         * @description Sets the source back to `pending` and queues it, e.g. after a `failed` ingest, after the page changed, or after the embedding model changed. Until the new ingest is done, drafts keep using the current passages. If it fails on a temporary problem (the site is down, the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable (no text, too long, not a page), they're removed. Asking again while it's pending queues nothing new, but a request made during a fetch gets a fetch of its own. Needs `knowledge:write`.
+         * @description Sets the source back to `pending` (or preserves a budget wait) and queues it, e.g. after a `failed` ingest, after the page changed, or after the embedding model changed. Until the new ingest is done, drafts keep using the current passages. If it fails on a temporary problem (the site is down, the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable (no text, too long, not a page), they're removed. Asking again while it's pending queues nothing new, but a request made during a fetch gets a fetch of its own. Needs `knowledge:write`.
          */
         post: {
             parameters: {
@@ -1400,7 +1400,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The source, status `pending` */
+                /** @description The source, pending or waiting for the daily budget */
                 202: {
                     headers: {
                         [name: string]: unknown;
@@ -2483,9 +2483,37 @@ export interface components {
             url: string | null;
             /** @enum {string} */
             visibility: "public" | "internal";
-            /** @enum {string} */
-            status: "pending" | "ready" | "failed";
-            error: string | null;
+            state: {
+                /** @enum {string} */
+                status: "pending";
+            } | {
+                /** @enum {string} */
+                status: "ready";
+            } | {
+                /** @enum {string} */
+                status: "failed";
+                reason: {
+                    /** @enum {string} */
+                    code: "invalid_url" | "blocked_address" | "blocked_port" | "insecure_redirect" | "dns_failed" | "timeout" | "aborted" | "too_large" | "too_many_redirects" | "network" | "no_url" | "no_text" | "too_long" | "unsupported_content_type" | "embedding_unavailable" | "embedding_failed" | "ingest_error";
+                } | {
+                    /** @enum {string} */
+                    code: "http_error";
+                    status: number;
+                };
+            } | {
+                /** @enum {string} */
+                status: "waiting";
+                reason: {
+                    /** @enum {string} */
+                    code: "timeout" | "network" | "embedding_unavailable" | "daily_budget_reached";
+                } | {
+                    /** @enum {string} */
+                    code: "http_error";
+                    status: 408 | 425 | 429 | 500 | 502 | 503 | 504;
+                };
+                /** Format: date-time */
+                retryAt: string;
+            };
             chunkCount: number;
             /** @enum {string} */
             managedBy: "app" | "git";

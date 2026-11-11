@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { KnowledgeSource } from "../src/api/client.ts";
 import { deliver, plainEmail, signIn, state, uniqueSubject } from "./support.ts";
 
 // An email steers the AI into pasting an internal note into its draft. The approver is warned
@@ -21,8 +22,8 @@ test("a draft that quotes an internal note is flagged until the quote is edited 
   await expect
     .poll(async () => {
       const res = await page.request.get("/v1/knowledge/sources");
-      const { sources } = (await res.json()) as { sources: { id: string; status: string }[] };
-      return sources.find((s) => s.id === id)?.status;
+      const { sources } = (await res.json()) as { sources: KnowledgeSource[] };
+      return sources.find((s) => s.id === id)?.state.status;
     })
     .toBe("ready");
 

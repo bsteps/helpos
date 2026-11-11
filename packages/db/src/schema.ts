@@ -7,6 +7,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgPolicy,
   pgSchema,
   pgTable,
@@ -17,6 +18,10 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
+import type { KnowledgeSourceState } from "./knowledge-state.ts";
+
+export * from "./knowledge-state.ts";
+
 import { uuidv7 } from "./uuid.ts";
 
 /**
@@ -584,8 +589,6 @@ function gitManageable() {
 /** A text column, so new kinds (e.g. `git`) are a check-constraint change, not a new shape. */
 export const knowledgeSourceKinds = ["url", "markdown"] as const;
 export type KnowledgeSourceKind = (typeof knowledgeSourceKinds)[number];
-export const knowledgeSourceStatuses = ["pending", "ready", "failed"] as const;
-export type KnowledgeSourceStatus = (typeof knowledgeSourceStatuses)[number];
 /**
  * `public` may be shown or cited to customers (e.g. a help center). `internal` is the team's own
  * notes, such as policies and workarounds: the AI may follow it, but never quote it to customers.
@@ -611,9 +614,8 @@ export const knowledgeSources = pgTable(
     content: text("content"),
     /** Internal by default: nothing becomes customer-facing without someone choosing it. */
     visibility: text("visibility", { enum: knowledgeVisibilities }).notNull().default("internal"),
-    status: text("status", { enum: knowledgeSourceStatuses }).notNull().default("pending"),
-    /** Why ingestion failed, as a short code such as `blocked_address`. Never page content. */
-    error: text("error"),
+    state: jsonb("state").$type<KnowledgeSourceState>().notNull().default({ status: "pending" }),
+    retryCount: integer("retry_count").notNull().default(0),
     chunkCount: integer("chunk_count").notNull().default(0),
     /**
      * Counts requests to ingest it again. An ingest job writes its result only if no newer
@@ -633,7 +635,40 @@ export const knowledgeSources = pgTable(
     // `url` is stored normalised (normalizeKnowledgeUrl()) so case or a fragment don't slip by.
     uniqueIndex("knowledge_sources_tenant_url").on(t.tenantId, t.url).where(sql`${t.kind} = 'url'`),
     check("knowledge_sources_kind", sql`${t.kind} in ('url', 'markdown')`),
-    check("knowledge_sources_status", sql`${t.status} in ('pending', 'ready', 'failed')`),
+    check(
+      "knowledge_sources_state",
+      sql`COALESCE(
+  jsonb_typeof(${t.state}) = 'object' AND CASE ${t.state}->>'status'
+    WHEN 'pending' THEN ${t.state} = '{"status":"pending"}'::jsonb
+    WHEN 'ready' THEN ${t.state} = '{"status":"ready"}'::jsonb
+    WHEN 'failed' THEN
+      ${t.state} - 'status' - 'reason' = '{}'::jsonb AND
+      jsonb_typeof(${t.state}->'reason') = 'object' AND CASE
+        WHEN ${t.state}->'reason'->>'code' = 'http_error' THEN
+          (${t.state}->'reason') - 'code' - 'status' = '{}'::jsonb AND
+          jsonb_typeof(${t.state}->'reason'->'status') = 'number' AND
+          (${t.state}->'reason'->>'status') ~ '^[1-9][0-9]{2}$'
+        ELSE (${t.state}->'reason') - 'code' = '{}'::jsonb AND
+          ${t.state}->'reason'->>'code' IN (
+            'invalid_url', 'blocked_address', 'blocked_port', 'insecure_redirect', 'dns_failed',
+            'timeout', 'aborted', 'too_large', 'too_many_redirects', 'network', 'no_url',
+            'no_text', 'too_long', 'unsupported_content_type', 'embedding_unavailable',
+            'embedding_failed', 'ingest_error') END
+    WHEN 'waiting' THEN
+      ${t.state} - 'status' - 'reason' - 'retryAt' = '{}'::jsonb AND
+      jsonb_typeof(${t.state}->'reason') = 'object' AND
+      jsonb_typeof(${t.state}->'retryAt') = 'string' AND
+      CASE WHEN (${t.state}->>'retryAt') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$'
+        THEN (${t.state}->>'retryAt')::timestamptz IS NOT NULL ELSE false END AND CASE
+        WHEN ${t.state}->'reason'->>'code' = 'http_error' THEN
+          (${t.state}->'reason') - 'code' - 'status' = '{}'::jsonb AND
+          jsonb_typeof(${t.state}->'reason'->'status') = 'number' AND
+          (${t.state}->'reason'->>'status') IN ('408', '425', '429', '500', '502', '503', '504')
+        ELSE (${t.state}->'reason') - 'code' = '{}'::jsonb AND
+          ${t.state}->'reason'->>'code' IN ('timeout', 'network', 'embedding_unavailable', 'daily_budget_reached') END
+    ELSE false END, false)`,
+    ),
+    check("knowledge_sources_retry_count", sql`${t.retryCount} >= 0`),
     check("knowledge_sources_visibility", sql`${t.visibility} in ('public', 'internal')`),
     check("knowledge_sources_managed_by", sql`${t.managedBy} in ('app', 'git')`),
     check("knowledge_sources_git_path", sql`${t.managedBy} = 'app' or ${t.sourcePath} is not null`),

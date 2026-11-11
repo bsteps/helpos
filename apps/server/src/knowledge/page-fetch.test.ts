@@ -151,7 +151,7 @@ describe("fetchPageText", () => {
       const fetch: Fetcher = async () => response(utf8("ignored"), "image/png", status);
       expect(await fetchPageText({ fetch, logger }, url)).toEqual({
         ok: false,
-        error: `http_${status}`,
+        reason: { code: "http_error", status },
       });
     },
   );
@@ -160,7 +160,7 @@ describe("fetchPageText", () => {
     const fetch: Fetcher = async () => response(utf8("ignored"), type);
     expect(await fetchPageText({ fetch, logger }, url)).toEqual({
       ok: false,
-      error: "unsupported_content_type",
+      reason: { code: "unsupported_content_type" },
     });
   });
 
@@ -176,7 +176,10 @@ describe("fetchPageText", () => {
     const fetch: Fetcher = async () => {
       throw new SafeFetchError("timeout", "timed out");
     };
-    expect(await fetchPageText({ fetch, logger }, url)).toEqual({ ok: false, error: "timeout" });
+    expect(await fetchPageText({ fetch, logger }, url)).toEqual({
+      ok: false,
+      reason: { code: "timeout" },
+    });
   });
 
   it("propagates unexpected failures to the worker", async () => {
