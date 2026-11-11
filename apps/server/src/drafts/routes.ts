@@ -393,6 +393,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       const live = await liveDraftFor(tx, messageId, "reply");
       if (live && !isPendingDraft(live)) return "already_answered" as const;
 
+
       const draft = await createReply(tx, context, {
         tenantId,
         conversationId,

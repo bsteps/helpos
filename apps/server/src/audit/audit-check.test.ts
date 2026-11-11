@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { type Audit, apiRoute } from "../auth/access.ts";
 import { openApiDocument } from "../openapi.ts";
 import { type AuditAction, nothingToAudit, recordAudit } from "./audit.ts";
+import { hashBody } from "./details.ts";
 
 const doc = (await openApiDocument()) as {
   paths: Record<string, Record<string, { "x-audit"?: Audit }>>;
@@ -87,6 +88,15 @@ const record = (action: AuditAction) =>
     action,
     target: { type: "conversation", id: "0190d6a4-0000-7000-8000-000000000002" },
     requestId: null,
+    ...(action === "draft.created"
+      ? {
+          details: {
+            bodyHash: hashBody("fixture draft"),
+            messageId: "0190d6a4-0000-7000-8000-000000000003",
+            kind: "reply" as const,
+          },
+        }
+      : {}),
   });
 
 /** One write route that records `conversation.closed`, whose handler does `handle` then answers. */
