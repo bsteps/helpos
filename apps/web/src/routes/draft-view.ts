@@ -20,14 +20,14 @@ export type Ask = { replacing: string | null; queued?: boolean };
 /** What happened to the reply while a person was writing their own. */
 export type Meanwhile = "drafted" | "answered" | "send_failed";
 
-const meanwhileByStatus: Record<Draft["status"], Meanwhile | undefined> = {
+const meanwhileByStatus = {
   pending: "drafted",
   approved: "answered",
   sent: "answered",
   send_failed: "send_failed",
   send_uncertain: "answered",
   discarded: undefined,
-};
+} satisfies Record<Draft["status"], Meanwhile | undefined>;
 
 export type DraftView =
   | { kind: "none" }

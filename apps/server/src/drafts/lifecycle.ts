@@ -3,6 +3,7 @@ import {
   desc,
   enqueue,
   eq,
+  gt,
   inArray,
   isNull,
   ne,
@@ -75,6 +76,35 @@ type DraftOperation = keyof typeof draftTransitions;
 export const openStatuses: readonly DraftStatus[] = schema.draftStatuses.filter((status) =>
   Object.values(draftTransitions).some((t) => (t.from as readonly DraftStatus[]).includes(status)),
 );
+
+export function isPendingDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "pending";
+}
+
+export function isApprovedDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "approved";
+}
+
+export function isSentDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "sent";
+}
+
+export function isUncertainDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "send_uncertain";
+}
+
+export const draftWhere = {
+  pending: () => eq(drafts.status, "pending"),
+  open: () => inArray(drafts.status, [...openStatuses]),
+  live: (kind: DraftKind) =>
+    and(ne(drafts.status, "discarded"), kind === "fixed" ? ne(drafts.status, "sent") : undefined),
+  wasApproved: (after?: Date) =>
+    after
+      ? sql<boolean>`${gt(drafts.approvedAt, after)}`
+      : sql<boolean>`${drafts.approvedAt} is not null`,
+  sendFailed: () => eq(drafts.status, "send_failed"),
+  sendUncertain: () => eq(drafts.status, "send_uncertain"),
+};
 
 /** What a change to one draft did. `conflict` carries the draft as it is now. */
 export type DraftChange =
@@ -343,14 +373,7 @@ export async function liveDraftFor(
   const [live] = await tx
     .select({ id: drafts.id, status: drafts.status })
     .from(drafts)
-    .where(
-      and(
-        eq(drafts.messageId, messageId),
-        eq(drafts.kind, kind),
-        ne(drafts.status, "discarded"),
-        kind === "fixed" ? ne(drafts.status, "sent") : undefined,
-      ),
-    )
+    .where(and(eq(drafts.messageId, messageId), eq(drafts.kind, kind), draftWhere.live(kind)))
     .limit(1);
   return live;
 }
@@ -424,7 +447,7 @@ export async function createFixedNotice(
       and(
         eq(drafts.conversationId, input.conversationId),
         eq(drafts.kind, "fixed"),
-        inArray(drafts.status, [...openStatuses]),
+        draftWhere.open(),
       ),
     )
     .limit(1);

@@ -15,12 +15,13 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { messageText } from "../drafts/html-text.ts";
+import { draftWhere } from "../drafts/lifecycle.ts";
 import { auditor, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 
 const { customers, drafts, messages, conversationGithubIssues, conversations } = schema;
 
-const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${drafts.status} in ('send_failed', 'send_uncertain'))`;
+const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${or(draftWhere.sendFailed(), draftWhere.sendUncertain())})`;
 
 export interface ConversationRoutesDeps {
   db: Pick<Database, "withTenant">;

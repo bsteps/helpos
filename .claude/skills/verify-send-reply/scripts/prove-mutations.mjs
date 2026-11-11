@@ -54,11 +54,11 @@ const variants = [
     file: send,
     properties: ["NoResendWithoutPerson", "SentOnlyWhenApproved"],
     mutate: (source) => {
-      let changed = replace(source, 'if (draft.status === "sent") return;', "");
+      let changed = replace(source, 'if (isSentDraft(draft)) return;', "");
       changed = replace(
         changed,
-        'draft.status !== "approved" &&',
-        'draft.status !== "approved" && draft.status !== "sent" &&',
+        '!isApprovedDraft(draft) &&',
+        '!isApprovedDraft(draft) && !isSentDraft(draft) &&',
       );
       const smtp = "await deps.transport.send({ from: row.mailbox, to: [email.to], raw });";
       changed = replace(changed, smtp, "");

@@ -19,6 +19,7 @@ import type { EmailTransport } from "../outbound-email/transport.ts";
 import type { ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
+import { draftWhere } from "./lifecycle.ts";
 
 const { auditEvents, drafts, mailboxes, memberships, messages, conversations } = schema;
 
@@ -90,7 +91,7 @@ export async function handleNoticeGaveUp(
   const [draft] = await tx
     .select({ conversationId: drafts.conversationId })
     .from(drafts)
-    .where(and(eq(drafts.id, payload.draftId), eq(drafts.status, "pending")));
+    .where(and(eq(drafts.id, payload.draftId), draftWhere.pending()));
   if (!draft) return;
   await recordAudit(tx, {
     tenantId: payload.tenantId,
@@ -141,7 +142,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       .where(
         and(
           eq(drafts.conversationId, queued.conversationId),
-          eq(drafts.status, "pending"),
+          draftWhere.pending(),
           // A draft that hasn't waited the full delay yet may still be approved in time. Its own
           // job, queued with it, runs once it has.
           sql`${drafts.createdAt} <= now() - make_interval(secs => ${delaySeconds})`,
@@ -161,7 +162,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           ),
         })
         .from(drafts)
-        .where(and(eq(drafts.conversationId, queued.conversationId), eq(drafts.status, "pending")))
+        .where(and(eq(drafts.conversationId, queued.conversationId), draftWhere.pending()))
         .orderBy(asc(drafts.createdAt))
         .limit(1);
       if (young) {
@@ -196,7 +197,9 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       const [actedOn] = await tx
         .select({ id: drafts.id })
         .from(drafts)
-        .where(and(eq(drafts.conversationId, row.conversationId), gt(drafts.approvedAt, recent.at)))
+        .where(
+          and(eq(drafts.conversationId, row.conversationId), draftWhere.wasApproved(recent.at)),
+        )
         .limit(1);
       // A kind of draft the conversation didn't have at that notice is other news: "it's fixed"
       // waiting is not the reply the owners were already told about (nor the other way round).

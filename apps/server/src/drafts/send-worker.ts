@@ -9,7 +9,15 @@ import {
   replySubject,
   SendRejected,
 } from "../outbound-email/transport.ts";
-import { markSendFailed, markSending, markSent, rejectSend } from "./lifecycle.ts";
+import {
+  isApprovedDraft,
+  isSentDraft,
+  isUncertainDraft,
+  markSendFailed,
+  markSending,
+  markSent,
+  rejectSend,
+} from "./lifecycle.ts";
 import { noticeReplyTo } from "./notice-worker.ts";
 
 const { customers, drafts, mailboxes, messages, tenants, conversations } = schema;
@@ -71,10 +79,9 @@ export function handleSendReply(deps: SendWorkerDeps) {
         return;
       }
       const { draft, inbound } = row;
-      if (draft.status === "sent") return;
+      if (isSentDraft(draft)) return;
       if (
-        (draft.status !== "approved" &&
-          !(draft.status === "send_uncertain" && draft.resendRequested)) ||
+        (!isApprovedDraft(draft) && !(isUncertainDraft(draft) && draft.resendRequested)) ||
         !draft.outboundMessageIdHeader
       ) {
         deps.logger.warn({ draftId, status: draft.status }, "send-reply: draft is not approved");
@@ -148,7 +155,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
         await deps.transport.send({ from: row.mailbox, to: [email.to], raw });
       } catch (error) {
         if (!(error instanceof SendRejected)) throw error;
-        if (draft.status === "send_uncertain") {
+        if (isUncertainDraft(draft)) {
           await auditorFor(tenantId, sendWorkerActor)(tx, "draft.send_rejected", {
             type: "draft",
             id: draftId,

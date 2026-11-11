@@ -24,7 +24,7 @@ import {
   AlertIcon,
   AlertTitle,
 } from "@/components/ui/alert.tsx";
-import { AnimatedBadge } from "@/components/ui/animated-badge.tsx";
+import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/ui/animated-badge.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Card,
@@ -248,7 +248,7 @@ const statusBadge = {
   send_uncertain: { status: "danger", label: "Delivery uncertain" },
   send_failed: { status: "danger", label: "Not sent" },
   discarded: { status: "neutral", label: "Discarded" },
-} as const;
+} satisfies Record<Draft["status"], { status: AnimatedBadgeStatus; label: string }>;
 
 const chooseNote = {
   discarded: "The draft was discarded. Nothing has gone to the customer.",

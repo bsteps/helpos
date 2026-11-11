@@ -24,6 +24,7 @@ import {
   discardDraft,
   discardStale,
   editDraft,
+  isPendingDraft,
   liveDraftFor,
   lockConversationForDrafting,
   resolveUncertainSend,
@@ -384,7 +385,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       const messageId = lock.answering;
       if (!messageId) return "nothing_to_answer" as const;
       const live = await liveDraftFor(tx, messageId, "reply");
-      if (live && live.status !== "pending") return "already_answered" as const;
+      if (live && !isPendingDraft(live)) return "already_answered" as const;
 
       if ("regenerate" in input) {
         // The worker drafts nothing for a closed conversation, so asking would wait forever.
