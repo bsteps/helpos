@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as schema from "./schema.ts";
 import { apiTokenScopes } from "./schema.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 
@@ -207,5 +208,38 @@ describe("api_tokens: the app role can only create and revoke", () => {
           values (gen_random_uuid(), '${tenantId}', 'bot', '${fill.repeat(64)}', ${scopes})`),
       ),
     ).rejects.toMatchObject({ code: "23514" });
+  });
+});
+
+describe("enum CHECK constraints", () => {
+  it.each([
+    ["memberships", "memberships_role", schema.workspaceRoles],
+    ["conversations", "conversations_status", schema.conversationStatuses],
+    ["conversations", "conversations_ai_paused_reason", schema.aiPausedReasons],
+    ["messages", "messages_direction", schema.messageDirections],
+    ["drafts", "drafts_status", schema.draftStatuses],
+    ["drafts", "drafts_kind", schema.draftKinds],
+    ["audit_events", "audit_events_actor_type", schema.actorTypes],
+    ["knowledge_sources", "knowledge_sources_kind", schema.knowledgeSourceKinds],
+    ["knowledge_sources", "knowledge_sources_visibility", schema.knowledgeVisibilities],
+    ["knowledge_sources", "knowledge_sources_managed_by", schema.managedByValues],
+    ["draft_citations", "draft_citations_visibility", schema.knowledgeVisibilities],
+    ["integrations", "integrations_provider", schema.integrationProviders],
+    ["conversation_github_issues", "conversation_github_issues_state", schema.githubIssueStates],
+  ])("%s: %s allows exactly its typed list", async (table, constraint, values) => {
+    const rows = await owner<{ def: string }[]>`
+      select pg_get_constraintdef(c.oid) as def
+      from pg_constraint c
+      join pg_class t on t.oid = c.conrelid
+      join pg_namespace n on n.oid = t.relnamespace
+      where n.nspname = 'public' and t.relname = ${table}
+        and c.conname = ${constraint} and c.contype = 'c'`;
+    expect(rows).toHaveLength(1);
+    const allowed = [...(rows[0]?.def ?? "").matchAll(/'((?:[^']|'')*)'/g)].map((match) =>
+      match[1]?.replaceAll("''", "'"),
+    );
+    expect(allowed.sort(), "A changed enum list needs a generated migration").toEqual(
+      [...values].sort(),
+    );
   });
 });

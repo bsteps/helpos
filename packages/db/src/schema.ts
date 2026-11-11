@@ -1,5 +1,6 @@
 import { type SQL, sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -103,6 +104,14 @@ function isLowercase(name: string, column: SQL): ReturnType<typeof check> {
   return check(name, sql`${column} = lower(${column})`);
 }
 
+function enumCheck(name: string, column: AnyPgColumn, values: readonly [string, ...string[]]) {
+  const literals = sql.join(
+    values.map((value) => sql.raw(`'${value.replaceAll("'", "''")}'`)),
+    sql`, `,
+  );
+  return check(name, sql`${column} in (${literals})`);
+}
+
 // --- auth schema (ADR 0009 §1): users span tenants, so no tenant_id and no RLS ----------------
 
 export const authSchema = pgSchema("auth");
@@ -199,6 +208,9 @@ export const verifications = authSchema.table(
 
 // --- Tenant tables ----------------------------------------------------------------------------
 
+export const workspaceRoles = ["owner", "member"] as const;
+export type WorkspaceRole = (typeof workspaceRoles)[number];
+
 /** Which workspaces a user belongs to. */
 export const memberships = pgTable(
   "memberships",
@@ -207,11 +219,11 @@ export const memberships = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
-    role: text("role", { enum: ["owner", "member"] }).notNull(),
+    role: text("role", { enum: workspaceRoles }).notNull(),
   },
   (t) => [
     unique("memberships_tenant_user").on(t.tenantId, t.userId),
-    check("memberships_role", sql`${t.role} in ('owner', 'member')`),
+    enumCheck("memberships_role", t.role, workspaceRoles),
     tenantIsolation(),
     // ADR 0009 §1: the workspace switcher lists your own memberships across tenants.
     // Read-only: writes still need the tenant policy.
@@ -261,6 +273,8 @@ export const customers = pgTable(
   ],
 );
 
+export const conversationStatuses = ["open", "closed"] as const;
+
 export const aiPausedReasons = ["daily_budget", "draft_failed"] as const;
 export type AiPausedReason = (typeof aiPausedReasons)[number];
 
@@ -272,9 +286,7 @@ export const conversations = pgTable(
     customerId: uuid("customer_id").notNull(),
     mailboxId: uuid("mailbox_id").notNull(),
     subject: text("subject").notNull(),
-    status: text("status", { enum: ["open", "closed"] })
-      .notNull()
-      .default("open"),
+    status: text("status", { enum: conversationStatuses }).notNull().default("open"),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
     /** Opened by machine-sent mail (out-of-office, bounce, list). Never gets an AI draft. */
     automated: boolean("automated").notNull().default(false),
@@ -286,11 +298,8 @@ export const conversations = pgTable(
   },
   (t) => [
     unique("conversations_tenant_id_id").on(t.tenantId, t.id),
-    check("conversations_status", sql`${t.status} in ('open', 'closed')`),
-    check(
-      "conversations_ai_paused_reason",
-      sql`${t.aiPausedReason} in ('daily_budget', 'draft_failed')`,
-    ),
+    enumCheck("conversations_status", t.status, conversationStatuses),
+    enumCheck("conversations_ai_paused_reason", t.aiPausedReason, aiPausedReasons),
     // Composite keys: a row can never point at another tenant's row, even if RLS were off.
     foreignKey({
       name: "conversations_customer_fk",
@@ -309,13 +318,15 @@ export const conversations = pgTable(
   ],
 );
 
+export const messageDirections = ["inbound", "outbound"] as const;
+
 /** An email on a conversation. Bodies are stored as received: data, never instructions (ADR 0004). */
 export const messages = pgTable(
   "messages",
   {
     ...tenantColumns(),
     conversationId: uuid("conversation_id").notNull(),
-    direction: text("direction", { enum: ["inbound", "outbound"] }).notNull(),
+    direction: text("direction", { enum: messageDirections }).notNull(),
     fromAddress: text("from_address").notNull(),
     fromName: text("from_name"),
     toAddresses: text("to_addresses").array().notNull(),
@@ -338,7 +349,7 @@ export const messages = pgTable(
     // Per tenant (ADR 0009 §7). Postgres treats NULLs as distinct, so mail without a
     // Message-ID is never deduplicated.
     unique("messages_tenant_message_id").on(t.tenantId, t.messageIdHeader),
-    check("messages_direction", sql`${t.direction} in ('inbound', 'outbound')`),
+    enumCheck("messages_direction", t.direction, messageDirections),
     foreignKey({
       name: "messages_conversation_fk",
       columns: [t.tenantId, t.conversationId],
@@ -416,11 +427,8 @@ export const drafts = pgTable(
     uniqueIndex("drafts_tenant_message_kind_live")
       .on(t.tenantId, t.messageId, t.kind)
       .where(sql`status <> 'discarded' and not (kind = 'fixed' and status = 'sent')`),
-    check(
-      "drafts_status",
-      sql`${t.status} in ('pending', 'approved', 'sent', 'send_failed', 'send_uncertain', 'discarded')`,
-    ),
-    check("drafts_kind", sql`${t.kind} in ('reply', 'fixed')`),
+    enumCheck("drafts_status", t.status, draftStatuses),
+    enumCheck("drafts_kind", t.kind, draftKinds),
     foreignKey({
       name: "drafts_conversation_fk",
       columns: [t.tenantId, t.conversationId],
@@ -468,7 +476,7 @@ export const auditEvents = pgTable(
     details: jsonb("details").$type<Record<string, unknown>>(),
   },
   (t) => [
-    check("audit_events_actor_type", sql`${t.actorType} in ('user', 'agent', 'system')`),
+    enumCheck("audit_events_actor_type", t.actorType, actorTypes),
     index("audit_events_tenant_target").on(t.tenantId, t.targetType, t.targetId),
     tenantIsolation(),
   ],
@@ -634,7 +642,7 @@ export const knowledgeSources = pgTable(
     // One source per page, so drafts don't see the same passages twice. Per tenant too, and
     // `url` is stored normalised (normalizeKnowledgeUrl()) so case or a fragment don't slip by.
     uniqueIndex("knowledge_sources_tenant_url").on(t.tenantId, t.url).where(sql`${t.kind} = 'url'`),
-    check("knowledge_sources_kind", sql`${t.kind} in ('url', 'markdown')`),
+    enumCheck("knowledge_sources_kind", t.kind, knowledgeSourceKinds),
     check(
       "knowledge_sources_state",
       sql`COALESCE(
@@ -669,8 +677,8 @@ export const knowledgeSources = pgTable(
     ELSE false END, false)`,
     ),
     check("knowledge_sources_retry_count", sql`${t.retryCount} >= 0`),
-    check("knowledge_sources_visibility", sql`${t.visibility} in ('public', 'internal')`),
-    check("knowledge_sources_managed_by", sql`${t.managedBy} in ('app', 'git')`),
+    enumCheck("knowledge_sources_visibility", t.visibility, knowledgeVisibilities),
+    enumCheck("knowledge_sources_managed_by", t.managedBy, managedByValues),
     check("knowledge_sources_git_path", sql`${t.managedBy} = 'app' or ${t.sourcePath} is not null`),
     check("knowledge_sources_url", sql`${t.kind} <> 'url' or ${t.url} is not null`),
     check("knowledge_sources_content", sql`${t.kind} <> 'markdown' or ${t.content} is not null`),
@@ -747,7 +755,7 @@ export const draftCitations = pgTable(
       columns: [t.tenantId, t.draftId],
       foreignColumns: [drafts.tenantId, drafts.id],
     }),
-    check("draft_citations_visibility", sql`${t.visibility} in ('public', 'internal')`),
+    enumCheck("draft_citations_visibility", t.visibility, knowledgeVisibilities),
     tenantIsolation(),
   ],
 );
@@ -777,7 +785,7 @@ export const integrations = pgTable(
   (t) => [
     // One repo per workspace for now.
     unique("integrations_tenant_provider").on(t.tenantId, t.provider),
-    check("integrations_provider", sql`${t.provider} in ('github')`),
+    enumCheck("integrations_provider", t.provider, integrationProviders),
     isLowercase("integrations_repo_lowercase", sql`${t.repo}`),
     tenantIsolation(),
   ],
@@ -819,7 +827,7 @@ export const conversationGithubIssues = pgTable(
     // so its "fixed" notice can only ever go to that conversation's customer. (A claim has no number
     // yet, and nulls never clash.)
     uniqueIndex("conversation_github_issues_tenant_issue").on(t.tenantId, t.repo, t.issueNumber),
-    check("conversation_github_issues_state", sql`${t.state} in ('creating', 'open', 'closed')`),
+    enumCheck("conversation_github_issues_state", t.state, githubIssueStates),
     check(
       "conversation_github_issues_created",
       sql`${t.state} = 'creating' or (${t.issueNumber} is not null and ${t.issueUrl} is not null)`,
