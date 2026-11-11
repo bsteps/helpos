@@ -6,6 +6,26 @@ const note =
   "given to customers. Escalate refund requests over $500 to the finance lead before replying.";
 
 describe("quotesInternalPassage", () => {
+  it.each([
+    [
+      "Japanese",
+      "返金申請が五万円を超える場合は、回答する前に必ず経理責任者へ連絡してください。社員専用の割引コードは顧客に公開しないでください。",
+    ],
+    [
+      "Chinese",
+      "如果退款申请金额超过五千元，请在回复客户之前联系财务负责人。员工专用折扣代码只能在内部使用，绝对不能发送给客户。",
+    ],
+  ])("flags a verbatim %s internal note", (_, passage) => {
+    expect(quotesInternalPassage(`Staff notes: ${passage}`, [passage])).toBe(true);
+  });
+
+  it.each(["お問い合わせありがとうございます", "感谢您的耐心等待"])(
+    "does not flag the short shared phrase %s",
+    (phrase) => {
+      expect(quotesInternalPassage(phrase, [`${phrase}。STAFF50`])).toBe(false);
+    },
+  );
+
   it("flags a draft that pastes the note word for word", () => {
     const draft = `Hi Lee,\n\nStaff notes: ${note}\n\nBest,\nSupport`;
     expect(quotesInternalPassage(draft, [note])).toBe(true);
