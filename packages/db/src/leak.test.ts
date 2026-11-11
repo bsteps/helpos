@@ -1,168 +1,47 @@
+import { readFileSync } from "node:fs";
 import { eq, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AuthStore, createAuthStore } from "./auth.ts";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
-import { isUniqueViolation } from "./errors.ts";
+import { isUniqueViolation, sqlState } from "./errors.ts";
 import { searchKnowledge } from "./knowledge.ts";
 import {
-  aiUsage,
   apiTokens,
-  attachments,
-  auditEvents,
-  conversationGithubIssues,
   conversations,
   customers,
   draftCitations,
   drafts,
-  integrations,
   knowledgeChunks,
-  knowledgeEmbeddingDimensions,
   knowledgeSources,
   mailboxes,
   memberships,
   messages,
   tenants,
 } from "./schema.ts";
-import { startTestDatabase, type TestDatabase } from "./testing.ts";
+import {
+  type LeakTenant,
+  leakEmbeddingAxis,
+  leakEmbeddingModel,
+  seedLeakTenant,
+  startTestDatabase,
+  type TestDatabase,
+  tenantSnapshot,
+  uncoveredTables,
+  unitVector,
+} from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
-
-// Cross-tenant leak suite, MVP part (ADR 0003 §5, ADR 0009). Tenant B owns data; acting as
-// tenant A must never see, change or reference any of it. #8 extends this to every endpoint.
 
 let testDb: TestDatabase;
 let db: Database;
 let auth: AuthStore;
+let b: LeakTenant;
 
+const insufficientPrivilege = "42501";
 const tenantA = uuidv7();
 const tenantB = uuidv7();
-const b = {
-  mailbox: uuidv7(),
-  customer: uuidv7(),
-  conversation: uuidv7(),
-  message: uuidv7(),
-  attachment: uuidv7(),
-  membership: uuidv7(),
-  draft: uuidv7(),
-  auditEvent: uuidv7(),
-  source: uuidv7(),
-  chunk: uuidv7(),
-  citation: uuidv7(),
-  token: uuidv7(),
-  tokenHash: "b".repeat(64),
-  userId: "",
-};
 
-/** A unit vector along one axis: identical axes have distance 0, different ones 1. */
-function axis(i: number): number[] {
-  const v = new Array<number>(knowledgeEmbeddingDimensions).fill(0);
-  v[i] = 1;
-  return v;
-}
-
-async function seedB(tx: TenantTx): Promise<void> {
-  const tenantId = tenantB;
-  await tx.insert(tenants).values({ id: tenantId, name: "b" });
-  await tx.insert(mailboxes).values({ id: b.mailbox, tenantId, address: "support@b.test" });
-  await tx
-    .insert(memberships)
-    .values({ id: b.membership, tenantId, userId: b.userId, role: "owner" });
-  await tx.insert(customers).values({ id: b.customer, tenantId, email: "jane@customer.test" });
-  await tx.insert(conversations).values({
-    id: b.conversation,
-    tenantId,
-    customerId: b.customer,
-    mailboxId: b.mailbox,
-    subject: "Help",
-  });
-  await tx.insert(messages).values({
-    id: b.message,
-    tenantId,
-    conversationId: b.conversation,
-    direction: "inbound",
-    fromAddress: "jane@customer.test",
-    toAddresses: ["support@b.test"],
-    subject: "Help",
-    references: [],
-    rawFileKey: `${tenantId}/raw`,
-    messageIdHeader: "<b@customer.test>",
-  });
-  await tx.insert(attachments).values({
-    id: b.attachment,
-    tenantId,
-    messageId: b.message,
-    contentType: "text/plain",
-    sizeBytes: 1,
-    fileKey: `${tenantId}/file`,
-  });
-  await tx.insert(drafts).values({
-    id: b.draft,
-    tenantId,
-    conversationId: b.conversation,
-    messageId: b.message,
-    body: "Hi Jane",
-  });
-  await tx.insert(aiUsage).values({ tenantId, day: "2026-11-07", inputTokens: 10 });
-  await tx.insert(knowledgeSources).values({
-    id: b.source,
-    tenantId,
-    slug: "refunds",
-    kind: "markdown",
-    title: "B's refund policy",
-    content: "Refunds take 5 days.",
-  });
-  await tx.insert(knowledgeChunks).values({
-    id: b.chunk,
-    tenantId,
-    sourceId: b.source,
-    position: 0,
-    content: "Refunds take 5 days.",
-    embedding: axis(7),
-    embeddingModel: "test/model",
-  });
-  await tx.insert(draftCitations).values({
-    id: b.citation,
-    tenantId,
-    draftId: b.draft,
-    sourceId: b.source,
-    title: "B's refund policy",
-    visibility: "internal",
-    excerpt: "Refunds take 5 days.",
-    rank: 0,
-    cited: true,
-  });
-  await tx.insert(apiTokens).values({
-    id: b.token,
-    tenantId,
-    name: "b-bot",
-    tokenHash: b.tokenHash,
-    scopes: ["conversations:read"],
-  });
-  await tx.insert(integrations).values({
-    tenantId,
-    provider: "github",
-    repo: "b-corp/app",
-    tokenCiphertext: "v1.sealed-token",
-    webhookSecretCiphertext: "v1.sealed-secret",
-  });
-  await tx.insert(conversationGithubIssues).values({
-    tenantId,
-    conversationId: b.conversation,
-    repo: "b-corp/app",
-    issueNumber: 7,
-    issueUrl: "https://github.com/b-corp/app/issues/7",
-    state: "open",
-  });
-  await tx.insert(auditEvents).values({
-    id: b.auditEvent,
-    tenantId,
-    actorType: "system",
-    actorId: "draft-reply",
-    action: "draft.created",
-    targetType: "draft",
-    targetId: b.draft,
-  });
-}
+const dataModelDoc = new URL("../../../docs/architecture/data-model.md", import.meta.url);
 
 /** A minimal conversation in tenant A, so A-side tests have something valid to point at. */
 async function seedConversationInA(tx: TenantTx, address: string) {
@@ -183,8 +62,7 @@ beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
-  b.userId = (await auth.ensureUser("owner@b.test")).id;
-  await db.withTenant(tenantB, seedB);
+  b = await seedLeakTenant(db, auth, { tenantId: tenantB, tag: "leak-b" });
   await db.withTenant(tenantA, (tx) => tx.insert(tenants).values({ id: tenantA, name: "a" }));
 });
 
@@ -194,51 +72,103 @@ afterAll(async () => {
   await testDb?.stop();
 });
 
-const tables = {
-  mailboxes,
-  memberships,
-  customers,
-  conversations,
-  messages,
-  attachments,
-  drafts,
-  aiUsage,
-  knowledgeSources,
-  knowledgeChunks,
-  draftCitations,
-  integrations,
-  conversationGithubIssues,
-} as const;
+describe("leak: every public table, acting as tenant A", () => {
+  const ownerColumn = (table: string) => (table === "tenants" ? "id" : "tenant_id");
 
-describe("leak: acting as tenant A", () => {
-  for (const [name, table] of Object.entries(tables)) {
-    it(`cannot read B's ${name}`, async () => {
-      const rows = await db.withTenant(tenantA, (tx) => tx.select().from(table));
-      expect(rows).toEqual([]);
-    });
+  const asA = <T>(fn: (tx: TenantTx) => Promise<T>) => db.withTenant(tenantA, fn);
+  const asB = <T>(fn: (tx: TenantTx) => Promise<T>) => db.withTenant(tenantB, fn);
 
-    it(`cannot update or delete B's ${name}`, async () => {
-      const changed = await db.withTenant(tenantA, async (tx) => {
-        const updated = await tx.update(table).set({ updatedAt: new Date() }).returning();
-        const deleted = await tx.delete(table).returning();
-        return updated.length + deleted.length;
-      });
-      expect(changed).toBe(0);
-      const stillThere = await db.withTenant(tenantB, (tx) => tx.select().from(table));
-      expect(stillThere).toHaveLength(1);
-    });
+  async function countOwned(
+    run: <T>(fn: (tx: TenantTx) => Promise<T>) => Promise<T>,
+    table: string,
+  ): Promise<number> {
+    const column = sql.identifier(ownerColumn(table));
+    const [row] = await run((tx) =>
+      tx.execute<{ n: number }>(
+        sql`select count(*)::int as n from ${sql.identifier(table)} where ${column} = ${tenantB}::uuid`,
+      ),
+    );
+    return row?.n ?? -1;
   }
 
-  // Not in `tables`: the app role can't UPDATE or DELETE audit events at all (schema.test.ts).
-  it("cannot read B's audit_events", async () => {
-    const rows = await db.withTenant(tenantA, (tx) => tx.select().from(auditEvents));
-    expect(rows).toEqual([]);
+  async function write(kind: "update" | "delete", table: string) {
+    const t = sql.identifier(table);
+    const c = sql.identifier(ownerColumn(table));
+    const statement =
+      kind === "update"
+        ? sql`update ${t} set ${c} = ${c} where ${c} = ${tenantB}::uuid`
+        : sql`delete from ${t} where ${c} = ${tenantB}::uuid`;
+    // Its own transaction: a refused statement aborts the one it ran in.
+    return asA((tx) =>
+      tx.execute<{ n: number }>(
+        sql`with changed as (${statement} returning 1) select count(*)::int as n from changed`,
+      ),
+    ).then(
+      (rows) => ({ changed: rows[0]?.n ?? -1 }),
+      (error: unknown) => ({ refused: sqlState(error) }),
+    );
+  }
+
+  it("every table has a row for tenant B, so the checks below can't pass on nothing", async () => {
+    const snapshot = await tenantSnapshot(testDb.ownerUrl, tenantB);
+    expect(
+      uncoveredTables(snapshot),
+      "these tables have no row in the seeded tenant: add one for each in seedLeakTenant (packages/db/src/testing.ts)",
+    ).toEqual([]);
   });
 
-  // Not in `tables`: the app role can't DELETE tokens at all (schema.test.ts).
-  it("cannot read or revoke B's api_tokens", async () => {
-    const seen = await db.withTenant(tenantA, (tx) => tx.select().from(apiTokens));
-    expect(seen).toEqual([]);
+  it("can't read B's rows in any table, while B can", async () => {
+    const snapshot = await tenantSnapshot(testDb.ownerUrl, tenantB);
+    expect(Object.keys(snapshot).length).toBeGreaterThan(10);
+    for (const table of Object.keys(snapshot)) {
+      expect(await countOwned(asA, table), `${table}: A sees B's rows`).toBe(0);
+      expect(await countOwned(asB, table), `${table}: B sees none of its own rows`).toBeGreaterThan(
+        0,
+      );
+    }
+  });
+
+  it("can't update or delete B's rows in any table, and B's data is unchanged", async () => {
+    const before = await tenantSnapshot(testDb.ownerUrl, tenantB);
+    for (const table of Object.keys(before)) {
+      for (const kind of ["update", "delete"] as const) {
+        const outcome = await write(kind, table);
+        const ok =
+          "refused" in outcome ? outcome.refused === insufficientPrivilege : outcome.changed === 0;
+        expect(ok, `${table}: A's ${kind} of B's rows gave ${JSON.stringify(outcome)}`).toBe(true);
+      }
+    }
+    expect(await tenantSnapshot(testDb.ownerUrl, tenantB)).toEqual(before);
+  });
+
+  it("is told when a table has no row in the seeded tenant", async () => {
+    const owner = postgres(testDb.ownerUrl, { max: 1, onnotice: () => {} });
+    try {
+      await owner`create table leak_fixture_uncovered (id uuid primary key, tenant_id uuid not null)`;
+      try {
+        const snapshot = await tenantSnapshot(testDb.ownerUrl, tenantB);
+        expect(uncoveredTables(snapshot)).toEqual(["leak_fixture_uncovered"]);
+      } finally {
+        await owner`drop table leak_fixture_uncovered`;
+      }
+    } finally {
+      await owner.end({ timeout: 5 });
+    }
+  });
+
+  it("has every table described in docs/architecture/data-model.md", async () => {
+    const doc = readFileSync(dataModelDoc, "utf8");
+    const snapshot = await tenantSnapshot(testDb.ownerUrl, tenantB);
+    const undocumented = Object.keys(snapshot).filter((table) => !doc.includes(`\`${table}\``));
+    expect(
+      undocumented,
+      "document each of these tables in docs/architecture/data-model.md, with its name in backticks",
+    ).toEqual([]);
+  });
+});
+
+describe("leak: acting as tenant A", () => {
+  it("cannot revoke B's api_tokens", async () => {
     const revoked = await db.withTenant(tenantA, (tx) =>
       tx.update(apiTokens).set({ revokedAt: new Date() }).returning(),
     );
@@ -260,7 +190,7 @@ describe("leak: acting as tenant A", () => {
         await seedConversationInA(tx, "fk@a.test");
         await tx.insert(messages).values({
           tenantId: tenantA,
-          conversationId: b.conversation,
+          conversationId: b.ids.conversation,
           direction: "inbound",
           fromAddress: "x@c.test",
           toAddresses: [],
@@ -272,12 +202,12 @@ describe("leak: acting as tenant A", () => {
     ).rejects.toThrow();
   });
 
-  it("vector search as A returns no B embeddings", async () => {
+  it("leak: vector search as A returns no B embeddings", async () => {
     const hits = await db.withTenant(tenantA, (tx) =>
       searchKnowledge(tx, {
         tenantId: tenantA,
-        embedding: axis(7),
-        embeddingModel: "test/model",
+        embedding: unitVector(leakEmbeddingAxis),
+        embeddingModel: leakEmbeddingModel,
         limit: 20,
       }),
     );
@@ -289,8 +219,8 @@ describe("leak: acting as tenant A", () => {
     const hits = await db.withTenant(tenantA, (tx) =>
       searchKnowledge(tx, {
         tenantId: tenantB,
-        embedding: axis(7),
-        embeddingModel: "test/model",
+        embedding: unitVector(leakEmbeddingAxis),
+        embeddingModel: leakEmbeddingModel,
         limit: 20,
       }),
     );
@@ -298,12 +228,12 @@ describe("leak: acting as tenant A", () => {
     const own = await db.withTenant(tenantB, (tx) =>
       searchKnowledge(tx, {
         tenantId: tenantB,
-        embedding: axis(7),
-        embeddingModel: "test/model",
+        embedding: unitVector(leakEmbeddingAxis),
+        embeddingModel: leakEmbeddingModel,
         limit: 20,
       }),
     );
-    expect(own.map((h) => h.chunkId)).toEqual([b.chunk]);
+    expect(own.map((h) => h.chunkId)).toEqual([b.ids.chunk]);
   });
 
   it("cannot attach B's knowledge chunk to a source in A, even with its ID", async () => {
@@ -315,11 +245,11 @@ describe("leak: acting as tenant A", () => {
           .returning({ id: knowledgeSources.id });
         await tx.insert(knowledgeChunks).values({
           tenantId: tenantA,
-          sourceId: b.source,
+          sourceId: b.ids.source,
           position: 0,
           content: `x${source?.id}`,
-          embedding: axis(1),
-          embeddingModel: "test/model",
+          embedding: unitVector(1),
+          embeddingModel: leakEmbeddingModel,
         });
       }),
     ).rejects.toThrow();
@@ -363,7 +293,7 @@ describe("leak: acting as tenant A", () => {
         await tx.insert(draftCitations).values({ ...citation, sourceId: null, rank: 0 });
         await expect(
           tx.transaction((sp) =>
-            sp.insert(draftCitations).values({ ...citation, sourceId: b.source, rank: 1 }),
+            sp.insert(draftCitations).values({ ...citation, sourceId: b.ids.source, rank: 1 }),
           ),
         ).rejects.toSatisfy((e: unknown) =>
           /draft_citations_source_fk/.test(String(e instanceof Error ? (e.cause ?? e) : e)),
@@ -378,7 +308,7 @@ describe("leak: acting as tenant A", () => {
     await db.withTenant(tenantA, (tx) =>
       tx.insert(knowledgeSources).values({
         tenantId: tenantA,
-        slug: "refunds",
+        slug: b.sourceSlug,
         kind: "url",
         title: "A's refunds",
         url: "https://a.test/refunds",
@@ -388,17 +318,17 @@ describe("leak: acting as tenant A", () => {
 
   it("fetching B's conversation ID finds nothing, same as an unknown ID", async () => {
     const rows = await db.withTenant(tenantA, (tx) =>
-      tx.select().from(conversations).where(eq(conversations.id, b.conversation)),
+      tx.select().from(conversations).where(eq(conversations.id, b.ids.conversation)),
     );
     expect(rows).toEqual([]);
   });
 
-  it("creating a customer with B's email succeeds in A", async () => {
+  it("leak: creating a customer with B's email succeeds in A", async () => {
     await db.withTenant(tenantA, (tx) =>
-      tx.insert(customers).values({ tenantId: tenantA, email: "jane@customer.test" }),
+      tx.insert(customers).values({ tenantId: tenantA, email: b.customerEmail }),
     );
     const mine = await db.withTenant(tenantA, (tx) =>
-      tx.select().from(customers).where(eq(customers.email, "jane@customer.test")),
+      tx.select().from(customers).where(eq(customers.email, b.customerEmail)),
     );
     expect(mine).toHaveLength(1);
   });
@@ -416,7 +346,7 @@ describe("leak: acting as tenant A", () => {
         subject: "x",
         references: [],
         rawFileKey: "k",
-        messageIdHeader: "<b@customer.test>",
+        messageIdHeader: b.messageIdHeader,
       });
     });
   });
@@ -424,9 +354,9 @@ describe("leak: acting as tenant A", () => {
 
 describe("mailbox routing", () => {
   it("resolves an address to its tenant, case-insensitively", async () => {
-    expect(await db.resolveMailbox(" Support@B.test ")).toEqual({
+    expect(await db.resolveMailbox(` ${b.mailboxAddress.toUpperCase()} `)).toEqual({
       tenantId: tenantB,
-      mailboxId: b.mailbox,
+      mailboxId: b.ids.mailbox,
     });
   });
 
@@ -436,16 +366,16 @@ describe("mailbox routing", () => {
 
   it("shows only the asked-for mailbox, never the others", async () => {
     const rows = await db.withTenant(uuidv7(), async (tx) => {
-      await tx.execute(sql`select set_config('app.mailbox_address', 'support@b.test', true)`);
+      await tx.execute(sql`select set_config('app.mailbox_address', ${b.mailboxAddress}, true)`);
       return tx.select().from(mailboxes);
     });
-    expect(rows.map((r) => r.address)).toEqual(["support@b.test"]);
+    expect(rows.map((r) => r.address)).toEqual([b.mailboxAddress]);
   });
 
   it("reports a taken address as a unique violation, without saying who owns it", async () => {
     const error = await db
       .withTenant(tenantA, (tx) =>
-        tx.insert(mailboxes).values({ tenantId: tenantA, address: "support@b.test" }),
+        tx.insert(mailboxes).values({ tenantId: tenantA, address: b.mailboxAddress }),
       )
       .then(
         () => undefined,
@@ -458,9 +388,9 @@ describe("mailbox routing", () => {
 describe("agent token lookup", () => {
   it("resolves a hash to its token and workspace", async () => {
     expect(await db.resolveApiToken(b.tokenHash)).toEqual({
-      id: b.token,
+      id: b.ids.token,
       tenantId: tenantB,
-      name: "b-bot",
+      name: b.tokenName,
       tokenHash: b.tokenHash,
       scopes: ["conversations:read"],
       revokedAt: null,
@@ -470,7 +400,7 @@ describe("agent token lookup", () => {
   it("returns null for an unknown or malformed hash", async () => {
     expect(await db.resolveApiToken("c".repeat(64))).toBeNull();
     expect(await db.resolveApiToken("")).toBeNull();
-    expect(await db.resolveApiToken("B".repeat(64))).toBeNull();
+    expect(await db.resolveApiToken(b.tokenHash.toUpperCase())).toBeNull();
   });
 
   it("shows only the asked-for token, never the others", async () => {
@@ -486,7 +416,7 @@ describe("agent token lookup", () => {
       await tx.execute(sql`select set_config('app.token_hash', ${b.tokenHash}, true)`);
       return tx.select().from(apiTokens);
     });
-    expect(rows.map((r) => r.id)).toEqual([b.token]);
+    expect(rows.map((r) => r.id)).toEqual([b.ids.token]);
   });
 
   it("the hash policy only reads: it can't revoke B's token", async () => {
@@ -495,7 +425,7 @@ describe("agent token lookup", () => {
       return tx
         .update(apiTokens)
         .set({ revokedAt: new Date() })
-        .where(eq(apiTokens.id, b.token))
+        .where(eq(apiTokens.id, b.ids.token))
         .returning();
     });
     expect(revoked).toEqual([]);
@@ -503,39 +433,40 @@ describe("agent token lookup", () => {
   });
 });
 
-describe("auth tables (ADR 0009 §1)", () => {
-  for (const table of ["users", "sessions", "accounts", "verifications"]) {
-    it(`leak: auth.${table} is not readable by the app role`, async () => {
+describe("auth tables", () => {
+  it("leak: auth tables are not readable by the app role", async () => {
+    for (const table of ["users", "sessions", "accounts", "verifications"]) {
       await expect(
         db.withTenant(tenantA, (tx) =>
           tx.execute(sql`select * from ${sql.identifier("auth")}.${sql.identifier(table)}`),
         ),
+        `auth.${table}`,
       ).rejects.toThrow();
-    });
-  }
+    }
+  });
 
   it("leak: memberships lists only my own rows across tenants", async () => {
     const other = await auth.ensureUser("someone@a.test");
     await db.withTenant(tenantA, (tx) =>
       tx.insert(memberships).values({ tenantId: tenantA, userId: other.id, role: "member" }),
     );
-    expect(await db.listMemberships(b.userId)).toEqual([{ tenantId: tenantB, role: "owner" }]);
+    expect(await db.listMemberships(b.ownerUserId)).toEqual([{ tenantId: tenantB, role: "owner" }]);
     expect(await db.listMemberships(other.id)).toEqual([{ tenantId: tenantA, role: "member" }]);
   });
 
   it("leak: a user of B has no membership when acting as A", async () => {
     const rows = await db.withTenant(tenantA, (tx) =>
-      tx.select().from(memberships).where(eq(memberships.userId, b.userId)),
+      tx.select().from(memberships).where(eq(memberships.userId, b.ownerUserId)),
     );
     expect(rows).toEqual([]);
   });
 
   it("ensureUser is idempotent and normalises case", async () => {
-    expect((await auth.ensureUser("Owner@B.test")).id).toBe(b.userId);
+    expect((await auth.ensureUser("Owner@Leak-B.test")).id).toBe(b.ownerUserId);
   });
 
   it("emailsOf returns only the emails of the IDs given", async () => {
-    expect(await auth.emailsOf([b.userId])).toEqual(["owner@b.test"]);
+    expect(await auth.emailsOf([b.ownerUserId])).toEqual(["owner@leak-b.test"]);
     expect(await auth.emailsOf([])).toEqual([]);
   });
 

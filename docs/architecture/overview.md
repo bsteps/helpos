@@ -119,28 +119,13 @@ The AI only fills text fields, and the API sends GitHub only a title and a body,
 
 ## Core data model
 
-Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
+Every tenant table has `tenant_id` with RLS enabled and forced (ADR 0003), except `tenants` itself, and users live in the separate `auth` schema (ADR 0009), linked to workspaces by `memberships`. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
 
-| Table                        | What it is                                                                                                             |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `tenants`                    | A workspace (the UI says "workspace")                                                                                  |
-| `users`                      | Humans (Better Auth tables in the `auth` schema, no `tenant_id`)                                                       |
-| `memberships`                | Which workspaces a user belongs to (tenant table, RLS)                                                                 |
-| `mailboxes`                  | Support addresses. Inbound mail is routed to a tenant by address                                                       |
-| `customers`                  | People who write in                                                                                                    |
-| `conversations`              | A conversation with a customer                                                                                         |
-| `messages`                   | Inbound and outbound emails on a conversation                                                                          |
-| `attachments`                | Metadata; the bytes live in the files adapter                                                                          |
-| `drafts`                     | Replies and "fixed" notices: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed |
-| `draft_citations`            | Knowledge passages a draft was written with, and which it cited                                                        |
-| `knowledge_sources`          | Pages and docs for the AI, `public` or `internal`; app or git (ADR 0010)                                               |
-| `knowledge_chunks`           | Embedded passages of a source (pgvector, searched per ADR 0009 §4)                                                     |
-| `api_tokens`                 | Agent tokens: hashed, scoped, revocable (`hos_…`)                                                                      |
-| `audit_events`               | Append-only log of every human and agent action                                                                        |
-| `integrations`               | The linked GitHub repo, its token and webhook secret (both encrypted)                                                  |
-| `conversation_github_issues` | The GitHub issue made from a conversation, and whether it's open or closed                                             |
+Each table, its owner column, the roles and special grants, and how to add a table are in [data-model.md](data-model.md). A leak test keeps that page complete.
 
 ## Trust boundaries
+
+The [threat model](../security/threat-model.md) maps every boundary, the threats that cross it, and the rules the gate must hold. The list below is what holds in the MVP.
 
 1. **Everything that comes in is data, never instructions** (ADR 0004): emails, attachments, GitHub text, imported pages. It is quoted to the AI, never merged into its instructions, and AI output can't trigger an action without the policy and approval path.
 2. **Every request is authenticated.** Humans use a Better Auth session: an HttpOnly, SameSite=Lax cookie from `POST /v1/auth/sign-in`, resolved to the user's oldest membership. A cookie-authenticated write whose `Origin` isn't the dashboard's is refused (CSRF). There is no sign-up: `pnpm helpos:init` prints a one-time link (token in the URL fragment, stored only hashed) for the owner to set a password. Agents use a scoped `hos_` token. Webhooks use a shared secret or HMAC signature. Each one resolves to _tenant + actor + scopes_ before any data access. A token is stored only as its SHA-256 and looked up by that hash through a read-only policy that shows the one matching row, the same way inbound mail finds its mailbox. Tokens are created by a human with `workspace:admin`, never by another token, can't hold `workspace:admin` themselves, and are revoked rather than deleted, so the audit log can always name the agent. The operator can also create them with `pnpm helpos:token`.
@@ -165,5 +150,6 @@ The MVP is a demo to learn from, **not a release**. To stay small, it takes some
 ## Where to read more
 
 - Decisions: [`docs/adr/`](../adr/)
+- What is in the database and who may touch it: [`data-model.md`](data-model.md)
 - What PR reviews check, as checklists for authors and the AI checks: [`docs/checks/`](../checks/README.md)
 - What we build, in which order: [`docs/roadmap.md`](../roadmap.md) (one GitHub milestone per set)

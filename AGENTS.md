@@ -12,6 +12,15 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 2. Work on a branch named after the GitHub issue: `<issue-number>-<short-slug>` (e.g. `7-tenant-wrapper`). Never commit to `main`.
 3. Keep the PR to one issue and one idea.
 
+## How agents work here
+
+Every agent works the same way here, whether it is Claude Code, Codex, Antigravity or another tool.
+
+- Start every task with `/pstack:poteto-mode` (`/poteto-mode` where skills load without the `pstack:` prefix, as in Antigravity), and follow the playbook it picks (Feature, Bug fix, Refactoring and the others).
+- Do cleanup work with the Refactoring playbook. Pin the current behaviour with a test first, then reshape the code.
+- To check a change the way a user would, run the `verify-helpos` skill (`.claude/skills/verify-helpos/`).
+- Before every PR, run `/deslop` and `/no-comments` over the diff. Write the PR description with the `technical-writing` and `unslop` skills.
+
 ## Commands
 
 ```bash
@@ -55,7 +64,7 @@ When a rule here has a check, the check is the rule: if you hit it, do what its 
 | Raw database client, `drizzle-orm` and `pg-boss` only inside `packages/db`                                                                                                                                          | Biome `noRestrictedImports` (`biome.json`)                                                                                     |
 | Every public table has RLS enabled, forced and a policy; a table without `tenant_id` is listed with the reason                                                                                                      | `packages/db/src/schema.test.ts`                                                                                               |
 | Views are `security_invoker`; `SECURITY DEFINER` only from the allowlist                                                                                                                                            | `packages/db/src/schema.test.ts`                                                                                               |
-| Tenant A can't read, change or guess tenant B's rows                                                                                                                                                                | `packages/db/src/leak.test.ts`                                                                                                 |
+| Tenant A can't read, change or guess tenant B's rows. A new table needs a row in `seedLeakTenant` and a line in `docs/architecture/data-model.md`                                                                   | `packages/db/src/leak.test.ts`, `apps/server/src/leak.int.test.ts`, `scripts/adr-0009-tests.test.mjs`                          |
 | Every API route says who may call it (`access`), checked before the body is read                                                                                                                                    | `apiRoute()` type in `apps/server/src/auth/access.ts`, Biome (no raw `createRoute`), `access.test.ts` sweep                    |
 | Routes under `/v1/conversations/{id}` need `conversations:read`                                                                                                                                                     | `apps/server/src/auth/access.test.ts`                                                                                          |
 | Data a route shows only to some callers needs a `Grant` (a draft's knowledge needs `knowledge:read`)                                                                                                                | `Grant` type in `apps/server/src/auth/access.ts`                                                                               |
