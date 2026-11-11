@@ -14,10 +14,11 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
+import type { AiBudget } from "../ai-budget/budget.ts";
 import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
 import { clearAiPause, markMessageSent, recordActivity } from "../conversations/lifecycle.ts";
 import { mailboxDomain, outboundMessageId } from "../outbound-email/composer.ts";
-import { sendReplyJob } from "./jobs.ts";
+import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
 // The one module that writes the drafts table. Routes and workers call the operations below,
@@ -388,6 +389,47 @@ export async function liveDraftFor(
     .where(and(eq(drafts.messageId, messageId), eq(drafts.kind, kind), draftWhere.live(kind)))
     .limit(1);
   return live;
+}
+
+export type RegenerateResult =
+  | { outcome: "queued"; discardedDraftIds: string[] }
+  | {
+      outcome:
+        | "not_found"
+        | "nothing_to_answer"
+        | "already_answered"
+        | "conversation_closed"
+        | "daily_budget_reached";
+    };
+
+export async function regenerateDraft(
+  tx: TenantTx,
+  context: AuditContext,
+  conversationId: string,
+  budget: Pick<AiBudget, "today">,
+): Promise<RegenerateResult> {
+  const lock = await lockConversationForDrafting(tx, conversationId);
+  if (!lock) return { outcome: "not_found" };
+  const messageId = lock.answering;
+  if (!messageId) return { outcome: "nothing_to_answer" };
+  const live = await liveDraftFor(tx, messageId, "reply");
+  if (live && !isPendingDraft(live)) return { outcome: "already_answered" };
+  if (lock.closed) return { outcome: "conversation_closed" };
+  if ((await budget.today(tx, context.tenantId)).paused) {
+    return { outcome: "daily_budget_reached" };
+  }
+  const discardedDraftIds = await discardStale(tx, context, {
+    conversationIds: [conversationId],
+    kind: "reply",
+  });
+  await clearAiPause(tx, conversationId, "draft_failed");
+  await enqueue(
+    tx,
+    draftReplyJob,
+    { tenantId: context.tenantId, messageId },
+    { singletonKey: messageId },
+  );
+  return { outcome: "queued", discardedDraftIds };
 }
 
 /** Saves a new pending draft, queues the owners' notice, and records it. */
