@@ -18,12 +18,8 @@ async function sqlFiles(dir: string): Promise<string[]> {
   return (await readdir(dir)).filter((name) => name.endsWith(".sql")).sort();
 }
 
-/**
- * Runs `drizzle-kit generate` against a copy of the committed migrations and returns the SQL
- * of any migration it wrote, with what it printed. Nothing is written to the real folder.
- * The copy lives inside the package because drizzle-kit reads `--out` relative to its working
- * directory and, given a path it can't open, prints the error and still exits 0.
- */
+// drizzle-kit reads `--out` relative to its working directory and, given a path it can't
+// open, prints the error and still exits 0. So the copy lives inside the package.
 async function generateAgainstCopy(): Promise<{
   written: { file: string; sql: string }[];
   stdout: string;
@@ -32,7 +28,7 @@ async function generateAgainstCopy(): Promise<{
   try {
     await cp(migrationsDir, out, { recursive: true });
     const before = new Set(await sqlFiles(out));
-    const run = promisify(execFile)(
+    const { stdout } = await promisify(execFile)(
       process.execPath,
       [
         drizzleKit,
@@ -46,9 +42,6 @@ async function generateAgainstCopy(): Promise<{
       ],
       { cwd: packageDir, timeout: 60_000 },
     );
-    // A rename question would wait on a terminal that isn't there.
-    run.child.stdin?.end();
-    const { stdout } = await run;
     const files = (await sqlFiles(out)).filter((file) => !before.has(file));
     const written = await Promise.all(
       files.map(async (file) => ({ file, sql: await readFile(join(out, file), "utf8") })),
@@ -84,8 +77,6 @@ describe("migrating a database that is already migrated", () => {
     await testDb?.stop();
   });
 
-  // Everything the migrate step sets up, as text: objects, definitions, grants and the
-  // records of what has been applied. Two equal lists mean nothing changed.
   async function fingerprint(): Promise<string[]> {
     const catalog = await owner<{ line: string }[]>`
       select line from (
