@@ -158,6 +158,7 @@ export async function startTestDatabase(): Promise<TestDatabase> {
 
 export const leakEmbeddingAxis = 7;
 export const leakEmbeddingModel = "test/model";
+export const leakFixtureDay = "2026-11-07";
 
 export function unitVector(axis: number): number[] {
   const v = new Array<number>(knowledgeEmbeddingDimensions).fill(0);
@@ -197,7 +198,12 @@ export interface LeakTenant {
 export async function seedLeakTenant(
   db: Pick<Database, "withTenant">,
   auth: Pick<AuthStore, "ensureUser">,
-  input: { tenantId: string; tag: string },
+  input: {
+    tenantId: string;
+    tag: string;
+    inputTokens?: number;
+    draftStatus?: "pending" | "discarded";
+  },
 ): Promise<LeakTenant> {
   const { tenantId, tag } = input;
   const user = await auth.ensureUser(`owner@${tag}.test`);
@@ -232,7 +238,9 @@ export async function seedLeakTenant(
   const { ids } = seeded;
   const repo = `${tag}-corp/app`;
   await db.withTenant(tenantId, async (tx) => {
-    await tx.insert(tenants).values({ id: tenantId, name: `${tag} workspace` });
+    await tx
+      .insert(tenants)
+      .values({ id: tenantId, name: `${tag} workspace`, shadowRecipient: `owner@${tag}.test` });
     await tx
       .insert(mailboxes)
       .values({ id: ids.mailbox, tenantId, address: seeded.mailboxAddress });
@@ -281,10 +289,15 @@ export async function seedLeakTenant(
       ticketId: ids.ticket,
       messageId: ids.message,
       body: `Hi from ${tag}`,
+      status: input.draftStatus ?? "pending",
+      createdAt: new Date(`${leakFixtureDay}T00:00:00Z`),
     });
-    await tx
-      .insert(aiUsage)
-      .values({ id: ids.aiUsage, tenantId, day: "2026-11-07", inputTokens: 10 });
+    await tx.insert(aiUsage).values({
+      id: ids.aiUsage,
+      tenantId,
+      day: leakFixtureDay,
+      inputTokens: input.inputTokens ?? 10,
+    });
     await tx.insert(knowledgeSources).values({
       id: ids.source,
       tenantId,

@@ -11,6 +11,7 @@ import {
 } from "@helpos/db";
 import {
   type LeakTenant,
+  leakFixtureDay,
   seedLeakTenant,
   startTestDatabase,
   type TestDatabase,
@@ -28,6 +29,8 @@ import { createSecretBox } from "./secrets/secret-box.ts";
 import { composeServices, defaultConfig } from "./services.ts";
 
 const bTag = "leak-b";
+const aInputTokens = 17;
+const bInputTokens = 987654;
 
 const sampleBodies: Record<string, unknown> = {
   "POST /v1/inbound/email": `From: x@elsewhere.test\r\nTo: support@${bTag}.test\r\nSubject: hi\r\nMessage-ID: <leak-probe@elsewhere.test>\r\n\r\nhello`,
@@ -141,8 +144,17 @@ beforeAll(async () => {
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
   await ensureJobQueues(runner, defaultConfig);
-  a = await seedLeakTenant(db, auth, { tenantId: uuidv7(), tag: "leak-a" });
-  b = await seedLeakTenant(db, auth, { tenantId: uuidv7(), tag: bTag });
+  a = await seedLeakTenant(db, auth, {
+    tenantId: uuidv7(),
+    tag: "leak-a",
+    inputTokens: aInputTokens,
+  });
+  b = await seedLeakTenant(db, auth, {
+    tenantId: uuidv7(),
+    tag: bTag,
+    inputTokens: bInputTokens,
+    draftStatus: "discarded",
+  });
   before = await tenantSnapshot(testDb.ownerUrl, b.tenantId);
   bIds = uuidsIn(before);
   markers = [b.tag, ...bIds];
@@ -155,6 +167,7 @@ beforeAll(async () => {
       secretBox: createSecretBox(randomBytes(32)),
       model: mockModel({ text: "{}" }),
       github,
+      clock: { now: () => new Date(`${leakFixtureDay}T12:00:00Z`) },
     }),
     {
       authenticate: async (request) => {
@@ -191,6 +204,69 @@ async function send(op: Operation, caller: Caller, id?: string) {
 }
 
 type Reply = { status: number; text: string };
+type ExpectedReply = { status: number; body?: Record<string, unknown>; contains?: string };
+
+function expectedReplies(caller: Caller): Record<string, ExpectedReply> {
+  const sessionRequired = { status: 403, body: { error: "session_required" } };
+  const human = (reply: ExpectedReply) => (caller === "user" ? reply : sessionRequired);
+  return {
+    "POST /v1/inbound/email": { status: 401, body: { error: "unauthorized" } },
+    "POST /v1/auth/sign-in": { status: 503, body: { error: "sessions_disabled" } },
+    "POST /v1/auth/sign-out": { status: 503, body: { error: "sessions_disabled" } },
+    "POST /v1/auth/password": { status: 503, body: { error: "sessions_disabled" } },
+    "GET /v1/me": { status: 200, body: { workspace: { id: a.tenantId } } },
+    "POST /v1/tokens": human({
+      status: 201,
+      body: { name: "leak-probe", scopes: ["tickets:read"] },
+    }),
+    "GET /v1/tokens": human({ status: 200, contains: a.ids.token }),
+    "GET /v1/tickets": { status: 200, contains: a.ids.ticket },
+    "GET /v1/ai-usage": {
+      status: 200,
+      body: {
+        day: leakFixtureDay,
+        inputTokens: aInputTokens,
+        outputTokens: 0,
+        totalTokens: aInputTokens,
+        calls: 0,
+        dailyTokenBudget: defaultConfig.dailyTokenBudget,
+        remainingTokens: defaultConfig.dailyTokenBudget - aInputTokens,
+        paused: false,
+      },
+    },
+    "GET /v1/knowledge/sources": { status: 200, contains: a.ids.source },
+    "POST /v1/knowledge/sources": { status: 201, body: { title: "Probe" } },
+    "GET /v1/stats/drafts": {
+      status: 200,
+      body: {
+        approvedUnchanged: 0,
+        approvedEdited: 0,
+        discarded: 0,
+        pending: 1,
+        unchangedRate: null,
+      },
+    },
+    "GET /v1/workspace/shadow-mode": {
+      status: 200,
+      body: { enabled: true, recipient: `owner@${a.tag}.test` },
+    },
+    "PATCH /v1/workspace/shadow-mode": {
+      status: 200,
+      body: { enabled: true, recipient: "probe@leak-a.test" },
+    },
+    "GET /v1/integrations/github": {
+      status: 200,
+      body: { connected: true, repo: `${a.tag}-corp/app` },
+    },
+    "PUT /v1/integrations/github": human({ status: 422, body: { error: "token_rejected" } }),
+    "DELETE /v1/integrations/github": human({ status: 204 }),
+    "POST /v1/integrations/github/webhook-secret": human({
+      status: 404,
+      body: { error: "not_connected" },
+    }),
+    "POST /v1/integrations/github/webhook": { status: 401, body: { error: "unauthorized" } },
+  };
+}
 
 function expectNoLeak(reply: Reply, what: string): void {
   const found = markers.filter((m) => reply.text.includes(m));
@@ -229,7 +305,14 @@ describe("leak: every API operation, called as tenant A", () => {
     for (const caller of callers) {
       const who = `${op.method} ${op.path} as ${caller}`;
       if (op.pathParams.length === 0) {
-        expectNoLeak(await send(op, caller), who);
+        const expected = expectedReplies(caller)[`${op.method} ${op.path}`];
+        if (!expected) throw new Error(`${who}: add an expected response to expectedReplies`);
+        const reply = await send(op, caller);
+        expectNoLeak(reply, who);
+        expect(reply.status, `${who}: ${reply.text}`).toBe(expected.status);
+        if (expected.body !== undefined)
+          expect(JSON.parse(reply.text), who).toMatchObject(expected.body);
+        if (expected.contains !== undefined) expect(reply.text, who).toContain(expected.contains);
         continue;
       }
       const unknownId = uuidv7();
