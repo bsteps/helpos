@@ -35,13 +35,12 @@ test("every screen is accessible and fits a phone with long content", async ({
           )
           .toEqual([]);
       } else {
-        const width = await page.evaluate(() => ({
-          content: document.documentElement.scrollWidth,
-          viewport: window.innerWidth,
-        }));
+        const viewport = page.viewportSize();
+        if (!viewport) throw new Error("Phone sweep requires a fixed viewport");
+        const contentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
         expect
-          .soft(width.content, `${screen}: horizontal overflow`)
-          .toBeLessThanOrEqual(width.viewport);
+          .soft(contentWidth, `${screen}: horizontal overflow`)
+          .toBeLessThanOrEqual(viewport.width);
       }
     });
   };
