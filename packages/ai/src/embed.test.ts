@@ -13,7 +13,7 @@ import {
   parseEmbeddingConfig,
 } from "./embed.ts";
 import { tokenBound } from "./estimate.ts";
-import fixtures from "./fixtures/token-counts.json";
+import fixtures from "./fixtures/token-counts.json" with { type: "json" };
 import { mockEmbedding, mockEmbeddingModel } from "./testing.ts";
 
 const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * (b[i] ?? 0), 0);
@@ -59,6 +59,21 @@ describe("embedTexts", () => {
         expect(result.tokens).toBeGreaterThanOrEqual(count);
     },
   );
+
+  it("adds reported usage and the bound for a later silent batch", async () => {
+    let calls = 0;
+    const model = new MockEmbeddingModelV4({
+      maxEmbeddingsPerCall: 1_000,
+      doEmbed: async ({ values }) => ({
+        embeddings: values.map(() => new Array(embeddingDimensions).fill(0.1)),
+        ...(calls++ === 0 ? { usage: { tokens: 7 } } : {}),
+        warnings: [],
+      }),
+    });
+    const texts = [...Array.from({ length: embedBatchSize }, () => "first"), "中文", "🙂"];
+    expect((await embedTexts(model, texts)).tokens).toBe(17);
+    expect(calls).toBe(2);
+  });
 
   it("makes no call for no texts", async () => {
     const model = mockEmbeddingModel();
