@@ -1,11 +1,12 @@
 import { quotesInternalPassage } from "@helpos/ai";
-import { and, asc, type Database, enqueue, eq, inArray, schema, type TenantTx } from "@helpos/db";
+import { asc, type Database, enqueue, eq, inArray, schema, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { aiBudget } from "../ai-budget/budget.ts";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute, Grant } from "../auth/access.ts";
 import type { Principal } from "../auth/principal.ts";
+import { clearAiPause } from "../conversations/lifecycle.ts";
 import {
   auditContext,
   errorSchema,
@@ -399,15 +400,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         });
         // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
         // shown while the new try runs, and a second failure sets it again for everyone to see.
-        await tx
-          .update(conversations)
-          .set({ aiPausedReason: null })
-          .where(
-            and(
-              eq(conversations.id, conversationId),
-              eq(conversations.aiPausedReason, "draft_failed"),
-            ),
-          );
+        await clearAiPause(tx, conversationId, "draft_failed");
         await enqueue(tx, draftReplyJob, { tenantId, messageId }, { singletonKey: messageId });
         // The AI's draft is audited when the worker writes it.
         if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");

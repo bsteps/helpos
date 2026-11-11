@@ -23,6 +23,7 @@
     "./biome-plugins/route-audit.grit",
     "./biome-plugins/github-integration.grit",
     "./biome-plugins/draft-writes.grit",
+    "./biome-plugins/conversation-writes.grit",
     "./biome-plugins/ai-usage.grit"
   ],
   "formatter": {

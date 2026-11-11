@@ -126,3 +126,41 @@ test("a route file past 600 lines is reported", () => {
   // Other files are not held to the limit.
   assert.ok(!lint(long, "helpers.ts").some((d) => d.category.endsWith("noExcessiveLinesPerFile")));
 });
+
+const conversationWriteMessage = /conversations\/lifecycle\.ts/;
+for (const table of ["conversations", "messages", "schema.conversations", "schema.messages"]) {
+  for (const operation of ["insert", "update", "delete"]) {
+    test(`conversation-writes.grit rejects ${operation}(${table}) in every caller`, () => {
+      const source = `export const f = (tx) => tx.${operation}(${table});\n`;
+      for (const file of [
+        "routes.ts",
+        "inbound-email/ingest.ts",
+        "drafts/send-worker.ts",
+        "seed/seed.ts",
+        "conversations/other.ts",
+        "workspaces/lifecycle.ts",
+      ]) {
+        assert.ok(
+          pluginMessages(source, file).some((m) => conversationWriteMessage.test(m)),
+          file,
+        );
+      }
+      assert.deepEqual(pluginMessages(source, "conversations/lifecycle.ts"), []);
+      assert.deepEqual(pluginMessages(source, "conversations/lifecycle.int.test.ts"), []);
+    });
+  }
+}
+
+test("conversation-writes.grit allows reads and unrelated table writes", () => {
+  assert.deepEqual(
+    pluginMessages(
+      "export const f = (tx) => tx.select().from(conversations);\n",
+      "inbound-email/ingest.ts",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    pluginMessages("export const f = (tx) => tx.update(customers);\n", "inbound-email/ingest.ts"),
+    [],
+  );
+});

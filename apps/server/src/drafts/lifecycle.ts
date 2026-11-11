@@ -15,6 +15,7 @@ import {
   uuidv7,
 } from "@helpos/db";
 import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
+import { clearAiPause, markMessageSent, recordActivity } from "../conversations/lifecycle.ts";
 import { mailboxDomain, outboundMessageId } from "../outbound-email/composer.ts";
 import { sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
@@ -279,11 +280,8 @@ export async function resolveUncertainSend(
   }
   if (input.decision === "mark_sent") {
     const sentAt = new Date();
-    await tx.update(messages).set({ sentAt }).where(eq(messages.id, draft.sentMessageId));
-    await tx
-      .update(conversations)
-      .set({ lastMessageAt: sentAt })
-      .where(eq(conversations.id, draft.conversationId));
+    await markMessageSent(tx, draft.sentMessageId, sentAt);
+    await recordActivity(tx, draft.conversationId, sentAt);
     return change(tx, context, "confirmSent", id, { sentAt, resendRequested: false });
   }
   const domain = input.messageId.slice(input.messageId.lastIndexOf("@") + 1, -1);
@@ -436,10 +434,7 @@ export async function createReply(
 ): Promise<DraftRow> {
   await discardStale(tx, context, { conversationIds: [input.conversationId], kind: "reply" });
   const draft = await insertPending(tx, context, { ...input, kind: "reply" });
-  await tx
-    .update(conversations)
-    .set({ aiPausedReason: null })
-    .where(eq(conversations.id, input.conversationId));
+  await clearAiPause(tx, input.conversationId);
   return draft;
 }
 
