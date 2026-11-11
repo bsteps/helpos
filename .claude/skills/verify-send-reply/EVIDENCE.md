@@ -1,5 +1,30 @@
 # Issue 130 verification
 
+## Issue 213 composer extraction
+
+The outbound composer now owns MIME construction, reply headers, notice headers and
+Message-ID formatting. Approval and explicit resend still allocate a UUID in their
+original transaction. The composer only formats that value with the original domain
+and prefix. Automatic retries still reuse the stored Message-ID.
+
+Semantic review compared `PersonApproves`, `PersonResolvesResend`,
+`WorkerLocksAndChecks`, `PreparationFails` and `WorkerRechecksMarker` with the
+extraction. MIME compilation still completes before the marker commit. SMTP, its
+second transaction, the attempt identity check, status guards and settlement have
+not moved. No model action or promise changes. Fingerprints also cover the extracted
+formatter and compiler. The real-code send-before-validation mutant now targets
+the renamed compiler call and must still fail both safety assertions.
+
+Five exact-byte fixtures in `fixtures/email/outbound/composer.json` were captured
+from the original builders at the pinned #195 base before moving code. JSON escapes
+preserve the original mixture of CRLF and LF bytes. The existing shadow reply and
+draft notice fixtures remain unchanged. The fixture test has no update mode.
+
+The separate lost-retry and give-up failures remain known `NoSilentStall` findings.
+An expected model-runner exit does not mean every promise holds.
+
+## Existing send protocol
+
 The send worker commits an outbound message and `send_uncertain` before SMTP. Its second transaction locks the draft and checks the message identity again. Only the worker that still owns that marker can send. A retry leaves uncertainty visible without calling SMTP. A human decision must match the current Message-ID and pass the session, scope and tenant checks.
 
 The model maps the first committed transaction to `WorkerLocksAndChecks`, and the second lock and identity check to `WorkerRechecksMarker`. SMTP acceptance, final commit and queue settlement remain separate actions. `PreparationFails` leaves the previous committed state unchanged. A rejected explicit resend keeps the original uncertainty visible. The model represents a new Message-ID as a new person-retry generation.

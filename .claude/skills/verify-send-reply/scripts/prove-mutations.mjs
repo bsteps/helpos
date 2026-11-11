@@ -64,8 +64,8 @@ const variants = [
       changed = replace(changed, smtp, "");
       return replace(
         changed,
-        "const raw = await buildReply(email);",
-        `const raw = await buildReply(email);\n    ${smtp}`,
+        'const raw = await composeEmail({ kind: "reply", ...email });',
+        `const raw = await composeEmail({ kind: "reply", ...email });\n    ${smtp}`,
       );
     },
   },

@@ -2,13 +2,9 @@ import { eq, schema, type TenantTransaction, type TenantTx, uuidv7 } from "@help
 import type { FileStore } from "@helpos/files";
 import type { Logger } from "pino";
 import { auditorFor } from "../audit/audit.ts";
+import { composeEmail, noticeReplyTo, replySubject } from "../outbound-email/composer.ts";
 import { planDelivery } from "../outbound-email/shadow.ts";
-import {
-  buildReply,
-  type EmailTransport,
-  replySubject,
-  SendRejected,
-} from "../outbound-email/transport.ts";
+import { type EmailTransport, SendRejected } from "../outbound-email/transport.ts";
 import {
   isApprovedDraft,
   isSentDraft,
@@ -18,7 +14,6 @@ import {
   markSent,
   rejectSend,
 } from "./lifecycle.ts";
-import { noticeReplyTo } from "./notice-worker.ts";
 
 const { customers, drafts, mailboxes, messages, tenants, conversations } = schema;
 
@@ -110,7 +105,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
         throw new Error("send-reply: shadow mode is on but no shadow recipient is set");
       }
       const { email } = delivery;
-      const raw = await buildReply(email);
+      const raw = await composeEmail({ kind: "reply", ...email });
 
       const rawFileKey = `${tenantId}/${uuidv7()}`;
       await deps.files.put(rawFileKey, raw);

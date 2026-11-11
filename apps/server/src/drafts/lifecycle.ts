@@ -15,6 +15,7 @@ import {
   uuidv7,
 } from "@helpos/db";
 import type { AuditAction, Auditor } from "../audit/audit.ts";
+import { mailboxDomain, outboundMessageId } from "../outbound-email/composer.ts";
 import { sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -180,7 +181,7 @@ export async function approveDraft(
     .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
     .where(eq(drafts.id, id));
   if (!found) return { outcome: "not_found" };
-  const domain = found.mailbox.split("@").pop() ?? "localhost";
+  const domain = mailboxDomain(found.mailbox);
   const approved = await change(
     tx,
     audit,
@@ -189,7 +190,7 @@ export async function approveDraft(
     {
       // The database clock, like the audit events the notice window compares it with.
       approvedAt: sql`now()`,
-      outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
+      outboundMessageIdHeader: outboundMessageId({ kind: "reply", domain, id: uuidv7() }),
     },
     eq(drafts.body, reviewedBody),
   );
@@ -279,7 +280,7 @@ export async function resolveUncertainSend(
   }
   const domain = input.messageId.slice(input.messageId.lastIndexOf("@") + 1, -1);
   const changed = await change(tx, audit, "resend", id, {
-    outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
+    outboundMessageIdHeader: outboundMessageId({ kind: "reply", domain, id: uuidv7() }),
     resendRequested: true,
   });
   if (changed.outcome === "changed") {

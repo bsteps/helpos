@@ -14,7 +14,13 @@ import {
 } from "@helpos/db";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
-import { buildDraftNotice, noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
+import {
+  composeEmail,
+  mailboxDomain,
+  noticeReplyTo,
+  outboundMessageId,
+} from "../outbound-email/composer.ts";
+import { noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import type { ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
@@ -43,20 +49,6 @@ export async function queueDraftNotice(
     { tenantId: draft.tenantId, draftId: draft.id },
     { startAfter: new Date(Date.now() + delaySeconds * 1000) },
   );
-}
-
-function mailboxDomain(mailbox: string): string {
-  return mailbox.split("@").pop() ?? "localhost";
-}
-
-/**
- * A no-reply address on the mailbox's domain that is never the mailbox itself, so answering a
- * notice can't land in the helpdesk and open a conversation.
- */
-export function noticeReplyTo(mailbox: string): string {
-  const domain = mailboxDomain(mailbox).toLowerCase();
-  const address = `no-reply@${domain}`;
-  return address === mailbox.toLowerCase() ? `no-reply-notices@${domain}` : address;
 }
 
 /** Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`), which `/conversations/…` would drop. */
@@ -235,13 +227,14 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const notices = await Promise.all(
       to.map(async (owner) => ({
         to: owner,
-        raw: await buildDraftNotice({
+        raw: await composeEmail({
+          kind: "draft_notice",
           from: row.mailbox,
           replyTo: noticeReplyTo(row.mailbox),
           to: owner,
           conversationUrl: conversationUrl(deps.config.publicUrl, row.conversationId),
           customerText: messageText(row),
-          messageId: `<notice-${uuidv7()}@${domain}>`,
+          messageId: outboundMessageId({ kind: "draft_notice", domain, id: uuidv7() }),
           date,
         }),
       })),
