@@ -26,6 +26,7 @@ The whole vision fits on one page: [docs/vision.md](docs/vision.md).
 | Set                     | What                                                                                                            | Status  |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
 | MVP                     | Email → AI draft → approve → send, in shadow mode                                                               | ✅      |
+| **0. Clean foundation** | Clean the existing code and prove every behaviour with tests before new work builds on it                       | 🚧 Now  |
 | **A. The gate**         | One owner per conversation, no automatic resend, per-agent permissions, agents can't approve, trust ladder      | ⏭️ Next |
 | **B. Shadow mode**      | Bulk import, replay and review, no source no answer, PII masking, approval page, knowledge gaps, the one number | ⏭️ Next |
 | **C. First real reply** | Release-safety items, real email basics, customer outcomes                                                      | ⏳      |
