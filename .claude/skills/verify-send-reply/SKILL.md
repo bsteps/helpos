@@ -54,13 +54,13 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `08a159c5a71a`.
+Last confirmed at commit `6b9190b47739`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
 | apps/server/src/outbound-email/composer.ts | outboundMessageId | PersonApproves, PersonResolvesResend (Message-ID generation) | `e5a275b0a465` |
 | apps/server/src/outbound-email/composer.ts | composeEmail | WorkerLocksAndChecks, PreparationFails (MIME preparation before the marker commit) | `0703cec0ca33` |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `49e833019b35` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `2e188d038b39` |
 | apps/server/src/conversations/lifecycle.ts | addMessage | WorkerLocksAndChecks, PreparationFails (prepared outbound insert) | `020e1b6717de` |
 | apps/server/src/conversations/lifecycle.ts | markMessageSent | TransactionCommits, PersonResolvesSent (message sentAt) | `f28d8643de0c` |
 | apps/server/src/conversations/lifecycle.ts | recordActivity | TransactionCommits, PersonResolvesSent (conversation lastMessageAt) | `5f93e14833be` |
@@ -70,10 +70,11 @@ Last confirmed at commit `08a159c5a71a`.
 | apps/server/src/drafts/lifecycle.ts | isSentDraft | WorkerLocksAndChecks, SmtpRejects | `785296718047` |
 | apps/server/src/drafts/lifecycle.ts | isUncertainDraft | WorkerLocksAndChecks, SmtpRejects | `dbc8777e2d84` |
 | apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `12c52c5be6fa` |
-| apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `1f420c4dcc39` |
+| apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `2d5a1057fb04` |
+| apps/server/src/drafts/lifecycle.ts | changeDetails | audit inputs within every Person and Worker transaction | `bba5eacea934` |
 | apps/server/src/drafts/lifecycle.ts | queueSend | Enqueue | `1d94c013aa00` |
 | apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `7a552dec2357` |
-| apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `185fefbe5193` |
+| apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `70a6a6dbe8d5` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `86be6a5eba54` |
 | apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `1cbbda9a6c54` |
 | apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `67eb47b77809` |
