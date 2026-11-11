@@ -69,7 +69,6 @@ const pages: Record<
   string,
   { type: string; body: string | Buffer; status?: number; location?: string }
 > = {
-  // A quoted charset label is valid HTTP; the bytes are Latin-1, not UTF-8.
   "/unknown-utf8": {
     type: "text/html; charset=unknown-charset",
     body: "<p>Crème brûlée is free.</p>",

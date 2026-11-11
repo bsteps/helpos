@@ -13,8 +13,8 @@ const dir = `apps/server/src/lint-fixture-${process.pid}`;
 mkdirSync(new URL(`../${dir}`, import.meta.url), { recursive: true });
 after(() => rmSync(new URL(`../${dir}`, import.meta.url), { recursive: true, force: true }));
 
-function lint(source, name) {
-  const file = `${dir}/${name}`;
+function lint(source, name, directory = dir) {
+  const file = `${directory}/${name}`;
   mkdirSync(new URL(`../${file}/..`, import.meta.url), { recursive: true });
   writeFileSync(new URL(`../${file}`, import.meta.url), source);
   let out;
@@ -234,9 +234,13 @@ test("comments and package identifiers are not display strings", () => {
   assert.deepEqual(pluginMessages('// HelpOS\nexport const name = "@helpos/brand";'), []);
 });
 test("empty catches are checked in verification scripts too", () => {
-  assert.ok(
-    lint("try { work(); } catch {}", ".claude/skills/verify-helpos/scripts/probe.mjs").some((d) =>
-      /empty catch/.test(d.message),
-    ),
-  );
+  const directory = ".claude/skills/verify-helpos/scripts";
+  const name = `lint-fixture-${process.pid}.mjs`;
+  try {
+    assert.ok(
+      lint("try { work(); } catch {}", name, directory).some((d) => /empty catch/.test(d.message)),
+    );
+  } finally {
+    rmSync(new URL(`../${directory}/${name}`, import.meta.url), { force: true });
+  }
 });
