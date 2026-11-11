@@ -1,3 +1,32 @@
+## Audit input review for issue 85
+
+`change` now locks and reads the draft before its existing conditional update.
+That keeps an edit's old body hash tied to the row being edited, including when
+two edits race. The update still checks the same transition statuses and optional
+body or resend guard. A conflict returns that locked row without auditing it.
+`changeDetails` derives body hashes, discard reasons, retry reasons and status
+transitions from that operation. `recordAudit` validates them before insertion.
+An invalid event throws inside the caller's transaction and rolls back its writes.
+
+Review compared `change`, `changeDetails`, approval, retry, discard, sending,
+rejection, uncertainty resolution, sent and failed-send updates with their mapped
+actions. The extra read acquires the row lock earlier within the same transaction.
+It creates no new commit boundary. Approval still guards the exact reviewed body
+and queues the same job after its audit. Retry retains its approved requeue and
+singleton key. Explicit resend keeps its new Message-ID and singleton generation.
+The rejection path for an explicit resend keeps `send_uncertain` and now records
+that unchanged status truthfully. Normal rejection still restores `approved`.
+
+The worker's preparation commit, second-transaction marker recheck, SMTP call,
+final commit and pg-boss settlement stay separate. `PersonApproves`,
+`PersonRetriesSend`, `PersonDiscards`, `PersonResolvesSent`, `PersonResolvesResend`,
+`WorkerLocksAndChecks`, `SmtpRejects`, `TransactionCommits` and `GiveUpMarksFailed`
+retain their existing guards and committed effects. Audit validation failures are
+transaction failures already covered by rollback and give-up failure behavior.
+The model does not represent audit contents. No model action, invariant, bound or
+known-finding allowance changes. The new details helper joins fingerprint coverage.
+Lost retry and failed give-up remain known `NoSilentStall` findings.
+
 ## Conversation write ownership review for issue 240
 
 The extraction onto the pinned #193 parent keeps the same SQL, await order, caller transactions, clocks, guards and audit events. `handleSendReply` still commits the prepared outbound message with `sentAt: null` and `markSending` before SMTP. Its second transaction locks and rechecks the same marker, calls SMTP, then confirms the message, marks the draft sent and updates conversation activity. Definite rejection still changes the draft before removing the prepared message. An explicit resend rejection retains the original uncertainty.

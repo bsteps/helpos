@@ -162,10 +162,15 @@ export function handleSendReply(deps: SendWorkerDeps) {
       } catch (error) {
         if (!(error instanceof SendRejected)) throw error;
         if (isUncertainDraft(draft)) {
-          await auditorFor(tenantId, sendWorkerActor)(tx, "draft.send_rejected", {
-            type: "draft",
-            id: draftId,
-          });
+          await auditorFor(tenantId, sendWorkerActor)(
+            tx,
+            "draft.send_rejected",
+            {
+              type: "draft",
+              id: draftId,
+            },
+            { fromStatus: "send_uncertain", toStatus: "send_uncertain" },
+          );
           return error;
         }
         await rejectSend(tx, { tenantId, actor: sendWorkerActor, requestId: null }, draftId);

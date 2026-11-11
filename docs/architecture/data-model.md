@@ -52,6 +52,7 @@ Every table is in the `public` schema, has row-level security (RLS) enabled **an
 ## Special grants
 
 - `audit_events`: the app role can insert and read, never update, delete or truncate.
+  Its [action-specific details](audit-details.md) store draft body hashes and discard reasons. Legacy details remain `NULL`.
 - `api_tokens`: the app role can create a token and revoke it (set `revoked_at`). It can't rewrite a hash, widen scopes, move a token to another workspace or delete one.
 - `mailboxes`, `api_tokens` and `memberships` have a second, read-only policy each (by address, by token hash, by your own user), so a request can find its workspace before it knows it. Each shows exactly the one row, or the caller's own rows, that the caller already named.
 

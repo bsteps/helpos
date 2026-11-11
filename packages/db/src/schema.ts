@@ -7,6 +7,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgPolicy,
   pgSchema,
   pgTable,
@@ -460,6 +461,7 @@ export const auditEvents = pgTable(
     targetId: uuid("target_id").notNull(),
     /** The HTTP request that caused it. Null for actions a background job takes. */
     requestId: text("request_id"),
+    details: jsonb("details").$type<Record<string, unknown>>(),
   },
   (t) => [
     check("audit_events_actor_type", sql`${t.actorType} in ('user', 'agent', 'system')`),

@@ -397,6 +397,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         const stale = await discardStale(tx, context, {
           conversationIds: [conversationId],
           kind: "reply",
+          details: { reason: "manual", operation: "regenerate" },
         });
         // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
         // shown while the new try runs, and a second failure sets it again for everyone to see.
