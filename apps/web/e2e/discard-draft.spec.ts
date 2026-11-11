@@ -79,7 +79,7 @@ test("a spent AI budget says so, and a hand-written draft still works", async ({
     .getByRole("button", { name: "Discard" })
     .click();
 
-  await page.route("**/v1/tickets/*/drafts", (route) =>
+  await page.route("**/v1/conversations/*/drafts", (route) =>
     route.request().method() === "POST" && route.request().postDataJSON()?.regenerate
       ? route.fulfill({ status: 409, json: { error: "daily_budget_reached" } })
       : route.fallback(),
@@ -111,14 +111,14 @@ test("a discard the API refuses says so, and the draft stays", async ({ page, re
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
 });
 
-test("a closed ticket hides AI regeneration and rejects stale requests", async ({
+test("a closed conversation hides AI regeneration and rejects stale requests", async ({
   page,
   request,
 }) => {
-  const subject = uniqueSubject("Closed ticket draft");
-  const ticketId = await deliver(request, plainEmail(subject, "Hi, I found the answer."));
+  const subject = uniqueSubject("Closed conversation draft");
+  const conversationId = await deliver(request, plainEmail(subject, "Hi, I found the answer."));
   await openPendingDraft(page, subject);
-  await page.getByRole("button", { name: "Close ticket" }).click();
+  await page.getByRole("button", { name: "Close conversation" }).click();
   await expect(page.getByText("Closed", { exact: true })).toBeVisible();
   await page
     .getByRole("region", { name: "Draft" })
@@ -126,12 +126,12 @@ test("a closed ticket hides AI regeneration and rejects stale requests", async (
     .click();
   await expect(page.getByTestId("draft-body")).toBeHidden();
   await expect(page.getByRole("button", { name: "Ask the AI for a draft" })).toBeHidden();
-  const refused = await page.request.post(`/v1/tickets/${ticketId}/drafts`, {
+  const refused = await page.request.post(`/v1/conversations/${conversationId}/drafts`, {
     data: { regenerate: true },
   });
   expect(refused.status()).toBe(409);
-  expect(await refused.json()).toEqual({ error: "ticket_closed" });
-  const manual = await page.request.post(`/v1/tickets/${ticketId}/drafts`, {
+  expect(await refused.json()).toEqual({ error: "conversation_closed" });
+  const manual = await page.request.post(`/v1/conversations/${conversationId}/drafts`, {
     data: { body: "Glad you found the answer." },
   });
   expect(manual.status()).toBe(201);

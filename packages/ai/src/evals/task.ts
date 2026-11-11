@@ -18,7 +18,7 @@ const evalTools = {
     execute: noted,
   },
   escalate_to_human: {
-    description: "Hand the ticket to a human agent.",
+    description: "Hand the conversation to a human agent.",
     inputSchema: z.object({ reason: z.string() }),
     execute: noted,
   },

@@ -19,14 +19,14 @@ import { openGithubAccess } from "./integration.ts";
 import { markIssueClosed } from "./issue-state.ts";
 import { enqueueRecheck } from "./recheck.ts";
 
-const { ticketGithubIssues, tickets } = schema;
+const { conversationGithubIssues, conversations } = schema;
 
 /**
- * Making a GitHub issue from a ticket, in four steps. GitHub can't make opening an issue
+ * Making a GitHub issue from a conversation, in four steps. GitHub can't make opening an issue
  * idempotent and a call to it can't sit inside a transaction, so the flow is built to lose
  * nothing when any step dies:
  *
- * 1. `claimSlot`: claim the ticket's issue slot, so a double click can't open two issues.
+ * 1. `claimSlot`: claim the conversation's issue slot, so a double click can't open two issues.
  * 2. `openOnGithub`: call GitHub with no transaction open. The claim's ID is hidden in the
  *    issue's body, so an answer that is lost can be found again by it.
  * 3. `linkIssue`: record the issue, with its audit event. It exists on GitHub now, so this is
@@ -61,7 +61,7 @@ export interface CreateIssueDeps {
 
 export interface CreateIssueInput {
   tenantId: string;
-  ticketId: string;
+  conversationId: string;
   /** The text as written by the caller; `author` says how far to trust it. */
   issue: { title: string; body: string };
   author: "agent" | "human";
@@ -80,7 +80,7 @@ export type CreateIssueOutcome =
   | { kind: "conflict"; error: ClaimRefusal }
   /** No issue was opened (a refusal), or it is not known whether one was (`github_outcome_unknown`). */
   | { kind: "github_failed"; error: GithubFailure | "github_outcome_unknown" }
-  /** The issue exists on GitHub, at `url`, but the ticket doesn't link to it. */
+  /** The issue exists on GitHub, at `url`, but the conversation doesn't link to it. */
   | { kind: "not_linked"; url: string };
 
 type Stop = Exclude<CreateIssueOutcome, { kind: "created" }>;
@@ -111,7 +111,7 @@ export async function createIssue(
   const link = await linkIssue(deps, input, claim, opened);
   if (link.kind !== "linked") return link;
   deps.logger.info(
-    { ticketId: input.ticketId, issue: opened.issue.number },
+    { conversationId: input.conversationId, issue: opened.issue.number },
     "github issue created",
   );
 
@@ -136,35 +136,37 @@ type Claim = {
 };
 
 async function claimSlot(deps: CreateIssueDeps, input: CreateIssueInput): Promise<Claim | Stop> {
-  const { tenantId, ticketId } = input;
+  const { tenantId, conversationId } = input;
   return deps.db.withTenant(tenantId, async (tx): Promise<Claim | Stop> => {
-    const [ticket] = await tx
-      .select({ id: tickets.id })
-      .from(tickets)
-      .where(eq(tickets.id, ticketId));
-    if (!ticket) return { kind: "not_found" };
+    const [conversation] = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    if (!conversation) return { kind: "not_found" };
     const access = await openGithubAccess(tx, deps.secretBox, tenantId);
     if (access === "not_connected" || access === "reconnect_required") {
       return { kind: "conflict", error: access };
     }
     const { repo, token } = access;
-    // A claim whose request died or never heard back from GitHub doesn't block the ticket for
+    // A claim whose request died or never heard back from GitHub doesn't block the conversation for
     // good: this request takes it over, as it is, ID and all. That request's issue may exist
     // with this ID as its marker, so it is looked for first, and if this request fails too,
     // the claim (and so its marker) is still there for the next one. Locked, so two requests
     // can't both take it over.
-    const stale = await takeOverStaleClaim(tx, ticketId);
+    const stale = await takeOverStaleClaim(tx, conversationId);
     if (stale) return { kind: "claimed", claimId: stale.id, repo, token, stale };
     const [claimed] = await tx
-      .insert(ticketGithubIssues)
-      .values({ tenantId, ticketId, repo, state: "creating" })
-      .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
-      .returning({ id: ticketGithubIssues.id });
+      .insert(conversationGithubIssues)
+      .values({ tenantId, conversationId, repo, state: "creating" })
+      .onConflictDoNothing({
+        target: [conversationGithubIssues.tenantId, conversationGithubIssues.conversationId],
+      })
+      .returning({ id: conversationGithubIssues.id });
     if (claimed) return { kind: "claimed", claimId: claimed.id, repo, token, stale: undefined };
     const [existing] = await tx
-      .select({ state: ticketGithubIssues.state })
-      .from(ticketGithubIssues)
-      .where(eq(ticketGithubIssues.ticketId, ticketId));
+      .select({ state: conversationGithubIssues.state })
+      .from(conversationGithubIssues)
+      .where(eq(conversationGithubIssues.conversationId, conversationId));
     // Another request is opening it right now, or GitHub never told us how it went.
     return {
       kind: "conflict",
@@ -173,38 +175,49 @@ async function claimSlot(deps: CreateIssueDeps, input: CreateIssueInput): Promis
   });
 }
 
-/** Locks the ticket's `creating` claim if it is stale, and makes it fresh for this request. */
-async function takeOverStaleClaim(tx: TenantTx, ticketId: string): Promise<StaleClaim | undefined> {
+/** Locks the conversation's `creating` claim if it is stale, and makes it fresh for this request. */
+async function takeOverStaleClaim(
+  tx: TenantTx,
+  conversationId: string,
+): Promise<StaleClaim | undefined> {
   const [stale] = await tx
     .select({
-      id: ticketGithubIssues.id,
-      repo: ticketGithubIssues.repo,
-      createdAt: ticketGithubIssues.createdAt,
-      updatedAt: ticketGithubIssues.updatedAt,
+      id: conversationGithubIssues.id,
+      repo: conversationGithubIssues.repo,
+      createdAt: conversationGithubIssues.createdAt,
+      updatedAt: conversationGithubIssues.updatedAt,
     })
-    .from(ticketGithubIssues)
+    .from(conversationGithubIssues)
     .where(
       and(
-        eq(ticketGithubIssues.ticketId, ticketId),
-        eq(ticketGithubIssues.state, "creating"),
-        lt(ticketGithubIssues.updatedAt, sql`now() - make_interval(secs => ${staleClaimSeconds})`),
+        eq(conversationGithubIssues.conversationId, conversationId),
+        eq(conversationGithubIssues.state, "creating"),
+        lt(
+          conversationGithubIssues.updatedAt,
+          sql`now() - make_interval(secs => ${staleClaimSeconds})`,
+        ),
       ),
     )
     .for("update");
   if (!stale) return undefined;
   await tx
-    .update(ticketGithubIssues)
+    .update(conversationGithubIssues)
     .set({ updatedAt: new Date() })
-    .where(eq(ticketGithubIssues.id, stale.id));
+    .where(eq(conversationGithubIssues.id, stale.id));
   return stale;
 }
 
-/** Drops a claim that never became a link, so the ticket can try again. */
+/** Drops a claim that never became a link, so the conversation can try again. */
 function releaseClaim(deps: CreateIssueDeps, tenantId: string, claimId: string) {
   return deps.db.withTenant(tenantId, (tx) =>
     tx
-      .delete(ticketGithubIssues)
-      .where(and(eq(ticketGithubIssues.id, claimId), eq(ticketGithubIssues.state, "creating"))),
+      .delete(conversationGithubIssues)
+      .where(
+        and(
+          eq(conversationGithubIssues.id, claimId),
+          eq(conversationGithubIssues.state, "creating"),
+        ),
+      ),
   );
 }
 
@@ -227,7 +240,7 @@ export type EarlierLookup =
 /**
  * Reads the answer to "is there an issue carrying the stale claim's marker?". A definite
  * refusal for another repo than the connected one means the token can't see it any more (the
- * workspace switched repos). Asking again never changes that, so it must not block the ticket
+ * workspace switched repos). Asking again never changes that, so it must not block the conversation
  * for good: the old claim is dropped and a new issue opened.
  */
 export function judgeEarlierLookup(
@@ -249,7 +262,7 @@ async function openOnGithub(
   github: GithubApi,
   issue: { title: string; body: string },
 ): Promise<Opened | Stop> {
-  const { tenantId, ticketId } = input;
+  const { tenantId, conversationId } = input;
   const repo = parseRepo(claim.repo);
   if (!repo) throw new Error("github issue: stored repo is not owner/name");
 
@@ -272,17 +285,17 @@ async function openOnGithub(
       try {
         await deps.db.withTenant(tenantId, (tx) =>
           tx
-            .update(ticketGithubIssues)
+            .update(conversationGithubIssues)
             .set({ updatedAt: stale.updatedAt })
             .where(
               and(
-                eq(ticketGithubIssues.id, claim.claimId),
-                eq(ticketGithubIssues.state, "creating"),
+                eq(conversationGithubIssues.id, claim.claimId),
+                eq(conversationGithubIssues.state, "creating"),
               ),
             ),
         );
       } catch (error) {
-        deps.logger.warn({ err: error, ticketId }, "github issue: claim kept fresh");
+        deps.logger.warn({ err: error, conversationId }, "github issue: claim kept fresh");
       }
       // What GitHub said: a revoked token should be fixed, not retried forever.
       return { kind: "github_failed", error: earlier.reason };
@@ -295,9 +308,9 @@ async function openOnGithub(
       // marker looks there.
       await deps.db.withTenant(tenantId, (tx) =>
         tx
-          .update(ticketGithubIssues)
+          .update(conversationGithubIssues)
           .set({ repo: claim.repo })
-          .where(eq(ticketGithubIssues.id, claim.claimId)),
+          .where(eq(conversationGithubIssues.id, claim.claimId)),
       );
     }
   }
@@ -307,19 +320,19 @@ async function openOnGithub(
   let created = await github.createIssue(repo, { ...issue, marker: claim.claimId });
   if (!created.ok && created.uncertain) {
     // GitHub may have opened it before the answer was lost. Opening it again would make a
-    // duplicate that no ticket ever hears about, so look for this claim's marker first.
+    // duplicate that no conversation ever hears about, so look for this claim's marker first.
     const found = await github.findIssue(repo, { marker: claim.claimId, since });
     if (found.ok && found.value) created = { ok: true, value: found.value };
     else {
       // Still unknown. The claim stays, so a retry can't open a second issue now; once it is
       // stale, the next try looks for this marker again before opening anything.
-      deps.logger.warn({ ticketId }, "github issue: GitHub's answer was lost");
+      deps.logger.warn({ conversationId }, "github issue: GitHub's answer was lost");
       return { kind: "github_failed", error: "github_outcome_unknown" };
     }
   }
   if (!created.ok) {
     await releaseClaim(deps, tenantId, claim.claimId);
-    deps.logger.warn({ ticketId, reason: created.reason }, "github issue: GitHub refused");
+    deps.logger.warn({ conversationId, reason: created.reason }, "github issue: GitHub refused");
     return { kind: "github_failed", error: created.reason };
   }
   return { kind: "opened", issue: created.value, repo: claim.repo };
@@ -335,14 +348,14 @@ async function linkIssue(
   claim: Claim,
   opened: Opened,
 ): Promise<Linked | Stop> {
-  const { tenantId, ticketId } = input;
+  const { tenantId, conversationId } = input;
   let link: { id: string; repo: string } | "taken" | undefined;
   for (let attempt = 1; attempt <= 2 && link === undefined; attempt++) {
     try {
       link = await deps.db.withTenant(tenantId, (tx) =>
         recordIssue(tx, {
           tenantId,
-          ticketId,
+          conversationId,
           claimId: claim.claimId,
           repo: opened.repo,
           issue: opened.issue,
@@ -355,33 +368,33 @@ async function linkIssue(
   }
   if (link !== undefined && link !== "taken") return { kind: "linked", ...link };
   deps.logger.error(
-    { ticketId, issue: opened.issue.number, issueUrl: opened.issue.url },
-    "github issue created but not linked to its ticket",
+    { conversationId, issue: opened.issue.number, issueUrl: opened.issue.url },
+    "github issue created but not linked to its conversation",
   );
   if (link === "taken") {
-    // This ticket can't have that issue (another ticket has it, or another claim took this
-    // ticket). Its own claim, if still there, is released, so the ticket isn't held for
+    // This conversation can't have that issue (another conversation has it, or another claim took this
+    // conversation). Its own claim, if still there, is released, so the conversation isn't held for
     // minutes only to find the same issue again: a new try opens a new one.
     try {
       await releaseClaim(deps, tenantId, claim.claimId);
     } catch (error) {
-      deps.logger.warn({ err: error, ticketId }, "github issue: claim not released");
+      deps.logger.warn({ err: error, conversationId }, "github issue: claim not released");
     }
   }
   return { kind: "not_linked", url: opened.issue.url };
 }
 
 /**
- * Links an issue GitHub has opened to its ticket: on this request's own claim, or, when that
+ * Links an issue GitHub has opened to its conversation: on this request's own claim, or, when that
  * claim is gone (a request so slow its claim was taken as stale), as a new link. Idempotent: if
- * the ticket already links this very issue (an earlier attempt committed but its answer was
- * lost), that is success, not a clash. "taken" when the ticket has another issue or claim.
+ * the conversation already links this very issue (an earlier attempt committed but its answer was
+ * lost), that is success, not a clash. "taken" when the conversation has another issue or claim.
  */
 async function recordIssue(
   tx: TenantTx,
   input: {
     tenantId: string;
-    ticketId: string;
+    conversationId: string;
     claimId: string;
     repo: string;
     issue: CreatedIssue;
@@ -395,47 +408,54 @@ async function recordIssue(
     issueNumber: input.issue.number,
     issueUrl: input.issue.url,
   };
-  // An issue linked to another ticket stays that ticket's: its "fixed" notice must never reach
-  // this ticket's customer too. (The unique index enforces it; this keeps the answer typed.)
+  // An issue linked to another conversation stays that conversation's: its "fixed" notice must never reach
+  // this conversation's customer too. (The unique index enforces it; this keeps the answer typed.)
   const [elsewhere] = await tx
-    .select({ ticketId: ticketGithubIssues.ticketId })
-    .from(ticketGithubIssues)
+    .select({ conversationId: conversationGithubIssues.conversationId })
+    .from(conversationGithubIssues)
     .where(
       and(
-        eq(ticketGithubIssues.repo, input.repo),
-        eq(ticketGithubIssues.issueNumber, input.issue.number),
+        eq(conversationGithubIssues.repo, input.repo),
+        eq(conversationGithubIssues.issueNumber, input.issue.number),
       ),
     );
-  if (elsewhere && elsewhere.ticketId !== input.ticketId) return "taken";
+  if (elsewhere && elsewhere.conversationId !== input.conversationId) return "taken";
   const [claimed] = await tx
-    .update(ticketGithubIssues)
+    .update(conversationGithubIssues)
     .set(values)
-    .where(and(eq(ticketGithubIssues.id, input.claimId), eq(ticketGithubIssues.state, "creating")))
-    .returning({ id: ticketGithubIssues.id, repo: ticketGithubIssues.repo });
+    .where(
+      and(
+        eq(conversationGithubIssues.id, input.claimId),
+        eq(conversationGithubIssues.state, "creating"),
+      ),
+    )
+    .returning({ id: conversationGithubIssues.id, repo: conversationGithubIssues.repo });
   const row =
     claimed ??
     (
       await tx
-        .insert(ticketGithubIssues)
-        .values({ tenantId: input.tenantId, ticketId: input.ticketId, ...values })
-        .onConflictDoNothing({ target: [ticketGithubIssues.tenantId, ticketGithubIssues.ticketId] })
-        .returning({ id: ticketGithubIssues.id, repo: ticketGithubIssues.repo })
+        .insert(conversationGithubIssues)
+        .values({ tenantId: input.tenantId, conversationId: input.conversationId, ...values })
+        .onConflictDoNothing({
+          target: [conversationGithubIssues.tenantId, conversationGithubIssues.conversationId],
+        })
+        .returning({ id: conversationGithubIssues.id, repo: conversationGithubIssues.repo })
     )[0];
   if (!row) {
     const [existing] = await tx
       .select({
-        id: ticketGithubIssues.id,
-        repo: ticketGithubIssues.repo,
-        issueNumber: ticketGithubIssues.issueNumber,
+        id: conversationGithubIssues.id,
+        repo: conversationGithubIssues.repo,
+        issueNumber: conversationGithubIssues.issueNumber,
       })
-      .from(ticketGithubIssues)
-      .where(eq(ticketGithubIssues.ticketId, input.ticketId));
+      .from(conversationGithubIssues)
+      .where(eq(conversationGithubIssues.conversationId, input.conversationId));
     const sameIssue = existing?.repo === input.repo && existing.issueNumber === input.issue.number;
     // Already linked and audited by the attempt that committed: nothing more to write.
     if (sameIssue) nothingToAudit("linked and audited by an earlier attempt");
     return sameIssue ? { id: existing.id, repo: existing.repo } : "taken";
   }
-  await input.audit(tx, "github_issue.created", { type: "ticket", id: input.ticketId });
+  await input.audit(tx, "github_issue.created", { type: "conversation", id: input.conversationId });
   return row;
 }
 
@@ -454,15 +474,15 @@ async function applyEarlyClose(
   link: Linked,
   opened: Opened,
 ): Promise<"open" | "closed"> {
-  const { tenantId, ticketId } = input;
+  const { tenantId, conversationId } = input;
   const recheckLater = async (why: string) => {
-    deps.logger.warn({ ticketId }, `github issue: ${why}; rechecking later`);
+    deps.logger.warn({ conversationId }, `github issue: ${why}; rechecking later`);
     try {
       await deps.db.withTenant(tenantId, (tx) =>
         enqueueRecheck(tx, { tenantId, linkId: link.id }, deps.config),
       );
     } catch (error) {
-      deps.logger.warn({ err: error, ticketId }, "github issue: recheck not queued");
+      deps.logger.warn({ err: error, conversationId }, "github issue: recheck not queued");
     }
   };
   const linkedRepo = parseRepo(link.repo);
@@ -484,13 +504,13 @@ async function applyEarlyClose(
         // The link's own state: closed here, or already by the close's webhook, which can
         // arrive between linking and this check (then nothing changed here, but it is closed).
         const [row] = await tx
-          .select({ state: ticketGithubIssues.state })
-          .from(ticketGithubIssues)
-          .where(eq(ticketGithubIssues.ticketId, ticketId));
+          .select({ state: conversationGithubIssues.state })
+          .from(conversationGithubIssues)
+          .where(eq(conversationGithubIssues.conversationId, conversationId));
         return row?.state === "closed" ? "closed" : "open";
       });
     } catch (error) {
-      deps.logger.warn({ err: error, ticketId }, "github issue: close not applied");
+      deps.logger.warn({ err: error, conversationId }, "github issue: close not applied");
       await recheckLater("close not applied");
     }
   } else if (now && !now.ok) {

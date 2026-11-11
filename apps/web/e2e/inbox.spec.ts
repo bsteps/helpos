@@ -12,7 +12,7 @@ import {
 // The demo loop through the dashboard, at laptop and phone size: an email arrives, the AI
 // drafts a reply, a human edits and approves it, and it goes out.
 
-test("log in → open ticket → edit the AI draft → approve → the reply arrives", async ({
+test("log in → open conversation → edit the AI draft → approve → the reply arrives", async ({
   page,
   request,
 }) => {
@@ -45,30 +45,30 @@ test("log in → open ticket → edit the AI draft → approve → the reply arr
   expect(mail.text).not.toContain(state().draft);
 });
 
-test("closing a ticket takes it out of the inbox", async ({ page, request }) => {
+test("closing a conversation takes it out of the inbox", async ({ page, request }) => {
   const subject = uniqueSubject("Please close me");
   await deliver(request, plainEmail(subject, "All sorted, thanks."));
 
   await signIn(page);
   await page.getByRole("link", { name: subject }).click();
-  await page.getByRole("button", { name: "Close ticket" }).click();
+  await page.getByRole("button", { name: "Close conversation" }).click();
   await expect(page.getByText("Closed", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close ticket" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Close conversation" })).toBeHidden();
 
   await page.getByRole("link", { name: "Inbox" }).first().click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(page.getByRole("link", { name: subject })).toBeHidden();
 });
 
-test("a signed-out visitor is sent to sign in, then back to the ticket", async ({
+test("a signed-out visitor is sent to sign in, then back to the conversation", async ({
   page,
   request,
 }) => {
   const subject = uniqueSubject("Deep link");
-  const ticketId = await deliver(request, plainEmail(subject, "Opened from a notice email."));
+  const conversationId = await deliver(request, plainEmail(subject, "Opened from a notice email."));
 
   // With a query string, as a link in a notice email might have: it must survive the detour.
-  await page.goto(`/tickets/${ticketId}?from=notice`);
+  await page.goto(`/conversations/${conversationId}?from=notice`);
   await expect(page).toHaveURL(/\/login\?redirect=/);
   await page.getByLabel("Email").fill(state().owner);
   await page.getByLabel("Password").fill("not the password");
@@ -77,7 +77,7 @@ test("a signed-out visitor is sent to sign in, then back to the ticket", async (
 
   await page.getByLabel("Password").fill(ownerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(new RegExp(`/tickets/${ticketId}\\?from=notice$`));
+  await expect(page).toHaveURL(new RegExp(`/conversations/${conversationId}\\?from=notice$`));
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
 });
 
@@ -86,15 +86,15 @@ test("approving a draft someone changed meanwhile is refused, and says so", asyn
   request,
 }) => {
   const subject = uniqueSubject("Changed meanwhile");
-  const ticketId = await deliver(request, plainEmail(subject, "Can I change my address?"));
+  const conversationId = await deliver(request, plainEmail(subject, "Can I change my address?"));
 
   await signIn(page);
-  await page.goto(`/tickets/${ticketId}`);
+  await page.goto(`/conversations/${conversationId}`);
   const draft = page.getByTestId("draft-body");
   await expect(draft).toHaveText(state().draft);
 
   // A teammate edits the draft elsewhere while this page still shows the old text.
-  const list = await page.request.get(`/v1/tickets/${ticketId}/drafts`);
+  const list = await page.request.get(`/v1/conversations/${conversationId}/drafts`);
   const { drafts } = (await list.json()) as { drafts: { id: string }[] };
   const theirs = "Yes: reply with the new address and we'll update the order.";
   const edit = await page.request.patch(`/v1/drafts/${drafts[0]?.id}`, { data: { body: theirs } });

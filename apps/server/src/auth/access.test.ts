@@ -136,21 +136,21 @@ describe("the declared access is enforced, before the body is read", () => {
   );
 });
 
-describe("routes on a ticket need tickets:read", () => {
-  // #108: creating a GitHub issue from a ticket checked only github:write, so a caller that
-  // couldn't read the ticket could still pick its customer to be told. Anything under
-  // /v1/tickets/{id} acts on that ticket and returns or uses its content.
-  const onTicket = scoped.filter((op) => op.path.startsWith("/v1/tickets/{id}"));
+describe("routes on a conversation need conversations:read", () => {
+  // #108: creating a GitHub issue from a conversation checked only github:write, so a caller that
+  // couldn't read the conversation could still pick its customer to be told. Anything under
+  // /v1/conversations/{id} acts on that conversation and returns or uses its content.
+  const onConversation = scoped.filter((op) => op.path.startsWith("/v1/conversations/{id}"));
 
   it("found them", () => {
-    expect(onTicket.length).toBeGreaterThan(3);
+    expect(onConversation.length).toBeGreaterThan(3);
   });
 
-  it.each(onTicket)("$method $path requires tickets:read", (op) => {
+  it.each(onConversation)("$method $path requires conversations:read", (op) => {
     const required = "allScopes" in op.access ? op.access.allScopes : [];
     expect(
       required,
-      `${op.method} ${op.path}: add "tickets:read" to its access.allScopes`,
-    ).toContain("tickets:read");
+      `${op.method} ${op.path}: add "conversations:read" to its access.allScopes`,
+    ).toContain("conversations:read");
   });
 });

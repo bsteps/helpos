@@ -1,5 +1,5 @@
 // `pnpm db:seed`: fills a local database with two demo workspaces, their users, agent tokens,
-// tickets, drafts and knowledge sources. The same data every run, and safe to run again.
+// conversations, drafts and knowledge sources. The same data every run, and safe to run again.
 // Refuses production: the demo tokens are public.
 import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { z } from "zod";
@@ -51,7 +51,7 @@ try {
     }
     for (const t of result.data.tenants) {
       process.stdout.write(
-        `\n${t.tenant.name} (${t.mailbox.address}), ${t.tickets.length} tickets\n`,
+        `\n${t.tenant.name} (${t.mailbox.address}), ${t.conversations.length} conversations\n`,
       );
       for (const m of t.memberships) process.stdout.write(`  ${m.role.padEnd(6)} ${m.email}\n`);
       for (const k of t.tokens.filter((k) => !k.revokedAt)) {

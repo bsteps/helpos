@@ -28,7 +28,7 @@ describe("shadow mode delivery", () => {
     if (delivery.kind !== "shadow") throw new Error(`got ${delivery.kind}`);
     expect(delivery.email.to).toBe("owner@acme.test");
     expect(delivery.intendedTo).toBe("jane@customer.test");
-    // Answering it can't reach the support mailbox and open a ticket.
+    // Answering it can't reach the support mailbox and open a conversation.
     expect(delivery.email.replyTo).toBe(shadowReplyTo);
     expect(delivery.email.headers).toEqual({ [intendedToHeader]: "jane@customer.test" });
     expect(delivery.email.text.startsWith(`[${brand.name} shadow mode]`)).toBe(true);

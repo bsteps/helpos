@@ -34,7 +34,7 @@ interface JobSpec<P extends { tenantId: string }> {
   run(services: Services): Run<P> | Waits;
   /**
    * Required: runs once after the last retry failed, in its own transaction, and leaves a
-   * state people can see (a marked ticket or source) and an audit event. Without it, a job
+   * state people can see (a marked conversation or source) and an audit event. Without it, a job
    * that keeps failing would leave its work silently undone.
    */
   onGiveUp: TenantJobHandler<P>;
@@ -100,7 +100,7 @@ const sendReplyRetry: RetryPolicy = {
 export const jobs: readonly Job[] = [
   defineJob({
     job: draftReplyJob,
-    // A model outage of a few minutes. After that the ticket is marked `draft_failed`, and a
+    // A model outage of a few minutes. After that the conversation is marked `draft_failed`, and a
     // person can ask the AI again from the dashboard.
     retry: { limit: 3, delaySeconds: 30, backoff: true, maxDelaySeconds: 300 },
     run: (s) =>

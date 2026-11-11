@@ -76,7 +76,7 @@ describe("agentTokens", () => {
     tenantId: "0190a000-0000-7000-8000-00000000000b",
     name: "triage-bot",
     tokenHash: hash,
-    scopes: ["tickets:read", "drafts:write"],
+    scopes: ["conversations:read", "drafts:write"],
     revokedAt: null,
   };
   const request = (authorization?: string) =>
@@ -91,7 +91,7 @@ describe("agentTokens", () => {
     expect(await authenticate(request(`Bearer ${token}`))).toEqual({
       tenantId: record.tenantId,
       actor: { type: "agent", id: record.id },
-      scopes: new Set(["tickets:read", "drafts:write"]),
+      scopes: new Set(["conversations:read", "drafts:write"]),
     });
     // The database only ever sees the hash, never the token.
     expect(resolveApiToken).toHaveBeenCalledWith(hash);

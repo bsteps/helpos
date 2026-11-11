@@ -68,7 +68,7 @@ function flakySmtp(smtp: EmailTransport): EmailTransport {
 
 /**
  * An email whose subject has this in it (and the unique suffix after it) makes the AI fail its
- * first two tries, as if the provider were down: with one retry allowed here, the ticket ends
+ * first two tries, as if the provider were down: with one retry allowed here, the conversation ends
  * up marked `draft_failed`. A third try (asking the AI again from the dashboard) works.
  */
 export const e2eModelDownMarker = "model-down";
@@ -229,7 +229,7 @@ async function testWorkspace(name: string, slug: string) {
   return { tenantId: created.tenantId, owner, mailbox, password };
 }
 
-// Its daily AI budget is one draft: the first email uses it up, so the next ticket gets none.
+// Its daily AI budget is one draft: the first email uses it up, so the next conversation gets none.
 const budget = await testWorkspace("Budget Bikes", "budget-bikes");
 await db.withTenant(budget.tenantId, (tx) =>
   tx

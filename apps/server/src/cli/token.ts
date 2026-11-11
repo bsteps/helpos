@@ -1,4 +1,4 @@
-// `pnpm helpos:token --mailbox support@acme.test --name triage-bot --scopes tickets:read,drafts:write`
+// `pnpm helpos:token --mailbox support@acme.test --name triage-bot --scopes conversations:read,drafts:write`
 // Creates an agent token for the workspace behind a mailbox and prints it, once. For the server
 // operator: until human sessions exist (#46), nobody can call `POST /v1/tokens`.
 import { parseArgs } from "node:util";

@@ -16,14 +16,14 @@ describe("buildDemoData", () => {
     );
   });
 
-  it("seeds two workspaces with users, tokens, tickets, drafts and knowledge", () => {
+  it("seeds two workspaces with users, tokens, conversations, drafts and knowledge", () => {
     const { tenants, users } = buildDemoData();
     expect(tenants).toHaveLength(2);
     expect(new Set(users.map((u) => u.email)).size).toBe(users.length);
     for (const t of tenants) {
       expect(t.memberships.some((m) => m.role === "owner")).toBe(true);
       expect(t.tokens.length).toBeGreaterThan(0);
-      expect(t.tickets.length).toBeGreaterThan(3);
+      expect(t.conversations.length).toBeGreaterThan(3);
       expect(t.sources.length).toBeGreaterThan(0);
       for (const status of ["pending", "sent"]) {
         expect(t.drafts.some((d) => d.status === status)).toBe(true);
@@ -31,7 +31,7 @@ describe("buildDemoData", () => {
     }
   });
 
-  it("links a demo ticket to a GitHub issue, and gives an agent github:write", () => {
+  it("links a demo conversation to a GitHub issue, and gives an agent github:write", () => {
     const lumen = buildDemoData().tenants.find((t) => t.key === "lumen");
     expect(lumen?.githubIssues).toEqual([
       expect.objectContaining({
@@ -68,7 +68,7 @@ describe("buildDemoData", () => {
         t.sources,
         t.tokens,
         t.audit,
-        t.tickets,
+        t.conversations,
         t.messages,
         t.drafts,
         t.citations,

@@ -11,7 +11,7 @@ import { messageText } from "../drafts/html-text.ts";
 import type { Auditor } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 
-const { messages, tickets } = schema;
+const { messages, conversations } = schema;
 
 export interface DraftIssueDeps {
   db: Pick<Database, "withTenant">;
@@ -30,13 +30,13 @@ export type DraftIssueOutcome =
   | { kind: "ai_unavailable" };
 
 /**
- * Asks the AI for a GitHub issue's title and body from a ticket. Read the ticket and reserve
+ * Asks the AI for a GitHub issue's title and body from a conversation. Read the conversation and reserve
  * the call's cost from today's budget, then make the call with no transaction open (it never
  * holds up reply drafting), and settle the cost.
  */
 export async function draftIssue(
   deps: DraftIssueDeps,
-  input: { tenantId: string; ticketId: string; audit: Auditor },
+  input: { tenantId: string; conversationId: string; audit: Auditor },
 ): Promise<DraftIssueOutcome> {
   const budget = aiBudget(deps);
   const prepared = await readAndReserve(deps, budget, input);
@@ -59,19 +59,19 @@ export async function draftIssue(
   }
 }
 
-/** The ticket's text for the model, and the call's cost reserved. */
+/** The conversation's text for the model, and the call's cost reserved. */
 async function readAndReserve(
   deps: DraftIssueDeps,
   budget: ReturnType<typeof aiBudget>,
-  input: { tenantId: string; ticketId: string; audit: Auditor },
+  input: { tenantId: string; conversationId: string; audit: Auditor },
 ) {
-  const { tenantId, ticketId } = input;
+  const { tenantId, conversationId } = input;
   return deps.db.withTenant(tenantId, async (tx) => {
-    const [ticket] = await tx
-      .select({ subject: tickets.subject })
-      .from(tickets)
-      .where(eq(tickets.id, ticketId));
-    if (!ticket) return "not_found" as const;
+    const [conversation] = await tx
+      .select({ subject: conversations.subject })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    if (!conversation) return "not_found" as const;
     const rows = await tx
       .select({
         direction: messages.direction,
@@ -81,14 +81,14 @@ async function readAndReserve(
       })
       .from(messages)
       // Machine mail (bounces, out-of-office) says nothing about the bug.
-      .where(and(eq(messages.ticketId, ticketId), isNull(messages.automatedReason)))
+      .where(and(eq(messages.conversationId, conversationId), isNull(messages.automatedReason)))
       .orderBy(asc(messages.createdAt), asc(messages.id));
     const lastInbound = rows.findLastIndex((m) => m.direction === "inbound");
     const latest = rows[lastInbound];
     if (!latest) return "nothing_to_report" as const;
     const modelInput = {
       from: latest.from,
-      subject: ticket.subject,
+      subject: conversation.subject,
       body: messageText(latest),
       history: rows.slice(0, lastInbound).map((m) => ({
         direction: m.direction,
@@ -100,7 +100,7 @@ async function readAndReserve(
     if (reservation === "busy") return reservation;
     if ("refused" in reservation) return reservation.refused;
     // Logged with the reservation, in its transaction: from here on the call is paid for.
-    await input.audit(tx, "github_issue.drafted", { type: "ticket", id: ticketId });
+    await input.audit(tx, "github_issue.drafted", { type: "conversation", id: conversationId });
     return { input: modelInput, reservation };
   });
 }

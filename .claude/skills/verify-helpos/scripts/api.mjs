@@ -1,6 +1,6 @@
 // Calls this checkout's API as a given caller and prints the status and JSON body.
 //   node .claude/skills/verify-helpos/scripts/api.mjs <as> <METHOD> <path> [body]
-// <path>: v1/tickets. Leave out the leading slash: Git Bash turns /v1/... into a Windows path.
+// <path>: v1/conversations. Leave out the leading slash: Git Bash turns /v1/... into a Windows path.
 // <as>:   a seed token name, e.g. northwind:triage-bot, northwind:approver-bot, lumen:support-agent
 //         hos_…     a token you minted with POST v1/tokens
 //         owner     the Northwind owner's session (signs in first; run owner-password.mjs once)
@@ -9,8 +9,8 @@
 //         none      no credentials
 // [body]: JSON text, or @file to read it from a file.
 // Placeholders, filled from what the scripts last created (.helpos/verify-state/last.json):
-//   {ticket}     the last ticket (from new-email.mjs or an inbound call)
-//   {draft}      that ticket's pending draft, waiting for the AI if needed; {draftBody} is its
+//   {conversation}     the last conversation (from new-email.mjs or an inbound call)
+//   {draft}      that conversation's pending draft, waiting for the AI if needed; {draftBody} is its
 //                exact text as a JSON string, for approve: '{"body":{draftBody}}'
 //   {token} {tokenId}  the last token minted with POST v1/tokens
 //   {source}     the last knowledge source created
@@ -32,7 +32,7 @@ import {
 } from "./instance.mjs";
 
 const hint = {
-  ticket: "run new-email.mjs first",
+  conversation: "run new-email.mjs first",
   token: "mint one first: api.mjs owner POST v1/tokens '{...}'",
   tokenId: "mint one first: api.mjs owner POST v1/tokens '{...}'",
   source: "create one first: api.mjs {token} POST v1/knowledge/sources '{...}'",
@@ -48,7 +48,7 @@ await requireRunning(inst);
 
 const last = lastCreated();
 // Only these names are placeholders; any other {word} is the person's own text.
-const placeholder = /\{(ticket|draft|draftBody|token|tokenId|source)\}/g;
+const placeholder = /\{(conversation|draft|draftBody|token|tokenId|source)\}/g;
 // A JSON body file may use them too (`@body.json` with {"body":{draftBody}}); an .eml is sent as is.
 const bodyFile = argv[3]?.startsWith("@") ? argv[3].slice(1) : undefined;
 // An email body: anything sent as inbound, or any .eml (`none` sends one to prove the inbound
@@ -66,7 +66,7 @@ const placeholders = `${argv.join(" ")} ${fileText ?? ""}`.match(placeholder) ??
 // since it would be pasted into a path or JSON as it is.
 for (const key of new Set(placeholders.map((p) => p.slice(1, -1)))) {
   const value = last[key];
-  // Unknown yet is reported by fill(), with how to create it; {draft} comes from the ticket.
+  // Unknown yet is reported by fill(), with how to create it; {draft} comes from the conversation.
   if (value === undefined || key === "draft" || key === "draftBody") continue;
   if (typeof value !== "string" || !/^[\w-]+$/.test(value)) {
     quit(
@@ -92,7 +92,7 @@ if (jsonBody !== undefined && !emailBody && argv[0] !== "inbound") {
   }
 }
 if (placeholders.some((p) => p === "{draft}" || p === "{draftBody}")) {
-  const draft = await waitForDraft(last.ticket);
+  const draft = await waitForDraft(last.conversation);
   values.draft = draft.id;
   values.draftBody = JSON.stringify(draft.body);
 }
@@ -176,8 +176,8 @@ if (res.ok) {
     json = text ? JSON.parse(text) : {};
   } catch {}
   const post = method.toUpperCase() === "POST";
-  // Only what a POST made or acted on: reading another ticket's draft must not move {ticket}.
-  if (post && json.ticketId) remember({ ticket: json.ticketId });
+  // Only what a POST made or acted on: reading another conversation's draft must not move {conversation}.
+  if (post && json.conversationId) remember({ conversation: json.conversationId });
   if (post && path === "/v1/tokens" && json.token)
     remember({ token: json.token, tokenId: json.id });
   if (post && path === "/v1/knowledge/sources" && json.id) remember({ source: json.id });
@@ -185,15 +185,15 @@ if (res.ok) {
 // exitCode, not exit(): exiting while fetch's socket closes crashes libuv on Windows.
 process.exitCode = res.ok ? 0 : 1;
 
-/** The ticket's newest live draft, waiting up to 2 minutes for the AI to write one. */
-async function waitForDraft(ticket) {
-  if (!ticket) {
-    process.stderr.write(`{draft} needs a ticket first: ${hint.ticket}\n`);
+/** The conversation's newest live draft, waiting up to 2 minutes for the AI to write one. */
+async function waitForDraft(conversation) {
+  if (!conversation) {
+    process.stderr.write(`{draft} needs a conversation first: ${hint.conversation}\n`);
     quit(2);
   }
   const reader = await seedToken("northwind:triage-bot");
   for (let i = 0; i < 60; i++) {
-    const { drafts } = await getJson(inst, `/v1/tickets/${ticket}/drafts`, {
+    const { drafts } = await getJson(inst, `/v1/conversations/${conversation}/drafts`, {
       authorization: `Bearer ${reader}`,
     });
     const live = drafts.filter((d) => d.status !== "discarded");
@@ -203,11 +203,11 @@ async function waitForDraft(ticket) {
     const draft =
       pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1) ?? drafts.at(-1);
     if (draft) return draft;
-    const why = await whyNoDraft(inst, ticket, reader);
-    if (why) quit(1, `No draft on ticket ${ticket}: ${why}.`);
+    const why = await whyNoDraft(inst, conversation, reader);
+    if (why) quit(1, `No draft on conversation ${conversation}: ${why}.`);
     if (i === 0) process.stderr.write("(waiting for the AI draft…)\n");
     await new Promise((r) => setTimeout(r, 2000));
   }
-  process.stderr.write(`no draft on ticket ${ticket} after 2 minutes\n`);
+  process.stderr.write(`no draft on conversation ${conversation} after 2 minutes\n`);
   quit(1);
 }

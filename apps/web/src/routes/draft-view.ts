@@ -1,4 +1,4 @@
-import type { Draft, TicketDetail } from "@/api/client.ts";
+import type { ConversationDetail, Draft } from "@/api/client.ts";
 
 export function newestReply(drafts: Draft[]): Draft | undefined {
   return drafts.filter((d) => d.kind === "reply").at(-1);
@@ -11,7 +11,7 @@ export function liveFixNotice(drafts: Draft[]): Draft | undefined {
 
 /**
  * A new AI draft was asked for while this reply was the newest (`null`: there was none).
- * `queued`: the server accepted the request and the ticket was fetched again after that. The
+ * `queued`: the server accepted the request and the conversation was fetched again after that. The
  * server clears `draft_failed` when it queues one, so a `draft_failed` seen after that is a new
  * failure of this ask, not the old one.
  */
@@ -36,27 +36,29 @@ export type DraftView =
   | { kind: "choose"; after: "discarded" | "send_failed" | "ai_paused" | "draft_failed" };
 
 export function draftView(
-  ticket: TicketDetail | undefined,
+  conversation: ConversationDetail | undefined,
   drafts: Draft[],
   ask: Ask | undefined,
   composing: boolean,
 ): DraftView {
   const newest = newestReply(drafts);
-  const latestMessage = ticket?.messages.filter((m) => m.direction === "inbound").at(-1);
+  const latestMessage = conversation?.messages.filter((m) => m.direction === "inbound").at(-1);
   // Once the newest reply is discarded, an older sent reply isn't the one to show. Nor is one
   // sent to an earlier message when the AI paused before answering the latest.
   const answeredEarlier =
-    ticket?.aiPausedReason && newest?.status === "sent" && newest.messageId !== latestMessage?.id;
+    conversation?.aiPausedReason &&
+    newest?.status === "sent" &&
+    newest.messageId !== latestMessage?.id;
   const live = newest?.status === "discarded" || answeredEarlier ? undefined : newest;
   // A reply being written stays on screen whatever changes meanwhile, so typed text isn't lost.
   if (composing) {
     return { kind: "compose", meanwhile: live && meanwhileByStatus[live.status] };
   }
   if (live) return { kind: "draft", draft: live };
-  if (ticket?.status !== "open" || ticket.automated) return { kind: "none" };
+  if (conversation?.status !== "open" || conversation.automated) return { kind: "none" };
   if (ask && ask.replacing === (newest?.id ?? null)) {
     // The asked-for draft failed too: say so instead of waiting for it forever.
-    if (ask.queued && ticket.aiPausedReason === "draft_failed") {
+    if (ask.queued && conversation.aiPausedReason === "draft_failed") {
       return { kind: "choose", after: "draft_failed" };
     }
     return { kind: "writing" };
@@ -65,17 +67,18 @@ export function draftView(
     return { kind: "choose", after: newest.approvedAt ? "send_failed" : "discarded" };
   }
   // Every try to draft failed: offer the choice instead of waiting for a draft that won't come.
-  if (ticket.aiPausedReason === "draft_failed") return { kind: "choose", after: "draft_failed" };
-  if (ticket.aiPausedReason) return { kind: "choose", after: "ai_paused" };
+  if (conversation.aiPausedReason === "draft_failed")
+    return { kind: "choose", after: "draft_failed" };
+  if (conversation.aiPausedReason) return { kind: "choose", after: "ai_paused" };
   return { kind: "writing" };
 }
 
 /** Whether to keep checking for a draft: one is being written, or an approved one is sending. */
-export function waitingOn(ticket: TicketDetail | undefined, ask: Ask | undefined) {
+export function waitingOn(conversation: ConversationDetail | undefined, ask: Ask | undefined) {
   return (drafts: Draft[]): boolean =>
-    // An approved draft still goes out after the ticket is closed: keep watching until it's sent.
+    // An approved draft still goes out after the conversation is closed: keep watching until it's sent.
     drafts.some((d) => d.status === "approved") ||
-    draftView(ticket, drafts, ask, false).kind === "writing";
+    draftView(conversation, drafts, ask, false).kind === "writing";
 }
 
 /** What to tell the person when asking for or saving a new draft fails, by API error code. */
@@ -87,10 +90,10 @@ export function newDraftError(code: string | undefined): string {
       return "The customer's latest message already has a reply that was approved or sent.";
     case "nothing_to_answer":
       return "There's no customer message to answer.";
-    case "ticket_closed":
-      return "This ticket is closed, so the AI won't draft for it. You can write a reply yourself.";
+    case "conversation_closed":
+      return "This conversation is closed, so the AI won't draft for it. You can write a reply yourself.";
     case "not_found":
-      return "This ticket is gone, or you no longer have access to it.";
+      return "This conversation is gone, or you no longer have access to it.";
     default:
       return "That didn't work. Try again.";
   }

@@ -87,7 +87,7 @@ describe("checkAssertions", () => {
     ).toEqual([]);
   });
 
-  it("fails an empty draft, even one that handed the ticket off", () => {
+  it("fails an empty draft, even one that handed the conversation off", () => {
     const output = {
       text: " \n",
       toolCalls: ["escalate_to_human"],

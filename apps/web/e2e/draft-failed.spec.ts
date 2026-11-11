@@ -2,23 +2,26 @@ import { expect, test } from "@playwright/test";
 import { deliver, plainEmail, signIn, state, uniqueSubject } from "./support.ts";
 
 // The AI fails every try at drafting (the e2e model does so for these subjects, as if the
-// provider were down). The worker gives up, and the ticket says so instead of showing
-// "The AI is writing a draft…" forever. Asking the AI again from the ticket works.
+// provider were down). The worker gives up, and the conversation says so instead of showing
+// "The AI is writing a draft…" forever. Asking the AI again from the conversation works.
 
-type PausedTicket = { aiPausedReason: string | null };
+type PausedConversation = { aiPausedReason: string | null };
 
-test("a ticket the AI couldn't draft for says so, and the AI can be asked again", async ({
+test("a conversation the AI couldn't draft for says so, and the AI can be asked again", async ({
   page,
   request,
 }) => {
   const subject = uniqueSubject(`Login ${state().modelDownMarker}`);
-  const ticketId = await deliver(request, plainEmail(subject, "Hi, I can't log in."));
+  const conversationId = await deliver(request, plainEmail(subject, "Hi, I can't log in."));
   await signIn(page);
   await expect
     .poll(
       async () =>
-        ((await (await page.request.get(`/v1/tickets/${ticketId}`)).json()) as PausedTicket)
-          .aiPausedReason,
+        (
+          (await (
+            await page.request.get(`/v1/conversations/${conversationId}`)
+          ).json()) as PausedConversation
+        ).aiPausedReason,
       { timeout: 30_000 },
     )
     .toBe("draft_failed");
@@ -37,19 +40,22 @@ test("a ticket the AI couldn't draft for says so, and the AI can be asked again"
   await expect(noDraft).toBeHidden();
 });
 
-test("when the AI fails again after being asked again, the ticket says so again, not a spinner", async ({
+test("when the AI fails again after being asked again, the conversation says so again, not a spinner", async ({
   page,
   request,
 }) => {
   const subject = uniqueSubject(`Billing ${state().modelStillDownMarker}`);
-  const ticketId = await deliver(request, plainEmail(subject, "Hi, I was charged twice."));
+  const conversationId = await deliver(request, plainEmail(subject, "Hi, I was charged twice."));
   await signIn(page);
   const reason = async () =>
-    ((await (await page.request.get(`/v1/tickets/${ticketId}`)).json()) as PausedTicket)
-      .aiPausedReason;
+    (
+      (await (
+        await page.request.get(`/v1/conversations/${conversationId}`)
+      ).json()) as PausedConversation
+    ).aiPausedReason;
   await expect.poll(reason, { timeout: 30_000 }).toBe("draft_failed");
 
-  await page.goto(`/tickets/${ticketId}`);
+  await page.goto(`/conversations/${conversationId}`);
   const noDraft = page.getByRole("alert").filter({ hasText: "The AI couldn't write a draft" });
   await expect(noDraft).toBeVisible();
 

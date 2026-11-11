@@ -66,7 +66,7 @@ test("turning shadow mode off asks first, and while the server locks it shows wh
 });
 
 type Paused = { paused: boolean };
-type PausedTicket = { aiPausedReason: string | null };
+type PausedConversation = { aiPausedReason: string | null };
 
 const tokens = async (page: Page, testId: string): Promise<number> =>
   Number(((await page.getByTestId(testId).textContent()) ?? "").replace(/\D/g, ""));
@@ -103,7 +103,7 @@ test("AI usage shows today's tokens and budget, and grows after a draft", async 
   await expect.poll(() => leftMatchesBudget(page, budget)).toBe(true);
 });
 
-test("when drafting uses up the daily budget, Settings and the next ticket show drafting is paused", async ({
+test("when drafting uses up the daily budget, Settings and the next conversation show drafting is paused", async ({
   page,
   request,
 }) => {
@@ -123,15 +123,18 @@ test("when drafting uses up the daily budget, Settings and the next ticket show 
   await expect(page.getByText("Drafting is paused")).toBeVisible();
 
   const subject = uniqueSubject("After the budget");
-  const ticketId = await deliver(
+  const conversationId = await deliver(
     request,
     plainEmail(subject, "Hi, can you help me?", budgetMailbox),
   );
   await expect
     .poll(
       async () =>
-        ((await (await page.request.get(`/v1/tickets/${ticketId}`)).json()) as PausedTicket)
-          .aiPausedReason,
+        (
+          (await (
+            await page.request.get(`/v1/conversations/${conversationId}`)
+          ).json()) as PausedConversation
+        ).aiPausedReason,
     )
     .toBe("daily_budget");
   await page.goto("/");

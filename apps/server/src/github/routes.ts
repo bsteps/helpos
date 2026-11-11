@@ -91,7 +91,7 @@ const issueDraftSchema = z
     title: z.string(),
     /**
      * Suggested markdown body: summary, steps to reproduce, expected and actual. It never
-     * contains links, email addresses, @mentions or issue references, whatever the ticket says.
+     * contains links, email addresses, @mentions or issue references, whatever the conversation says.
      */
     body: z.string(),
   })
@@ -165,7 +165,7 @@ const disconnectRoute = apiRoute({
   path: integrationPath,
   summary: "Disconnect the GitHub repo",
   description:
-    "Deletes the stored token and webhook secret. Tickets keep their issue links, and webhooks " +
+    "Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks " +
     "are refused from now on. Needs `workspace:admin` in a human session.",
   responses: { 204: { description: "Disconnected, or nothing was connected" } },
 });
@@ -193,16 +193,16 @@ const rotateRoute = apiRoute({
 });
 
 const draftIssueRoute = apiRoute({
-  access: { allScopes: ["github:write", "tickets:read"] },
+  access: { allScopes: ["github:write", "conversations:read"] },
   audit: { records: ["github_issue.drafted"] },
   method: "post",
-  path: "/v1/tickets/{id}/github-issue/draft",
-  summary: "Ask the AI to draft a GitHub issue from a ticket",
+  path: "/v1/conversations/{id}/github-issue/draft",
+  summary: "Ask the AI to draft a GitHub issue from a conversation",
   description:
-    "Suggests a title and body (steps to reproduce, expected, actual) from the ticket's " +
+    "Suggests a title and body (steps to reproduce, expected, actual) from the conversation's " +
     "messages. Nothing is created: edit the text, then create the issue. The customer's text " +
     "is data, never instructions, so the draft has no labels, assignees, links, @mentions or " +
-    "issue references. Counts against the AI daily budget. Needs `tickets:read` and `github:write`.",
+    "issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.",
   request: { params: idParams },
   responses: {
     200: json(issueDraftSchema, "The suggested issue"),
@@ -222,21 +222,21 @@ const draftIssueRoute = apiRoute({
 });
 
 const createIssueRoute = apiRoute({
-  // tickets:read too: the issue is made from the ticket, and the ticket's customer is who is
-  // told when it is fixed, so a caller that cannot read the ticket cannot pick it either.
-  access: { allScopes: ["github:write", "tickets:read"] },
+  // conversations:read too: the issue is made from the conversation, and the conversation's customer is who is
+  // told when it is fixed, so a caller that cannot read the conversation cannot pick it either.
+  access: { allScopes: ["github:write", "conversations:read"] },
   // A close found on linking writes the "fixed" notice draft too.
   audit: { records: ["github_issue.created", "github_issue.closed", "draft.created"] },
   method: "post",
-  path: "/v1/tickets/{id}/github-issue",
-  summary: "Create a GitHub issue from a ticket",
+  path: "/v1/conversations/{id}/github-issue",
+  summary: "Create a GitHub issue from a conversation",
   description:
     "Opens an issue with exactly this title and body in the connected repo, and links it to " +
-    "the ticket. Only title and body are sent: no labels, assignees or milestones. The body " +
+    "the conversation. Only title and body are sent: no labels, assignees or milestones. The body " +
     "ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that " +
     "if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue " +
-    "instead of opening a duplicate. When the issue is closed as completed, the ticket gets a " +
-    "`fixed` draft to approve. One issue per ticket. Needs `tickets:read` and `github:write`.",
+    "instead of opening a duplicate. When the issue is closed as completed, the conversation gets a " +
+    "`fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.",
   request: {
     params: idParams,
     body: jsonBody(
@@ -247,11 +247,11 @@ const createIssueRoute = apiRoute({
     ),
   },
   responses: {
-    201: json(issueLinkSchema, "The issue, now linked to the ticket"),
+    201: json(issueLinkSchema, "The issue, now linked to the conversation"),
     404: notFoundResponse,
     409: json(
       errorSchema,
-      "No repo is connected (`not_connected`), the ticket already has an issue " +
+      "No repo is connected (`not_connected`), the conversation already has an issue " +
         "(`already_linked`), one is being opened or GitHub's answer to the last try was lost " +
         "(`creation_pending`: try again in five minutes; nothing is opened twice), or the stored " +
         "token can't be read with the server's key and the repo must be connected again " +
@@ -262,12 +262,12 @@ const createIssueRoute = apiRoute({
       "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), " +
         "refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached " +
         "(`github_unavailable`): no issue was opened. Or GitHub didn't " +
-        "answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays " +
+        "answer and the issue isn't found either (`github_outcome_unknown`): the conversation stays " +
         "claimed, and a try after five minutes first looks for that issue again",
     ),
     500: json(
       z.object({ error: z.string(), url: z.string() }),
-      "The issue was opened on GitHub, at `url`, but couldn't be linked to the ticket " +
+      "The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation " +
         "(`issue_not_linked`). Don't create it again: close that one or link it by hand",
     ),
     503: notConfigured,
@@ -381,8 +381,11 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const { tenantId } = c.get("principal");
     const model = deps.model;
     if (!model) return c.json({ error: "ai_not_configured" }, 503);
-    const { id: ticketId } = c.req.valid("param");
-    const outcome = await draftIssue({ ...deps, model }, { tenantId, ticketId, audit: auditor(c) });
+    const { id: conversationId } = c.req.valid("param");
+    const outcome = await draftIssue(
+      { ...deps, model },
+      { tenantId, conversationId, audit: auditor(c) },
+    );
     switch (outcome.kind) {
       case "not_found":
         return notFound(c);
@@ -405,7 +408,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       { ...deps, secretBox },
       {
         tenantId: principal.tenantId,
-        ticketId: c.req.valid("param").id,
+        conversationId: c.req.valid("param").id,
         issue: c.req.valid("json"),
         author: principal.actor.type === "agent" ? "agent" : "human",
         audit: auditor(c),

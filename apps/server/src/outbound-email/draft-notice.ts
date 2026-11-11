@@ -4,18 +4,18 @@ import MailComposer from "nodemailer/lib/mail-composer";
 /** How much of the customer's message a notice quotes. Enough to recognise it, no more. */
 export const noticeSnippetLength = 160;
 
-/** At most one notice per ticket in this window, however many drafts it gets. */
+/** At most one notice per conversation in this window, however many drafts it gets. */
 export const noticeWindowMinutes = 15;
 
 export interface DraftNotice {
   from: string;
   /**
-   * Not a helpdesk mailbox, so an owner who answers the notice doesn't open a ticket that the
+   * Not a helpdesk mailbox, so an owner who answers the notice doesn't open a conversation that the
    * AI then drafts a reply to.
    */
   replyTo: string;
   to: string;
-  ticketUrl: string;
+  conversationUrl: string;
   /** The customer's message. Quoted as a short plain-text snippet, never in the subject. */
   customerText: string;
   messageId: string;
@@ -44,7 +44,7 @@ export function snippet(text: string, max = noticeSnippetLength): string {
     // A lone surrogate left by the cut above.
     .replace(/[\uD800-\uDBFF]$/, "")
     // The notice comes from the workspace's own address, so a customer's link must not look
-    // like one we sent. The full message is on the ticket.
+    // like one we sent. The full message is on the conversation.
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link]")
     // Bare domains too: mail clients autolink them. Catches some file names; that's fine here.
     .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b\S*/gi, "[link]")
@@ -58,16 +58,16 @@ export function snippet(text: string, max = noticeSnippetLength): string {
   return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
-export function noticeText(notice: Pick<DraftNotice, "ticketUrl" | "customerText">): string {
+export function noticeText(notice: Pick<DraftNotice, "conversationUrl" | "customerText">): string {
   const quoted = snippet(notice.customerText);
   return [
     "A draft reply is waiting for your approval. Nothing is sent until someone approves it.",
     "",
     ...(quoted ? ["The customer wrote:", `> ${quoted}`, ""] : []),
-    `Review it: ${notice.ticketUrl}`,
+    `Review it: ${notice.conversationUrl}`,
     "",
     "Replies to this email are not read.",
-    `You get at most one of these per ticket every ${noticeWindowMinutes} minutes. Sent by ${brand.name}.`,
+    `You get at most one of these per conversation every ${noticeWindowMinutes} minutes. Sent by ${brand.name}.`,
   ].join("\n");
 }
 

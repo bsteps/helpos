@@ -8,8 +8,8 @@ import type { components, paths } from "./schema.gen.ts";
  */
 export const api = createClient<paths>({ baseUrl: window.location.origin });
 
-export type Ticket = components["schemas"]["Ticket"];
-export type TicketDetail = components["schemas"]["TicketDetail"];
+export type Conversation = components["schemas"]["Conversation"];
+export type ConversationDetail = components["schemas"]["ConversationDetail"];
 export type Message = components["schemas"]["Message"];
 export type Draft = components["schemas"]["Draft"];
 export type Me = components["schemas"]["Me"];

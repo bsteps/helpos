@@ -11,13 +11,13 @@ import {
 } from "./auth/principal.ts";
 import { registerAuthRoutes } from "./auth/routes.ts";
 import { humanSessions } from "./auth/session.ts";
+import { registerConversationRoutes } from "./conversations/routes.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerGithubRoutes } from "./github/routes.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import type { Services } from "./services.ts";
 import { registerStatsRoutes } from "./stats/routes.ts";
-import { registerTicketRoutes } from "./tickets/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerDashboard } from "./web/dashboard.ts";
@@ -83,7 +83,7 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   registerInboundEmail(app, { db, files, logger, inboundSecret });
   registerAuthRoutes(app, { db, sessions, passwords, trustedOrigin });
   registerTokenRoutes(app, { db });
-  registerTicketRoutes(app, { db });
+  registerConversationRoutes(app, { db });
   registerDraftRoutes(app, { db, clock, config, logger });
   registerAiUsageRoute(app, { db, clock, config, logger });
   registerKnowledgeRoutes(app, { db });

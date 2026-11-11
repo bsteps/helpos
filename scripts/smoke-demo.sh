@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Boots the demo stack (without Caddy: CI has no domain), creates a workspace the way the guide
 # says, and sends one email through the inbound webhook. Proves the deployment works end to end
-# up to "the email is a ticket". Throwaway passwords, everything removed at the end.
+# up to "the email is a conversation". Throwaway passwords, everything removed at the end.
 set -euo pipefail
 cd "$(dirname "$0")/../deploy/demo"
 
@@ -105,9 +105,9 @@ rm -f "$env_file.dump" "$env_file.files"
 dc up -d --wait server backup
 expect "$(count_files)" "$files_before" "stored files after the restore"
 
-tickets="$(dc exec -T postgres psql -tA -U postgres -d helpos -c 'select count(*) from tickets')"
-if [ "$tickets" != "1" ]; then
-  echo "after restoring, expected 1 ticket, found '$tickets'" >&2
+conversations="$(dc exec -T postgres psql -tA -U postgres -d helpos -c 'select count(*) from conversations')"
+if [ "$conversations" != "1" ]; then
+  echo "after restoring, expected 1 conversation, found '$conversations'" >&2
   exit 1
 fi
 echo "demo smoke test passed: workspace created, email stored, database and files backed up and restored"

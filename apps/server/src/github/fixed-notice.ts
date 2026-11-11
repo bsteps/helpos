@@ -18,16 +18,16 @@ export const fixedNoticeBody = [
 export const githubWebhookActor = { type: "system", id: "github-webhook" } as const;
 
 /**
- * Adds a pending "fixed" draft to the ticket, as a reply to the customer's latest message, and
+ * Adds a pending "fixed" draft to the conversation, as a reply to the customer's latest message, and
  * queues the owners' "a draft is waiting" notice. Nothing is sent: it waits for approval, and
- * the send worker then applies shadow mode like for any reply. Does nothing when the ticket
+ * the send worker then applies shadow mode like for any reply. Does nothing when the conversation
  * has no message from a person, or already has a "fixed" draft waiting or being sent.
  */
 export async function addFixedDraft(
   tx: TenantTx,
   input: {
     tenantId: string;
-    ticketId: string;
+    conversationId: string;
     actor: AuditActor;
     requestId: string | null;
     noticeDelaySeconds: number;
@@ -38,7 +38,7 @@ export async function addFixedDraft(
     auditorFor(input.tenantId, input.actor, input.requestId),
     {
       tenantId: input.tenantId,
-      ticketId: input.ticketId,
+      conversationId: input.conversationId,
       body: fixedNoticeBody,
       noticeDelaySeconds: input.noticeDelaySeconds,
     },

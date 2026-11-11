@@ -59,8 +59,8 @@ export async function deliver(request: APIRequestContext, raw: string): Promise<
     data: Buffer.from(raw.replace(/\r?\n/g, "\r\n")),
   });
   expect(res.status(), await res.text()).toBe(201);
-  const body = (await res.json()) as { ticketId: string };
-  return body.ticketId;
+  const body = (await res.json()) as { conversationId: string };
+  return body.conversationId;
 }
 
 export function plainEmail(subject: string, text: string, to: string = state().mailbox): string {

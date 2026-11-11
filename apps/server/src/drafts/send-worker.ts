@@ -7,7 +7,7 @@ import { buildReply, type EmailTransport, replySubject } from "../outbound-email
 import { markSendFailed, markSent } from "./lifecycle.ts";
 import { noticeReplyTo } from "./notice-worker.ts";
 
-const { customers, drafts, mailboxes, messages, tenants, tickets } = schema;
+const { customers, drafts, mailboxes, messages, tenants, conversations } = schema;
 
 export interface SendWorkerDeps {
   transport: EmailTransport;
@@ -51,9 +51,9 @@ export function handleSendReply(deps: SendWorkerDeps) {
       })
       .from(drafts)
       .innerJoin(messages, eq(messages.id, drafts.messageId))
-      .innerJoin(tickets, eq(tickets.id, drafts.ticketId))
-      .innerJoin(mailboxes, eq(mailboxes.id, tickets.mailboxId))
-      .innerJoin(customers, eq(customers.id, tickets.customerId))
+      .innerJoin(conversations, eq(conversations.id, drafts.conversationId))
+      .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
+      .innerJoin(customers, eq(customers.id, conversations.customerId))
       .innerJoin(tenants, eq(tenants.id, drafts.tenantId))
       .where(eq(drafts.id, draftId))
       // Locks the draft, so two workers can't both send it.
@@ -104,7 +104,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
     await tx.insert(messages).values({
       id: sentMessageId,
       tenantId,
-      ticketId: draft.ticketId,
+      conversationId: draft.conversationId,
       direction: "outbound",
       fromAddress: row.mailbox,
       // Who really got it: in shadow mode, the shadow recipient, never the customer.
@@ -122,11 +122,14 @@ export function handleSendReply(deps: SendWorkerDeps) {
       sentMessageId,
     });
     if (sent.outcome !== "changed") throw new Error("send-reply: draft changed while sending");
-    await tx.update(tickets).set({ lastMessageAt: now }).where(eq(tickets.id, draft.ticketId));
+    await tx
+      .update(conversations)
+      .set({ lastMessageAt: now })
+      .where(eq(conversations.id, draft.conversationId));
 
     await deps.transport.send({ from: row.mailbox, to: [email.to], raw });
     deps.logger.info(
-      { draftId, ticketId: draft.ticketId, shadow: delivery.kind === "shadow" },
+      { draftId, conversationId: draft.conversationId, shadow: delivery.kind === "shadow" },
       "reply sent",
     );
   };

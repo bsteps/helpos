@@ -2,14 +2,14 @@ import { createHmac } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { deliver, plainEmail, signIn, state, uniqueSubject, waitForMail } from "./support.ts";
 
-// The product's wedge, through the dashboard at laptop and phone size: a ticket becomes a
+// The product's wedge, through the dashboard at laptop and phone size: a conversation becomes a
 // GitHub issue, GitHub says it's closed (a simulated, signed webhook), and the customer is told
 // it's fixed, after a human approves it. GitHub is faked by the e2e server; shadow mode is on.
 
 const sign = (secret: string, body: string) =>
   `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
 
-test("ticket → GitHub issue → closed on GitHub → approve the fix notice → the customer is told", async ({
+test("conversation → GitHub issue → closed on GitHub → approve the fix notice → the customer is told", async ({
   page,
   request,
 }) => {
@@ -51,7 +51,7 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
   const read = await page.request.get("/v1/integrations/github");
   expect(await read.text()).not.toContain(githubToken);
 
-  // On the ticket, the AI suggests the issue; the human edits it, then confirms.
+  // On the conversation, the AI suggests the issue; the human edits it, then confirms.
   await page.goto("/");
   await page.getByRole("link", { name: subject }).click();
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
@@ -100,7 +100,7 @@ test("ticket → GitHub issue → closed on GitHub → approve the fix notice �
     data: body,
   });
   expect(delivered.status(), await delivered.text()).toBe(200);
-  expect(await delivered.json()).toEqual({ status: "processed", tickets: 1 });
+  expect(await delivered.json()).toEqual({ status: "processed", conversations: 1 });
 
   // A fix notice waits for approval: nothing reached anyone yet.
   await page.reload();

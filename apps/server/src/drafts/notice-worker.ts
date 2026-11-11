@@ -20,7 +20,7 @@ import type { ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
 
-const { auditEvents, drafts, mailboxes, memberships, messages, tickets } = schema;
+const { auditEvents, drafts, mailboxes, memberships, messages, conversations } = schema;
 
 export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
 
@@ -31,11 +31,11 @@ export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const
  */
 export async function queueDraftNotice(
   tx: TenantTx,
-  draft: { tenantId: string; id: string; ticketId: string },
+  draft: { tenantId: string; id: string; conversationId: string },
   delaySeconds: number,
 ): Promise<void> {
   // No dedupe key: a key would fold this into a job that may already be running and have
-  // missed this draft. The window check in the handler, under the ticket lock, dedupes instead.
+  // missed this draft. The window check in the handler, under the conversation lock, dedupes instead.
   await enqueue(
     tx,
     draftNoticeJob,
@@ -50,7 +50,7 @@ function mailboxDomain(mailbox: string): string {
 
 /**
  * A no-reply address on the mailbox's domain that is never the mailbox itself, so answering a
- * notice can't land in the helpdesk and open a ticket.
+ * notice can't land in the helpdesk and open a conversation.
  */
 export function noticeReplyTo(mailbox: string): string {
   const domain = mailboxDomain(mailbox).toLowerCase();
@@ -58,10 +58,10 @@ export function noticeReplyTo(mailbox: string): string {
   return address === mailbox.toLowerCase() ? `no-reply-notices@${domain}` : address;
 }
 
-/** Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`), which `/tickets/…` would drop. */
-function ticketUrl(publicUrl: string, ticketId: string): string {
+/** Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`), which `/conversations/…` would drop. */
+function conversationUrl(publicUrl: string, conversationId: string): string {
   return new URL(
-    `tickets/${ticketId}`,
+    `conversations/${conversationId}`,
     publicUrl.endsWith("/") ? publicUrl : `${publicUrl}/`,
   ).toString();
 }
@@ -71,7 +71,7 @@ export interface NoticeWorkerDeps {
   auth: Pick<AuthStore, "emailsOf">;
   logger: Pick<Logger, "info" | "warn">;
   /**
-   * `publicUrl`: where the ticket link in the notice points, e.g. `https://help.acme.test`.
+   * `publicUrl`: where the conversation link in the notice points, e.g. `https://help.acme.test`.
    * `noticeDelaySeconds`: the delay the notice was queued with. A younger draft is left to its
    * own job.
    */
@@ -80,7 +80,7 @@ export interface NoticeWorkerDeps {
 
 /**
  * Runs once every attempt to send a notice failed (the mail server stayed down). The draft
- * itself still waits in the inbox; the audit event on its ticket records that the owners were
+ * itself still waits in the inbox; the audit event on its conversation records that the owners were
  * not told. Nothing is recorded for a draft that is no longer waiting.
  */
 export async function handleNoticeGaveUp(
@@ -88,7 +88,7 @@ export async function handleNoticeGaveUp(
   tx: TenantTx,
 ): Promise<void> {
   const [draft] = await tx
-    .select({ ticketId: drafts.ticketId })
+    .select({ conversationId: drafts.conversationId })
     .from(drafts)
     .where(and(eq(drafts.id, payload.draftId), eq(drafts.status, "pending")));
   if (!draft) return;
@@ -96,7 +96,7 @@ export async function handleNoticeGaveUp(
     tenantId: payload.tenantId,
     actor: noticeWorkerActor,
     action: "draft.notice_failed",
-    target: { type: "ticket", id: draft.ticketId },
+    target: { type: "conversation", id: draft.conversationId },
     requestId: null,
   });
 }
@@ -107,7 +107,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const { tenantId, draftId } = payload;
     const delaySeconds = deps.config.noticeDelaySeconds;
     const [queued] = await tx
-      .select({ ticketId: drafts.ticketId })
+      .select({ conversationId: drafts.conversationId })
       .from(drafts)
       .where(eq(drafts.id, draftId));
     if (!queued) {
@@ -115,19 +115,19 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       return;
     }
 
-    // Locks the ticket, so two notice jobs for it can't both see an empty window.
+    // Locks the conversation, so two notice jobs for it can't both see an empty window.
     await tx
-      .select({ id: tickets.id })
-      .from(tickets)
-      .where(eq(tickets.id, queued.ticketId))
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.id, queued.conversationId))
       .for("update");
 
-    // Whatever draft is pending on the ticket now, not only the one this job was queued for:
+    // Whatever draft is pending on the conversation now, not only the one this job was queued for:
     // a newer draft can replace it while the job waits. That draft's own job then finds the
     // window taken and sends nothing.
     const [row] = await tx
       .select({
-        ticketId: drafts.ticketId,
+        conversationId: drafts.conversationId,
         kind: drafts.kind,
         createdAt: drafts.createdAt,
         mailbox: mailboxes.address,
@@ -136,11 +136,11 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       })
       .from(drafts)
       .innerJoin(messages, eq(messages.id, drafts.messageId))
-      .innerJoin(tickets, eq(tickets.id, drafts.ticketId))
-      .innerJoin(mailboxes, eq(mailboxes.id, tickets.mailboxId))
+      .innerJoin(conversations, eq(conversations.id, drafts.conversationId))
+      .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
       .where(
         and(
-          eq(drafts.ticketId, queued.ticketId),
+          eq(drafts.conversationId, queued.conversationId),
           eq(drafts.status, "pending"),
           // A draft that hasn't waited the full delay yet may still be approved in time. Its own
           // job, queued with it, runs once it has.
@@ -161,7 +161,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           ),
         })
         .from(drafts)
-        .where(and(eq(drafts.ticketId, queued.ticketId), eq(drafts.status, "pending")))
+        .where(and(eq(drafts.conversationId, queued.conversationId), eq(drafts.status, "pending")))
         .orderBy(asc(drafts.createdAt))
         .limit(1);
       if (young) {
@@ -181,8 +181,8 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       .from(auditEvents)
       .where(
         and(
-          eq(auditEvents.targetType, "ticket"),
-          eq(auditEvents.targetId, row.ticketId),
+          eq(auditEvents.targetType, "conversation"),
+          eq(auditEvents.targetId, row.conversationId),
           eq(auditEvents.action, "draft.notice_sent"),
           gt(auditEvents.createdAt, sql`now() - make_interval(mins => ${noticeWindowMinutes})`),
         ),
@@ -190,15 +190,15 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       .orderBy(desc(auditEvents.createdAt))
       .limit(1);
     if (recent) {
-      // The window batches notices for the same waiting answer. Once a draft on the ticket was
+      // The window batches notices for the same waiting answer. Once a draft on the conversation was
       // approved after that notice, the owners acted on it, so a new draft is news again.
       // A discard doesn't count: a replacement draft is the same waiting answer, reworded.
       const [actedOn] = await tx
         .select({ id: drafts.id })
         .from(drafts)
-        .where(and(eq(drafts.ticketId, row.ticketId), gt(drafts.approvedAt, recent.at)))
+        .where(and(eq(drafts.conversationId, row.conversationId), gt(drafts.approvedAt, recent.at)))
         .limit(1);
-      // A kind of draft the ticket didn't have at that notice is other news: "it's fixed"
+      // A kind of draft the conversation didn't have at that notice is other news: "it's fixed"
       // waiting is not the reply the owners were already told about (nor the other way round).
       // A reworded draft of a kind it had is the same news.
       const [sameKindBefore] = await tx
@@ -206,7 +206,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
         .from(drafts)
         .where(
           and(
-            eq(drafts.ticketId, row.ticketId),
+            eq(drafts.conversationId, row.conversationId),
             eq(drafts.kind, row.kind),
             lte(drafts.createdAt, recent.at),
           ),
@@ -236,7 +236,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           from: row.mailbox,
           replyTo: noticeReplyTo(row.mailbox),
           to: owner,
-          ticketUrl: ticketUrl(deps.config.publicUrl, row.ticketId),
+          conversationUrl: conversationUrl(deps.config.publicUrl, row.conversationId),
           customerText: messageText(row),
           messageId: `<notice-${uuidv7()}@${domain}>`,
           date,
@@ -250,7 +250,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       tenantId,
       actor: noticeWorkerActor,
       action: "draft.notice_sent",
-      target: { type: "ticket", id: row.ticketId },
+      target: { type: "conversation", id: row.conversationId },
       requestId: null,
     });
     // One owner's failed address mustn't resend the notice to owners it already reached. Only
@@ -268,6 +268,6 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
         "draft-notice: some owners could not be reached",
       );
     }
-    deps.logger.info({ draftId, ticketId: row.ticketId }, "draft notice sent");
+    deps.logger.info({ draftId, conversationId: row.conversationId }, "draft notice sent");
   };
 }

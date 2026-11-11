@@ -55,7 +55,7 @@ async function pendingDraft() {
     config: { ...defaultConfig, dailyTokenBudget: 1e6 },
   })({ tenantId: acme, messageId: email.messageId }, tenantTransactions(db, acme));
   const [draft] = await db.withTenant(acme, (tx) =>
-    tx.select().from(schema.drafts).where(eq(schema.drafts.ticketId, email.ticketId)),
+    tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, email.conversationId)),
   );
   if (!draft) throw new Error("no draft");
   return draft;
@@ -116,7 +116,7 @@ describe("draft notice worker", () => {
       to: ["owner@acme.test"],
     });
     const raw = new TextDecoder().decode(first.mock.calls[0]?.[0].raw);
-    // Answering the notice must not land in the support mailbox and open a ticket.
+    // Answering the notice must not land in the support mailbox and open a conversation.
     expect(raw).toContain("Reply-To: no-reply@acme.test");
     expect(await notify(draft.id)).not.toHaveBeenCalled();
   });
@@ -131,7 +131,7 @@ describe("draft notice worker", () => {
         .where(eq(schema.drafts.id, old.id));
       await tx.insert(schema.drafts).values({
         tenantId: acme,
-        ticketId: old.ticketId,
+        conversationId: old.conversationId,
         messageId: old.messageId,
         body: "Hand-written.",
       });
@@ -139,7 +139,7 @@ describe("draft notice worker", () => {
     expect(await notify(old.id)).toHaveBeenCalledOnce();
   });
 
-  it("sends nothing once no draft on the ticket is pending", async () => {
+  it("sends nothing once no draft on the conversation is pending", async () => {
     const draft = await pendingDraft();
     await db.withTenant(acme, (tx) =>
       tx.update(schema.drafts).set({ status: "discarded" }).where(eq(schema.drafts.id, draft.id)),
@@ -165,7 +165,7 @@ describe("draft notice worker", () => {
         .insert(schema.messages)
         .values({
           tenantId: acme,
-          ticketId: first.ticketId,
+          conversationId: first.conversationId,
           direction: "inbound",
           fromAddress: "jane@customer.test",
           toAddresses: ["support@acme.test"],
@@ -178,7 +178,7 @@ describe("draft notice worker", () => {
       if (!msg) throw new Error("no message");
       await tx.insert(schema.drafts).values({
         tenantId: acme,
-        ticketId: first.ticketId,
+        conversationId: first.conversationId,
         messageId: msg.id,
         body: "A follow-up answer.",
       });
@@ -195,7 +195,7 @@ describe("draft notice worker", () => {
         .insert(schema.drafts)
         .values({
           tenantId: acme,
-          ticketId: reply.ticketId,
+          conversationId: reply.conversationId,
           messageId: reply.messageId,
           kind: "fixed",
           body: "It's fixed.",
@@ -216,7 +216,7 @@ describe("draft notice worker", () => {
         .insert(schema.drafts)
         .values({
           tenantId: acme,
-          ticketId: reply.ticketId,
+          conversationId: reply.conversationId,
           messageId: reply.messageId,
           body: "On it, reworded.",
         })
@@ -229,10 +229,10 @@ describe("draft notice worker", () => {
   // The real worker, from here on. Its own age check uses 2 s; drafts are still queued with
   // the default 5 minutes unless a job re-queues them.
   const workerSend = vi.fn<EmailTransport["send"]>();
-  const sentFor = (ticketId: string) =>
+  const sentFor = (conversationId: string) =>
     workerSend.mock.calls.filter(([m]) =>
-      // Quoted-printable wraps long lines with "=" + CRLF, which can split the ticket ID.
-      new TextDecoder().decode(m.raw).replaceAll("=\r\n", "").includes(ticketId),
+      // Quoted-printable wraps long lines with "=" + CRLF, which can split the conversation ID.
+      new TextDecoder().decode(m.raw).replaceAll("=\r\n", "").includes(conversationId),
     );
 
   it("a queued notice waits for the delay instead of sending right away", async () => {
@@ -249,7 +249,7 @@ describe("draft notice worker", () => {
     // job would have been sent well within this wait.
     const draft = await pendingDraft();
     await new Promise((r) => setTimeout(r, 3_000));
-    expect(sentFor(draft.ticketId)).toEqual([]);
+    expect(sentFor(draft.conversationId)).toEqual([]);
   });
 
   it("an older draft's job never emails about a draft that hasn't waited the full delay", async () => {
@@ -262,7 +262,7 @@ describe("draft notice worker", () => {
         .where(eq(schema.drafts.id, old.id));
       await tx.insert(schema.drafts).values({
         tenantId: acme,
-        ticketId: old.ticketId,
+        conversationId: old.conversationId,
         messageId: old.messageId,
         body: "Hand-written.",
       });
@@ -275,9 +275,9 @@ describe("draft notice worker", () => {
     // Too early for a 2 s delay: nothing now, and the job is queued again for when it's old enough.
     expect(await notify(draft.id, 2)).not.toHaveBeenCalled();
     const deadline = Date.now() + 15_000;
-    while (sentFor(draft.ticketId).length === 0 && Date.now() < deadline) {
+    while (sentFor(draft.conversationId).length === 0 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 200));
     }
-    expect(sentFor(draft.ticketId)).toHaveLength(1);
+    expect(sentFor(draft.conversationId)).toHaveLength(1);
   });
 });

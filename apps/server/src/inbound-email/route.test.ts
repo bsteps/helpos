@@ -102,24 +102,24 @@ describe("POST /v1/inbound/email: authentication", () => {
   });
 });
 
-describe("POST /v1/inbound/email: email → ticket", () => {
-  let janeTicket = "";
+describe("POST /v1/inbound/email: email → conversation", () => {
+  let janeConversation = "";
 
-  it("plain: creates a customer, a ticket and a message, and keeps the raw MIME", async () => {
+  it("plain: creates a customer, a conversation and a message, and keeps the raw MIME", async () => {
     const { status, body } = await postFixture("plain.eml");
     expect(status).toBe(201);
     expect(body.status).toBe("created");
-    janeTicket = body.ticketId ?? "";
+    janeConversation = body.conversationId ?? "";
 
-    const [ticket] = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.tickets).where(eq(schema.tickets.id, janeTicket)),
+    const [conversation] = await db.withTenant(acme, (tx) =>
+      tx.select().from(schema.conversations).where(eq(schema.conversations.id, janeConversation)),
     );
-    expect(ticket?.subject).toBe("Cannot log in");
+    expect(conversation?.subject).toBe("Cannot log in");
     const [customer] = await db.withTenant(acme, (tx) =>
       tx
         .select()
         .from(schema.customers)
-        .where(eq(schema.customers.id, ticket?.customerId ?? "")),
+        .where(eq(schema.customers.id, conversation?.customerId ?? "")),
     );
     expect(customer).toMatchObject({ email: "jane@customer.test", name: "Jane Customer" });
     const [message] = await db.withTenant(acme, (tx) =>
@@ -135,17 +135,17 @@ describe("POST /v1/inbound/email: email → ticket", () => {
     );
   });
 
-  it("reply: threads onto the same ticket via In-Reply-To", async () => {
+  it("reply: threads onto the same conversation via In-Reply-To", async () => {
     const { status, body } = await postFixture("reply.eml");
     expect(status).toBe(201);
-    expect(body).toMatchObject({ status: "threaded", ticketId: janeTicket });
+    expect(body).toMatchObject({ status: "threaded", conversationId: janeConversation });
   });
 
   it("duplicate delivery: stores nothing new and points at the first copy", async () => {
     const before = await db.withTenant(acme, (tx) => tx.select().from(schema.messages));
     const { status, body } = await postFixture("plain.eml");
     expect(status).toBe(200);
-    expect(body).toMatchObject({ status: "duplicate", ticketId: janeTicket });
+    expect(body).toMatchObject({ status: "duplicate", conversationId: janeConversation });
     const after = await db.withTenant(acme, (tx) => tx.select().from(schema.messages));
     expect(after).toHaveLength(before.length);
   });
@@ -181,11 +181,11 @@ describe("POST /v1/inbound/email: email → ticket", () => {
     expect(customer?.name).toBe("Jane Customer");
   });
 
-  it("a reply from a different sender starts a new ticket instead of joining", async () => {
+  it("a reply from a different sender starts a new conversation instead of joining", async () => {
     const { status, body } = await postFixture("reply-from-stranger.eml");
     expect(status).toBe(201);
     expect(body.status).toBe("created");
-    expect(body.ticketId).not.toBe(janeTicket);
+    expect(body.conversationId).not.toBe(janeConversation);
   });
 
   it("html: stores the HTML as received and decodes the subject", async () => {
@@ -272,13 +272,13 @@ describe("POST /v1/inbound/email: tenant isolation", () => {
       .replace("<plain-1@", "<to-other-1@");
     const res = await post(raw);
     expect(res.status).toBe(201);
-    const { ticketId } = (await res.json()) as { ticketId: string };
+    const { conversationId } = (await res.json()) as { conversationId: string };
 
     const inOther = await db.withTenant(other, (tx) =>
-      tx.select().from(schema.tickets).where(eq(schema.tickets.id, ticketId)),
+      tx.select().from(schema.conversations).where(eq(schema.conversations.id, conversationId)),
     );
     const inAcme = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.tickets).where(eq(schema.tickets.id, ticketId)),
+      tx.select().from(schema.conversations).where(eq(schema.conversations.id, conversationId)),
     );
     expect(inOther).toHaveLength(1);
     expect(inAcme).toEqual([]);
@@ -310,21 +310,24 @@ describe("automated mail: out-of-office, bounces, lists", () => {
     );
     expect(message?.automatedReason).toBe(reason);
     if (!result.threaded) {
-      const [ticket] = await db.withTenant(acme, (tx) =>
-        tx.select().from(schema.tickets).where(eq(schema.tickets.id, result.ticketId)),
+      const [conversation] = await db.withTenant(acme, (tx) =>
+        tx
+          .select()
+          .from(schema.conversations)
+          .where(eq(schema.conversations.id, result.conversationId)),
       );
-      expect(ticket?.automated).toBe(true);
+      expect(conversation?.automated).toBe(true);
     }
   });
 
-  it("an automated reply does not reopen a closed ticket", async () => {
+  it("an automated reply does not reopen a closed conversation", async () => {
     const first = await ingestEmail({ db, files }, normal("<closed-1@"));
     if (first.kind !== "created") throw new Error(`expected created, got ${first.kind}`);
     await db.withTenant(acme, (tx) =>
       tx
-        .update(schema.tickets)
+        .update(schema.conversations)
         .set({ status: "closed" })
-        .where(eq(schema.tickets.id, first.ticketId)),
+        .where(eq(schema.conversations.id, first.conversationId)),
     );
     const ooo = fixture("out-of-office.eml")
       .toString()
@@ -333,13 +336,16 @@ describe("automated mail: out-of-office, bounces, lists", () => {
     const reply = await ingestEmail({ db, files }, new Uint8Array(Buffer.from(ooo)));
     if (reply.kind !== "created") throw new Error(`expected created, got ${reply.kind}`);
     expect(reply).toMatchObject({ threaded: true, draftReply: false });
-    const [ticket] = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.tickets).where(eq(schema.tickets.id, first.ticketId)),
+    const [conversation] = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.conversations)
+        .where(eq(schema.conversations.id, first.conversationId)),
     );
-    expect(ticket?.status).toBe("closed");
+    expect(conversation?.status).toBe("closed");
   });
 
-  it("a person replying on an automated ticket makes it a normal ticket", async () => {
+  it("a person replying on an automated conversation makes it a normal conversation", async () => {
     const human = fixture("plain.eml")
       .toString()
       .replace("<plain-1@", "<human-2@")
@@ -357,20 +363,26 @@ describe("automated mail: out-of-office, bounces, lists", () => {
       ),
     );
     expect(followUp).toMatchObject({ kind: "created", threaded: true, draftReply: true });
-    const [ticket] = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.tickets).where(eq(schema.tickets.id, auto.ticketId)),
+    const [conversation] = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.conversations)
+        .where(eq(schema.conversations.id, auto.conversationId)),
     );
-    expect(ticket?.automated).toBe(false);
+    expect(conversation?.automated).toBe(false);
   });
 
   it("a normal email is the only one that asks for a draft", async () => {
     const result = await ingestEmail({ db, files }, normal());
     if (result.kind !== "created") throw new Error(`expected created, got ${result.kind}`);
     expect(result.draftReply).toBe(true);
-    const [ticket] = await db.withTenant(acme, (tx) =>
-      tx.select().from(schema.tickets).where(eq(schema.tickets.id, result.ticketId)),
+    const [conversation] = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.conversations)
+        .where(eq(schema.conversations.id, result.conversationId)),
     );
-    expect(ticket?.automated).toBe(false);
+    expect(conversation?.automated).toBe(false);
   });
 });
 

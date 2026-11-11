@@ -25,11 +25,11 @@ import {
   discardStale,
   editDraft,
   liveDraftFor,
-  lockTicketForDrafting,
+  lockConversationForDrafting,
   retrySend,
 } from "./lifecycle.ts";
 
-const { draftCitations, drafts, tickets } = schema;
+const { draftCitations, drafts, conversations } = schema;
 
 export interface DraftRoutesDeps {
   db: Pick<Database, "withTenant">;
@@ -59,11 +59,11 @@ const draftSourceSchema = z
 const draftSchema = z
   .object({
     id: z.uuid(),
-    ticketId: z.uuid(),
+    conversationId: z.uuid(),
     /** The inbound message this draft answers. */
     messageId: z.uuid(),
     /**
-     * `reply` answers the customer. `fixed` tells them the GitHub issue made from their ticket
+     * `reply` answers the customer. `fixed` tells them the GitHub issue made from their conversation
      * is closed as done; it is written when GitHub says so, and approved like any reply.
      */
     kind: z.enum(schema.draftKinds),
@@ -97,11 +97,11 @@ type DraftJson = z.infer<typeof draftSchema>;
 type DraftSourceJson = z.infer<typeof draftSourceSchema>;
 
 const listRoute = apiRoute({
-  access: { allScopes: ["tickets:read"] },
+  access: { allScopes: ["conversations:read"] },
   method: "get",
-  path: "/v1/tickets/{id}/drafts",
-  summary: "List a ticket's drafts",
-  description: "Every AI draft on the ticket, oldest first. Needs `tickets:read`.",
+  path: "/v1/conversations/{id}/drafts",
+  summary: "List a conversation's drafts",
+  description: "Every AI draft on the conversation, oldest first. Needs `conversations:read`.",
   request: { params: idParams },
   responses: {
     200: json(z.object({ drafts: z.array(draftSchema) }), "The drafts"),
@@ -188,18 +188,18 @@ const retryRoute = apiRoute({
 });
 
 const createDraftRoute = apiRoute({
-  // tickets:read too: the draft answers the ticket, so it shows what the customer wrote.
-  access: { allScopes: ["drafts:write", "tickets:read"] },
+  // conversations:read too: the draft answers the conversation, so it shows what the customer wrote.
+  access: { allScopes: ["drafts:write", "conversations:read"] },
   audit: { records: ["draft.created", "draft.discarded"] },
   method: "post",
-  path: "/v1/tickets/{id}/drafts",
+  path: "/v1/conversations/{id}/drafts",
   summary: "Write a draft, or ask the AI for a new one",
   description:
-    "Answers the ticket's latest customer message. With `body`, saves that text as a " +
+    "Answers the conversation's latest customer message. With `body`, saves that text as a " +
     "`pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it " +
-    "appears in the list when ready. Either way, older pending replies on the ticket are " +
+    "appears in the list when ready. Either way, older pending replies on the conversation are " +
     "discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is " +
-    "approved. Needs `drafts:write` and `tickets:read`.",
+    "approved. Needs `drafts:write` and `conversations:read`.",
   request: {
     params: idParams,
     body: jsonBody(
@@ -217,8 +217,8 @@ const createDraftRoute = apiRoute({
       errorSchema,
       "No customer message to answer (`nothing_to_answer`), or the latest one already has " +
         "an approved or sent reply (`already_answered`), or `regenerate` was asked after " +
-        "today's AI budget was spent (`daily_budget_reached`) or on a closed ticket " +
-        "(`ticket_closed`)",
+        "today's AI budget was spent (`daily_budget_reached`) or on a closed conversation " +
+        "(`conversation_closed`)",
     ),
   },
 });
@@ -244,7 +244,7 @@ function serialize(
 ): DraftJson {
   return {
     id: d.id,
-    ticketId: d.ticketId,
+    conversationId: d.conversationId,
     messageId: d.messageId,
     kind: d.kind,
     status: d.status,
@@ -313,16 +313,19 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const [ticket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
-      if (!ticket) return null;
+      const [conversation] = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(eq(conversations.id, id));
+      if (!conversation) return null;
       const rows = await tx
         .select()
         .from(drafts)
-        .where(eq(drafts.ticketId, id))
+        .where(eq(drafts.conversationId, id))
         .orderBy(asc(drafts.createdAt));
       return present(tx, principal, rows);
     });
-    // Another workspace's ticket looks exactly like one that doesn't exist.
+    // Another workspace's conversation looks exactly like one that doesn't exist.
     if (!result) return notFound(c);
     return c.json({ drafts: result }, 200);
   });
@@ -366,13 +369,13 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   const budget = aiBudget(deps);
   app.openapi(createDraftRoute, async (c) => {
     const principal = c.get("principal");
-    const { id: ticketId } = c.req.valid("param");
+    const { id: conversationId } = c.req.valid("param");
     const input = c.req.valid("json");
     const { tenantId } = principal;
     const audit = auditor(c);
 
     const result = await deps.db.withTenant(tenantId, async (tx) => {
-      const lock = await lockTicketForDrafting(tx, ticketId);
+      const lock = await lockConversationForDrafting(tx, conversationId);
       if (!lock) return "not_found" as const;
       const messageId = lock.answering;
       if (!messageId) return "nothing_to_answer" as const;
@@ -380,18 +383,26 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       if (live && live.status !== "pending") return "already_answered" as const;
 
       if ("regenerate" in input) {
-        // The worker drafts nothing for a closed ticket, so asking would wait forever.
-        if (lock.closed) return "ticket_closed" as const;
+        // The worker drafts nothing for a closed conversation, so asking would wait forever.
+        if (lock.closed) return "conversation_closed" as const;
         // Checked before anything is discarded: a refused regenerate leaves the current draft
         // alone, and the caller hears why instead of waiting for a draft that never comes.
         if ((await budget.today(tx, tenantId)).paused) return "daily_budget_reached" as const;
-        const stale = await discardStale(tx, audit, { ticketIds: [ticketId], kind: "reply" });
+        const stale = await discardStale(tx, audit, {
+          conversationIds: [conversationId],
+          kind: "reply",
+        });
         // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
         // shown while the new try runs, and a second failure sets it again for everyone to see.
         await tx
-          .update(tickets)
+          .update(conversations)
           .set({ aiPausedReason: null })
-          .where(and(eq(tickets.id, ticketId), eq(tickets.aiPausedReason, "draft_failed")));
+          .where(
+            and(
+              eq(conversations.id, conversationId),
+              eq(conversations.aiPausedReason, "draft_failed"),
+            ),
+          );
         await enqueue(tx, draftReplyJob, { tenantId, messageId }, { singletonKey: messageId });
         // The AI's draft is audited when the worker writes it.
         if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");
@@ -399,7 +410,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       }
       const draft = await createReply(tx, audit, {
         tenantId,
-        ticketId,
+        conversationId,
         messageId,
         body: input.body,
         noticeDelaySeconds: deps.config.noticeDelaySeconds,
@@ -412,7 +423,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       result === "nothing_to_answer" ||
       result === "already_answered" ||
       result === "daily_budget_reached" ||
-      result === "ticket_closed"
+      result === "conversation_closed"
     ) {
       return c.json({ error: result }, 409);
     }

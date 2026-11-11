@@ -18,7 +18,7 @@ import { ensureJobQueues } from "../jobs.ts";
 import { composeServices, defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
-// The ticket read API against real Postgres: what an agent or the inbox screen sees.
+// The conversation read API against real Postgres: what an agent or the inbox screen sees.
 
 const files = createMemoryFileStore();
 const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
@@ -32,13 +32,13 @@ let other: string;
 
 /** Test credentials: the bearer value names a principal (real tokens: tokens.int.test.ts). */
 const principals: Record<string, () => Principal> = {
-  reader: () => principal(acme, ["tickets:read"]),
+  reader: () => principal(acme, ["conversations:read"]),
   drafter: () => principal(acme, ["drafts:write"]),
-  outsider: () => principal(other, ["tickets:read"]),
-  closer: () => principal(acme, ["tickets:read", "tickets:write"]),
-  outsiderCloser: () => principal(other, ["tickets:read", "tickets:write"]),
-  // Can close but not read: the closed ticket it would get back shows the customer.
-  blindCloser: () => principal(acme, ["tickets:write"]),
+  outsider: () => principal(other, ["conversations:read"]),
+  closer: () => principal(acme, ["conversations:read", "conversations:write"]),
+  outsiderCloser: () => principal(other, ["conversations:read", "conversations:write"]),
+  // Can close but not read: the closed conversation it would get back shows the customer.
+  blindCloser: () => principal(acme, ["conversations:write"]),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -59,7 +59,7 @@ const post = (path: string, as: string | null) =>
     ...(as ? { headers: { authorization: `Bearer ${as}` } } : {}),
   });
 
-type TicketJson = {
+type ConversationJson = {
   id: string;
   replyNotSent?: boolean;
   subject: string;
@@ -84,19 +84,19 @@ async function receiveEmail(options: { to?: string; html?: string; text?: string
     "From: Jane Customer <jane@customer.test>",
     `To: ${options.to ?? "support@acme.test"}`,
     `Subject: Question ${emailCount}`,
-    `Message-ID: <tickets-${emailCount}@customer.test>`,
+    `Message-ID: <conversations-${emailCount}@customer.test>`,
     `Content-Type: text/${options.html ? "html" : "plain"}; charset=utf-8`,
     "",
     options.html ?? options.text ?? "Hi, a question.",
   ].join("\r\n");
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(`ingest: ${result.kind}`);
-  return result.ticketId;
+  return result.conversationId;
 }
 
-const setTicket = (id: string, values: Partial<typeof schema.tickets.$inferInsert>) =>
+const setConversation = (id: string, values: Partial<typeof schema.conversations.$inferInsert>) =>
   db.withTenant(acme, (tx) =>
-    tx.update(schema.tickets).set(values).where(eq(schema.tickets.id, id)),
+    tx.update(schema.conversations).set(values).where(eq(schema.conversations.id, id)),
   );
 
 beforeAll(async () => {
@@ -127,20 +127,20 @@ afterAll(async () => {
   await testDb?.stop();
 });
 
-describe("GET /v1/tickets", () => {
-  it("lists the workspace's tickets, most recent activity first, up to the limit", async () => {
+describe("GET /v1/conversations", () => {
+  it("lists the workspace's conversations, most recent activity first, up to the limit", async () => {
     const older = await receiveEmail();
     const newer = await receiveEmail();
     const theirs = await receiveEmail({ to: "help@other.test" });
-    await setTicket(older, { lastMessageAt: new Date("2026-11-01T10:00:00Z") });
-    await setTicket(newer, { lastMessageAt: new Date("2026-11-02T10:00:00Z") });
+    await setConversation(older, { lastMessageAt: new Date("2026-11-01T10:00:00Z") });
+    await setConversation(newer, { lastMessageAt: new Date("2026-11-02T10:00:00Z") });
 
-    const res = await get("/v1/tickets", "reader");
+    const res = await get("/v1/conversations", "reader");
     expect(res.status).toBe(200);
-    const { tickets } = (await res.json()) as { tickets: TicketJson[] };
-    expect(tickets.map((t) => t.id).slice(0, 2)).toEqual([newer, older]);
-    expect(tickets.map((t) => t.id)).not.toContain(theirs);
-    expect(tickets[0]).toMatchObject({
+    const { conversations } = (await res.json()) as { conversations: ConversationJson[] };
+    expect(conversations.map((t) => t.id).slice(0, 2)).toEqual([newer, older]);
+    expect(conversations.map((t) => t.id)).not.toContain(theirs);
+    expect(conversations[0]).toMatchObject({
       status: "open",
       customer: { email: "jane@customer.test", name: "Jane Customer" },
       lastMessageAt: "2026-11-02T10:00:00.000Z",
@@ -148,26 +148,28 @@ describe("GET /v1/tickets", () => {
       aiPausedReason: null,
     });
 
-    const limited = await get("/v1/tickets?limit=1", "reader");
-    expect(((await limited.json()) as { tickets: TicketJson[] }).tickets).toHaveLength(1);
+    const limited = await get("/v1/conversations?limit=1", "reader");
+    expect(
+      ((await limited.json()) as { conversations: ConversationJson[] }).conversations,
+    ).toHaveLength(1);
   });
 
   it.each(["0", "101", "x"])("refuses limit=%s with 400", async (limit) => {
-    expect((await get(`/v1/tickets?limit=${limit}`, "reader")).status).toBe(400);
+    expect((await get(`/v1/conversations?limit=${limit}`, "reader")).status).toBe(400);
   });
 });
 
-describe("GET /v1/tickets/{id}", () => {
-  it("returns the ticket with its messages as text, and HTML only sanitised", async () => {
+describe("GET /v1/conversations/{id}", () => {
+  it("returns the conversation with its messages as text, and HTML only sanitised", async () => {
     const id = await receiveEmail({
       html: "<p>Hello <b>team</b></p><script>alert(1)</script><img src=https://x.test/t.gif>",
     });
-    const res = await get(`/v1/tickets/${id}`, "reader");
+    const res = await get(`/v1/conversations/${id}`, "reader");
     expect(res.status).toBe(200);
-    const ticket = (await res.json()) as TicketJson & { messages: MessageJson[] };
-    expect(ticket).toMatchObject({ id, subject: expect.stringMatching(/^Question/) });
-    expect(ticket.messages).toHaveLength(1);
-    expect(ticket.messages[0]).toMatchObject({
+    const conversation = (await res.json()) as ConversationJson & { messages: MessageJson[] };
+    expect(conversation).toMatchObject({ id, subject: expect.stringMatching(/^Question/) });
+    expect(conversation.messages).toHaveLength(1);
+    expect(conversation.messages[0]).toMatchObject({
       direction: "inbound",
       from: { address: "jane@customer.test" },
       to: ["support@acme.test"],
@@ -176,65 +178,69 @@ describe("GET /v1/tickets/{id}", () => {
       html: "<p>Hello <b>team</b></p><span>[image]</span>",
     });
     // Any case: an uppercase <SCRIPT> getting through is just as bad.
-    expect(JSON.stringify(ticket)).not.toMatch(/<\s*(script|img)\b|x\.test/i);
+    expect(JSON.stringify(conversation)).not.toMatch(/<\s*(script|img)\b|x\.test/i);
   });
 
   it("has no HTML for a plain-text email", async () => {
     const id = await receiveEmail({ text: "Just text." });
-    const ticket = (await (await get(`/v1/tickets/${id}`, "reader")).json()) as {
+    const conversation = (await (await get(`/v1/conversations/${id}`, "reader")).json()) as {
       messages: MessageJson[];
     };
-    expect(ticket.messages[0]).toMatchObject({ text: "Just text.", html: null });
+    expect(conversation.messages[0]).toMatchObject({ text: "Just text.", html: null });
   });
 
-  it("says when the AI skipped the ticket because the daily budget was spent", async () => {
+  it("says when the AI skipped the conversation because the daily budget was spent", async () => {
     const id = await receiveEmail();
-    await setTicket(id, { aiPausedReason: "daily_budget" });
-    const ticket = (await (await get(`/v1/tickets/${id}`, "reader")).json()) as TicketJson;
-    expect(ticket.aiPausedReason).toBe("daily_budget");
+    await setConversation(id, { aiPausedReason: "daily_budget" });
+    const conversation = (await (
+      await get(`/v1/conversations/${id}`, "reader")
+    ).json()) as ConversationJson;
+    expect(conversation.aiPausedReason).toBe("daily_budget");
   });
 
-  it("is 404 for another workspace's ticket, the same as an unknown one", async () => {
+  it("is 404 for another workspace's conversation, the same as an unknown one", async () => {
     const id = await receiveEmail();
-    const theirs = await get(`/v1/tickets/${id}`, "outsider");
-    const unknown = await get("/v1/tickets/00000000-0000-7000-8000-000000000000", "reader");
+    const theirs = await get(`/v1/conversations/${id}`, "outsider");
+    const unknown = await get("/v1/conversations/00000000-0000-7000-8000-000000000000", "reader");
     expect([theirs.status, unknown.status]).toEqual([404, 404]);
     expect(await theirs.json()).toEqual(await unknown.json());
   });
 });
 
-describe("GET /v1/tickets?status=", () => {
-  it("keeps only open, or only closed, tickets", async () => {
+describe("GET /v1/conversations?status=", () => {
+  it("keeps only open, or only closed, conversations", async () => {
     const open = await receiveEmail();
     const closed = await receiveEmail();
-    await setTicket(closed, { status: "closed" });
+    await setConversation(closed, { status: "closed" });
     const ids = async (query: string) =>
       (
-        (await (await get(`/v1/tickets?${query}`, "reader")).json()) as { tickets: TicketJson[] }
-      ).tickets.map((t) => t.id);
+        (await (await get(`/v1/conversations?${query}`, "reader")).json()) as {
+          conversations: ConversationJson[];
+        }
+      ).conversations.map((t) => t.id);
     expect(await ids("status=open&limit=100")).toContain(open);
     expect(await ids("status=open&limit=100")).not.toContain(closed);
     expect(await ids("status=closed&limit=100")).toContain(closed);
     expect(await ids("status=closed&limit=100")).not.toContain(open);
-    expect((await get("/v1/tickets?status=pending", "reader")).status).toBe(400);
+    expect((await get("/v1/conversations?status=pending", "reader")).status).toBe(400);
   });
 });
 
 describe("a reply that couldn't be sent", () => {
-  it("flags the ticket, and keeps it in the inbox list even once closed", async () => {
+  it("flags the conversation, and keeps it in the inbox list even once closed", async () => {
     const quiet = await receiveEmail();
     const failed = await receiveEmail();
-    await setTicket(quiet, { status: "closed" });
-    await setTicket(failed, { status: "closed" });
+    await setConversation(quiet, { status: "closed" });
+    await setConversation(failed, { status: "closed" });
     await db.withTenant(acme, async (tx) => {
       const [message] = await tx
         .select({ id: schema.messages.id })
         .from(schema.messages)
-        .where(eq(schema.messages.ticketId, failed));
+        .where(eq(schema.messages.conversationId, failed));
       if (!message) throw new Error("no message");
       await tx.insert(schema.drafts).values({
         tenantId: acme,
-        ticketId: failed,
+        conversationId: failed,
         messageId: message.id,
         body: "Sorry for the wait.",
         status: "send_failed",
@@ -243,7 +249,11 @@ describe("a reply that couldn't be sent", () => {
       });
     });
     const list = async (query: string, as = "reader") =>
-      ((await (await get(`/v1/tickets?${query}`, as)).json()) as { tickets: TicketJson[] }).tickets;
+      (
+        (await (await get(`/v1/conversations?${query}`, as)).json()) as {
+          conversations: ConversationJson[];
+        }
+      ).conversations;
 
     const inbox = await list("status=open&orReplyNotSent=true&limit=100");
     expect(inbox.find((t) => t.id === failed)).toMatchObject({
@@ -256,8 +266,10 @@ describe("a reply that couldn't be sent", () => {
     expect(inbox.filter((t) => t.status === "closed").map((t) => t.id)).toEqual([failed]);
     // Without the flag, open means open.
     expect((await list("status=open&limit=100")).map((t) => t.id)).not.toContain(failed);
-    const quietTicket = (await (await get(`/v1/tickets/${quiet}`, "reader")).json()) as TicketJson;
-    expect(quietTicket.replyNotSent).toBe(false);
+    const quietConversation = (await (
+      await get(`/v1/conversations/${quiet}`, "reader")
+    ).json()) as ConversationJson;
+    expect(quietConversation.replyNotSent).toBe(false);
 
     // Another workspace never sees Acme's failed reply through its own list.
     const theirs = await list("status=open&orReplyNotSent=true&limit=100", "outsider");
@@ -265,7 +277,7 @@ describe("a reply that couldn't be sent", () => {
   });
 });
 
-describe("POST /v1/tickets/{id}/close", () => {
+describe("POST /v1/conversations/{id}/close", () => {
   const auditOf = (id: string) =>
     db.withTenant(acme, (tx) =>
       tx
@@ -279,16 +291,16 @@ describe("POST /v1/tickets/{id}/close", () => {
         .where(eq(schema.auditEvents.targetId, id)),
     );
 
-  it("closes the ticket and audit-logs who did it, once", async () => {
+  it("closes the conversation and audit-logs who did it, once", async () => {
     const id = await receiveEmail();
-    const res = await post(`/v1/tickets/${id}/close`, "closer");
+    const res = await post(`/v1/conversations/${id}/close`, "closer");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ id, status: "closed" });
     // Closing again is harmless and logs nothing new.
-    expect((await post(`/v1/tickets/${id}/close`, "closer")).status).toBe(200);
+    expect((await post(`/v1/conversations/${id}/close`, "closer")).status).toBe(200);
     expect(await auditOf(id)).toEqual([
       {
-        action: "ticket.closed",
+        action: "conversation.closed",
         actorType: "agent",
         actorId: "test-agent",
         requestId: res.headers.get("x-request-id"),
@@ -296,21 +308,23 @@ describe("POST /v1/tickets/{id}/close", () => {
     ]);
   });
 
-  it("needs tickets:write and tickets:read, and can't close another workspace's ticket", async () => {
+  it("needs conversations:write and conversations:read, and can't close another workspace's conversation", async () => {
     const id = await receiveEmail();
-    expect((await post(`/v1/tickets/${id}/close`, "reader")).status).toBe(403);
-    expect((await post(`/v1/tickets/${id}/close`, "blindCloser")).status).toBe(403);
-    expect((await post(`/v1/tickets/${id}/close`, null)).status).toBe(401);
-    expect((await post(`/v1/tickets/${id}/close`, "outsiderCloser")).status).toBe(404);
-    const ticket = (await (await get(`/v1/tickets/${id}`, "reader")).json()) as TicketJson;
-    expect(ticket.status).toBe("open");
+    expect((await post(`/v1/conversations/${id}/close`, "reader")).status).toBe(403);
+    expect((await post(`/v1/conversations/${id}/close`, "blindCloser")).status).toBe(403);
+    expect((await post(`/v1/conversations/${id}/close`, null)).status).toBe(401);
+    expect((await post(`/v1/conversations/${id}/close`, "outsiderCloser")).status).toBe(404);
+    const conversation = (await (
+      await get(`/v1/conversations/${id}`, "reader")
+    ).json()) as ConversationJson;
+    expect(conversation.status).toBe("open");
     expect(await auditOf(id)).toEqual([]);
   });
 });
 
-describe("ticket API access", () => {
-  it.each(["/v1/tickets", "/v1/tickets/00000000-0000-7000-8000-000000000000"])(
-    "%s needs tickets:read, and credentials",
+describe("conversation API access", () => {
+  it.each(["/v1/conversations", "/v1/conversations/00000000-0000-7000-8000-000000000000"])(
+    "%s needs conversations:read, and credentials",
     async (path) => {
       expect((await get(path, "drafter")).status).toBe(403);
       expect((await get(path, null)).status).toBe(401);

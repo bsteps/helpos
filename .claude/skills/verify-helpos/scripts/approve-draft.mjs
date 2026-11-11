@@ -1,7 +1,7 @@
-// An agent reviews and approves a ticket's pending draft over the API: it reads the draft as one
+// An agent reviews and approves a conversation's pending draft over the API: it reads the draft as one
 // token, then approves the exact text it read as another, and waits until the reply is sent.
-//   node .claude/skills/verify-helpos/scripts/approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>]
-// `new` first sends a fresh customer email and uses its ticket. Defaults: reader northwind:triage-bot, approver northwind:approver-bot.
+//   node .claude/skills/verify-helpos/scripts/approve-draft.mjs <conversationId | new> [--reader <token>] [--approver <token>]
+// `new` first sends a fresh customer email and uses its conversation. Defaults: reader northwind:triage-bot, approver northwind:approver-bot.
 import {
   apiFetch,
   flagArg,
@@ -21,16 +21,16 @@ const flagValues = new Set(
     .map((f) => args.indexOf(f) + 1)
     .filter((i) => i > 0),
 );
-let ticketId = args.find((a, i) => !a.startsWith("--") && !flagValues.has(i));
-if (!ticketId) {
+let conversationId = args.find((a, i) => !a.startsWith("--") && !flagValues.has(i));
+if (!conversationId) {
   process.stderr.write(
-    "Usage: approve-draft.mjs <ticketId | new> [--reader <token>] [--approver <token>] [--subject <text>] [--body <text>]\n",
+    "Usage: approve-draft.mjs <conversationId | new> [--reader <token>] [--approver <token>] [--subject <text>] [--body <text>]\n",
   );
   quit(2);
 }
 const inst = instance();
 await requireRunning(inst);
-if (ticketId === "new") {
+if (conversationId === "new") {
   const subject = opt("--subject", `API approve ${new Date().toISOString().slice(11, 19)}`);
   const { status, json } = await sendFreshEmail(inst, "plain", {
     subject,
@@ -40,9 +40,9 @@ if (ticketId === "new") {
     process.stderr.write(`sending the customer email failed: ${status} ${JSON.stringify(json)}\n`);
     quit(1);
   }
-  ticketId = json.ticketId;
-  process.stdout.write(`customer email sent: "${subject}", ticket ${ticketId}\n`);
-  remember({ ticket: ticketId });
+  conversationId = json.conversationId;
+  process.stdout.write(`customer email sent: "${subject}", conversation ${conversationId}\n`);
+  remember({ conversation: conversationId });
 }
 const token = async (name) => (name.startsWith("hos_") ? name : seedToken(name));
 const reader = await token(opt("--reader", "northwind:triage-bot"));
@@ -62,7 +62,7 @@ async function call(method, path, bearer, body) {
   }
 }
 async function drafts() {
-  const { status, json } = await call("GET", `/v1/tickets/${ticketId}/drafts`, reader);
+  const { status, json } = await call("GET", `/v1/conversations/${conversationId}/drafts`, reader);
   if (status !== 200) {
     process.stderr.write(`reading drafts failed: ${status} ${JSON.stringify(json)}\n`);
     quit(1);
@@ -80,12 +80,12 @@ for (let i = 0; i < 60 && !pending; i++) {
   // Already past pending: say so now rather than wait two minutes for nothing.
   const done = all.find((d) => d.kind === "reply" && ["approved", "sent"].includes(d.status));
   if (done) quit(1, `Nothing to approve: draft ${done.id} is already ${done.status}.`);
-  const why = await whyNoDraft(inst, ticketId, reader);
+  const why = await whyNoDraft(inst, conversationId, reader);
   if (why) quit(1, `No draft to approve: ${why}.`);
   await new Promise((r) => setTimeout(r, 2000));
 }
 if (!pending) {
-  process.stderr.write("no pending draft on this ticket after 2 minutes\n");
+  process.stderr.write("no pending draft on this conversation after 2 minutes\n");
   quit(1);
 }
 process.stdout.write(`read draft ${pending.id}:\n---\n${pending.body}\n---\n`);

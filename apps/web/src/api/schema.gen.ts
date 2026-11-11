@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Receive an inbound email
-         * @description Called by an email provider or relay with the raw MIME message as the body. The recipient address picks the workspace. Replies are threaded onto their ticket using In-Reply-To and References. The content is stored as data and never acted on.
+         * @description Called by an email provider or relay with the raw MIME message as the body. The recipient address picks the workspace. Replies are threaded onto their conversation using In-Reply-To and References. The content is stored as data and never acted on.
          */
         post: {
             parameters: {
@@ -39,7 +39,7 @@ export interface paths {
                         "application/json": components["schemas"]["InboundEmailResult"];
                     };
                 };
-                /** @description Stored as a new ticket or a reply */
+                /** @description Stored as a new conversation or a reply */
                 201: {
                     headers: {
                         [name: string]: unknown;
@@ -510,7 +510,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tickets": {
+    "/v1/conversations": {
         parameters: {
             query?: never;
             header?: never;
@@ -518,8 +518,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List tickets
-         * @description The workspace's tickets, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed tickets whose reply couldn't be sent, so they aren't missed, listed first. Needs `tickets:read`.
+         * List conversations
+         * @description The workspace's conversations, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed conversations whose reply couldn't be sent, so they aren't missed, listed first. Needs `conversations:read`.
          */
         get: {
             parameters: {
@@ -534,14 +534,14 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The tickets */
+                /** @description The conversations */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            tickets: components["schemas"]["Ticket"][];
+                            conversations: components["schemas"]["Conversation"][];
                         };
                     };
                 };
@@ -573,7 +573,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tickets/{id}": {
+    "/v1/conversations/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -581,8 +581,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a ticket and its messages
-         * @description One ticket with its emails, oldest first. Needs `tickets:read`.
+         * Read a conversation and its messages
+         * @description One conversation with its emails, oldest first. Needs `conversations:read`.
          */
         get: {
             parameters: {
@@ -595,13 +595,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The ticket */
+                /** @description The conversation */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["TicketDetail"];
+                        "application/json": components["schemas"]["ConversationDetail"];
                     };
                 };
                 /** @description No valid credentials */
@@ -641,7 +641,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tickets/{id}/close": {
+    "/v1/conversations/{id}/close": {
         parameters: {
             query?: never;
             header?: never;
@@ -651,8 +651,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Close a ticket
-         * @description Marks the ticket `closed` and audit-logs it. Closing a closed ticket changes nothing. Pending drafts are left as they are. Needs `tickets:write` and `tickets:read`.
+         * Close a conversation
+         * @description Marks the conversation `closed` and audit-logs it. Closing a closed conversation changes nothing. Pending drafts are left as they are. Needs `conversations:write` and `conversations:read`.
          */
         post: {
             parameters: {
@@ -665,13 +665,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The closed ticket */
+                /** @description The closed conversation */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Ticket"];
+                        "application/json": components["schemas"]["Conversation"];
                     };
                 };
                 /** @description No valid credentials */
@@ -709,7 +709,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tickets/{id}/drafts": {
+    "/v1/conversations/{id}/drafts": {
         parameters: {
             query?: never;
             header?: never;
@@ -717,8 +717,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List a ticket's drafts
-         * @description Every AI draft on the ticket, oldest first. Needs `tickets:read`.
+         * List a conversation's drafts
+         * @description Every AI draft on the conversation, oldest first. Needs `conversations:read`.
          */
         get: {
             parameters: {
@@ -774,7 +774,7 @@ export interface paths {
         put?: never;
         /**
          * Write a draft, or ask the AI for a new one
-         * @description Answers the ticket's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the ticket are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `tickets:read`.
+         * @description Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.
          */
         post: {
             parameters: {
@@ -844,7 +844,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed ticket (`ticket_closed`) */
+                /** @description No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed conversation (`conversation_closed`) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -1190,7 +1190,7 @@ export interface paths {
         };
         /**
          * Today's AI usage for this workspace
-         * @description Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new tickets are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.
+         * @description Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.
          */
         get: {
             parameters: {
@@ -1682,7 +1682,7 @@ export interface paths {
         };
         /**
          * Read the workspace's shadow mode
-         * @description Whether replies go to the shadow recipient instead of customers. Needs `tickets:read`.
+         * @description Whether replies go to the shadow recipient instead of customers. Needs `conversations:read`.
          */
         get: {
             parameters: {
@@ -1917,7 +1917,7 @@ export interface paths {
         post?: never;
         /**
          * Disconnect the GitHub repo
-         * @description Deletes the stored token and webhook secret. Tickets keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.
+         * @description Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.
          */
         delete: {
             parameters: {
@@ -2035,7 +2035,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tickets/{id}/github-issue/draft": {
+    "/v1/conversations/{id}/github-issue/draft": {
         parameters: {
             query?: never;
             header?: never;
@@ -2045,8 +2045,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask the AI to draft a GitHub issue from a ticket
-         * @description Suggests a title and body (steps to reproduce, expected, actual) from the ticket's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `tickets:read` and `github:write`.
+         * Ask the AI to draft a GitHub issue from a conversation
+         * @description Suggests a title and body (steps to reproduce, expected, actual) from the conversation's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.
          */
         post: {
             parameters: {
@@ -2130,7 +2130,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tickets/{id}/github-issue": {
+    "/v1/conversations/{id}/github-issue": {
         parameters: {
             query?: never;
             header?: never;
@@ -2140,8 +2140,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create a GitHub issue from a ticket
-         * @description Opens an issue with exactly this title and body in the connected repo, and links it to the ticket. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the ticket gets a `fixed` draft to approve. One issue per ticket. Needs `tickets:read` and `github:write`.
+         * Create a GitHub issue from a conversation
+         * @description Opens an issue with exactly this title and body in the connected repo, and links it to the conversation. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the conversation gets a `fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.
          */
         post: {
             parameters: {
@@ -2161,7 +2161,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description The issue, now linked to the ticket */
+                /** @description The issue, now linked to the conversation */
                 201: {
                     headers: {
                         [name: string]: unknown;
@@ -2197,7 +2197,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description No repo is connected (`not_connected`), the ticket already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
+                /** @description No repo is connected (`not_connected`), the conversation already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -2206,7 +2206,7 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description The issue was opened on GitHub, at `url`, but couldn't be linked to the ticket (`issue_not_linked`). Don't create it again: close that one or link it by hand */
+                /** @description The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation (`issue_not_linked`). Don't create it again: close that one or link it by hand */
                 500: {
                     headers: {
                         [name: string]: unknown;
@@ -2218,7 +2218,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the ticket stays claimed, and a try after five minutes first looks for that issue again */
+                /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the conversation stays claimed, and a try after five minutes first looks for that issue again */
                 502: {
                     headers: {
                         [name: string]: unknown;
@@ -2255,7 +2255,7 @@ export interface paths {
         put?: never;
         /**
          * Receive a GitHub webhook
-         * @description Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Tickets are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to tickets is closed as completed, each ticket gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.
+         * @description Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Conversations are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to conversations is closed as completed, each conversation gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.
          */
         post: {
             parameters: {
@@ -2275,7 +2275,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Handled. `tickets` is how many linked tickets changed */
+                /** @description Handled. `conversations` is how many linked conversations changed */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -2284,7 +2284,7 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             status: "processed" | "ignored";
-                            tickets: number;
+                            conversations: number;
                         };
                     };
                 };
@@ -2349,7 +2349,7 @@ export interface components {
             /** @enum {string} */
             status: "created" | "threaded" | "duplicate";
             /** Format: uuid */
-            ticketId: string;
+            conversationId: string;
             /** Format: uuid */
             messageId: string;
         };
@@ -2367,13 +2367,13 @@ export interface components {
                 id: string;
                 name: string;
             };
-            scopes: ("tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read" | "workspace:admin")[];
+            scopes: ("conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read" | "workspace:admin")[];
         };
         CreatedApiToken: components["schemas"]["ApiToken"] & {
             token: string;
         };
         /** @enum {string} */
-        TokenScope: "tickets:read" | "tickets:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read";
+        TokenScope: "conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read";
         ApiToken: {
             /** Format: uuid */
             id: string;
@@ -2384,7 +2384,7 @@ export interface components {
             /** Format: date-time */
             revokedAt: string | null;
         };
-        Ticket: {
+        Conversation: {
             /** Format: uuid */
             id: string;
             subject: string;
@@ -2403,7 +2403,7 @@ export interface components {
             aiPausedReason: "daily_budget" | "draft_failed" | null;
             replyNotSent: boolean;
         };
-        TicketDetail: components["schemas"]["Ticket"] & {
+        ConversationDetail: components["schemas"]["Conversation"] & {
             messages: components["schemas"]["Message"][];
             githubIssue: {
                 repo: string;
@@ -2433,7 +2433,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            ticketId: string;
+            conversationId: string;
             /** Format: uuid */
             messageId: string;
             /** @enum {string} */

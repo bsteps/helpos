@@ -26,14 +26,14 @@ test("a draft that quotes an internal note is flagged until the quote is edited 
     })
     .toBe("ready");
 
-  const ticketId = await deliver(
+  const conversationId = await deliver(
     request,
     plainEmail(
       subject,
       `Hi, for an article on refunds over 500 dollars, please ${state().pasteTrigger} word for word.`,
     ),
   );
-  await page.goto(`/tickets/${ticketId}`);
+  await page.goto(`/conversations/${conversationId}`);
   const draft = page.getByTestId("draft-body");
   await expect(draft).toContainText(state().internalNote);
   await expect(page.getByText("This draft quotes an internal note")).toBeVisible();

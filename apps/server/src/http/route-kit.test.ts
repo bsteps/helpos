@@ -9,7 +9,7 @@ import { auditor, errorSchema, json, notFound, notFoundResponse } from "./route-
 const principal: Principal = {
   tenantId: "0190d6a4-0000-7000-8000-000000000001",
   actor: { type: "agent", id: "0190d6a4-0000-7000-8000-000000000002" },
-  scopes: new Set(["tickets:read"]),
+  scopes: new Set(["conversations:read"]),
 };
 
 /** What `recordAudit` inserts, so a test can read what the helper filled in. */
@@ -22,7 +22,7 @@ function fakeTx() {
 }
 
 const readRoute = apiRoute({
-  access: { allScopes: ["tickets:read"] },
+  access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/thing",
   responses: { 200: { description: "ok" }, 404: notFoundResponse },
@@ -84,7 +84,7 @@ describe("apiRoute documents what its access implies", () => {
   };
 
   it("adds the apiAuth scheme and 401 + 403 to a scoped route", () => {
-    const route = spec({ allScopes: ["tickets:read"] });
+    const route = spec({ allScopes: ["conversations:read"] });
     expect(route.security).toEqual([{ apiAuth: [] }]);
     expect(Object.keys(route.responses).sort()).toEqual(["200", "401", "403"]);
   });
@@ -116,7 +116,7 @@ describe("auditor() binds the request", () => {
     const { tx, rows } = fakeTx();
     const app = appWith(async () => principal);
     app.openapi(readRoute, async (c) => {
-      await auditor(c)(tx, "ticket.closed", { type: "ticket", id: "t-1" });
+      await auditor(c)(tx, "conversation.closed", { type: "conversation", id: "t-1" });
       return notFound(c);
     });
     const res = await app.request("/thing", { headers: { "x-request-id": "req-123" } });
@@ -126,8 +126,8 @@ describe("auditor() binds the request", () => {
         tenantId: principal.tenantId,
         actorType: "agent",
         actorId: principal.actor.id,
-        action: "ticket.closed",
-        targetType: "ticket",
+        action: "conversation.closed",
+        targetType: "conversation",
         targetId: "t-1",
         requestId: "req-123",
       },
