@@ -13,6 +13,7 @@ import { registerAuthRoutes } from "./auth/routes.ts";
 import { humanSessions } from "./auth/session.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerGithubRoutes } from "./github/routes.ts";
+import { notFound } from "./http/route-kit.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import type { Services } from "./services.ts";
@@ -100,6 +101,8 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   });
 
   if (webDir) registerDashboard(app, webDir);
+
+  app.notFound(notFound);
 
   // Unexpected errors are logged with details; the caller gets nothing it could use. A request
   // the framework itself refused (a body type no route takes, say) keeps its 4xx: it's the

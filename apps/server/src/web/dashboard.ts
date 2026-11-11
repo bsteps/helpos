@@ -57,29 +57,21 @@ export function registerDashboard(app: OpenAPIHono, webDir: string): void {
   );
   app.get(
     "*",
-    onlyDashboard(
-      serveStatic({
-        root,
-        onFound: (path, c) => {
-          // Vite puts a content hash in every file name under assets/.
-          c.header(
-            "cache-control",
-            path.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
-          );
-        },
-      }),
-    ),
+    onlyDashboard((c, next) => {
+      c.header(
+        "cache-control",
+        c.req.path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+      );
+      return next();
+    }),
+    onlyDashboard(serveStatic({ root })),
   );
   app.get(
     "*",
-    onlyDashboard(
-      serveStatic({
-        root,
-        path: "index.html",
-        onFound: (_path, c) => {
-          c.header("cache-control", "no-cache");
-        },
-      }),
-    ),
+    onlyDashboard((c, next) => {
+      c.header("cache-control", "no-cache");
+      return next();
+    }),
+    onlyDashboard(serveStatic({ root, path: "index.html" })),
   );
 }
