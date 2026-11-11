@@ -1,16 +1,54 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { Draft } from "../src/api/client.ts";
 import { deliver, plainEmail, signIn, state, uniqueSubject, waitForMail } from "./support.ts";
 
 // A reply that couldn't be sent: the e2e server's mail transport fails every attempt for these
 // subjects until the dashboard retries, so the draft ends up "Not sent". From there the owner
 // retries it (it goes out once, still in shadow mode) or discards it and asks for a new draft.
 
+test.setTimeout(120_000);
+
+async function sendAndWait(
+  page: Page,
+  action: "Approve & send" | "Retry send",
+  status: "sent" | "send_failed",
+): Promise<void> {
+  const endpoint = action === "Approve & send" ? "approve" : "retry";
+  const accepted = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname.endsWith(`/${endpoint}`),
+  );
+  await page.getByRole("button", { name: action, exact: true }).click();
+  const response = await accepted;
+  expect(response.status()).toBe(200);
+  const draft = (await response.json()) as Draft;
+  await expect
+    .poll(
+      async () => {
+        const result = await page.request.get(`/v1/conversations/${draft.conversationId}/drafts`);
+        expect(result.status()).toBe(200);
+        const body = (await result.json()) as { drafts: Draft[] };
+        const current = body.drafts.find((candidate) => candidate.id === draft.id);
+        return { id: current?.id, status: current?.status, updatedAt: current?.updatedAt };
+      },
+      {
+        timeout: 45_000,
+        intervals: [250, 500, 1_000],
+        message: `Draft ${draft.id} in conversation ${draft.conversationId} reaches ${status}`,
+      },
+    )
+    .toMatchObject({ id: draft.id, status });
+  await expect(
+    page.getByText(status === "sent" ? "Sent" : "Not sent", { exact: true }),
+  ).toBeVisible();
+}
+
 async function approveAndWaitForFailure(page: Page, subject: string): Promise<void> {
   await signIn(page);
   await page.getByRole("link", { name: subject }).click();
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
-  await page.getByRole("button", { name: "Approve & send" }).click();
-  await expect(page.getByText("Not sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await sendAndWait(page, "Approve & send", "send_failed");
   await expect(page.getByTestId("send-failed-alert")).toContainText("This reply wasn't sent");
 }
 
@@ -31,8 +69,7 @@ test("a reply that failed to send is retried from the conversation and arrives o
   await expect(row.getByText("Closed", { exact: true })).toBeVisible();
   await row.getByRole("link", { name: subject }).click();
 
-  await page.getByRole("button", { name: "Retry send" }).click();
-  await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await sendAndWait(page, "Retry send", "sent");
   await expect(page.getByTestId("send-failed-alert")).toBeHidden();
 
   // Sent now, so the closed conversation leaves the inbox.
@@ -82,8 +119,7 @@ test("discarding a failed follow-up reply doesn't bring back the earlier sent on
   await signIn(page);
   await page.getByRole("link", { name: subject }).click();
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
-  await page.getByRole("button", { name: "Approve & send" }).click();
-  await expect(page.getByText("Sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await sendAndWait(page, "Approve & send", "sent");
 
   // The customer writes again on the same thread; this reply fails to send.
   const followUp = [
@@ -103,8 +139,7 @@ test("discarding a failed follow-up reply doesn't bring back the earlier sent on
     await page.reload();
     await expect(page.getByText("Waiting for approval")).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Approve & send" }).click();
-  await expect(page.getByText("Not sent", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await sendAndWait(page, "Approve & send", "send_failed");
 
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.getByText("The reply that couldn't be sent was discarded.")).toBeVisible();
