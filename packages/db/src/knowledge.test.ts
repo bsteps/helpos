@@ -181,7 +181,7 @@ describe("searchKnowledge", () => {
   });
 });
 
-describe("eval: vector recall for a small tenant among large ones", () => {
+describe("vector recall for a small tenant among large ones", () => {
   it("the planner really uses the HNSW index in this test", async () => {
     const plan = await db.withTenant(small, async (tx) => {
       await forceIndex(tx);

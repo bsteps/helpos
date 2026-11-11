@@ -97,7 +97,7 @@ describe("migrations", () => {
     );
   });
 
-  it("every view is security_invoker", async () => {
+  it("migrations: every view is security_invoker", async () => {
     const unsafe = await owner<{ view: string }[]>`
       select c.relname as view from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
@@ -106,7 +106,7 @@ describe("migrations", () => {
     expect(unsafe).toEqual([]);
   });
 
-  it("has SECURITY DEFINER functions only from the reviewed allowlist", async () => {
+  it("migrations: SECURITY DEFINER only in allowlist", async () => {
     const allowlist: unknown = JSON.parse(
       readFileSync(new URL("../security-definer-allowlist.json", import.meta.url), "utf8"),
     );

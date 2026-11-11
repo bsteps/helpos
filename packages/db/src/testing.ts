@@ -1,9 +1,31 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import postgres from "postgres";
+import type { AuthStore } from "./auth.ts";
+import type { Database } from "./client.ts";
 import { installJobs } from "./jobs.ts";
 import { runMigrations } from "./migrate.ts";
+import {
+  aiUsage,
+  apiTokens,
+  attachments,
+  auditEvents,
+  customers,
+  draftCitations,
+  drafts,
+  integrations,
+  knowledgeChunks,
+  knowledgeEmbeddingDimensions,
+  knowledgeSources,
+  mailboxes,
+  memberships,
+  messages,
+  tenants,
+  ticketGithubIssues,
+  tickets,
+} from "./schema.ts";
+import { uuidv7 } from "./uuid.ts";
 
 const initSql = fileURLToPath(new URL("../../../docker/postgres/init.sql", import.meta.url));
 
@@ -132,4 +154,262 @@ export async function startTestDatabase(): Promise<TestDatabase> {
       }
     },
   };
+}
+
+// --- Cross-tenant leak testing -----------------------------------------------------------------
+// The catalog says what "every table" is, so a new table can't escape the leak tests: they fail
+// until `seedLeakTenant` puts a row in it (see docs/architecture/data-model.md).
+
+/** The axis the seeded chunk's embedding points along, so a search for it finds that chunk. */
+export const leakEmbeddingAxis = 7;
+export const leakEmbeddingModel = "test/model";
+
+/** A unit vector along one axis: identical axes have distance 0, different ones 1. */
+export function unitVector(axis: number): number[] {
+  const v = new Array<number>(knowledgeEmbeddingDimensions).fill(0);
+  v[axis] = 1;
+  return v;
+}
+
+export interface LeakTenant {
+  tenantId: string;
+  tag: string;
+  /** The auth user who owns the workspace. */
+  userId: string;
+  tokenHash: string;
+  tokenName: string;
+  mailboxAddress: string;
+  customerEmail: string;
+  messageIdHeader: string;
+  sourceSlug: string;
+  ids: {
+    mailbox: string;
+    membership: string;
+    customer: string;
+    ticket: string;
+    message: string;
+    attachment: string;
+    draft: string;
+    aiUsage: string;
+    source: string;
+    chunk: string;
+    citation: string;
+    token: string;
+    integration: string;
+    githubIssue: string;
+    auditEvent: string;
+  };
+}
+
+/**
+ * Creates a complete workspace: at least one row in every public table. Everything a person
+ * could have typed contains `tag` (lowercase letters, digits and dashes), so one workspace's
+ * content is recognisable in any output that should never have it.
+ */
+export async function seedLeakTenant(
+  db: Pick<Database, "withTenant">,
+  auth: Pick<AuthStore, "ensureUser">,
+  input: { tenantId: string; tag: string },
+): Promise<LeakTenant> {
+  const { tenantId, tag } = input;
+  if (!/^[a-z0-9-]+$/.test(tag)) throw new Error(`seedLeakTenant: bad tag "${tag}"`);
+  const user = await auth.ensureUser(`owner@${tag}.test`);
+  const seeded: LeakTenant = {
+    tenantId,
+    tag,
+    userId: user.id,
+    // Per tenant: token hashes are globally unique.
+    tokenHash: createHash("sha256").update(`${tag}:${tenantId}`).digest("hex"),
+    tokenName: `${tag}-bot`,
+    mailboxAddress: `support@${tag}.test`,
+    customerEmail: `jane@${tag}-customer.test`,
+    messageIdHeader: `<message@${tag}-customer.test>`,
+    sourceSlug: `${tag}-refunds`,
+    ids: {
+      mailbox: uuidv7(),
+      membership: uuidv7(),
+      customer: uuidv7(),
+      ticket: uuidv7(),
+      message: uuidv7(),
+      attachment: uuidv7(),
+      draft: uuidv7(),
+      aiUsage: uuidv7(),
+      source: uuidv7(),
+      chunk: uuidv7(),
+      citation: uuidv7(),
+      token: uuidv7(),
+      integration: uuidv7(),
+      githubIssue: uuidv7(),
+      auditEvent: uuidv7(),
+    },
+  };
+  const { ids } = seeded;
+  const repo = `${tag}-corp/app`;
+  await db.withTenant(tenantId, async (tx) => {
+    await tx.insert(tenants).values({ id: tenantId, name: `${tag} workspace` });
+    await tx
+      .insert(mailboxes)
+      .values({ id: ids.mailbox, tenantId, address: seeded.mailboxAddress });
+    await tx
+      .insert(memberships)
+      .values({ id: ids.membership, tenantId, userId: user.id, role: "owner" });
+    await tx.insert(customers).values({
+      id: ids.customer,
+      tenantId,
+      email: seeded.customerEmail,
+      name: `${tag} customer`,
+    });
+    await tx.insert(tickets).values({
+      id: ids.ticket,
+      tenantId,
+      customerId: ids.customer,
+      mailboxId: ids.mailbox,
+      subject: `${tag} question`,
+    });
+    await tx.insert(messages).values({
+      id: ids.message,
+      tenantId,
+      ticketId: ids.ticket,
+      direction: "inbound",
+      fromAddress: seeded.customerEmail,
+      fromName: `${tag} customer`,
+      toAddresses: [seeded.mailboxAddress],
+      subject: `${tag} question`,
+      textBody: `${tag} needs help with a refund`,
+      references: [],
+      rawFileKey: `${tenantId}/raw`,
+      messageIdHeader: seeded.messageIdHeader,
+    });
+    await tx.insert(attachments).values({
+      id: ids.attachment,
+      tenantId,
+      messageId: ids.message,
+      filename: `${tag}.txt`,
+      contentType: "text/plain",
+      sizeBytes: 1,
+      fileKey: `${tenantId}/file`,
+    });
+    await tx.insert(drafts).values({
+      id: ids.draft,
+      tenantId,
+      ticketId: ids.ticket,
+      messageId: ids.message,
+      body: `Hi from ${tag}`,
+    });
+    await tx
+      .insert(aiUsage)
+      .values({ id: ids.aiUsage, tenantId, day: "2026-11-07", inputTokens: 10 });
+    await tx.insert(knowledgeSources).values({
+      id: ids.source,
+      tenantId,
+      slug: seeded.sourceSlug,
+      kind: "markdown",
+      title: `${tag} refund policy`,
+      content: `${tag} refunds take 5 days.`,
+    });
+    await tx.insert(knowledgeChunks).values({
+      id: ids.chunk,
+      tenantId,
+      sourceId: ids.source,
+      position: 0,
+      content: `${tag} refunds take 5 days.`,
+      embedding: unitVector(leakEmbeddingAxis),
+      embeddingModel: leakEmbeddingModel,
+    });
+    await tx.insert(draftCitations).values({
+      id: ids.citation,
+      tenantId,
+      draftId: ids.draft,
+      sourceId: ids.source,
+      title: `${tag} refund policy`,
+      visibility: "internal",
+      excerpt: `${tag} refunds take 5 days.`,
+      rank: 0,
+      cited: true,
+    });
+    await tx.insert(apiTokens).values({
+      id: ids.token,
+      tenantId,
+      name: seeded.tokenName,
+      tokenHash: seeded.tokenHash,
+      scopes: ["tickets:read"],
+    });
+    await tx.insert(integrations).values({
+      id: ids.integration,
+      tenantId,
+      provider: "github",
+      repo,
+      tokenCiphertext: `v1.${tag}-sealed-token`,
+      webhookSecretCiphertext: `v1.${tag}-sealed-secret`,
+    });
+    await tx.insert(ticketGithubIssues).values({
+      id: ids.githubIssue,
+      tenantId,
+      ticketId: ids.ticket,
+      repo,
+      issueNumber: 7,
+      issueUrl: `https://github.com/${repo}/issues/7`,
+      state: "open",
+    });
+    await tx.insert(auditEvents).values({
+      id: ids.auditEvent,
+      tenantId,
+      actorType: "system",
+      actorId: `${tag}-draft-reply`,
+      action: "draft.created",
+      targetType: "draft",
+      targetId: ids.draft,
+    });
+  });
+  return seeded;
+}
+
+/**
+ * Every row a workspace owns, per public table, read as the owner role. The tables come from
+ * the catalog, so a table added by a migration shows up here without anyone listing it. Rows are
+ * JSON in a fixed order, so two snapshots can be compared with `toEqual`.
+ */
+export async function tenantSnapshot(
+  ownerUrl: string,
+  tenantId: string,
+): Promise<Record<string, unknown[]>> {
+  const sql = postgres(ownerUrl, { max: 1, onnotice: () => {} });
+  try {
+    return await sql.begin(async (tx) => {
+      // The owner role is bound by row-level security too, so it names the tenant like the app.
+      await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+      const tables = await tx<{ table: string; ownerColumn: string | null }[]>`
+        select c.relname as table,
+          case when exists (select 1 from pg_attribute a where a.attrelid = c.oid
+                              and a.attname = 'tenant_id' and not a.attisdropped) then 'tenant_id'
+               when c.relname = 'tenants' then 'id' end as "ownerColumn"
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relispartition
+        order by c.relname`;
+      const snapshot: Record<string, unknown[]> = {};
+      for (const { table, ownerColumn } of tables) {
+        if (!ownerColumn) {
+          throw new Error(
+            `${table} has no tenant_id: add one, or teach tenantSnapshot() which column owns its rows`,
+          );
+        }
+        const rows = await tx<{ row: unknown }[]>`
+          select to_jsonb(t) as row from ${tx(table)} t
+          where ${tx(ownerColumn)} = ${tenantId}
+          order by to_jsonb(t)::text`;
+        snapshot[table] = rows.map((r) => r.row);
+      }
+      return snapshot;
+    });
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/** The tables in a snapshot that hold no rows: a leak from them would go unseen. */
+export function uncoveredTables(snapshot: Record<string, unknown[]>): string[] {
+  return Object.entries(snapshot)
+    .filter(([, rows]) => rows.length === 0)
+    .map(([table]) => table);
 }
