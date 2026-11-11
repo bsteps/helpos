@@ -1,3 +1,11 @@
+## Conversation write ownership review for issue 240
+
+The extraction onto the pinned #193 parent keeps the same SQL, await order, caller transactions, clocks, guards and audit events. `handleSendReply` still commits the prepared outbound message with `sentAt: null` and `markSending` before SMTP. Its second transaction locks and rechecks the same marker, calls SMTP, then confirms the message, marks the draft sent and updates conversation activity. Definite rejection still changes the draft before removing the prepared message. An explicit resend rejection retains the original uncertainty.
+
+`resolveUncertainSend` still locks the draft and validates status, Message-ID and sent-message identity before confirming the message and activity, then recording `draft.send_confirmed`. The resend branch is unchanged. `addMessage`, `markMessageSent`, `recordActivity` and `removeRejectedMessage` now own the extracted statements, so their bodies join the coverage record. The corrected declaration selector from #193 remains in use, and the scratch checker fixture copies the new module.
+
+No model action, invariant, bound or known-finding allowance changes. `WorkerLocksAndChecks`, `SmtpRejects`, `TransactionCommits` and `PersonResolvesSent` describe the same committed effects. Audit writes stay where they were relative to those effects. The pre-refresh run reproduced the expected model results and rejected only the changed worker and resolution fingerprints. Source mutations and the final runner results are recorded in the issue 240 decision trail. Lost retry and failed give-up still break `NoSilentStall`; this refactor does not fix them.
+
 # Issue 130 verification
 
 ## Issue 193 actor boundary
