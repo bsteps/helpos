@@ -5,7 +5,7 @@ description: Model-checks the reply send path (approve, the send-reply job, SMTP
 
 # Verify the send path
 
-Handoff status: draft. Read [EVIDENCE.md](EVIDENCE.md) for the remaining real-code mutation and `/statechart` gates before treating this as a completed verification skill.
+Read [EVIDENCE.md](EVIDENCE.md) for model results, real-code mutation proofs and the `/statechart` review.
 
 Sending an approved reply has an irreversible customer-visible effect. This check explores every order of steps in a small model of the send path, not only the orders a test happens to run, and checks four promises in each state.
 
@@ -98,7 +98,8 @@ Last confirmed at commit `801b81e15e31`.
 
 `apps/server/src/drafts/send-path-replay.int.test.ts` replays duplicate delivery, hidden delivery, give-up transaction failure and the lost-retry window against real Postgres, pg-boss and Mailpit. Run it with `pnpm --filter @helpos/server exec vitest run src/drafts/send-path-replay.int.test.ts`. The transport injects acceptance followed by an exception; this demonstrates rollback after external delivery, not a physical database COMMIT failure or process kill.
 
-The model mutants check removed give-up handling, a give-up that overwrites `sent`, and sending outside the row-lock transaction. Mutant runs disable person retries so the existing lost-retry finding cannot make their checks pass accidentally. Scratch edits to the real give-up handler, transition table and row lock were rejected by the coverage guard, then restored. This proves drift detection; it does not prove that a source edit automatically changes the TLA+ model. A maintainer must still update the mapped actions and inspect their traces.
+The model mutants check removed give-up handling, a give-up that overwrites `sent`, and admitting a sent draft while calling SMTP before database validation. Mutant runs disable person retries so the existing lost-retry finding cannot make their checks pass accidentally. Run `pnpm verify:send-reply:mutations` from a clean source checkout to repeat the real-code proof. It runs four safety assertions on normal code, temporarily applies three source mutations, requires all four intended assertions to fail, restores the source in `finally`, and reruns the assertions. It saves source backups, patches and logs under `.helpos/send-mutations/`. Do not run other tests or edits concurrently with this command. After a process termination, compare the source with Git and restore the saved backups before continuing. The generated skill still requires manual source-to-model review; fingerprint checks do not translate source into TLA+.
+
 
 `NoResendWithoutPerson` bounds total accepted deliveries by one plus retry requests. A retry request that reuses an active job still grants this allowance. It does not prove a stronger per-request ordering guarantee. The one-retry bound covers both retry branches but is not an inductive proof for eight retries. Raising `MaxFaults` alone repeats the selected fault; combine entries in `Faults` to explore mixed failures.
 
