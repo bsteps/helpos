@@ -8,6 +8,7 @@ import {
   type JobRunner,
   type SessionAuth,
   schema,
+  uuidv7,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -69,10 +70,10 @@ async function withPassword(email: string): Promise<string> {
   return user.id;
 }
 
-async function receiveEmail(n: number): Promise<string> {
+async function receiveEmail(n: number, to = "support@acme.test"): Promise<string> {
   const raw = [
     "From: jane@customer.test",
-    "To: support@acme.test",
+    `To: ${to}`,
     `Subject: Session test ${n}`,
     `Message-ID: <session-${n}@customer.test>`,
     "",
@@ -233,6 +234,36 @@ describe("a session cookie", () => {
     const cookie = await signIn("loner@acme.test");
     expect((await call("/v1/me", { cookie })).status).toBe(401);
     expect((await call("/v1/tickets", { cookie })).status).toBe(401);
+  });
+
+  it("leak: session of user in A cannot open tenant B", async () => {
+    const other = await initWorkspace(
+      { db, auth },
+      { workspace: "Other", mailbox: "help@other.test", owner: "owner@other.test" },
+    );
+    if (!other.ok) throw new Error("setup failed");
+    const theirTicket = await receiveEmail(3, "help@other.test");
+    const memberId = await withPassword("analyst@acme.test");
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.memberships).values({ tenantId: acme, userId: memberId, role: "member" }),
+    );
+    const cookie = await signIn("analyst@acme.test");
+
+    const me = await call("/v1/me", { cookie });
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as { workspace: unknown }).workspace).toEqual({
+      id: acme,
+      name: "Acme",
+    });
+
+    const unknown = await call(`/v1/tickets/${uuidv7()}`, { cookie });
+    const theirs = await call(`/v1/tickets/${theirTicket}`, { cookie });
+    expect(theirs.status).toBe(404);
+    expect(unknown.status).toBe(404);
+    expect(await theirs.json()).toEqual(await unknown.json());
+    const list = await (await call("/v1/tickets", { cookie })).text();
+    expect(list).not.toContain(theirTicket);
+    expect(list).not.toContain(other.tenantId);
   });
 
   it("stops working after sign-out", async () => {
