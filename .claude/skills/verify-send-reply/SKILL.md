@@ -54,15 +54,15 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `32d2520a389c`.
+Last confirmed at commit `9f86eef697b2`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `b99b24321726` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `26388bb85664` |
 | apps/server/src/drafts/send-worker.ts | handleSendGaveUp | GiveUpMarksFailed, GiveUpFails | `e1ea62598776` |
-| apps/server/src/drafts/lifecycle.ts | isApprovedDraft | WorkerLocksAndChecks, SmtpRejects | `unconfirmed` |
-| apps/server/src/drafts/lifecycle.ts | isSentDraft | WorkerLocksAndChecks, SmtpRejects | `unconfirmed` |
-| apps/server/src/drafts/lifecycle.ts | isUncertainDraft | WorkerLocksAndChecks, SmtpRejects | `unconfirmed` |
+| apps/server/src/drafts/lifecycle.ts | isApprovedDraft | WorkerLocksAndChecks, SmtpRejects | `dee671731e8f` |
+| apps/server/src/drafts/lifecycle.ts | isSentDraft | WorkerLocksAndChecks, SmtpRejects | `785296718047` |
+| apps/server/src/drafts/lifecycle.ts | isUncertainDraft | WorkerLocksAndChecks, SmtpRejects | `dbc8777e2d84` |
 | apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `12c52c5be6fa` |
 | apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `b8bcb5acfa88` |
 | apps/server/src/drafts/lifecycle.ts | queueSend | Enqueue | `1d94c013aa00` |

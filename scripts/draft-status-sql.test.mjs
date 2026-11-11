@@ -41,9 +41,9 @@ test("draft SQL status literals stay in lifecycle", () => {
 
 test("the guard rejects raw equality and status lists, but accepts named checks", () => {
   for (const source of [
-    "sql`where ${drafts.status} = 'pending'`",
-    "sql<boolean>`where ${drafts.status} in ('send_failed', 'send_uncertain')`",
+    `sql\`where \${drafts.status} = 'pending'\``,
+    `sql<boolean>\`where \${drafts.status} in ('send_failed', 'send_uncertain')\``,
   ])
     assert.equal(rawDraftStatusSql(source).length, 1);
-  assert.equal(rawDraftStatusSql("sql`where ${draftWhere.sendFailed()}`").length, 0);
+  assert.equal(rawDraftStatusSql(`sql\`where \${draftWhere.sendFailed()}\``).length, 0);
 });
