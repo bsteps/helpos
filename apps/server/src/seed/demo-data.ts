@@ -692,6 +692,22 @@ export function buildDemoData() {
       const draftedAt = new Date(repliesTo.createdAt.getTime() + 2 * 60_000);
       const approvedAt = d.status === "sent" ? new Date(draftedAt.getTime() + 10 * 60_000) : null;
       const draftId = id(`draft:${ts.key}`, draftedAt);
+      const draftAudit = (action: string, when: Date) => {
+        audit.push({
+          id: id(`audit:${action}:${ts.key}`, when),
+          tenantId,
+          createdAt: when,
+          actorType: "system",
+          actorId: "seed",
+          action,
+          targetType: "draft",
+          targetId: draftId,
+          requestId: null,
+        });
+      };
+      draftAudit("draft.created", draftedAt);
+      const editedAt = new Date(draftedAt.getTime() + (d.editedBy?.length ?? 0) * 60_000);
+      const discardedAt = d.status === "discarded" ? new Date(editedAt.getTime() + 60_000) : null;
       drafts.push({
         id: draftId,
         tenantId,
@@ -704,7 +720,7 @@ export function buildDemoData() {
         sentAt: sentReply?.sentAt ?? null,
         sentMessageId: sentReply?.id ?? null,
         createdAt: draftedAt,
-        updatedAt: approvedAt ?? draftedAt,
+        updatedAt: sentReply?.sentAt ?? discardedAt ?? editedAt,
       });
       (d.editedBy ?? []).forEach((name, i) => {
         const token = tokens.find((t) => t.name === name);
@@ -722,6 +738,12 @@ export function buildDemoData() {
           requestId: null,
         });
       });
+      if (approvedAt && sentReply) {
+        draftAudit("draft.approved", approvedAt);
+        draftAudit("draft.sending", sentReply.createdAt);
+        draftAudit("draft.sent", sentReply.createdAt);
+      }
+      if (discardedAt) draftAudit("draft.discarded", discardedAt);
       d.sources.forEach((ref, rank) => {
         const source = sourceBySlug.get(ref.slug);
         if (!source) throw new Error(`demo conversation ${ts.key}: unknown source ${ref.slug}`);
