@@ -54,7 +54,7 @@ The roles and schemas HelpOS expects (owner, app, auth and jobs roles) are set u
 
 The server validates chat and embedding settings before it opens services. A nonempty but invalid group stops startup with a message that names the missing or invalid variables, without showing their values. For example, `AI_PROVIDER=openai` requires both `AI_MODEL` and `AI_API_KEY`.
 
-To disable drafting, leave `AI_PROVIDER`, `AI_MODEL`, and `AI_API_KEY` unset or empty. To disable embeddings, leave all four `AI_EMBEDDING_*` variables unset or empty. The example environment includes a chat provider and model, so supply a key or clear all three chat settings before starting.
+To disable drafting, leave `AI_PROVIDER`, `AI_MODEL`, and `AI_API_KEY` unset or empty. To disable embeddings, leave all four `AI_EMBEDDING_*` variables unset or empty. The development example leaves both groups empty so a fresh checkout starts without provider credentials. To enable drafting, set the provider, model, and key together.
 
 Startup checks configuration structure only. Model availability, rejected credentials, and service outages are handled when a provider call runs.
 
