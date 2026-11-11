@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { describe, expect, it } from "vitest";
 import { envSchema } from "./env.ts";
 import { createLogger } from "./logger.ts";
@@ -11,6 +13,20 @@ const base = {
 };
 
 describe("AI startup configuration", () => {
+  it("starts from the development example without provider credentials", async () => {
+    const settings = parseEnv(
+      readFileSync(new URL("../../../.env.example", import.meta.url), "utf8"),
+    );
+    const env = envSchema.parse(settings);
+    const server = serverFromEnv(env, createLogger({ level: "silent" }));
+    try {
+      expect(server.services.model).toBeUndefined();
+      expect(server.services.embeddingModel).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
   it.each([
     {},
     {
