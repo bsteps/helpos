@@ -32,6 +32,7 @@ import {
 import { Input } from "@/components/ui/input.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { knowledgeErrorMessage } from "@/lib/knowledge.ts";
+import { webHref } from "@/lib/web-href.ts";
 
 type Visibility = KnowledgeSource["visibility"];
 
@@ -263,15 +264,6 @@ function AddSource({ onDone }: { onDone: () => void }) {
   );
 }
 
-function webLink(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
-  } catch {
-    return null;
-  }
-}
-
 const statusBadge = {
   pending: { status: "loading", label: "Reading" },
   ready: { status: "success", label: "Ready" },
@@ -301,7 +293,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
     resetRemove();
     setMode("view");
   }, [inGit, resetReingest, resetRemove]);
-  const link = source.url ? webLink(source.url) : null;
+  const link = source.url ? webHref(source.url) : null;
 
   return (
     <Card data-testid="knowledge-source">

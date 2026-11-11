@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/card.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
+import { webHref } from "@/lib/web-href.ts";
 import { GithubIssuePanel } from "./conversation-github.tsx";
 import {
   type Ask,
@@ -525,25 +526,28 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
           <div className="flex flex-col gap-1">
             <p className="text-muted-foreground text-xs">Written from</p>
             <ul className="flex flex-col gap-0.5 text-sm">
-              {cited.map((source) => (
-                <li key={`${source.sourceId ?? source.title}:${source.excerpt.slice(0, 20)}`}>
-                  {source.url && /^https?:\/\//i.test(source.url) ? (
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline underline-offset-4"
-                    >
-                      {source.title}
-                    </a>
-                  ) : (
-                    source.title
-                  )}
-                  {source.visibility === "internal" ? (
-                    <span className="text-muted-foreground"> (internal)</span>
-                  ) : null}
-                </li>
-              ))}
+              {cited.map((source) => {
+                const href = source.url ? webHref(source.url) : null;
+                return (
+                  <li key={`${source.sourceId ?? source.title}:${source.excerpt.slice(0, 20)}`}>
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-4"
+                      >
+                        {source.title}
+                      </a>
+                    ) : (
+                      source.title
+                    )}
+                    {source.visibility === "internal" ? (
+                      <span className="text-muted-foreground"> (internal)</span>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
