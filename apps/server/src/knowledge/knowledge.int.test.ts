@@ -19,7 +19,7 @@ import {
 import { startTestDatabase, type TestDatabase, waitFor } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { createSafeFetch, isBlockedAddress, SafeFetchError, safeFetch } from "@helpos/safe-fetch";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import { aiBudget, nextUtcDay, utcDay } from "../ai-budget/budget.ts";
 import { usageOn } from "../ai-budget/testing.ts";
@@ -34,7 +34,7 @@ import { maxChunks } from "./chunk.ts";
 import { handleIngestSource, retryDelayMs } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { type Fetcher, maxPageBytes } from "./page-fetch.ts";
-import { createVectorSearch } from "./search.ts";
+import { createVectorSearch, type SearchQuery } from "./search.ts";
 import { createSource, deleteSource, requestIngest, slugify, updateSource } from "./sources.ts";
 
 /** Sends the API's reingest request. */
@@ -748,6 +748,7 @@ describe("embedding model changes", () => {
       tenantId: acme,
       text: "refunds",
       limit: 5,
+      audience: "approver",
     });
     expect(result).toEqual({ hits: [], tokens: 0 });
     expect(newModel.doEmbedCalls).toEqual([]);
@@ -1370,6 +1371,14 @@ describe("knowledge API", () => {
 });
 
 describe("drafting with knowledge", () => {
+  it("requires an approver or customer audience by type", () => {
+    expectTypeOf<SearchQuery>().toExtend<{ audience: "approver" | "customer" }>();
+    expectTypeOf<Omit<SearchQuery, "audience">>().not.toExtend<SearchQuery>();
+    expectTypeOf<
+      Omit<SearchQuery, "audience"> & { audience: "internal" }
+    >().not.toExtend<SearchQuery>();
+  });
+
   let otherRefund: string;
 
   beforeAll(async () => {
@@ -1407,6 +1416,7 @@ describe("drafting with knowledge", () => {
       tenantId: acme,
       text: "refunds",
       limit: 5,
+      audience: "approver",
     });
     expect(embedded).toBe(true);
     expect(result.hits.length).toBeGreaterThan(0);
@@ -1418,6 +1428,7 @@ describe("drafting with knowledge", () => {
       tenantId: acme,
       text: "refunds refunds OTHER-SECRET",
       limit: 20,
+      audience: "approver",
     });
     expect(result.hits.length).toBeGreaterThan(0);
     expect(result.hits.map((h) => h.sourceId)).not.toContain(otherRefund);
@@ -1430,31 +1441,19 @@ describe("drafting with knowledge", () => {
       tenantId: other,
       text: "refunds",
       limit: 5,
-      visibility: ["public"],
+      audience: "customer",
     });
     expect(result).toEqual({ hits: [], tokens: 0 });
     expect(fresh.doEmbedCalls).toEqual([]);
   });
 
-  it("a search that allows no visibility finds nothing, and makes no call", async () => {
-    const fresh = mockEmbeddingModel();
-    const result = await paidSearch(createVectorSearch(fresh), tenantTransactions(db, acme), {
-      tenantId: acme,
-      text: "refunds",
-      limit: 5,
-      visibility: [],
-    });
-    expect(result).toEqual({ hits: [], tokens: 0 });
-    expect(fresh.doEmbedCalls).toEqual([]);
-  });
-
-  it("a public-only search never returns internal notes", async () => {
+  it("a customer search never returns internal notes", async () => {
     const search = createVectorSearch(embeddingModel);
     const result = await paidSearch(search, tenantTransactions(db, acme), {
       tenantId: acme,
       text: "refunds password shipping",
       limit: 20,
-      visibility: ["public"],
+      audience: "customer",
     });
     expect(result.hits.map((h) => [h.title, h.visibility])).toEqual([["Refund policy", "public"]]);
   });
@@ -1581,12 +1580,12 @@ describe("editing sources", () => {
         .where(eq(auditEvents.targetId, id))
         .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id)),
     );
-  const search = (tenantId: string, text: string, visibility?: ("public" | "internal")[]) =>
+  const search = (tenantId: string, text: string, audience: SearchQuery["audience"]) =>
     paidSearch(createVectorSearch(embeddingModel), tenantTransactions(db, tenantId), {
       tenantId,
       text,
       limit: 20,
-      visibility,
+      audience,
     });
   const tokensToday = async () => (await usageOn(db, acme)).totalTokens;
 
@@ -1601,7 +1600,7 @@ describe("editing sources", () => {
     const tokensBefore = await tokensToday();
     let searchTokens = 0;
     const publicSearch = async () => {
-      const result = await search(acme, "gift cards expire", ["public"]);
+      const result = await search(acme, "gift cards expire", "customer");
       searchTokens += result.tokens;
       return result.hits;
     };
@@ -1661,7 +1660,7 @@ describe("editing sources", () => {
     expect(await res.json()).toMatchObject({ state: { status: "pending" }, chunkCount: 0 });
     // Gone at once, before the new passages exist.
     expect(await chunksOf(acme, added.id)).toEqual([]);
-    const during = await search(acme, "warranty PLATYPUS-OLD twelve months");
+    const during = await search(acme, "warranty PLATYPUS-OLD twelve months", "approver");
     expect(during.hits.map((h) => h.content).join(" ")).not.toContain("PLATYPUS-OLD");
 
     const done = await ingested(acme, added.id);
@@ -1678,7 +1677,7 @@ describe("editing sources", () => {
     expect((await chunksOf(acme, neighbour.id)).map((c) => c.id)).toEqual(neighbourChunks);
     expect(await tokensToday()).toBeGreaterThan(tokensBefore);
 
-    const text = (await search(acme, "warranty PLATYPUS-OLD KOALA-NEW", ["public"])).hits
+    const text = (await search(acme, "warranty PLATYPUS-OLD KOALA-NEW", "customer")).hits
       .map((h) => h.content)
       .join(" ");
     expect(text).toContain("KOALA-NEW");
