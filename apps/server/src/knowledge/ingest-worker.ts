@@ -218,7 +218,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       embedded = await budget.spend(
         transaction,
         reservation,
-        (signal) => embedTexts(deps.embeddingModel, chunks, { abortSignal: signal }),
+        (_signal, models) => embedTexts(models(deps.embeddingModel), chunks),
         {
           of: (result) => ({ inputTokens: result.tokens, outputTokens: 0 }),
           // Includes earlier spend and the failed batch bound: its bill may be unknown.

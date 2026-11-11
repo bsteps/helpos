@@ -6,6 +6,7 @@ import {
   type LanguageModel,
   maxHistoryMessages,
   maxKnowledgeArticles,
+  type PaidModels,
   replyDraftTokenEstimate,
   tokenBound,
 } from "@helpos/ai";
@@ -97,11 +98,12 @@ async function searchOrNothing(
   transaction: TenantTransaction,
   query: SearchQuery,
   signal: AbortSignal,
+  models: PaidModels,
 ): Promise<SearchResult> {
   const { search } = deps;
   if (!search) return noKnowledge;
   try {
-    return await search.search(transaction, query, signal);
+    return await search.search(transaction, query, models);
   } catch (error) {
     // Stopped (a shutdown, or out of time): drafting on without knowledge would be wrong too.
     if (signal.aborted) throw error;
@@ -170,8 +172,8 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     const answer = await budget.spend(
       transaction,
       job.reservation,
-      async (signal) => {
-        const knowledge = await searchOrNothing(deps, transaction, job.query, signal);
+      async (signal, models) => {
+        const knowledge = await searchOrNothing(deps, transaction, job.query, signal, models);
         searchTokens = knowledge.tokens;
         const found = await transaction(async (tx) => {
           // Another job for this message (a retry overlapping a slow attempt) may have drafted
@@ -192,7 +194,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           })),
         };
         callBound = replyDraftTokenEstimate(input);
-        return { hits, result: await draftReply(deps.model, input, { abortSignal: signal }) };
+        return { hits, result: await draftReply(models(deps.model), input) };
       },
       {
         of: ({ result }) => ({

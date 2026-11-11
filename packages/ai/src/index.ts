@@ -57,3 +57,5 @@ export {
   sharedRuns,
 } from "./internal-quote.ts";
 export { createModel } from "./model.ts";
+
+export type { PaidModel, PaidModels } from "./paid-model.ts";

@@ -49,7 +49,7 @@ export async function draftIssue(
     const draft = await budget.spend(
       tenantTransactions(deps.db, input.tenantId),
       prepared.reservation,
-      (signal) => draftGithubIssue(deps.model, prepared.input, { abortSignal: signal }),
+      (_signal, models) => draftGithubIssue(models(deps.model), prepared.input),
       { of: (d) => d.usage, ofFailure: failedDraftCost },
     );
     return { kind: "drafted", title: draft.title, body: draft.body };

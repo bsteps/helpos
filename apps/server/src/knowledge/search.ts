@@ -1,4 +1,4 @@
-import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
+import { type EmbeddingModel, embeddingModelId, embedTexts, type PaidModels } from "@helpos/ai";
 import {
   and,
   eq,
@@ -29,11 +29,10 @@ export interface SearchResult {
  * pgvector today; another engine can implement this later without touching the callers.
  */
 export interface SearchProvider {
-  /** `signal` aborts the embedding call (see AiBudget.spend). */
   search(
     transaction: TenantTransaction,
     query: SearchQuery,
-    signal?: AbortSignal,
+    models: PaidModels,
   ): Promise<SearchResult>;
 }
 
@@ -52,7 +51,7 @@ export class SearchError extends Error {
 export function createVectorSearch(model: EmbeddingModel): SearchProvider {
   const modelId = embeddingModelId(model);
   return {
-    async search(transaction, query, signal) {
+    async search(transaction, query, models) {
       // No visibility allowed means no knowledge, not an error.
       if (query.visibility?.length === 0) return noKnowledge;
       // Most workspaces start with no knowledge (or none of the wanted visibility): skip the
@@ -72,11 +71,7 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
           .limit(1),
       );
       if (!any) return noKnowledge;
-      const { embeddings, tokens } = await embedTexts(
-        model,
-        [query.text],
-        signal ? { abortSignal: signal } : {},
-      );
+      const { embeddings, tokens } = await embedTexts(models(model), [query.text]);
       try {
         const [embedding] = embeddings;
         if (!embedding) throw new Error("search: the embedding model returned no vector");

@@ -1,4 +1,5 @@
-import type { DraftUsage } from "@helpos/ai";
+import type { DraftUsage, PaidModels } from "@helpos/ai";
+import { withPaidModels } from "@helpos/ai/budget";
 import { and, eq, schema, sql, type TenantTransaction, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import type { Clock, ServerConfig } from "../services.ts";
@@ -127,7 +128,7 @@ export interface AiBudget {
   spend<T>(
     transaction: TenantTransaction,
     reservation: Reservation,
-    call: (signal: AbortSignal) => Promise<T>,
+    call: (signal: AbortSignal, models: PaidModels) => Promise<T>,
     cost: { of: (result: T) => Spent; ofFailure: (error: unknown) => FailureCost },
   ): Promise<T>;
 }
@@ -215,7 +216,7 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
       const signal = deps.shutdown ? AbortSignal.any([timeout, deps.shutdown]) : timeout;
       let result: Awaited<ReturnType<typeof call>>;
       try {
-        result = await call(signal);
+        result = await withPaidModels(signal, (models) => call(signal, models));
       } catch (error) {
         await settleQuietly(cost.ofFailure(error));
         throw error;
