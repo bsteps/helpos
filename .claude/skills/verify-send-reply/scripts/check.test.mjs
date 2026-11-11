@@ -45,9 +45,9 @@ test("every covered function body edit invalidates its own coverage record", () 
   try {
     const { fingerprint } = checkerFunctions(scratch);
     const record = readFileSync(join(root, skill, "SKILL.md"), "utf8");
-    const rows = [...record.matchAll(/^\| ([^|]+) \| ([^|]+) \|/gm)];
+    const rows = [...record.matchAll(/^\| ([^|]+) \| ([^|]+) \| [^|]+ \| `([^`]+)` \|/gm)];
     const checked = [];
-    for (const [, moduleCell, symbolCell] of rows) {
+    for (const [, moduleCell, symbolCell, recorded] of rows) {
       const module = moduleCell.trim();
       const symbol = symbolCell.trim();
       if (!module.endsWith(".ts")) continue;
@@ -65,7 +65,7 @@ test("every covered function body edit invalidates its own coverage record", () 
       visit(source);
       if (!target?.body) continue;
       const before = fingerprint(module, symbol);
-      assert.ok(before, symbol);
+      assert.equal(before, recorded, `${symbol} matches its coverage record`);
       const insertion = target.body.getStart(source) + 1;
       writeFileSync(
         file,
@@ -73,7 +73,7 @@ test("every covered function body edit invalidates its own coverage record", () 
       );
       assert.notEqual(
         fingerprint(module, symbol),
-        before,
+        recorded,
         `${module} ${symbol} must fingerprint its function body`,
       );
       writeFileSync(file, original);
