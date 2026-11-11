@@ -13,7 +13,12 @@ import {
   schema,
   sql,
 } from "@helpos/db";
-import { startTestDatabase, type TestDatabase, waitFor } from "@helpos/db/testing";
+import {
+  startTestDatabase,
+  type TestDatabase,
+  waitFor,
+  waitForTenantJobs,
+} from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -719,6 +724,8 @@ describe("drafting an issue with the AI", () => {
   it("reserves the budget up front, so concurrent drafts can't both pass the cap", async () => {
     // Another workspace, so its usage starts at zero.
     const email = await receiveEmail("help@other.test");
+    const settled = await waitForTenantJobs(testDb, other, { queues: ["draft-reply"] });
+    expect(settled.deferred).toEqual([]);
     const path = `/v1/conversations/${email.conversationId}/github-issue/draft`;
     const usage = () =>
       db.withTenant(other, async (tx) => (await tx.select().from(schema.aiUsage))[0]);
