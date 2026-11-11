@@ -23,14 +23,14 @@ The whole vision fits on one page: [docs/vision.md](docs/vision.md).
 
 ## Status
 
-| Set                     | What                                                                                     | Status         |
-| ----------------------- | ---------------------------------------------------------------------------------------- | -------------- |
-| MVP                     | Email → AI draft → approve → send, in shadow mode                                        | ✅             |
-| **A. The gate**         | One owner per conversation, nothing sent twice, per-agent permissions, trust ladder      | 🏗️ In progress |
-| **B. Shadow mode**      | Bulk import, Crisp migration skill, approval page, knowledge gaps, the one number        | 🏗️ In progress |
-| **C. Bring your agent** | MCP + skills, wake-ups, queues and handoff, any MCP tool through the gate, waiting lists | ⏳             |
-| **D. Safe real mail**   | Shadow mode off: email auth, sanitising, rate limits, encryption, backups                | ⏳             |
-| **E. Paid hosted**      | Sign-up, one-slider pricing, AI at cost, privacy                                         | ⏳             |
+| Set                     | What                                                                                                     | Status         |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- | -------------- |
+| MVP                     | Email → AI draft → approve → send, in shadow mode                                                        | ✅             |
+| **A. The gate**         | One owner per conversation, nothing sent twice, per-agent permissions, trust ladder                      | 🏗️ In progress |
+| **B. Shadow mode**      | Bulk import, replay and review, no source no answer, approval page, knowledge gaps, decision count       | 🏗️ In progress |
+| **C. Bring your agent** | MCP + skills, wake-ups, freshness loop, queues and handoff, waiting lists, any MCP tool through the gate | ⏳             |
+| **D. Safe real mail**   | Shadow mode off: email auth, sanitising, rate limits, backups, customer outcomes                         | ⏳             |
+| **E. Paid hosted**      | Sign-up, one-slider pricing, AI at cost, privacy                                                         | ⏳             |
 
 Every feature and exit goal is in [docs/roadmap.md](docs/roadmap.md).
 

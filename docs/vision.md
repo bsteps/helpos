@@ -41,9 +41,9 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 ## The rules to remember
 
 0. **Pipes, not features.** If an agent can do it in one prompt, we don't build it. We make the pipes strong, fast and light.
-1. **Agents propose, the desk decides.** No agent acts directly, whether it's ours or yours.
+1. **Agents propose, the desk decides.** Every action taken through HelpOS passes one gate, whether the agent is ours or yours. An outside agent acting elsewhere with its own keys is outside the gate. To govern an action on an outside tool, route it through HelpOS's tool connections.
 2. **Inbox zero means zero decisions, not zero tickets.** The home screen is the decision queue.
-3. **Trust is earned per agent and per action type.** Approvals without edits move an action up the ladder, and corrections move it down.
+3. **Trust is earned per agent and per action type, from outcomes.** Approvals without edits, and customers who don't come back unhappy, move an action up the ladder. Corrections and unhappy returns move it down. A person accepts every promotion.
 4. **Ask once, remember, recheck.** When unsure, ask. Your answer becomes a rule. Rules and knowledge are rechecked whenever the product changes or answers start going wrong.
 5. **One writer at a time, always on the latest version, and nothing goes out twice.** Each conversation has one owner whose claim expires, and stale proposals are rejected.
 6. **Mistakes are expected, so they must be cheap, visible and reversible.** Everything is audited and internal changes can be undone. Actions that can't be undone (money, deletions, outbound email) always start at "you approve". Only a person can automate them, and only with hard caps.
