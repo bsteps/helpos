@@ -13,9 +13,29 @@ const everyDraft: ReadonlyArray<{ rule: string; pattern: RegExp }> = [
 ];
 
 /** Deterministic checks only (no LLM-as-judge). Returns one message per failed assertion. */
-export function checkAssertions(output: TaskOutput, assert: EvalAssertions): string[] {
+export function checkAssertions(
+  output: TaskOutput,
+  assert: EvalAssertions,
+  prompts: string[] = [],
+): string[] {
   const failures: string[] = [];
   const text = output.text.toLowerCase();
+  for (const value of assert.promptMustContain ?? []) {
+    if (!prompts.some((prompt) => prompt.includes(value)))
+      failures.push(`model prompt must contain ${JSON.stringify(value)}`);
+  }
+  for (const value of assert.promptMustNotContain ?? []) {
+    if (prompts.some((prompt) => prompt.includes(value)))
+      failures.push(`model prompt must not contain ${JSON.stringify(value)}`);
+  }
+  if (assert.exactCitations !== undefined) {
+    const actual = [...new Set(output.cited)].sort();
+    const expected = [...new Set(assert.exactCitations)].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expected))
+      failures.push(
+        `expected exact citations ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+      );
+  }
   if (text.trim() === "") failures.push("the draft is empty");
   for (const { rule, pattern } of everyDraft) {
     if (pattern.test(output.text)) failures.push(`the draft ${rule}`);
