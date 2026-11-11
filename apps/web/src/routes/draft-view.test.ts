@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationDetail, Draft } from "@/api/client.ts";
-import { draftView, liveFixNotice, newDraftError, waitingOn } from "./draft-view.ts";
+import {
+  draftDescription,
+  draftTitle,
+  draftView,
+  liveFixNotice,
+  newDraftError,
+  waitingOn,
+} from "./draft-view.ts";
 
 const conversation: ConversationDetail = {
   id: "t1",
@@ -211,4 +218,45 @@ describe("newDraftError", () => {
   ])("doesn't tell the person to retry a refusal that a retry can't fix (%s)", (code) => {
     expect(newDraftError(code)).not.toMatch(/try again/i);
   });
+});
+
+describe("draft card copy", () => {
+  it.each(["reply", "fixed"] as const)("titles and descriptions for every %s state", (kind) => {
+    const cases = [
+      ["pending", "Draft", "Nothing is sent until you approve it."],
+      ["approved", "Reply", "Approved. It goes out in a moment."],
+      ["send_failed", "Reply", "Approved, but it couldn't be sent."],
+      ["discarded", "Reply", "Approved. It goes out in a moment."],
+      ["sent", "Reply", "Approved. It goes out in a moment."],
+    ] satisfies [Draft["status"], string, string][];
+    for (const [status, title, description] of cases) {
+      const value = { kind, status, sentAt: null };
+      expect(draftTitle(value)).toBe(kind === "fixed" ? "Fix notice" : title);
+      expect(draftDescription(value)).toBe(
+        kind === "fixed" && status === "pending"
+          ? "The GitHub issue was closed as done. Nothing is sent until you approve it."
+          : description,
+      );
+    }
+  });
+
+  it.each(["reply", "fixed"] as const)(
+    "a %s sent timestamp takes precedence over status",
+    (kind) => {
+      const statuses: Draft["status"][] = [
+        "pending",
+        "approved",
+        "sent",
+        "send_failed",
+        "discarded",
+      ];
+      const formatted = new Date(sentAt).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      for (const status of statuses) {
+        expect(draftDescription({ kind, status, sentAt })).toBe(`Sent ${formatted}`);
+      }
+    },
+  );
 });

@@ -1,4 +1,5 @@
 import type { ConversationDetail, Draft } from "@/api/client.ts";
+import { formatDateTime } from "../lib/format.ts";
 
 export function newestReply(drafts: Draft[]): Draft | undefined {
   return drafts.filter((d) => d.kind === "reply").at(-1);
@@ -97,4 +98,21 @@ export function newDraftError(code: string | undefined): string {
     default:
       return "That didn't work. Try again.";
   }
+}
+
+export function draftTitle(draft: Pick<Draft, "kind" | "status">): string {
+  if (draft.kind === "fixed") return "Fix notice";
+  return draft.status === "pending" ? "Draft" : "Reply";
+}
+
+export function draftDescription(draft: Pick<Draft, "kind" | "status" | "sentAt">): string {
+  if (draft.sentAt) return `Sent ${formatDateTime(draft.sentAt)}`;
+  if (draft.status === "pending") {
+    return draft.kind === "fixed"
+      ? "The GitHub issue was closed as done. Nothing is sent until you approve it."
+      : "Nothing is sent until you approve it.";
+  }
+  return draft.status === "send_failed"
+    ? "Approved, but it couldn't be sent."
+    : "Approved. It goes out in a moment.";
 }
