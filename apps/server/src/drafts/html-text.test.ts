@@ -1,3 +1,5 @@
+import { draftReply } from "@helpos/ai";
+import { mockModel } from "@helpos/ai/testing";
 import { describe, expect, it } from "vitest";
 import { htmlToText, messageText } from "./html-text.ts";
 
@@ -27,4 +29,16 @@ describe("messageText", () => {
     expect(messageText({ textBody: "  ", htmlBody: "<p>html</p>" })).toBe("html");
     expect(messageText({ textBody: null, htmlBody: null })).toBe("");
   });
+});
+
+it("excludes hidden email instructions from the captured model input", async () => {
+  const model = mockModel({ text: "Please reset your password." });
+  const body = messageText({ textBody: null, htmlBody: '<p>Visible login question.</p><span style="display:none">hidden-display</span><div aria-hidden="true">hidden-aria</div><div style="visibility:hidden">hidden-visibility</div><p>Visible follow-up.</p>' });
+  await draftReply(model, { from: "customer@example.com", subject: "Login", body });
+  const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+  expect(prompt).toContain("Visible login question.");
+  expect(prompt).toContain("Visible follow-up.");
+  expect(prompt).not.toContain("hidden-display");
+  expect(prompt).not.toContain("hidden-aria");
+  expect(prompt).not.toContain("hidden-visibility");
 });
