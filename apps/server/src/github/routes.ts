@@ -213,7 +213,11 @@ const draftIssueRoute = apiRoute({
         "is spent (`daily_budget_reached`)",
     ),
     502: json(errorSchema, "The AI provider failed (`ai_unavailable`)"),
-    503: json(errorSchema, "AI is not configured on this server (`ai_not_configured`)"),
+    503: json(
+      errorSchema,
+      "AI is not configured on this server (`ai_not_configured`), or the workspace's other AI " +
+        "calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute",
+    ),
   },
 });
 
@@ -386,6 +390,8 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
         return c.json({ error: outcome.error }, 409);
       case "ai_unavailable":
         return c.json({ error: "ai_unavailable" }, 502);
+      case "ai_busy":
+        return c.json({ error: "ai_busy" }, 503);
       case "drafted":
         return c.json({ title: outcome.title, body: outcome.body }, 200);
     }

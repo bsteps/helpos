@@ -60,6 +60,23 @@ describe("embedTexts", () => {
     expect(embeddings[embedBatchSize * 2]).toEqual(mockEmbedding(`text ${embedBatchSize * 2}`));
   });
 
+  it("makes one paid attempt for retryable failures, leaving retries to the budgeted job", async () => {
+    let calls = 0;
+    const model = new MockEmbeddingModelV4({
+      doEmbed: async () => {
+        calls++;
+        throw new APICallError({
+          message: "response lost",
+          url: "https://provider.test",
+          requestBodyValues: {},
+          isRetryable: true,
+        });
+      },
+    });
+    await expect(embedTexts(model, ["hello"])).rejects.toMatchObject({ tokens: 5 });
+    expect(calls).toBe(1);
+  });
+
   it("reports what the batches before a failure cost, so the spend still counts", async () => {
     let calls = 0;
     const flaky = new MockEmbeddingModelV4({
@@ -76,7 +93,7 @@ describe("embedTexts", () => {
     const texts = Array.from({ length: embedBatchSize + 1 }, () => "x");
     const error = await embedTexts(flaky, texts).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(EmbedError);
-    expect(error).toMatchObject({ tokens: 50 });
+    expect(error).toMatchObject({ tokens: 51 });
   });
 });
 

@@ -1,5 +1,5 @@
 import { type LanguageModel, maxKnowledgeArticles } from "@helpos/ai";
-import { failingModel, mockModel } from "@helpos/ai/testing";
+import { failingModel, mockModel, refusingModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
   createAuthStore,
@@ -17,7 +17,8 @@ import {
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { lockUsage, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import { aiBudget } from "../ai-budget/budget.ts";
+import { usageOn } from "../ai-budget/testing.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { SearchError, type SearchProvider } from "../knowledge/search.ts";
@@ -68,8 +69,7 @@ async function draftWith(
   })({ tenantId: acme, messageId }, tenantTransactions(db, acme));
 }
 
-const usedToday = () =>
-  db.withTenant(acme, async (tx) => totalTokens(await usageOn(tx, utcDay(new Date()))));
+const usedToday = () => usageOn(db, acme).then((u) => u.totalTokens);
 
 /** A real source, since citations reference one. */
 async function addSource(): Promise<string> {
@@ -140,8 +140,8 @@ describe("drafting when knowledge search fails", () => {
       // Without a savepoint, this would abort the job's transaction and every query after it.
       "a search query fails",
       (): SearchProvider => ({
-        search: async (tx) => {
-          await tx.execute(sql`select 1 / 0`);
+        search: async (transaction) => {
+          await transaction((tx) => tx.execute(sql`select 1 / 0`));
           return { hits: [], tokens: 0 };
         },
       }),
@@ -166,15 +166,34 @@ describe("drafting when knowledge search fails", () => {
 });
 
 describe("drafting with knowledge: spend and limits", () => {
-  it("counts the search's embedding tokens even when the model call then fails", async () => {
+  it("counts the search's embedding tokens even when the model then refuses the call", async () => {
     const email = await receive(++received);
-    const before = await usedToday();
+    const before = await usageOn(db, acme);
     const search: SearchProvider = { search: async () => ({ hits: [], tokens: 42 }) };
     // The job fails, so pg-boss retries it. Each attempt's embedding call was paid for, so the
-    // budget must see it, or retries could run past the cap uncounted.
-    await expect(draftWith(search, email.messageId, failingModel())).rejects.toThrow();
-    expect((await usedToday()) - before).toBe(42);
+    // budget must see it, or retries could run past the cap uncounted. The refused model call
+    // wasn't billed.
+    await expect(draftWith(search, email.messageId, refusingModel())).rejects.toThrow();
+    const after = await usageOn(db, acme);
+    expect(after.totalTokens - before.totalTokens).toBe(42);
+    expect(after.calls - before.calls).toBe(1);
+    expect(after.reservedTokens).toBe(before.reservedTokens);
     expect(await draftsOf(email.ticketId)).toEqual([]);
+  });
+
+  it("counts the most a failed call could cost when its cost can't be told", async () => {
+    const email = await receive(++received);
+    const before = await usageOn(db, acme);
+    const search: SearchProvider = { search: async () => ({ hits: [], tokens: 42 }) };
+    // A dropped connection may still be billed: the budget may overcount, never undercount.
+    await expect(draftWith(search, email.messageId, failingModel())).rejects.toThrow();
+    const after = await usageOn(db, acme);
+    const counted = after.totalTokens - before.totalTokens;
+    // The search, and the bound of the prompt it really sent (no passages) with the output cap:
+    // not the reservation, which counted five passages at their longest.
+    expect(counted).toBeGreaterThan(42 + 2_000);
+    expect(counted).toBeLessThan(5 * 9_000);
+    expect(after.reservedTokens).toBe(before.reservedTokens);
   });
 
   it("counts a search's embedding tokens when its query then fails", async () => {
@@ -190,7 +209,7 @@ describe("drafting with knowledge: spend and limits", () => {
     expect((await usedToday()) - before).toBe(17);
   });
 
-  it("doesn't hold the workspace's budget lock while the search embeds the email", async () => {
+  it("holds no budget lock while the search embeds the email", async () => {
     const email = await receive(++received);
     let release = () => {};
     const gate = new Promise<void>((done) => {
@@ -209,9 +228,14 @@ describe("drafting with knowledge: spend and limits", () => {
     };
     const run = draftWith(slow, email.messageId);
     await started;
-    // Another draft's budget check takes the same lock. Held through the search, this would
-    // wait for release() and never return.
-    await db.withTenant(acme, (tx) => lockUsage(tx, acme, utcDay(new Date())));
+    // Another call's reservation updates the same row. Were its lock held through the search,
+    // this would time out.
+    const budget = aiBudget({ clock: systemClock, config: { dailyTokenBudget: 1e9 }, logger });
+    const reserved = await db.withTenant(acme, async (tx) => {
+      await tx.execute(sql`set local lock_timeout = '2s'`);
+      return budget.reserve(tx, acme, 0);
+    });
+    expect(reserved).toMatchObject({ tenantId: acme, tokens: 0 });
     release();
     await run;
     expect(await draftsOf(email.ticketId)).toHaveLength(1);
@@ -222,13 +246,15 @@ describe("drafting with knowledge: spend and limits", () => {
     const before = await usedToday();
     // Stands in for an overlapping job that drafted the message while this one searched.
     const raced: SearchProvider = {
-      search: async (tx) => {
-        await tx.insert(schema.drafts).values({
-          tenantId: acme,
-          ticketId: email.ticketId,
-          messageId: email.messageId,
-          body: "Drafted by the other job.",
-        });
+      search: async (transaction) => {
+        await transaction((tx) =>
+          tx.insert(schema.drafts).values({
+            tenantId: acme,
+            ticketId: email.ticketId,
+            messageId: email.messageId,
+            body: "Drafted by the other job.",
+          }),
+        );
         return { hits: [], tokens: 5 };
       },
     };

@@ -1,14 +1,16 @@
 import type { Database } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
+import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
 import { json } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
-import { dailyBudget, totalTokens, usageOn, utcDay } from "./budget.ts";
+import { aiBudget } from "./budget.ts";
 
 export interface AiUsageRouteDeps {
   db: Pick<Database, "withTenant">;
   clock: Clock;
   config: Pick<ServerConfig, "dailyTokenBudget">;
+  logger: Pick<Logger, "warn">;
 }
 
 const usageSchema = z
@@ -33,7 +35,8 @@ const usageRoute = apiRoute({
   path: "/v1/ai-usage",
   summary: "Today's AI usage for this workspace",
   description:
-    "Tokens the workspace's AI drafting used today (UTC), against its hard daily budget. " +
+    "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used " +
+    "today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. " +
     "At or over the budget, no model call is made and new tickets are marked " +
     "`ai_paused_reason: daily_budget` until UTC midnight. Needs `tickets:read`.",
   responses: {
@@ -42,23 +45,12 @@ const usageRoute = apiRoute({
 });
 
 export function registerAiUsageRoute(app: OpenAPIHono, deps: AiUsageRouteDeps): void {
+  const budget = aiBudget(deps);
   app.openapi(usageRoute, async (c) => {
-    const principal = c.get("principal");
-    const day = utcDay(deps.clock.now());
-    const [usage, budget] = await deps.db.withTenant(principal.tenantId, async (tx) => [
-      await usageOn(tx, day),
-      await dailyBudget(tx, principal.tenantId, deps.config.dailyTokenBudget),
-    ]);
-    const total = totalTokens(usage);
-    return c.json(
-      {
-        ...usage,
-        totalTokens: total,
-        dailyTokenBudget: budget,
-        remainingTokens: Math.max(0, budget - total),
-        paused: total >= budget,
-      },
-      200,
+    const { tenantId } = c.get("principal");
+    const { budget: dailyTokenBudget, ...today } = await deps.db.withTenant(tenantId, (tx) =>
+      budget.today(tx, tenantId),
     );
+    return c.json({ ...today, dailyTokenBudget }, 200);
   });
 }

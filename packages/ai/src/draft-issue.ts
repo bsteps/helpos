@@ -8,6 +8,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { type DraftInput, type DraftUsage, fenceEmail } from "./draft-reply.ts";
+import { tokenBound } from "./estimate.ts";
 
 /**
  * Turns a support ticket into a GitHub issue draft: a title and a body with steps to reproduce,
@@ -231,17 +232,9 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
 /** Room for the model's answer: a title and a few short sections. */
 const maxIssueOutputTokens = 2_000;
 
-const utf8 = new TextEncoder();
-
-/**
- * An upper bound on the tokens one draft costs, to reserve from the daily budget before the
- * call: the prompt's size in UTF-8 bytes, because the byte-level tokenizers the providers use
- * never make more tokens than bytes, whatever the language. Plus the output cap. It errs high
- * (English runs about four bytes a token), and the reservation is settled to the real figure.
- */
+/** An upper bound on the tokens one draft costs: its prompt (see tokenBound) and the output cap. */
 export function issueDraftTokenEstimate(input: DraftInput): number {
-  const prompt = utf8.encode(issueInstructions).length + utf8.encode(fenceEmail(input)).length;
-  return prompt + maxIssueOutputTokens;
+  return tokenBound(issueInstructions, fenceEmail(input)) + maxIssueOutputTokens;
 }
 
 /**
@@ -268,14 +261,18 @@ export function failedDraftCost(error: unknown): DraftUsage | "none" | "unknown"
 export async function draftGithubIssue(
   model: LanguageModel,
   input: DraftInput,
+  options: { abortSignal?: AbortSignal } = {},
 ): Promise<IssueDraft> {
   const result = await generateText({
+    // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
+    maxRetries: 0,
     model,
     instructions: issueInstructions,
     prompt: fenceEmail(input),
     output: Output.object({ schema: issueSchema }),
     // The budget reservation counts on this bound.
     maxOutputTokens: maxIssueOutputTokens,
+    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
   });
   return {
     ...formatIssue(result.output),

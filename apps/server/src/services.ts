@@ -89,6 +89,11 @@ export interface Services {
   github: GithubApiFactory;
   /** Fetches knowledge URLs. The SSRF-safe fetch; tests point it at a local server. */
   fetch: Fetcher;
+  /**
+   * Aborted when the server starts shutting down (Server.stopAiCalls), so every AI call in
+   * flight stops and settles its budget reservation before the database closes.
+   */
+  shutdown: AbortSignal;
 }
 
 export type ServicesInput = Pick<Services, "db" | "files" | "logger"> &
@@ -114,5 +119,6 @@ export function composeServices(input: ServicesInput): Services {
     github:
       input.github ?? octokitGithub({ baseUrl: input.githubApiUrl ?? "https://api.github.com" }),
     fetch: input.fetch ?? safeFetch,
+    shutdown: input.shutdown ?? new AbortController().signal,
   };
 }

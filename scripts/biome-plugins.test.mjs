@@ -61,7 +61,11 @@ const samples = {
   ],
   "ai-usage.grit (a write to ai_usage)": [
     "export const f = (tx) => tx.update(schema.aiUsage).set({ inputTokens: 1 });\n",
-    /AI usage/,
+    /aiBudget\(\)/,
+  ],
+  "ai-usage.grit (a helper that records outside the reservation)": [
+    'export const f = (tx, t) => recordUsage(tx, t, "2026-11-10", { inputTokens: 1 });\n',
+    /aiBudget\(\)/,
   ],
 };
 
@@ -103,10 +107,10 @@ test("ai-usage.grit allows ai_usage writes only inside ai-budget/", () => {
   const write = "export const f = (tx) => tx.insert(aiUsage).values({ tenantId, day });\n";
   assert.deepEqual(pluginMessages(write, "ai-budget/budget.ts"), []);
   const lookalike = pluginMessages(write, "workspaces/ai-budget.ts");
-  assert.ok(lookalike.some((m) => /AI usage/.test(m)));
+  assert.ok(lookalike.some((m) => /aiBudget\(\)/.test(m)));
   const elsewhere = pluginMessages(write, "knowledge/ingest-worker.ts");
   assert.ok(
-    elsewhere.some((m) => /AI usage/.test(m)),
+    elsewhere.some((m) => /aiBudget\(\)/.test(m)),
     `no longer fires; got ${JSON.stringify(elsewhere)}`,
   );
 });

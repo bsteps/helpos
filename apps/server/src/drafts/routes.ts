@@ -1,7 +1,8 @@
 import { quotesInternalPassage } from "@helpos/ai";
 import { and, asc, type Database, enqueue, eq, inArray, schema, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { dailyBudget, totalTokens, usageOn, utcDay } from "../ai-budget/budget.ts";
+import type { Logger } from "pino";
+import { aiBudget } from "../ai-budget/budget.ts";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute, Grant } from "../auth/access.ts";
 import type { Principal } from "../auth/principal.ts";
@@ -35,6 +36,7 @@ export interface DraftRoutesDeps {
   clock: Clock;
   /** Regenerate is refused up front when today's AI budget (`dailyTokenBudget`) is spent. */
   config: Pick<ServerConfig, "dailyTokenBudget" | "noticeDelaySeconds">;
+  logger: Pick<Logger, "warn">;
 }
 
 const draftSourceSchema = z
@@ -360,6 +362,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
 }
 
 function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
+  const budget = aiBudget(deps);
   app.openapi(createDraftRoute, async (c) => {
     const principal = c.get("principal");
     const { id: ticketId } = c.req.valid("param");
@@ -378,9 +381,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       if ("regenerate" in input) {
         // Checked before anything is discarded: a refused regenerate leaves the current draft
         // alone, and the caller hears why instead of waiting for a draft that never comes.
-        const used = await usageOn(tx, utcDay(deps.clock.now()));
-        if (totalTokens(used) >= (await dailyBudget(tx, tenantId, deps.config.dailyTokenBudget)))
-          return "daily_budget_reached" as const;
+        if ((await budget.today(tx, tenantId)).paused) return "daily_budget_reached" as const;
         const stale = await discardStale(tx, audit, { ticketIds: [ticketId], kind: "reply" });
         // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
         // shown while the new try runs, and a second failure sets it again for everyone to see.

@@ -1,0 +1,1 @@
+ALTER TABLE "ai_usage" ADD COLUMN "reserved_tokens" bigint DEFAULT 0 NOT NULL;
