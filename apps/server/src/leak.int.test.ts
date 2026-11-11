@@ -300,7 +300,15 @@ describe("the sweep has something to find", () => {
 });
 
 describe("leak: every API operation, called as tenant A", () => {
-  it.each(ops)("$method $path shows nothing of B and changes nothing of B", async (op) => {
+  it.each(
+    ops.map((op) => ({
+      ...op,
+      name:
+        op.method === "GET" && op.path === "/v1/tickets/{id}"
+          ? "leak: fetching B's ticket ID as A returns 404"
+          : `${op.method} ${op.path} shows nothing of B and changes nothing of B`,
+    })),
+  )("$name", async (op) => {
     githubCalls.length = 0;
     for (const caller of callers) {
       const who = `${op.method} ${op.path} as ${caller}`;
@@ -318,7 +326,11 @@ describe("leak: every API operation, called as tenant A", () => {
       const unknownId = uuidv7();
       const unknown = await send(op, caller, unknownId);
       expectNoLeak(unknown, `${who} with an unknown ID`);
-      const agentRevokesOnlyItsOwnToken = caller === "agent" && unknown.status === 403;
+      const agentRevokesOnlyItsOwnToken =
+        caller === "agent" &&
+        op.method === "DELETE" &&
+        op.path === "/v1/tokens/{id}" &&
+        unknown.status === 403;
       expect(
         agentRevokesOnlyItsOwnToken || unknown.status === 404,
         `${who} with an unknown ID gave ${unknown.status} ${unknown.text}: the request should reach its lookup and find nothing (is the sample body valid?)`,
@@ -339,18 +351,6 @@ describe("leak: every API operation, called as tenant A", () => {
       await tenantSnapshot(testDb.ownerUrl, b.tenantId),
       `${op.method} ${op.path} changed B's data`,
     ).toEqual(before);
-  });
-
-  it("leak: fetching B's ticket ID as A returns 404", async () => {
-    const op = ops.find((o) => o.method === "GET" && o.path === "/v1/tickets/{id}");
-    if (!op) throw new Error("GET /v1/tickets/{id} is gone: this test needs a new target");
-    for (const caller of callers) {
-      const unknownId = uuidv7();
-      const unknown = await send(op, caller, unknownId);
-      const reply = await send(op, caller, b.ids.ticket);
-      expect(reply.status, `${caller}: ${reply.text}`).toBe(404);
-      expect(withoutId(reply, b.ids.ticket)).toEqual(withoutId(unknown, unknownId));
-    }
   });
 });
 
