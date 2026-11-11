@@ -203,8 +203,8 @@ export interface LeakTenant {
 
 /**
  * Creates a complete workspace: at least one row in every public table. Everything a person
- * could have typed contains `tag` (lowercase letters, digits and dashes), so one workspace's
- * content is recognisable in any output that should never have it.
+ * could have typed contains `tag`, so one workspace's content is recognisable in any output
+ * that should never have it.
  */
 export async function seedLeakTenant(
   db: Pick<Database, "withTenant">,
@@ -212,7 +212,6 @@ export async function seedLeakTenant(
   input: { tenantId: string; tag: string },
 ): Promise<LeakTenant> {
   const { tenantId, tag } = input;
-  if (!/^[a-z0-9-]+$/.test(tag)) throw new Error(`seedLeakTenant: bad tag "${tag}"`);
   const user = await auth.ensureUser(`owner@${tag}.test`);
   const seeded: LeakTenant = {
     tenantId,
