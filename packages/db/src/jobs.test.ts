@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createDatabase, type Database } from "./client.ts";
 import { createJobRunner, defineTenantJob, enqueue, type JobRunner } from "./jobs.ts";
@@ -159,6 +159,58 @@ describe("leak: pg-boss tables", () => {
 });
 
 describe("job runner", () => {
+  it.each(["transaction", "steps"] as const)(
+    "reports an invalid stored %s payload on its last attempt",
+    async (mode) => {
+      const job = defineTenantJob(`test-invalid-${mode}`, { ticketId: z.uuid() });
+      const onError = vi.fn();
+      const handler = vi.fn();
+      const onGiveUp = vi.fn();
+      const invalidRunner = createJobRunner({
+        jobsUrl: testDb.jobsUrl,
+        db,
+        onError,
+        pollingIntervalSeconds: 0.5,
+      });
+      await invalidRunner.start();
+      try {
+        await invalidRunner.ensureQueue(job, { limit: 1, delaySeconds: 1, backoff: false });
+        const id = await db.withTenant(tenantA, (tx) =>
+          enqueue(tx, job, { tenantId: tenantA, ticketId: uuidv7() }),
+        );
+        const secret = "private-customer-payload";
+        await jobsSql`update pgboss.job set data = ${JSON.stringify({ [secret]: secret })}::jsonb where id = ${id}`;
+        await invalidRunner.work(
+          job,
+          mode === "transaction"
+            ? { transaction: handler, onGiveUp }
+            : { steps: handler, onGiveUp },
+        );
+        await expect
+          .poll(
+            async () => {
+              const [row] =
+                await jobsSql`select state, retry_count from pgboss.job where id = ${id}`;
+              return row;
+            },
+            { timeout: 20_000 },
+          )
+          .toEqual({ state: "failed", retry_count: 1 });
+        expect(handler).not.toHaveBeenCalled();
+        expect(onGiveUp).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledExactlyOnceWith(expect.any(Error), {
+          queue: job.queue,
+          jobId: id,
+        });
+        expect(String(onError.mock.calls[0]?.[0])).not.toContain(secret);
+        const [row] = await jobsSql`select output from pgboss.job where id = ${id}`;
+        expect(JSON.stringify(row)).not.toContain(secret);
+      } finally {
+        await invalidRunner.stop();
+      }
+    },
+  );
+
   it("leak: job for tenant A cannot read tenant B rows", async () => {
     const bTicket = uuidv7();
     await db.withTenant(tenantB, async (tx) => {
