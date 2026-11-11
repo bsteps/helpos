@@ -33,4 +33,3 @@ inbound route against real Postgres and a local disk file store. It checks the
 stored rows, exact file-write count, retained bytes, visible conversation API
 note, and duplicate delivery. Additional cases cover the exact cap, HTML-only
 hidden content, and Unicode filenames. No schema or migration changes are needed.
-
