@@ -167,6 +167,13 @@ function isDeclaration(node) {
 }
 
 function findNamed(root, name) {
+  const statements = ts.isSourceFile(root) ? root.statements : root.body?.statements;
+  if (statements) {
+    const declaration = statements.find(
+      (node) => ts.isFunctionDeclaration(node) && node.name?.text === name,
+    );
+    if (declaration) return declaration;
+  }
   let found;
   const visit = (node) => {
     if (found) return;

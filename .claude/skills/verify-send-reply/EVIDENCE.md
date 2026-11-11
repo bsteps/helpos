@@ -27,6 +27,18 @@ and built-in actors, and prove a mismatched audit tenant rolls back the draft wr
 The send mutation runner targets the new give-up call signature. The separate
 lost-retry and give-up failures remain known `NoSilentStall` findings.
 
+The earlier coverage selector recursively chose the first matching declaration or
+property. For `markSending`, `rejectSend`, `markSent` and `markSendFailed`, that was
+the same-named `draftTransitions` entry, not the function. Earlier hashes therefore
+did not protect those four function bodies. This limits the earlier fingerprint
+evidence; it does not invalidate the runtime assertions or source mutation results.
+The selector now prefers a function declaration in the current lexical scope before
+searching nested properties. A regression mutates every covered function body in a
+scratch copy, requires its fingerprint to change, then restores and checks the hash.
+It also covers nested `createJobRunner.consume` and `createJobRunner.work`.
+The original selector fails this regression. All four previously missed functions
+were inspected against their mapped model actions before reconfirmation.
+
 ## Issue 213 composer extraction
 
 The outbound composer now owns MIME construction, reply headers, notice headers and
