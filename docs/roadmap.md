@@ -5,6 +5,7 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 ## Principles
 
 - **Pipes, not features.** If an agent can do it in one prompt, it isn't on this list.
+- **Clean foundation first.** New work builds only on code that is clean and proven by tests, so set 0 comes before the gate.
 - **The gate first.** Every later pipe goes through it.
 - **Real replies early.** Trust is earned from outcomes, and outcomes exist only once real replies reach customers. So the first real reply comes right after the gate and shadow mode, before the improve loop.
 - **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#185).
@@ -15,6 +16,7 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 | Set                             | Exit goal                                                                                                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ✅ **MVP**                      | Email → conversation → AI draft → approve → send, in shadow mode                                                                                              |
+| **0. Clean foundation**         | The audit's architecture debt is fixed, every behaviour is proven by a test, and every judgment-only rule that can be a check is one                          |
 | **A. The gate**                 | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
 | **B. Shadow mode** (after #187) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
 | **C. First real reply**         | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
@@ -22,20 +24,26 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 | **E. Paid hosted**              | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
 | **Later**                       | On demand                                                                                                                                                     |
 
+## 0. Clean foundation
+
+The existing code is cleaned before new work builds on it. The [0: Clean foundation milestone](https://github.com/bsteps/helpos/milestone/15) is the full list, including every issue the code audit files there. It started with:
+
+- #8 leak harness, before the new tables of A and B
+- #184 rename tickets to conversations, before MCP tools are generated (#19)
+- #130 no automatic resend · #139 send-failed replies under load
+- #85 audit records the reason and the inputs · #10 API conventions (idempotency)
+- #22 quality gates and performance budgets
+
 ## A. The gate
 
 - #28 threat model, first pass, before the gate is designed
-- #8 leak harness, before the new tables of A and B
 - #187 the one decision record. Set B starts once it lands
-- #184 rename tickets to conversations, before MCP tools are generated (#19)
-- #130 no automatic resend · #139 send-failed replies under load
 - #165 one owner per conversation: expiring claims and versions
 - #13 the gate: an identity per agent (the built-in one too), permissions, and human-only approval
 - #188 caps and kill switch (only a person turns it off) · #189 approved means exactly that action
 - #166 trust ladder: state, demotion and caps now. Promotions open once real outcomes exist (after C)
 - #167 playbook: ask once, remember, recheck. It can never widen authority on its own
 - #168 AI disclosure, and "talk to a human" creates a decision for a person
-- #85 audit records the reason and the inputs · #10 API conventions (idempotency)
 
 ## B. Shadow mode
 
@@ -79,7 +87,7 @@ Billing (with Dodo Payments), metering and hosted admin live in the private host
 
 - **The dashboard step:** settings and stats you can read without paying for AI, with the layout shaped by the agent
 - **Config, knowledge and policies in git** (ADR 0010, accepted). The sync waits, but new tables must keep it possible
-- #20 observability · #22 quality gates and performance budgets · #23 release automation
+- #20 observability · #23 release automation
 - #57 routing by envelope recipient · #90 #91 #92 knowledge re-ingest and vector recall
 - More channels: chat widget, Slack, Discord, WhatsApp, SMS, voice
 - Enterprise: SSO, SCIM, data residency, SOC 2
