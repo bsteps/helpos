@@ -271,8 +271,11 @@ async function runAll() {
     const spec2 = run && applyMutant(spec, mutant);
     if (!run) problems.push(`Mutant ${mutant.name}: unknown run "${mutant.run}".`);
     if (!run || !spec2) continue;
+    const mutationConstants = { ...constants, MaxPersonRetries: "0" };
     for (const property of mutant.breaks) {
-      jobs.push({ group: `mutant ${mutant.name}`, run, property, spec: spec2, expected: "broken" });
+      const conditions = { run, property, constants: mutationConstants };
+      jobs.push({ ...conditions, group: `control ${mutant.name}`, spec, expected: "holds" });
+      jobs.push({ ...conditions, group: `mutant ${mutant.name}`, spec: spec2, expected: "broken" });
     }
   }
   const limit = Math.max(1, Math.min(4, availableParallelism() - 1));
@@ -296,10 +299,7 @@ function tlc(job) {
   const cfg = [
     "SPECIFICATION Spec",
     "CONSTANTS",
-    ...Object.entries({
-      ...constants,
-      ...(job.group.startsWith("mutant") ? { MaxPersonRetries: "0" } : {}),
-    }).map(([k, v]) => `  ${k} = ${v}`),
+    ...Object.entries(job.constants ?? constants).map(([k, v]) => `  ${k} = ${v}`),
     `  Faults = {${job.run.faults.map((f) => `"${f}"`).join(", ")}}`,
     `INVARIANTS TypeOK ${job.property}`,
     "CHECK_DEADLOCK FALSE",
@@ -365,7 +365,11 @@ function report(results) {
     say(`  ${mark}${r.property}: ${label}${r.states ? `, ${r.states} states` : ""}`);
     if (r.outcome === "broken") say(`      ${r.path.join(" -> ")}`);
     if (r.outcome === r.expected) continue;
-    if (r.group.startsWith("mutant")) {
+    if (r.group.startsWith("control")) {
+      problems.push(
+        `${r.group} already breaks ${r.property} without mutation. The mutant does not prove sensitivity to that change. Review the base model and control conditions.`,
+      );
+    } else if (r.group.startsWith("mutant")) {
       problems.push(
         `${r.group} no longer breaks ${r.property}: the check can no longer see that break. Fix the model, not the mutant.`,
       );

@@ -4,7 +4,7 @@ Checked against 801b81e15e31 on 2026-11-12. No product source changes are retain
 
 ## Results
 
-`pnpm verify:send-reply` checks four invariants in six scenarios. The expected failures remain failures, and all four mutant checks violate their intended invariant. Each mutant disables person retries. The ordinary model explores 246 states without injected faults and 1,378 with lease expiry. These are bounded model results, not a proof about arbitrary workers or retries.
+`pnpm verify:send-reply` checks four invariants in six scenarios. The expected failures remain failures, and all four mutant checks violate their intended invariant. Four unchanged-model controls must pass under the exact same constants and faults as their paired mutants. Each mutant disables person retries. The ordinary model explores 246 states without injected faults and 1,378 with lease expiry. These are bounded model results, not a proof about arbitrary workers or retries.
 
 The real integration replay passes four cases using Postgres, pg-boss and Mailpit. A successful SMTP call followed by an injected exception produces two accepted copies on retry, or one accepted copy with `send_failed` after retry rejection. An injected give-up transaction failure leaves `approved`. Pausing after the give-up transaction commit allows a retry to reuse the active job, which subsequently fails and leaves `approved`.
 
@@ -79,3 +79,11 @@ All 24 scenario/invariant results were successfully processed with the installed
 The shortest #130 duplicate-delivery path has nine transitions; hidden delivery after commit failure has eleven. The lost-retry path has eleven. Worker death strands an approved draft in eight; give-up transaction failure does so in ten. These match the code ordering and the integration replays where exercised. Worker death remains a modeled, source-mapped case rather than a live process-kill test.
 
 `/deslop` and `/no-comments` review corrected the model's merged transaction/job-settlement actions, missing registration coverage and CRLF-sensitive coverage parsing. #184 remains open, so coverage uses current ticket names. `pnpm verify` and `pnpm verify:send-reply` are the final handoff checks; successful model-runner exit still includes the known findings.
+
+## Independent review follow-up
+
+The review demonstrated that setting `MarkSendFailedFrom == {}` in the base model still returned success because the resulting stall was accepted as the existing lost-retry finding. The runner now checks the unchanged model and each mutant under identical conditions, requiring a pass before the mutant failure counts as evidence. The same scratch break now exits 1 with `control give-up-does-nothing already breaks NoSilentStall without mutation`.
+
+`node --test .claude/skills/verify-send-reply/scripts/check.test.mjs` runs the real checker in an isolated fixture, verifies all four passing controls, applies that base-model break and requires rejection. It is included in `pnpm test:scripts` and explicitly skips when Java is absent. The controls cover these mutation scenarios; they do not make known-failure allowances distinguish all possible regressions. Continue reviewing their traces when the model changes.
+
+The four new controls also passed `/statechart` review in Linux. Verification now checks 24 scenario/invariant results, four passing controls and four failing mutants. `pnpm verify` and all 81 tests in `pnpm test:scripts` passed after this change.
