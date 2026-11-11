@@ -1,4 +1,16 @@
-import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
+import {
+  and,
+  asc,
+  type Database,
+  desc,
+  eq,
+  isNotNull,
+  ne,
+  or,
+  schema,
+  sql,
+  type TenantTx,
+} from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
@@ -194,7 +206,12 @@ export function registerConversationRoutes(app: OpenAPIHono, deps: ConversationR
       const rows = await tx
         .select()
         .from(messages)
-        .where(eq(messages.conversationId, id))
+        .where(
+          and(
+            eq(messages.conversationId, id),
+            or(eq(messages.direction, "inbound"), isNotNull(messages.sentAt)),
+          ),
+        )
         .orderBy(asc(messages.createdAt), asc(messages.id));
       const [issue] = await tx
         .select()
