@@ -8,7 +8,7 @@ export type ShadowSettings = {
   shadowMode: boolean;
   shadowRecipient: string | null;
   /**
-   * A no-reply address for shadowed mail. If the partner answers a shadowed reply, the answer
+   * A no-reply address for shadowed mail. If the owner answers a shadowed reply, the answer
    * must not land in the support mailbox and open a ticket of its own.
    */
   shadowReplyTo: string;

@@ -30,10 +30,10 @@ dc() { docker compose -p "$project" --env-file "$env_file" "$@"; }
 
 dc up -d --build --wait server backup
 
-# Adding a design-partner workspace, exactly as in docs/guides/demo-instance.md.
-dc exec -T server node src/cli/init.ts   --workspace "Smoke" --mailbox acme@demo.example.test --owner partner@acme.test
+# Adding a demo workspace, exactly as in docs/guides/demo-instance.md.
+dc exec -T server node src/cli/init.ts   --workspace "Smoke" --mailbox acme@demo.example.test --owner owner@acme.test
 
-# A customer's email, auto-forwarded by the partner's own inbox: it says To: support@acme.test,
+# A customer's email, auto-forwarded by the owner's own inbox: it says To: support@acme.test,
 # and the forwarding added its own Delivered-To lower down.
 forwarded="$(mktemp)"
 { printf 'Delivered-To: support@acme.test

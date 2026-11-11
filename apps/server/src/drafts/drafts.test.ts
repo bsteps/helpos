@@ -197,7 +197,7 @@ beforeAll(async () => {
   if (!a.ok || !o.ok) throw new Error("setup failed");
   const s = await initWorkspace(
     { db, auth },
-    { workspace: "Shadowed", mailbox: "support@shadowed.test", owner: "partner@shadowed.test" },
+    { workspace: "Shadowed", mailbox: "support@shadowed.test", owner: "owner@shadowed.test" },
   );
   if (!s.ok) throw new Error("setup failed");
   acme = a.tenantId;
@@ -315,7 +315,7 @@ describe("shadow mode", () => {
   it("a new workspace is in shadow mode, sending to its owner", async () => {
     const res = await call("GET", "/v1/workspace/shadow-mode", "shadowAdmin");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ enabled: true, recipient: "partner@shadowed.test" });
+    expect(await res.json()).toEqual({ enabled: true, recipient: "owner@shadowed.test" });
   });
 
   it("the reply goes to the shadow recipient, never the customer", async () => {
@@ -335,7 +335,7 @@ describe("shadow mode", () => {
     const mail = await waitFor("shadowed mail in Mailpit", async () =>
       (await mailpitMessages()).find((m) => m.Subject === `Re: ${email.subject}`),
     );
-    expect(mail.To.map((t) => t.Address)).toEqual(["partner@shadowed.test"]);
+    expect(mail.To.map((t) => t.Address)).toEqual(["owner@shadowed.test"]);
     const headers = (await (
       await fetch(`${mailpitApi}/api/v1/message/${mail.ID}/headers`)
     ).json()) as Record<string, string[]>;
@@ -372,7 +372,7 @@ describe("shadow mode", () => {
           ),
         ),
     );
-    expect(outbound?.toAddresses).toEqual(["partner@shadowed.test"]);
+    expect(outbound?.toAddresses).toEqual(["owner@shadowed.test"]);
   });
 
   it("turning it off is refused while the server flag is unset, and nothing changes", async () => {
@@ -399,7 +399,7 @@ describe("shadow mode", () => {
         enabled: false,
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ enabled: false, recipient: "partner@shadowed.test" });
+      expect(await res.json()).toEqual({ enabled: false, recipient: "owner@shadowed.test" });
       const audit = await shadowAudit();
       expect(audit.map((e) => [e.action, e.actorType, e.actorId, e.targetId])).toEqual([
         ["workspace.shadow_mode_disabled", "agent", "test-agent", shadowed],
