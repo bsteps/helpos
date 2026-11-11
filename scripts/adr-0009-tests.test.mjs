@@ -1,6 +1,3 @@
-// `pnpm test:scripts`: every test that ADR 0009 names exists. The ADR says which test proves
-// each decision ("Test: `leak: ...`"); a renamed or deleted test would otherwise leave the
-// decision unproven without anyone noticing. Plain text checks: nothing here runs the tests.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const adr = readFileSync(join(root, "docs/adr/0009-tenant-isolation-extended.md"), "utf8");
 
-/** Named by the ADR, but the feature isn't built, so there is nothing to test yet. */
 const notBuiltYet = {
   "broadcaster drops events for other tenants":
     "realtime (the Broadcaster, ADR 0009 section 5) isn't built",
@@ -18,7 +14,6 @@ const notBuiltYet = {
     "realtime (the NOTIFY payload, ADR 0009 section 5) isn't built",
 };
 
-/** Every backtick-quoted name on a `- Test:` line of the ADR. */
 function namedTests(text) {
   return text
     .split("\n")
@@ -26,7 +21,6 @@ function namedTests(text) {
     .flatMap((line) => [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1]));
 }
 
-/** Files under `dir` that `keep` accepts, skipping dependencies and build output. */
 function files(dir, keep) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -40,7 +34,6 @@ function files(dir, keep) {
 const inRepo = (keep) => ["apps", "packages"].flatMap((d) => files(join(root, d), keep));
 const testSources = inRepo((name) => name.endsWith(".test.ts")).map((p) => readFileSync(p, "utf8"));
 
-/** Whether a test file has the name as a whole string literal, however it is quoted. */
 const isWritten = (name) =>
   testSources.some((src) => [`"${name}"`, `'${name}'`, `\`${name}\``].some((q) => src.includes(q)));
 
@@ -82,16 +75,15 @@ const sources = inRepo(
   (name) => /\.(?:ts|tsx|mts|sql)$/.test(name) && !/\.test\.(?:ts|tsx|mts)$/.test(name),
 );
 
-/** The patterns that mean code listens for, or sends, a Postgres notification. */
-const inCode = [
+const notifyInCode = [
   /\bpg_notify\b/i,
   /\b(?:sql|client|pg|postgres|db|tx|pool|conn|connection)\s*\.\s*(?:listen|notify)\s*\(/,
   /["'`]\s*(?:LISTEN|NOTIFY)\s+[\w"$]/,
 ];
-const inSql = [/\bpg_notify\b/i, /^\s*(?:LISTEN|UNLISTEN|NOTIFY)\s/im];
+const notifyInSql = [/\bpg_notify\b/i, /^\s*(?:LISTEN|UNLISTEN|NOTIFY)\s/im];
 
 const usesRealtime = (text, path) =>
-  (path.endsWith(".sql") ? inSql : inCode).some((p) => p.test(text));
+  (path.endsWith(".sql") ? notifyInSql : notifyInCode).some((p) => p.test(text));
 
 test("the realtime patterns match what they are meant to", () => {
   assert.ok(usesRealtime("select pg_notify('events', payload)", "a.ts"));

@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AuthStore, createAuthStore } from "./auth.ts";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
-import { isUniqueViolation } from "./errors.ts";
+import { isUniqueViolation, sqlState } from "./errors.ts";
 import { searchKnowledge } from "./knowledge.ts";
 import {
   apiTokens,
@@ -32,15 +32,12 @@ import {
 } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
-// Cross-tenant leak suite. Tenant B owns a complete workspace; acting as tenant A must never see,
-// change or reference any of it. The sweep over every table comes from the database catalog, so a
-// new table is covered the moment it exists, or fails here until `seedLeakTenant` fills it.
-
 let testDb: TestDatabase;
 let db: Database;
 let auth: AuthStore;
 let b: LeakTenant;
 
+const insufficientPrivilege = "42501";
 const tenantA = uuidv7();
 const tenantB = uuidv7();
 
@@ -61,21 +58,11 @@ async function seedTicketInA(tx: TenantTx, address: string) {
   return ids;
 }
 
-/** The SQLSTATE of a failed query, looking through Drizzle's wrapper. */
-function sqlState(error: unknown): string | undefined {
-  for (let e: unknown = error, depth = 0; e && depth < 3; depth++) {
-    if (typeof e === "object" && "code" in e && typeof e.code === "string") return e.code;
-    e = typeof e === "object" && "cause" in e ? e.cause : undefined;
-  }
-  return undefined;
-}
-
 beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
   auth = createAuthStore(testDb.authUrl);
   b = await seedLeakTenant(db, auth, { tenantId: tenantB, tag: "leak-b" });
-  // A starts empty: the tests below add only what they need.
   await db.withTenant(tenantA, (tx) => tx.insert(tenants).values({ id: tenantA, name: "a" }));
 });
 
@@ -86,7 +73,6 @@ afterAll(async () => {
 });
 
 describe("leak: every public table, acting as tenant A", () => {
-  /** The column that says which tenant owns a row: `tenant_id`, or `id` on `tenants`. */
   const ownerColumn = (table: string) => (table === "tenants" ? "id" : "tenant_id");
 
   const asA = <T>(fn: (tx: TenantTx) => Promise<T>) => db.withTenant(tenantA, fn);
@@ -105,7 +91,6 @@ describe("leak: every public table, acting as tenant A", () => {
     return row?.n ?? -1;
   }
 
-  /** How many rows a write changed, or the SQLSTATE that refused it. */
   async function write(kind: "update" | "delete", table: string) {
     const t = sql.identifier(table);
     const c = sql.identifier(ownerColumn(table));
@@ -148,8 +133,8 @@ describe("leak: every public table, acting as tenant A", () => {
     for (const table of Object.keys(before)) {
       for (const kind of ["update", "delete"] as const) {
         const outcome = await write(kind, table);
-        // Either no row matched (RLS) or the app role has no such grant at all (42501).
-        const ok = "refused" in outcome ? outcome.refused === "42501" : outcome.changed === 0;
+        const ok =
+          "refused" in outcome ? outcome.refused === insufficientPrivilege : outcome.changed === 0;
         expect(ok, `${table}: A's ${kind} of B's rows gave ${JSON.stringify(outcome)}`).toBe(true);
       }
     }
@@ -461,23 +446,23 @@ describe("auth tables", () => {
     await db.withTenant(tenantA, (tx) =>
       tx.insert(memberships).values({ tenantId: tenantA, userId: other.id, role: "member" }),
     );
-    expect(await db.listMemberships(b.userId)).toEqual([{ tenantId: tenantB, role: "owner" }]);
+    expect(await db.listMemberships(b.ownerUserId)).toEqual([{ tenantId: tenantB, role: "owner" }]);
     expect(await db.listMemberships(other.id)).toEqual([{ tenantId: tenantA, role: "member" }]);
   });
 
   it("leak: a user of B has no membership when acting as A", async () => {
     const rows = await db.withTenant(tenantA, (tx) =>
-      tx.select().from(memberships).where(eq(memberships.userId, b.userId)),
+      tx.select().from(memberships).where(eq(memberships.userId, b.ownerUserId)),
     );
     expect(rows).toEqual([]);
   });
 
   it("ensureUser is idempotent and normalises case", async () => {
-    expect((await auth.ensureUser("Owner@Leak-B.test")).id).toBe(b.userId);
+    expect((await auth.ensureUser("Owner@Leak-B.test")).id).toBe(b.ownerUserId);
   });
 
   it("emailsOf returns only the emails of the IDs given", async () => {
-    expect(await auth.emailsOf([b.userId])).toEqual(["owner@leak-b.test"]);
+    expect(await auth.emailsOf([b.ownerUserId])).toEqual(["owner@leak-b.test"]);
     expect(await auth.emailsOf([])).toEqual([]);
   });
 

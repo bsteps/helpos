@@ -156,15 +156,9 @@ export async function startTestDatabase(): Promise<TestDatabase> {
   };
 }
 
-// --- Cross-tenant leak testing -----------------------------------------------------------------
-// The catalog says what "every table" is, so a new table can't escape the leak tests: they fail
-// until `seedLeakTenant` puts a row in it (see docs/architecture/data-model.md).
-
-/** The axis the seeded chunk's embedding points along, so a search for it finds that chunk. */
 export const leakEmbeddingAxis = 7;
 export const leakEmbeddingModel = "test/model";
 
-/** A unit vector along one axis: identical axes have distance 0, different ones 1. */
 export function unitVector(axis: number): number[] {
   const v = new Array<number>(knowledgeEmbeddingDimensions).fill(0);
   v[axis] = 1;
@@ -174,8 +168,7 @@ export function unitVector(axis: number): number[] {
 export interface LeakTenant {
   tenantId: string;
   tag: string;
-  /** The auth user who owns the workspace. */
-  userId: string;
+  ownerUserId: string;
   tokenHash: string;
   tokenName: string;
   mailboxAddress: string;
@@ -201,11 +194,6 @@ export interface LeakTenant {
   };
 }
 
-/**
- * Creates a complete workspace: at least one row in every public table. Everything a person
- * could have typed contains `tag`, so one workspace's content is recognisable in any output
- * that should never have it.
- */
 export async function seedLeakTenant(
   db: Pick<Database, "withTenant">,
   auth: Pick<AuthStore, "ensureUser">,
@@ -216,8 +204,7 @@ export async function seedLeakTenant(
   const seeded: LeakTenant = {
     tenantId,
     tag,
-    userId: user.id,
-    // Per tenant: token hashes are globally unique.
+    ownerUserId: user.id,
     tokenHash: createHash("sha256").update(`${tag}:${tenantId}`).digest("hex"),
     tokenName: `${tag}-bot`,
     mailboxAddress: `support@${tag}.test`,
@@ -363,11 +350,6 @@ export async function seedLeakTenant(
   return seeded;
 }
 
-/**
- * Every row a workspace owns, per public table, read as the owner role. The tables come from
- * the catalog, so a table added by a migration shows up here without anyone listing it. Rows are
- * JSON in a fixed order, so two snapshots can be compared with `toEqual`.
- */
 export async function tenantSnapshot(
   ownerUrl: string,
   tenantId: string,
@@ -375,7 +357,6 @@ export async function tenantSnapshot(
   const sql = postgres(ownerUrl, { max: 1, onnotice: () => {} });
   try {
     return await sql.begin(async (tx) => {
-      // The owner role is bound by row-level security too, so it names the tenant like the app.
       await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
       const tables = await tx<{ table: string; ownerColumn: string | null }[]>`
         select c.relname as table,
@@ -406,7 +387,6 @@ export async function tenantSnapshot(
   }
 }
 
-/** The tables in a snapshot that hold no rows: a leak from them would go unseen. */
 export function uncoveredTables(snapshot: Record<string, unknown[]>): string[] {
   return Object.entries(snapshot)
     .filter(([, rows]) => rows.length === 0)

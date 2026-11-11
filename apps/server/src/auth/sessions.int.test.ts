@@ -243,7 +243,6 @@ describe("a session cookie", () => {
     );
     if (!other.ok) throw new Error("setup failed");
     const theirTicket = await receiveEmail(3, "help@other.test");
-    // Their only membership is in Acme, so Acme is the only workspace the session can open.
     const memberId = await withPassword("analyst@acme.test");
     await db.withTenant(acme, (tx) =>
       tx.insert(schema.memberships).values({ tenantId: acme, userId: memberId, role: "member" }),
