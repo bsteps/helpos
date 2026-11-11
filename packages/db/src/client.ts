@@ -37,7 +37,7 @@ export interface Database {
   close(): Promise<void>;
 }
 
-export interface MailboxRoute {
+interface MailboxRoute {
   tenantId: string;
   mailboxId: string;
 }
@@ -51,12 +51,12 @@ export interface ApiTokenRecord {
   revokedAt: Date | null;
 }
 
-export interface MembershipSummary {
+interface MembershipSummary {
   tenantId: string;
   role: "owner" | "member";
 }
 
-export type PingResult = { ok: true } | { ok: false; error: unknown };
+type PingResult = { ok: true } | { ok: false; error: unknown };
 
 const tenantIdSchema = z.uuid();
 const addressSchema = z.string().trim().toLowerCase().min(3).max(320);

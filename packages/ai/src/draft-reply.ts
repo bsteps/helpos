@@ -2,7 +2,7 @@ import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai"
 import { tokenBound } from "./estimate.ts";
 
 /** An earlier message on the same conversation, oldest first. */
-export type HistoryMessage = { direction: "inbound" | "outbound"; from: string; body: string };
+type HistoryMessage = { direction: "inbound" | "outbound"; from: string; body: string };
 
 /**
  * A passage from the workspace's knowledge base. Untrusted data, like the email. `internal`

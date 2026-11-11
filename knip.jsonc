@@ -3,6 +3,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
+    "packages/*": {
+      "includeEntryExports": true
+    },
     ".": {
       // Repo tooling, plus the Cloudflare Email Worker the demo docs tell you to deploy by hand.
       "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
