@@ -148,7 +148,6 @@ describe("drafting when knowledge search fails", () => {
     ],
   ])("drafts without knowledge when %s", async (_, provider) => {
     const email = await receive(++received);
-    logger.warn.mockClear();
     await draftWith(provider(), email.messageId);
 
     const [draft] = await draftsOf(email.conversationId);
@@ -158,10 +157,13 @@ describe("drafting when knowledge search fails", () => {
       tx.select().from(schema.draftCitations).where(eq(schema.draftCitations.draftId, draft.id)),
     );
     expect(citations).toEqual([]);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.anything(),
-      "knowledge search failed: drafting without it",
+    const events = await db.withTenant(acme, (tx) =>
+      tx
+        .select({ action: schema.auditEvents.action })
+        .from(schema.auditEvents)
+        .where(eq(schema.auditEvents.targetId, draft.id)),
     );
+    expect(events).toEqual([{ action: "draft.created" }]);
   });
 });
 
