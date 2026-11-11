@@ -1,0 +1,16 @@
+language js
+
+// Budget persistence has one owner. Keep direct usage writes inside ai-budget/ so
+// future features cannot create another accounting path outside that owner.
+or {
+  `$db.insert(aiUsage)`,
+  `$db.insert(schema.aiUsage)`,
+  `$db.update(aiUsage)`,
+  `$db.update(schema.aiUsage)`,
+  `$db.delete(aiUsage)`,
+  `$db.delete(schema.aiUsage)`
+} as $write where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*[/\\]ai-budget[/\\].*",
+  register_diagnostic(span=$write, message="Write AI usage only inside apps/server/src/ai-budget/. Feature code must use the existing budget helpers rather than write ai_usage directly.", severity="error")
+}
