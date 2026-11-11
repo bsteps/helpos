@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/card.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
+import { webHref } from "@/lib/web-href.ts";
 
 /** Why the AI couldn't draft the issue. The form still opens, empty, to write it by hand. */
 function draftProblem(error: unknown): string {
@@ -118,19 +119,26 @@ export function GithubIssuePanel({ conversation }: { conversation: ConversationD
 
 function LinkedIssue({ issue }: { issue: NonNullable<ConversationDetail["githubIssue"]> }) {
   const open = issue.state === "open";
+  const href = webHref(issue.url);
   return (
     <Card variant="muted" size="compact">
       <CardHeader>
         <CardTitle as="h2">
-          <a
-            href={issue.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
-          >
-            {issue.repo}#{issue.number}
-            <ExternalLink aria-hidden className="size-3.5" />
-          </a>
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
+            >
+              {issue.repo}#{issue.number}
+              <ExternalLink aria-hidden className="size-3.5" />
+            </a>
+          ) : (
+            <span>
+              {issue.repo}#{issue.number}
+            </span>
+          )}
         </CardTitle>
         <CardDescription>
           {open
