@@ -155,7 +155,7 @@ const auth = createAuthStore(testDb.authUrl, {
   },
 });
 
-async function setOwnerPassword(email: string, password: string): Promise<void> {
+async function setUserPassword(email: string, password: string): Promise<void> {
   const setupToken = await auth.issueSetupToken((await auth.ensureUser(email)).id);
   if (!(await auth.setPassword(setupToken.token, password)).ok) {
     throw new Error(`e2e: setPassword refused the password for ${email}`);
@@ -210,13 +210,15 @@ const workspace = await initWorkspace(
 if (!workspace.ok) throw new Error("e2e: workspace setup failed");
 const setup = await auth.issueSetupToken(workspace.ownerId);
 
-// The demo workspaces too, for tests that need history (drafts sent weeks ago). Their owner
-// gets a password here, since the seed gives nobody one.
+// The demo workspaces too, for tests that need history (drafts sent weeks ago). Their owner and member
+// get passwords here, since the seed gives nobody one.
 const seeded = await seedDemoData({ db, auth, jobs: runner, config: helpos.services.config });
 if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
 const seedOwner = "maya.okafor@northwind-cycles.test";
 const seedPassword = "northwind demo password";
-await setOwnerPassword(seedOwner, seedPassword);
+await setUserPassword(seedOwner, seedPassword);
+const seedMember = "leo.brandt@northwind-cycles.test";
+await setUserPassword(seedMember, seedPassword);
 
 /** A workspace of its own for one test, so whatever that test changes stays out of the others. */
 async function testWorkspace(name: string, slug: string) {
@@ -225,7 +227,7 @@ async function testWorkspace(name: string, slug: string) {
   const password = `${name} demo password`;
   const created = await initWorkspace({ db, auth }, { workspace: name, mailbox, owner });
   if (!created.ok) throw new Error(`e2e: ${name} workspace setup failed: ${created.reason}`);
-  await setOwnerPassword(owner, password);
+  await setUserPassword(owner, password);
   return { tenantId: created.tenantId, owner, mailbox, password };
 }
 
@@ -261,6 +263,7 @@ writeFileSync(
     modelDownMarker: e2eModelDownMarker,
     modelStillDownMarker: e2eModelStillDownMarker,
     seedOwner,
+    seedMember,
     seedPassword,
     budgetOwner: budget.owner,
     budgetMailbox: budget.mailbox,
