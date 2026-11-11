@@ -9,6 +9,26 @@ const utf8 = (text: string) => Buffer.from(text, "utf8");
 
 const cases = [
   {
+    name: "meta charset overrides the Windows-1252 fallback",
+    type: "text/html",
+    body: Buffer.concat([
+      utf8('<meta charset="windows-1251"><p>'),
+      Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]),
+      utf8("</p>"),
+    ]),
+    text: "Привет",
+  },
+  {
+    name: "http-equiv charset overrides the Windows-1252 fallback",
+    type: "text/html",
+    body: Buffer.concat([
+      utf8('<meta http-equiv="content-type" content="text/html; charset=windows-1251"><p>'),
+      Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]),
+      utf8("</p>"),
+    ]),
+    text: "Привет",
+  },
+  {
     name: "quoted HTTP charset",
     type: 'text/html; charset="iso-8859-1"',
     body: latin("<p>Café crème: refunds in 5 days.</p>"),
