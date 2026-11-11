@@ -54,11 +54,13 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `9f86eef697b2`.
+Last confirmed at commit `af721d4ca624`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `26388bb85664` |
+| apps/server/src/outbound-email/composer.ts | outboundMessageId | PersonApproves, PersonResolvesResend (Message-ID generation) | `e5a275b0a465` |
+| apps/server/src/outbound-email/composer.ts | composeEmail | WorkerLocksAndChecks, PreparationFails (MIME preparation before the marker commit) | `0703cec0ca33` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `b186ba2db01f` |
 | apps/server/src/drafts/send-worker.ts | handleSendGaveUp | GiveUpMarksFailed, GiveUpFails | `e1ea62598776` |
 | apps/server/src/drafts/lifecycle.ts | isApprovedDraft | WorkerLocksAndChecks, SmtpRejects | `dee671731e8f` |
 | apps/server/src/drafts/lifecycle.ts | isSentDraft | WorkerLocksAndChecks, SmtpRejects | `785296718047` |
@@ -66,12 +68,12 @@ Last confirmed at commit `9f86eef697b2`.
 | apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `12c52c5be6fa` |
 | apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `b8bcb5acfa88` |
 | apps/server/src/drafts/lifecycle.ts | queueSend | Enqueue | `1d94c013aa00` |
-| apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `285f1303dcf8` |
+| apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `2c0078dc2eab` |
 | apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `6b1c318536b9` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `c56a8fd6629c` |
 | apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `21a7386e206b` |
 | apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `8069ced2b359` |
-| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `646e76332488` |
+| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `6be0f063a490` |
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `59dc3b495975` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `66f5f6db3884` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
