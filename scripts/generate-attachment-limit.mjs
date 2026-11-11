@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { maxAttachments, maxFilenameLength } from "../../apps/server/src/inbound-email/parse.ts";
+import { maxAttachments, maxFilenameLength } from "../apps/server/src/inbound-email/parse.ts";
 
 const lines = [
   "From: Attachments <attachments@customer.test>",
@@ -25,4 +25,7 @@ for (let i = 0; i <= maxAttachments; i++) {
   );
 }
 lines.push("--attachment-limit--", "");
-writeFileSync(new URL("attachment-limit.eml", import.meta.url), lines.join("\r\n"));
+writeFileSync(
+  new URL("../fixtures/email/attachment-limit.eml", import.meta.url),
+  lines.join("\r\n"),
+);
