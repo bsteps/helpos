@@ -29,6 +29,7 @@ test("a new stall cannot hide behind the accepted lost-retry finding", {
     for (const file of [
       "apps/server/src/drafts/send-worker.ts",
       "apps/server/src/drafts/lifecycle.ts",
+      "apps/server/src/outbound-email/composer.ts",
       "apps/server/src/jobs.ts",
       "packages/db/src/jobs.ts",
       "packages/db/node_modules/pg-boss/package.json",
