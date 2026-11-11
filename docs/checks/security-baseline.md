@@ -15,6 +15,7 @@ What the security-baseline check looks for in a diff. Follow it when you write c
 9. **Weaker auth.** A cookie-authenticated write without the `Origin` check, a token that can create tokens or hold `workspace:admin`, a webhook without signature and replay checks.
 10. **Weaker CI.** In `.github/workflows`, `.claude`, `AGENTS.md` or `CLAUDE.md`: `pull_request_target`, `workflow_run` with secrets, an action not pinned to a commit SHA, broader `permissions:`, `persist-credentials` not `false`, PR or issue text put inside a `run:` script through `${{ }}`, or AI review settings loosened (more tools, more turns, `allowed_non_write_users`, `allowed_bots`, a shell for review jobs).
 11. **New suppressions in security code.** A `biome-ignore`, `@ts-expect-error`, `@ts-ignore`, `any`, non-null `!` or `console.*` in auth, tokens, policy, tenant or secrets code. Changes like these always need a human.
+12. **A new way in or a new agent capability without a threat-model update.** A new channel, import or connector, a new action type, scope or tool, or a new outside connection that holds a secret, in a PR that leaves [the threat model](../security/threat-model.md) unchanged.
 
 ## Don't flag
 
