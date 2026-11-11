@@ -63,6 +63,14 @@ function failedThenDiscarded(id: string): Draft {
 }
 
 describe("draftView", () => {
+  it("shows nothing and stops waiting for an automated conversation", () => {
+    const automated: ConversationDetail = { ...conversation, automated: true };
+    expect(draftView(automated, [], undefined, false)).toEqual({ kind: "none" });
+    expect(waitingOn(automated, undefined)([])).toBe(false);
+    expect(draftView(conversation, [], undefined, false)).toEqual({ kind: "writing" });
+    expect(waitingOn(conversation, undefined)([])).toBe(true);
+  });
+
   it("offers the choice, not a spinner, after a pending draft is discarded", () => {
     const drafts = [draft("d1", "discarded")];
     expect(draftView(conversation, drafts, undefined, false)).toEqual({
