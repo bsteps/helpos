@@ -1,6 +1,6 @@
+import { extractHtml } from "@helpos/ai/html-text";
 import { describe, expect, it } from "vitest";
 import { chunkText } from "./chunk.ts";
-import { extractHtml } from "./extract.ts";
 
 describe("extractHtml", () => {
   it("returns readable text, with headings, lists and entities", () => {

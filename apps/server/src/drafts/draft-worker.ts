@@ -9,6 +9,7 @@ import {
   replyDraftTokenEstimate,
   tokenBound,
 } from "@helpos/ai";
+import { messageText } from "@helpos/ai/html-text";
 import {
   and,
   desc,
@@ -32,7 +33,6 @@ import {
   type SearchResult,
 } from "../knowledge/search.ts";
 import type { Clock, ServerConfig } from "../services.ts";
-import { messageText } from "./html-text.ts";
 import { draftReplyJob } from "./jobs.ts";
 import { createReply, liveDraftFor, lockConversationForDrafting } from "./lifecycle.ts";
 

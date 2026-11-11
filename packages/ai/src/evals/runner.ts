@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LanguageModel } from "ai";
+import { htmlToText } from "../html-text.ts";
 import { mockModel } from "../testing.ts";
 import { checkAssertions } from "./assert.ts";
 import { type EvalCase, evalCaseSchema } from "./case.ts";
@@ -33,7 +34,11 @@ export async function runEvals(dir: string, liveModel?: LanguageModel): Promise<
     const model = liveModel ?? mockModel(evalCase.mock);
     try {
       const task = evalCase.task === "github-issue" ? draftIssueTask : draftReplyTask;
-      const output = await task(model, evalCase.input);
+      const input = evalCase.input;
+      const output = await task(model, {
+        ...input,
+        body: input.bodyFormat === "html" ? htmlToText(input.body) : input.body,
+      });
       results.push({
         file,
         name: evalCase.name,
