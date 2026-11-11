@@ -204,6 +204,11 @@ const principals: Record<string, () => Principal> = {
   githubAgent: () => agent(acme, ["conversations:read", "github:write"]),
   // Can use the GitHub routes, but can't read conversations.
   githubOnly: () => agent(acme, ["github:write"]),
+  adminOnly: () => ({
+    tenantId: acme,
+    actor: { type: "user", id: "owner-user" },
+    scopes: new Set(["workspace:admin"]),
+  }),
   // An agent can't hold workspace:admin, but even a caller claiming it as an agent is refused.
   adminAgent: () => agent(acme, [...allScopes, "workspace:admin"]),
   readOnly: () => agent(acme, ["conversations:read", "drafts:write", "drafts:approve"]),
@@ -555,6 +560,15 @@ describe("connecting a repo", () => {
     expect(await auditActions(acme, row.id)).toEqual(["github.connected"]);
 
     // Reading it back never shows the token or the secret.
+    for (const caller of ["githubOnly", "adminOnly"]) {
+      const status = await call("GET", "/v1/integrations/github", caller);
+      expect(status.status).toBe(200);
+      expect(await status.json()).toEqual({
+        connected: true,
+        repo: "acme/app",
+        webhookUrl: body.webhookUrl,
+      });
+    }
     const read = await call("GET", "/v1/integrations/github", "githubAgent");
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual({

@@ -126,7 +126,7 @@ describe("the declared access is enforced, before the body is read", () => {
     },
   );
 
-  it.each(scoped.filter((op) => op.access.humansOnly))(
+  it.each(scoped.filter((op) => "allScopes" in op.access && op.access.humansOnly))(
     "$method $path refuses an agent even with every scope (403 session_required)",
     async (op) => {
       const res = await call(op, as("agent", scopes));

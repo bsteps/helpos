@@ -15,7 +15,7 @@ export interface SendWorkerDeps {
   logger: Pick<Logger, "info" | "warn">;
 }
 
-export const sendWorkerActor = { type: "system", id: "send-reply" } as const;
+const sendWorkerActor = { type: "system", id: "send-reply" } as const;
 
 /**
  * Runs once every send attempt has failed: the draft is marked `send_failed`, so it shows up

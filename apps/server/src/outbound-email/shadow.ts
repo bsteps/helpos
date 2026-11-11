@@ -21,7 +21,7 @@ export type Delivery =
   | { kind: "no_recipient" };
 
 /** The banner at the top of a shadowed reply, so the reader knows it never reached the customer. */
-export function shadowBanner(intendedTo: string): string {
+function shadowBanner(intendedTo: string): string {
   return [
     `[${brand.name} shadow mode] This reply was NOT sent to the customer.`,
     `It would have gone to: ${intendedTo}`,
