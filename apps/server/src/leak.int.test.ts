@@ -254,10 +254,10 @@ function expectedReplies(caller: Caller): Record<string, ExpectedReply> {
       status: 200,
       body: { enabled: true, recipient: `owner@${a.tag}.test` },
     },
-    "PATCH /v1/workspace/shadow-mode": {
+    "PATCH /v1/workspace/shadow-mode": human({
       status: 200,
       body: { enabled: true, recipient: "probe@leak-a.test" },
-    },
+    }),
     "GET /v1/integrations/github": {
       status: 200,
       body: { connected: true, repo: `${a.tag}-corp/app` },

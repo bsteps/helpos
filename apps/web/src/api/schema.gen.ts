@@ -1814,7 +1814,7 @@ export interface paths {
         head?: never;
         /**
          * Change the workspace's shadow mode
-         * @description Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) unless the server allows it. Needs `workspace:admin`.
+         * @description Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) unless the server allows it. Needs a human session with `workspace:admin`.
          */
         patch: {
             parameters: {

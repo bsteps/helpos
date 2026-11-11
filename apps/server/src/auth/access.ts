@@ -13,6 +13,7 @@ import type { Authenticate, Principal, Scope } from "./principal.ts";
  * - `allScopes`: the caller holds every scope listed.
  * - `anyScope`: the caller holds at least one.
  * - `humansOnly`: an agent token is refused (`session_required`) even with the scopes.
+ * - `selfOrAdmin`: an agent may revoke its own token; a human admin may revoke any token.
  * - `anyCaller`: any authenticated caller, whatever its scopes. Say why.
  * - `noCaller`: no principal at all, because the route proves the caller another way (a
  *   provider secret, a webhook signature, a password). Say how.
@@ -20,6 +21,7 @@ import type { Authenticate, Principal, Scope } from "./principal.ts";
 export type Access =
   | { readonly allScopes: readonly [Scope, ...Scope[]]; readonly humansOnly?: true }
   | { readonly anyScope: readonly [Scope, Scope, ...Scope[]]; readonly humansOnly?: true }
+  | { readonly selfOrAdmin: { readonly tokenIdParam: "id" } }
   | { readonly anyCaller: string }
   | { readonly noCaller: string };
 
@@ -62,10 +64,16 @@ export class Grant<S extends Scope> {
 function accessRefusal(
   access: Access,
   principal: Principal | undefined,
+  tokenId: string | undefined,
 ): "unauthorized" | "forbidden" | "session_required" | null {
   if ("noCaller" in access) return null;
   if (!principal) return "unauthorized";
   if ("anyCaller" in access) return null;
+  if ("selfOrAdmin" in access) {
+    const self = principal.actor.type === "agent" && principal.actor.id === tokenId;
+    const admin = isHuman(principal.actor) && principal.scopes.has("workspace:admin");
+    return self || admin ? null : "forbidden";
+  }
   if (access.humansOnly && !isHuman(principal.actor)) return "session_required";
   const held = (s: Scope) => principal.scopes.has(s);
   const ok = "allScopes" in access ? access.allScopes.every(held) : access.anyScope.some(held);
@@ -87,7 +95,9 @@ async function resolveCaller(c: Context): Promise<Principal | undefined> {
 function enforce(name: string, access: Access, audit: Audit | undefined): MiddlewareHandler {
   return async (c, next) => {
     const principal = "noCaller" in access ? undefined : await resolveCaller(c);
-    const refusal = accessRefusal(access, principal);
+    const tokenId =
+      "selfOrAdmin" in access ? c.req.param(access.selfOrAdmin.tokenIdParam) : undefined;
+    const refusal = accessRefusal(access, principal, tokenId);
     if (refusal === "unauthorized") return c.json({ error: refusal }, 401);
     if (refusal) return c.json({ error: refusal }, 403);
     if (!audit || "none" in audit) return next();
