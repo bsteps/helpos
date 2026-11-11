@@ -1,6 +1,6 @@
 # Inbound email
 
-An email provider posts each raw email to HelpOS. The address it was sent to picks the workspace. A new conversation becomes a conversation, a reply joins its conversation, and the content is stored as data, never acted on. Bounces and out-of-office replies are stored but marked automated, and get no AI draft.
+An email provider posts each raw email to HelpOS. The address it was sent to picks the workspace. A new email starts a conversation, a reply joins its conversation, and the content is stored as data, never acted on. Bounces and out-of-office replies are stored but marked automated, and get no AI draft.
 
 ## Sub-features
 

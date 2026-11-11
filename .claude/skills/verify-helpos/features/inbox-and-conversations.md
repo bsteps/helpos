@@ -1,6 +1,6 @@
 # Inbox and conversations
 
-The inbox lists open conversations, newest activity first, with flags for anything that needs attention. A conversation page shows the whole conversation and its draft. Closing a conversation takes it out of the inbox.
+The inbox lists open conversations, newest activity first, with flags for anything that needs attention. A conversation page shows every message and its draft. Closing a conversation takes it out of the inbox.
 
 ## Sub-features
 
