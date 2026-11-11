@@ -34,6 +34,14 @@ To upgrade an older one: `ALTER EXTENSION vector UPDATE;` (after your provider o
 
 The roles and schemas HelpOS expects (owner, app, auth and jobs roles) are set up the same way the dev database is. [`docker/postgres/init.sql`](../docker/postgres/init.sql) is the reference: run its equivalent with your own passwords.
 
+## AI configuration at startup
+
+The server validates chat and embedding settings before it opens services. A nonempty but invalid group stops startup with a message that names the missing or invalid variables, without showing their values. For example, `AI_PROVIDER=openai` requires both `AI_MODEL` and `AI_API_KEY`.
+
+To disable drafting, leave `AI_PROVIDER`, `AI_MODEL`, and `AI_API_KEY` unset or empty. To disable embeddings, leave all four `AI_EMBEDDING_*` variables unset or empty. The example environment includes a chat provider and model, so supply a key or clear all three chat settings before starting.
+
+Startup checks configuration structure only. Model availability, rejected credentials, and service outages are handled when a provider call runs.
+
 ## Dashboard and sign-in
 
 The server serves the dashboard itself, from the same origin as the API, so the session cookie needs no CORS. Build it with `pnpm --filter @helpos/web build` and point the server at the result:

@@ -4,6 +4,7 @@
 import { parseArgs } from "node:util";
 import { createAuthStore, createDatabase } from "@helpos/db";
 import { z } from "zod";
+import { defaultPublicUrl } from "../defaults.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { passwordSetupLink } from "../workspaces/password-link.ts";
 
@@ -11,7 +12,7 @@ const env = z
   .object({
     HELPOS_DATABASE_URL: z.url(),
     HELPOS_DATABASE_AUTH_URL: z.url(),
-    HELPOS_PUBLIC_URL: z.url().default("http://localhost:3000"),
+    HELPOS_PUBLIC_URL: z.url().default(defaultPublicUrl),
   })
   .parse(process.env);
 
