@@ -4,7 +4,7 @@
 import { parseArgs } from "node:util";
 import { createDatabase } from "@helpos/db";
 import { z } from "zod";
-import { setAiBudget } from "../workspaces/ai-budget.ts";
+import { setAiBudget } from "../ai-budget/set-budget.ts";
 
 const env = z.object({ HELPOS_DATABASE_URL: z.url() }).parse(process.env);
 

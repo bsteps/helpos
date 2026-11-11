@@ -31,9 +31,12 @@ function lint(source, name) {
 }
 
 function pluginMessages(source, name = "routes.ts") {
-  return lint(source, name)
-    .filter((d) => d.category === "plugin")
-    .map((d) => String(d.message));
+  const diagnostics = lint(source, name);
+  assert.ok(
+    !diagnostics.some((d) => String(d.message).includes("errored:")),
+    JSON.stringify(diagnostics),
+  );
+  return diagnostics.filter((d) => d.category === "plugin").map((d) => String(d.message));
 }
 
 const samples = {
@@ -68,6 +71,37 @@ const samples = {
     /aiBudget\(\)/,
   ],
 };
+
+test("domain modules cannot import HTTP values or types", () => {
+  for (const source of [
+    'import type { Auditor } from "../http/route-kit.ts";\n',
+    'import { json } from "../http/route-kit.ts";\n',
+  ]) {
+    for (const name of ["github/issues.ts", "github/issue-draft.ts", "ai-budget/set-budget.ts"]) {
+      assert.ok(pluginMessages(source, name).some((m) => m.includes("Domain modules")));
+    }
+  }
+});
+
+test("HTTP adapters can import HTTP helpers and domain modules can import audit types", () => {
+  const source = 'import { json } from "../http/route-kit.ts";\n';
+  for (const name of [
+    "routes.ts",
+    "route.ts",
+    "shadow-mode-routes.ts",
+    "http/helpers.ts",
+    "auth/access.ts",
+    "github/webhook.ts",
+    "domain.test.ts",
+  ]) {
+    assert.ok(!pluginMessages(source, name).some((m) => m.includes("Domain modules")), name);
+  }
+  assert.ok(
+    !pluginMessages('import type { Auditor } from "../audit/audit.ts";\n', "github/issues.ts").some(
+      (m) => m.includes("Domain modules"),
+    ),
+  );
+});
 
 const githubLookup = 'export const f = (tx) => tx.where(eq(integrations.provider, "github"));\n';
 const githubOpen = "export const f = (box, sealed) => box.open(sealed, { tenantId, purpose });\n";

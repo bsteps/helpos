@@ -17,6 +17,7 @@
     ]
   },
   "plugins": [
+    "./biome-plugins/domain-http.grit",
     "./biome-plugins/route-kit.grit",
     "./biome-plugins/route-security.grit",
     "./biome-plugins/route-not-found.grit",

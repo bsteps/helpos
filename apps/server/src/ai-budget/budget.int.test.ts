@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
@@ -21,9 +22,9 @@ import { handleDraftReply } from "../drafts/draft-worker.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { composeServices, defaultConfig } from "../services.ts";
-import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { AiBusyError, aiBudget, type Reservation } from "./budget.ts";
+import { setAiBudget } from "./set-budget.ts";
 import { seedReservation, seedUsage, usageOn } from "./testing.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
@@ -635,5 +636,28 @@ describe("per-workspace AI budget", () => {
       await setAiBudget(db, { tenantId: "00000000-0000-7000-8000-000000000000", budget: 10 }),
     ).toEqual({ ok: false, reason: "workspace_not_found" });
     await expect(setAiBudget(db, { tenantId: other, budget: -1 })).rejects.toThrow();
+  });
+
+  it("the operator CLI sets and resets the budget exposed by the API", async () => {
+    for (const [tokens, expected] of [
+      ["75", 75],
+      ["default", budget],
+    ] as const) {
+      const result = spawnSync(
+        process.execPath,
+        ["src/cli/ai-budget.ts", "--workspace", other, "--tokens", tokens],
+        {
+          env: { ...process.env, HELPOS_DATABASE_URL: testDb.appUrl },
+          encoding: "utf8",
+          timeout: 15_000,
+        },
+      );
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(`Workspace ${other}: daily AI budget set to`);
+      const res = await usageFor(other, ["conversations:read"]).request("/v1/ai-usage");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ dailyTokenBudget: expected });
+    }
   });
 });
