@@ -111,6 +111,8 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
 
   if (webDir) registerDashboard(app, webDir);
 
+  app.notFound(notFound);
+
   // Unexpected errors are logged with details; the caller gets nothing it could use. A request
   // the framework itself refused (a body type no route takes, say) keeps its 4xx: it's the
   // caller's to fix, not a server fault.
@@ -121,8 +123,6 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
     logger.error({ err, requestId: c.get("requestId"), path: c.req.path }, "unhandled error");
     return c.json({ error: "internal_error" }, 500);
   });
-
-  app.notFound(notFound);
 
   // The public API contract. The dashboard, SDK and MCP tools are generated from it.
   app.doc31("/openapi.json", {
