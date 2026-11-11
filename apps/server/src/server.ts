@@ -1,12 +1,4 @@
-import {
-  AiConfigError,
-  createEmbeddingModel,
-  createModel,
-  type EmbeddingModel,
-  type LanguageModel,
-  parseAiConfig,
-  parseEmbeddingConfig,
-} from "@helpos/ai";
+import { createEmbeddingModel, createModel } from "@helpos/ai";
 import { brand } from "@helpos/brand";
 import {
   createAuthStore,
@@ -133,8 +125,8 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
       dailyTokenBudget: env.HELPOS_AI_DAILY_TOKEN_BUDGET,
       noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
     },
-    model: aiModel(),
-    embeddingModel: embeddingModel(logger),
+    model: env.ai ? createModel(env.ai) : undefined,
+    embeddingModel: env.embedding ? createEmbeddingModel(env.embedding) : undefined,
     transport,
     auth,
     secretBox,
@@ -149,27 +141,4 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
       await db.close();
     },
   };
-}
-
-/** The AI model from env, or undefined when AI isn't configured (drafting then waits). */
-function aiModel(): LanguageModel | undefined {
-  try {
-    return createModel(parseAiConfig(process.env));
-  } catch (error) {
-    if (error instanceof AiConfigError) return undefined;
-    throw error;
-  }
-}
-
-/** The embedding model from env, or undefined when it isn't configured (knowledge then waits). */
-function embeddingModel(logger: Services["logger"]): EmbeddingModel | undefined {
-  try {
-    return createEmbeddingModel(parseEmbeddingConfig(process.env));
-  } catch (error) {
-    if (!(error instanceof AiConfigError)) throw error;
-    // Unset is a choice; set but invalid is a mistake worth naming. The message names the
-    // bad variables, never their values.
-    if (process.env.AI_EMBEDDING_PROVIDER) logger.warn(error.message);
-    return undefined;
-  }
 }
