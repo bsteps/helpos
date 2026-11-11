@@ -13,8 +13,13 @@ import { composeServices, defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxAttachments, maxFilenameLength, parseEmail } from "./parse.ts";
 
-const fixture = await readFile(
-  new URL("../../../../fixtures/email/attachment-limit.eml", import.meta.url),
+const fixture = Buffer.from(
+  (
+    await readFile(
+      new URL("../../../../fixtures/email/attachment-limit.eml", import.meta.url),
+      "utf8",
+    )
+  ).replace(/\r?\n/g, "\r\n"),
 );
 
 it("stores only the first 20 attachments, bounded names, and a visible note through the API", async () => {
