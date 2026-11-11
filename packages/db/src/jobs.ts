@@ -161,7 +161,7 @@ export interface JobRunnerOptions {
   /** App-role database. Tenant handlers reach data only through its withTenant(). */
   db: Database;
   /** pg-boss reports background errors here. Without a listener they would crash the process. */
-  onError: (error: unknown) => void;
+  onError: (error: unknown, context?: { queue: string; jobId: string }) => void;
   pollingIntervalSeconds?: number;
 }
 
@@ -201,9 +201,17 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     // With metadata, to tell the last attempt from one that will be retried.
     const workOptions = { batchSize: 1, pollingIntervalSeconds, includeMetadata: true } as const;
     await boss.work<unknown, unknown, typeof workOptions>(job.queue, workOptions, async (jobs) => {
-      for (const { data, retryCount, retryLimit } of jobs) {
+      for (const { id, data, retryCount, retryLimit } of jobs) {
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
-        const payload = job.payload.parse(data) as P;
+        const parsed = job.payload.safeParse(data);
+        if (!parsed.success) {
+          const error = new Error("Invalid stored job payload");
+          if (retryCount >= retryLimit) {
+            options.onError(error, { queue: job.queue, jobId: id });
+          }
+          throw error;
+        }
+        const payload = parsed.data as P;
         try {
           await run(payload);
         } catch (error) {

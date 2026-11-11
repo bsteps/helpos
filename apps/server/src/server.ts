@@ -66,7 +66,9 @@ export function composeServer(input: ServerInput): Server {
   const runner = createJobRunner({
     jobsUrl: input.jobsUrl,
     db: input.db,
-    onError: input.onJobError ?? ((err) => services.logger.error({ err }, "job runner error")),
+    onError:
+      input.onJobError ??
+      ((err, context) => services.logger.error({ err, ...context }, "job runner error")),
     ...(input.pollingIntervalSeconds === undefined
       ? {}
       : { pollingIntervalSeconds: input.pollingIntervalSeconds }),
