@@ -13,7 +13,7 @@ import {
   schema,
   sql,
 } from "@helpos/db";
-import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import { startTestDatabase, type TestDatabase, waitFor } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -279,16 +279,6 @@ async function receiveEmail(to = "support@acme.test", body = "Export to CSV show
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(`ingest: ${result.kind}`);
   return { ...result, subject: `Export broken ${emailCount}` };
-}
-
-async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const value = await fn();
-    if (value !== undefined) return value;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`timed out waiting for ${what}`);
 }
 
 const draftsOf = (conversationId: string) =>

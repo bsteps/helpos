@@ -11,7 +11,13 @@ import {
   schema,
   tenantTransactions,
 } from "@helpos/db";
-import { containerHost, startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import {
+  containerHost,
+  startTestDatabase,
+  type TestDatabase,
+  waitFor,
+  waitForTenantJobs,
+} from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -112,16 +118,6 @@ async function receiveEmail(
     subject: `Cannot log in ${emailCount}`,
     header: `<login-${emailCount}@customer.test>`,
   };
-}
-
-async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const value = await fn();
-    if (value !== undefined) return value;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`timed out waiting for ${what}`);
 }
 
 const draftsOf = (conversationId: string) =>
@@ -470,8 +466,7 @@ describe("draft waiting notice", () => {
         config: { ...defaultConfig, publicUrl: "http://helpdesk.test", noticeDelaySeconds: 0 },
       })({ tenantId: acme, draftId: second.id }, tx),
     );
-    // Give the queued job time to run too: it must not send either.
-    await new Promise((r) => setTimeout(r, 2_000));
+    await waitForTenantJobs(testDb, acme);
     expect(await noticesFor(email.conversationId)).toHaveLength(1);
     const audit = await db.withTenant(acme, (tx) =>
       tx
