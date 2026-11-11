@@ -466,7 +466,7 @@ describe("draft waiting notice", () => {
         config: { ...defaultConfig, publicUrl: "http://helpdesk.test", noticeDelaySeconds: 0 },
       })({ tenantId: acme, draftId: second.id }, tx),
     );
-    await waitForTenantJobs(testDb, acme);
+    expect((await waitForTenantJobs(testDb, acme)).deferred).toEqual([]);
     expect(await noticesFor(email.conversationId)).toHaveLength(1);
     const audit = await db.withTenant(acme, (tx) =>
       tx

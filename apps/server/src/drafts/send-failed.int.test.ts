@@ -130,7 +130,9 @@ async function failedDraft() {
   });
   expect(approve.status).toBe(200);
   const failed = await waitForDraft(email.conversationId, "send_failed");
-  await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] });
+  expect(
+    (await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] })).deferred,
+  ).toEqual([]);
   smtpDown = false;
   return { ...email, draft: failed };
 }
@@ -259,7 +261,9 @@ describe("a send that fails for good", () => {
     expect(sent.outboundMessageIdHeader).toBe(draft.outboundMessageIdHeader);
 
     const mail = await waitFor("the reply in Mailpit", async () => (await mailFor(subject))[0]);
-    await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] });
+    expect(
+      (await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] })).deferred,
+    ).toEqual([]);
     expect(await mailFor(subject)).toHaveLength(1);
     expect(mail.To.map((t) => t.Address)).toEqual(["jane@customer.test"]);
     const headers = (await (
@@ -356,7 +360,9 @@ describe("a send that fails for good", () => {
     expect(retries.map((r) => r.status)).toEqual([200, 200]);
     await waitForDraft(conversationId, "sent");
     await waitFor("the reply in Mailpit", async () => (await mailFor(subject))[0]);
-    await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] });
+    expect(
+      (await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] })).deferred,
+    ).toEqual([]);
     expect(await mailFor(subject)).toHaveLength(1);
     // Each recovery request is on the audit log, with who asked.
     const retried = (await auditOf(pending.id)).filter(([a]) => a === "draft.send_retried");
