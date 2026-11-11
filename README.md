@@ -23,13 +23,14 @@ The whole vision fits on one page: [docs/vision.md](docs/vision.md).
 
 ## Status
 
-| Set | What                                                                         | Status         |
-| --- | ---------------------------------------------------------------------------- | -------------- |
-| MVP | Email → AI draft → approve → send → GitHub issue → "fixed", in shadow mode   | 🏗️ In progress |
-| 2a  | Real customer mail, coding agent opens the fix PR, release security controls | ⏳             |
-| 2b  | Paid hosted: sign-up, billing, privacy                                       | ⏳             |
-| 3   | Complete helpdesk: inbox tools, widget, help center, autopilot               | ⏳             |
-| 4   | Platform + growth: SDK, config in git, AI actions, automation, reports       | ⏳             |
+| Set                     | What                                                                                     | Status         |
+| ----------------------- | ---------------------------------------------------------------------------------------- | -------------- |
+| MVP                     | Email → AI draft → approve → send, in shadow mode                                        | ✅             |
+| **A. The gate**         | One owner per conversation, nothing sent twice, per-agent permissions, trust ladder      | 🏗️ In progress |
+| **B. Shadow mode**      | Bulk import, Crisp migration skill, approval page, knowledge gaps, the one number        | 🏗️ In progress |
+| **C. Bring your agent** | MCP + skills, wake-ups, queues and handoff, any MCP tool through the gate, waiting lists | ⏳             |
+| **D. Safe real mail**   | Shadow mode off: email auth, sanitising, rate limits, encryption, backups                | ⏳             |
+| **E. Paid hosted**      | Sign-up, one-slider pricing, AI at cost, privacy                                         | ⏳             |
 
 Every feature and exit goal is in [docs/roadmap.md](docs/roadmap.md).
 
