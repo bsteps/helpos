@@ -7,7 +7,11 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { auditorFor } from "../audit/audit.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
-import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
+import {
+  createSmtpTransport,
+  type EmailTransport,
+  SendRejected,
+} from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { retrySend } from "./lifecycle.ts";
@@ -71,12 +75,12 @@ beforeAll(async () => {
         const step = script.shift() ?? "accept";
         if (step === "down-and-pause-give-up") {
           pauseGiveUp = true;
-          throw new Error("SMTP down");
+          throw new SendRejected("SMTP down");
         }
-        if (step === "down") throw new Error("SMTP down");
+        if (step === "down") throw new SendRejected("SMTP down");
         if (step === "down-and-give-up-fails") {
           failGiveUp = true;
-          throw new Error("SMTP down");
+          throw new SendRejected("SMTP down");
         }
         await smtp.send(message);
         if (step === "accept-then-throw")
@@ -170,17 +174,17 @@ it("#130 NoResendWithoutPerson: SmtpAccepts, TransactionCommitFails, retry, Smtp
   script = ["accept-then-throw", "accept"];
   const { conversationId, subject } = await approvedDraft();
   await waitFor(async () =>
-    (await draftOf(conversationId))?.status === "sent" ? true : undefined,
+    (await draftOf(conversationId))?.status === "send_uncertain" ? true : undefined,
   );
-  await waitFor(async () => ((await copies(subject)) >= 2 ? true : undefined));
-  expect(await copies(subject)).toBe(2);
+  await waitFor(async () => ((await copies(subject)) === 1 ? true : undefined));
+  expect(await copies(subject)).toBe(1);
 }, 60_000);
 
 it("#130 NoHiddenDelivery: SmtpAccepts, TransactionCommitFails, retry, SmtpRejects, GiveUpMarksFailed", async () => {
   script = ["accept-then-throw", "down"];
   const { conversationId, subject } = await approvedDraft();
   await waitFor(async () =>
-    (await draftOf(conversationId))?.status === "send_failed" ? true : undefined,
+    (await draftOf(conversationId))?.status === "send_uncertain" ? true : undefined,
   );
   expect(await copies(subject)).toBe(1);
 }, 60_000);

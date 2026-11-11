@@ -1,0 +1,1 @@
+ALTER TABLE "drafts" ADD COLUMN "resend_requested" boolean DEFAULT false NOT NULL;

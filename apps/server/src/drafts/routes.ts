@@ -26,6 +26,7 @@ import {
   editDraft,
   liveDraftFor,
   lockConversationForDrafting,
+  resolveUncertainSend,
   retrySend,
 } from "./lifecycle.ts";
 
@@ -68,6 +69,7 @@ const draftSchema = z
      */
     kind: z.enum(schema.draftKinds),
     status: z.enum(schema.draftStatuses),
+    outboundMessageId: z.string().nullable(),
     body: z.string(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -248,6 +250,7 @@ function serialize(
     messageId: d.messageId,
     kind: d.kind,
     status: d.status,
+    outboundMessageId: d.outboundMessageIdHeader,
     body: d.body,
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
@@ -360,6 +363,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     return c.json(result, 200);
   });
 
+  registerResolveRoute(app, deps);
   registerDiscardRoute(app, deps);
   registerRetryRoute(app, deps);
   registerCreateRoute(app, deps);
@@ -463,6 +467,47 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     });
     if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
+    return c.json(result, 200);
+  });
+}
+
+const resolveRoute = apiRoute({
+  access: { allScopes: ["drafts:approve"], humansOnly: true },
+  audit: { records: ["draft.send_confirmed", "draft.send_retried"] },
+  method: "post",
+  path: "/v1/drafts/{id}/resolve-send",
+  summary: "Resolve an uncertain send",
+  description:
+    "Human decision for a reply that may already have gone out. Mark it sent or explicitly send again. The Message-ID binds the decision to the attempt reviewed.",
+  request: {
+    params: idParams,
+    body: jsonBody(
+      z.strictObject({
+        messageId: z.string().min(1),
+        decision: z.enum(["mark_sent", "send_again"]),
+      }),
+    ),
+  },
+  responses: {
+    200: json(draftSchema, "The resolved draft"),
+    404: notFoundResponse,
+    409: json(errorSchema, "This uncertain attempt is no longer current"),
+  },
+});
+
+function registerResolveRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
+  app.openapi(resolveRoute, async (c) => {
+    const principal = c.get("principal");
+    const audit = auditor(c);
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
+      const resolved = await resolveUncertainSend(tx, audit, id, input);
+      if (resolved.outcome !== "changed") return resolved.outcome;
+      return presentOne(tx, principal, resolved.draft);
+    });
+    if (result === "not_found") return notFound(c);
+    if (result === "conflict") return c.json({ error: "not_current_uncertain_send" }, 409);
     return c.json(result, 200);
   });
 }

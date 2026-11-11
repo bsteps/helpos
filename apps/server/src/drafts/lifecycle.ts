@@ -51,7 +51,15 @@ export const draftTransitions = {
    */
   discardStale: { from: ["pending"], to: "discarded", audit: "draft.discarded" },
   /** The send worker handed it to the mail server. */
-  markSent: { from: ["approved"], to: "sent", audit: "draft.sent" },
+  rejectSend: { from: ["send_uncertain"], to: "approved", audit: "draft.send_rejected" },
+  markSending: {
+    from: ["approved", "send_uncertain"],
+    to: "send_uncertain",
+    audit: "draft.sending",
+  },
+  confirmSent: { from: ["send_uncertain"], to: "sent", audit: "draft.send_confirmed" },
+  resend: { from: ["send_uncertain"], to: "send_uncertain", audit: "draft.send_retried" },
+  markSent: { from: ["send_uncertain"], to: "sent", audit: "draft.sent" },
   /** Every send attempt failed, so it waits for a person to retry or discard it. */
   markSendFailed: { from: ["approved"], to: "send_failed", audit: "draft.send_failed" },
   /** Queued to send again, with the Message-ID fixed at approval. */
@@ -197,6 +205,53 @@ export function markSent(
   sent: { sentAt: Date; sentMessageId: string },
 ): Promise<DraftChange> {
   return change(tx, audit, "markSent", id, sent);
+}
+
+export function markSending(
+  tx: TenantTx,
+  audit: Auditor,
+  id: string,
+  sentMessageId: string,
+): Promise<DraftChange> {
+  return change(tx, audit, "markSending", id, { sentMessageId, resendRequested: false });
+}
+
+export async function resolveUncertainSend(
+  tx: TenantTx,
+  audit: Auditor,
+  id: string,
+  input: { messageId: string; decision: "mark_sent" | "send_again" },
+): Promise<DraftChange> {
+  const [draft] = await tx.select().from(drafts).where(eq(drafts.id, id)).for("update");
+  if (!draft) return { outcome: "not_found" };
+  if (
+    draft.status !== "send_uncertain" ||
+    draft.outboundMessageIdHeader !== input.messageId ||
+    !draft.sentMessageId
+  ) {
+    return { outcome: "conflict", draft };
+  }
+  if (input.decision === "mark_sent") {
+    const sentAt = new Date();
+    await tx.update(messages).set({ sentAt }).where(eq(messages.id, draft.sentMessageId));
+    return change(tx, audit, "confirmSent", id, { sentAt, resendRequested: false });
+  }
+  const domain = input.messageId.slice(input.messageId.lastIndexOf("@") + 1, -1);
+  const changed = await change(tx, audit, "resend", id, {
+    outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
+    resendRequested: true,
+  });
+  if (changed.outcome === "changed") {
+    await enqueue(
+      tx,
+      sendReplyJob,
+      { tenantId: draft.tenantId, draftId: id },
+      {
+        singletonKey: `${id}:${changed.draft.outboundMessageIdHeader}`,
+      },
+    );
+  }
+  return changed;
 }
 
 /** Every send attempt failed. A draft sent or changed meanwhile is left alone (a conflict). */
@@ -364,4 +419,9 @@ export async function createFixedNotice(
     .limit(1);
   if (open) return null;
   return insertPending(tx, audit, { ...input, messageId: lock.answering, kind: "fixed" });
+}
+
+export async function rejectSend(tx: TenantTx, audit: Auditor, id: string): Promise<void> {
+  const changed = await change(tx, audit, "rejectSend", id, { sentMessageId: null });
+  if (changed.outcome !== "changed") throw new Error("send-reply: draft changed after rejection");
 }

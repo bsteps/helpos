@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { auditorFor } from "../audit/audit.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
+import { SendRejected } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { sendReplyJob } from "./jobs.ts";
@@ -103,13 +104,13 @@ it("NoSilentStall: terminal give-up leaves visible failure", async () => {
     logger,
     transport: {
       send: async () => {
-        throw new Error("SMTP unavailable");
+        throw new SendRejected("SMTP unavailable");
       },
       close: () => {},
     },
   });
   await server.runner.work(sendReplyJob, {
-    transaction: send,
+    steps: send,
     onGiveUp: async (job, tx) => {
       await handleSendGaveUp(job, tx);
       gaveUp.resolve();
@@ -127,7 +128,7 @@ it("NoHiddenDelivery: late give-up preserves sent", async () => {
     logger,
     transport: { send: async () => {}, close: () => {} },
   });
-  await db.withTenant(tenantId, (tx) => send(payload, tx));
+  await send(payload, (fn) => db.withTenant(tenantId, fn));
   await db.withTenant(tenantId, (tx) => handleSendGaveUp(payload, tx));
   expect(await status(payload.draftId)).toBe("sent");
 });
@@ -146,10 +147,10 @@ for (const property of ["NoResendWithoutPerson", "SentOnlyWhenApproved"]) {
         close: () => {},
       },
     });
-    await db.withTenant(tenantId, (tx) => send(payload, tx));
-    const attempts = await Promise.allSettled([db.withTenant(tenantId, (tx) => send(payload, tx))]);
+    await send(payload, (fn) => db.withTenant(tenantId, fn));
+    const attempts = await Promise.allSettled([send(payload, (fn) => db.withTenant(tenantId, fn))]);
     if (property === "NoResendWithoutPerson") expect(acceptedWhile.length).toBe(1);
-    else expect(acceptedWhile.every((s) => s === "approved")).toBe(true);
+    else expect(acceptedWhile.every((s) => s === "send_uncertain")).toBe(true);
     expect(attempts[0]?.status).toBe("fulfilled");
   });
 }

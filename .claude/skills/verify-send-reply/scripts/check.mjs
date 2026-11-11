@@ -34,19 +34,17 @@ const runs = [
   {
     name: "commit_fails",
     faults: ["commit_fails"],
-    known: { NoResendWithoutPerson: "#130", NoHiddenDelivery: "#130", NoSilentStall: "lost retry" },
+    known: { NoSilentStall: "lost retry" },
   },
   {
     name: "smtp_reply_lost",
     faults: ["smtp_reply_lost"],
-    known: { NoResendWithoutPerson: "#130", NoHiddenDelivery: "#130", NoSilentStall: "lost retry" },
+    known: { NoSilentStall: "lost retry" },
   },
   {
     name: "worker_dies",
     faults: ["worker_dies"],
     known: {
-      NoResendWithoutPerson: "#130",
-      NoHiddenDelivery: "#130",
       NoSilentStall: "give-up failure / lost retry",
     },
   },

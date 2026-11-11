@@ -366,7 +366,14 @@ export const attachments = pgTable(
   ],
 );
 
-export const draftStatuses = ["pending", "approved", "sent", "send_failed", "discarded"] as const;
+export const draftStatuses = [
+  "pending",
+  "approved",
+  "sent",
+  "send_failed",
+  "send_uncertain",
+  "discarded",
+] as const;
 export type DraftStatus = (typeof draftStatuses)[number];
 /**
  * `reply` answers the customer's message. `fixed` tells them the GitHub issue made from their
@@ -404,6 +411,7 @@ export const drafts = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     /** The outbound message row written when the reply was sent. */
     sentMessageId: uuid("sent_message_id"),
+    resendRequested: boolean("resend_requested").notNull().default(false),
   },
   (t) => [
     unique("drafts_tenant_id_id").on(t.tenantId, t.id),
@@ -414,7 +422,7 @@ export const drafts = pgTable(
       .where(sql`status <> 'discarded' and not (kind = 'fixed' and status = 'sent')`),
     check(
       "drafts_status",
-      sql`${t.status} in ('pending', 'approved', 'sent', 'send_failed', 'discarded')`,
+      sql`${t.status} in ('pending', 'approved', 'sent', 'send_failed', 'send_uncertain', 'discarded')`,
     ),
     check("drafts_kind", sql`${t.kind} in ('reply', 'fixed')`),
     foreignKey({

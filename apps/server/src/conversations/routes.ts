@@ -9,7 +9,7 @@ import { sanitizeEmailHtml } from "./email-html.ts";
 const { customers, drafts, messages, conversationGithubIssues, conversations } = schema;
 
 /** Whether the conversation has a reply that was approved but couldn't be sent, for anyone to retry. */
-const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${drafts.status} = 'send_failed')`;
+const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${drafts.status} in ('send_failed', 'send_uncertain'))`;
 
 export interface ConversationRoutesDeps {
   db: Pick<Database, "withTenant">;

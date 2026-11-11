@@ -335,3 +335,29 @@ export const useDeleteKnowledgeSource = () =>
         sources?.filter((s) => s.id !== id),
       ),
   );
+
+export function useResolveSend(conversationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      messageId,
+      decision,
+    }: {
+      id: string;
+      messageId: string;
+      decision: "mark_sent" | "send_again";
+    }) =>
+      unwrap(
+        api.POST("/v1/drafts/{id}/resolve-send", {
+          params: { path: { id } },
+          body: { messageId, decision },
+        }),
+      ),
+    onSettled: () =>
+      Promise.all([
+        invalidateDraftState(queryClient, conversationId),
+        queryClient.invalidateQueries({ queryKey: keys.openConversations }),
+      ]),
+  });
+}
