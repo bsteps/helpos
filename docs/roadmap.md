@@ -14,20 +14,21 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 
 | Set                              | Exit goal                                                                                                                                                     |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ✅ **MVP**                       | Email → ticket → AI draft → approve → send, in shadow mode                                                                                                    |
+| ✅ **MVP**                       | Email → conversation → AI draft → approve → send, in shadow mode                                                                                              |
 | **A. The gate**                  | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
 | **B. Shadow mode** (alongside A) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
 | **C. First real reply**          | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
-| **D. Bring your agent**          | An outside agent (Claude Code, Codex) runs the improve loop through MCP. Outside tools connect last                                                           |
+| **D. Bring your agent**          | The improve loop runs, from the built-in agent on a schedule and from an outside agent (Claude Code, Codex) through MCP. Outside tools connect last           |
 | **E. Paid hosted**               | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
 | **Later**                        | On demand                                                                                                                                                     |
 
 ## A. The gate
 
 - #28 threat model, first pass, before the gate is designed
+- #184 rename tickets to conversations, before MCP tools are generated (#19)
 - #130 no automatic resend · #139 send-failed replies under load
 - #165 one owner per conversation: expiring claims and versions
-- #13 the gate: per-agent permissions, caps, kill switch. Agents can't approve
+- #13 the gate and the one decision record: per-agent permissions, caps, kill switch. Agents can't approve
 - #166 trust ladder: state, demotion and caps now. Promotions open once real outcomes exist (after C)
 - #167 playbook: ask once, remember, recheck. It can never widen authority on its own
 - #168 AI disclosure, and "talk to a human" creates a decision for a person
@@ -35,12 +36,13 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 
 ## B. Shadow mode
 
-- #169 bulk import · #170 Crisp migration skill · #179 replay imported conversations and review the answers
+- #169 bulk import · #170 Crisp migration skill (a versioned file the built-in agent runs on an export)
+- #179 replay without peeking at the real reply, then re-run after knowledge gaps close: the improve loop's first proof
 - #178 no source, no answer
 - #52 sanitising and PII masking · #29 rate limiting. Before real conversations are imported and sent to a model
 - #171 approval page with Slack and email alerts · #124 tell the owners when a reply can't be sent · #131 inbound attachments
 - #172 knowledge gaps ranked by demand
-- #77 product events, the one number and sampled quality checks
+- #77 product events and decision demand
 
 ## C. First real reply
 
@@ -49,6 +51,7 @@ The remaining release-safety items from the [architecture overview](architecture
 - **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption · #8 leak harness · #78 incident response and retention
 - **Email:** #74 sending domain and DKIM signing · #75 bounces and quote stripping
 - **Ops:** #76 backup, restore, doctor
+- **Outcomes:** #185 live outcomes, observation window, sampled quality checks · #186 trust promotions from real outcomes
 
 ## D. Bring your agent
 
@@ -77,7 +80,10 @@ Billing (with Dodo Payments), metering and hosted admin live in the private host
 - #57 routing by envelope recipient · #90 #91 #92 knowledge re-ingest and vector recall
 - More channels: chat widget, Slack, Discord, WhatsApp, SMS, voice
 - Enterprise: SSO, SCIM, data residency, SOC 2
+- OAuth login (GitHub, Google)
 - #25 CLA lawyer review · #30 OpenSSF Scorecard
+
+Repo tooling issues (#113, #115, #126, #127) have no milestone. Pick them up any time.
 
 ## Not on the roadmap
 

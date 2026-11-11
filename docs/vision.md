@@ -36,7 +36,7 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 ## The two loops
 
 1. **Work:** agents handle conversations around the clock.
-2. **Improve:** an agent operates the desk itself. It sets things up, keeps the knowledge fresh, reads the data, finds bottlenecks and proposes fixes. Each proposal lands in your queue.
+2. **Improve:** an agent operates the desk itself: the built-in agent on a schedule, or your own agent through MCP, using the same skills. It sets things up, keeps the knowledge fresh, reads the data, finds bottlenecks and proposes fixes. Each proposal lands in your queue.
 
 ## The rules to remember
 
@@ -55,9 +55,9 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 ## The first 10 minutes
 
 1. Forward your support email.
-2. Point HelpOS at your help center or docs, and import your past conversations.
+2. Upload your old helpdesk's export and point HelpOS at your docs. The built-in agent maps the export with the migration skill.
 3. **Shadow mode** (the bottom rung of the trust ladder): the agent drafts everything and sends nothing to customers (replies go to you). Within minutes of the import, the desk shows "here's how I'd have answered your last 200 conversations".
-4. Promote what you trust.
+4. Turn on live replies, with a person approving each one. Promote only after real outcomes show what you can trust.
 
 ## The one number
 
@@ -90,7 +90,7 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 ## Money and licence
 
 - **The desk** is priced on one slider (by conversations), with every feature on every plan.
-- **AI is included** up to a fair allowance per conversation, so there's one price. Bring your own key any time. AI isn't where we make money.
+- **AI is included** up to a fair allowance per conversation, so there's one price. Bring your own key any time, for the same price: it just removes the allowance. AI isn't where we make money.
 - **The team's own agents** cost us nothing.
 - **AGPL open source**, free to self-host. You can loosen a licence later, but you can't tighten it.
 
