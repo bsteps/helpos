@@ -99,7 +99,7 @@ function Conversation({ id }: { id: string }) {
     );
   }
 
-  const t = conversation.data;
+  const c = conversation.data;
   return (
     <article aria-labelledby="conversation-subject" className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
@@ -116,29 +116,29 @@ function Conversation({ id }: { id: string }) {
               id="conversation-subject"
               className="break-words font-semibold text-2xl tracking-tight"
             >
-              {t.subject || "(no subject)"}
+              {c.subject || "(no subject)"}
             </h1>
             {/* Status sits with the conversation's details, away from the button, so the two don't
                 read as an Open/Close pair of buttons. */}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-sm">
               <span>
-                {t.customer.name ? `${t.customer.name} · ` : ""}
-                {t.customer.email}
+                {c.customer.name ? `${c.customer.name} · ` : ""}
+                {c.customer.email}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
                   aria-hidden
                   className={
-                    t.status === "open"
+                    c.status === "open"
                       ? "size-2 rounded-full bg-emerald-500"
                       : "size-2 rounded-full bg-muted-foreground/50"
                   }
                 />
-                {t.status === "open" ? "Open" : "Closed"}
+                {c.status === "open" ? "Open" : "Closed"}
               </span>
             </div>
           </div>
-          {t.status === "open" ? (
+          {c.status === "open" ? (
             <Button
               variant="outline"
               size="sm"
@@ -161,13 +161,13 @@ function Conversation({ id }: { id: string }) {
       </div>
 
       <section aria-label="Conversation" className="flex flex-col gap-3">
-        {t.messages.map((message) => (
+        {c.messages.map((message) => (
           <MessageCard key={message.id} message={message} />
         ))}
       </section>
 
       <section aria-label="GitHub issue" className="flex flex-col gap-3">
-        <GithubIssuePanel key={t.id} conversation={t} />
+        <GithubIssuePanel key={c.id} conversation={c} />
       </section>
 
       <section aria-label="Draft" className="flex flex-col gap-3">
@@ -180,8 +180,8 @@ function Conversation({ id }: { id: string }) {
           </Alert>
         ) : (
           <DraftPanel
-            conversationId={t.id}
-            view={draftView(t, drafts.data, ask, composing)}
+            conversationId={c.id}
+            view={draftView(c, drafts.data, ask, composing)}
             redraft={redraft}
             askAi={() => {
               const replacing = newestReply(drafts.data)?.id ?? null;
@@ -208,7 +208,7 @@ function Conversation({ id }: { id: string }) {
 
       {drafts.data && liveFixNotice(drafts.data) ? (
         <section aria-label="Fix notice" className="flex flex-col gap-3">
-          <FixNotice conversationId={t.id} drafts={drafts.data} />
+          <FixNotice conversationId={c.id} drafts={drafts.data} />
         </section>
       ) : null}
     </article>

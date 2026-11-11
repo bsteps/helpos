@@ -70,7 +70,7 @@ Each item names the test that proves it. "Leak suite" means the cross-tenant sui
 - Uniqueness for tenant data is always **per tenant**: `UNIQUE (tenant_id, …)`, never a global unique on a value like a customer email. A global unique would let tenant A learn that a value exists in tenant B from the error.
 - Values that really are global (mailbox addresses that route inbound mail, user emails in `auth`) are written only through narrow functions that return a generic "not available" result. That error never says which tenant owns the value.
 - Any lookup by ID from another tenant returns `404`, the same as an ID that doesn't exist.
-- Test: `leak: creating a customer with B's email succeeds in A` and `leak: fetching B's conversation ID as A returns 404` (#44).
+- Test: `leak: creating a customer with B's email succeeds in A` and `leak: fetching B's ticket ID as A returns 404` (#44).
 
 ## Rejected
 

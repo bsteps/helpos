@@ -26,7 +26,7 @@ export function InboxPage() {
         </h1>
         {conversations.data ? (
           <span className="text-muted-foreground text-sm tabular-nums">
-            {conversations.data.filter((t) => t.status === "open").length} open
+            {conversations.data.filter((c) => c.status === "open").length} open
           </span>
         ) : null}
       </div>
