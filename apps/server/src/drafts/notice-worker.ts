@@ -1,3 +1,4 @@
+import { messageText } from "@helpos/ai/html-text";
 import {
   type AuthStore,
   and,
@@ -17,7 +18,6 @@ import { recordAudit } from "../audit/audit.ts";
 import { buildDraftNotice, noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import type { ServerConfig } from "../services.ts";
-import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
 
 const { auditEvents, drafts, mailboxes, memberships, messages, conversations } = schema;

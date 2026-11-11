@@ -6,6 +6,7 @@ import {
   isTemporaryAiFailure,
   tokenBound,
 } from "@helpos/ai";
+import { extractHtml } from "@helpos/ai/html-text";
 import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
@@ -14,7 +15,7 @@ import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
-import { extractHtml, tidyAuthored } from "./extract.ts";
+import { tidyAuthored } from "./extract.ts";
 import { ingestSourceJob } from "./jobs.ts";
 
 const { knowledgeChunks, knowledgeSources } = schema;

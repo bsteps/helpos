@@ -33,7 +33,11 @@ describe("messageText", () => {
 
 it("excludes hidden email instructions from the captured model input", async () => {
   const model = mockModel({ text: "Please reset your password." });
-  const body = messageText({ textBody: null, htmlBody: '<p>Visible login question.</p><span style="display:none">hidden-display</span><div aria-hidden="true">hidden-aria</div><div style="visibility:hidden">hidden-visibility</div><p>Visible follow-up.</p>' });
+  const body = messageText({
+    textBody: null,
+    htmlBody:
+      '<p>Visible login question.</p><span style="display:none">hidden-display</span><div aria-hidden="true">hidden-aria</div><div style="visibility:hidden">hidden-visibility</div><p>Visible follow-up.</p>',
+  });
   await draftReply(model, { from: "customer@example.com", subject: "Login", body });
   const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
   expect(prompt).toContain("Visible login question.");
@@ -41,4 +45,25 @@ it("excludes hidden email instructions from the captured model input", async () 
   expect(prompt).not.toContain("hidden-display");
   expect(prompt).not.toContain("hidden-aria");
   expect(prompt).not.toContain("hidden-visibility");
+});
+
+it.each([
+  'style="display:none"',
+  'style="visibility:hidden"',
+  'aria-hidden="true"',
+  "hidden",
+  'style="/*comment*/ DISPLAY: NONE !important"',
+])("drops a hidden subtree with %s and keeps its sibling", (attributes) => {
+  expect(
+    htmlToText(
+      `<p>Before</p><div ${attributes}><span>secret</span><br><b>nested</b></div><p>After</p>`,
+    ),
+  ).toBe("Before\nAfter");
+});
+it("preserves visible email chrome, Unicode, entities and line breaks", () => {
+  expect(
+    htmlToText(
+      "<header>Header</header><main><p>Café &#x1F680; &amp; �</p><p>Next<br>line</p></main><footer>Footer</footer>",
+    ),
+  ).toBe("Header Café 🚀 & �\nNext\nline\nFooter");
 });
