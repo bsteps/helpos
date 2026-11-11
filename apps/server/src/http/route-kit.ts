@@ -34,8 +34,6 @@ export function notFound(c: Context) {
   return c.json({ error: "not_found" }, 404);
 }
 
-export type { Auditor };
-
 /**
  * Audit recording bound to the request: the caller's workspace and identity and the request ID
  * come from the request itself, so a handler can't record them wrong, or for someone else.

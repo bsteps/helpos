@@ -1,8 +1,8 @@
 import { sanitizeIssue } from "@helpos/ai";
 import { and, type Database, eq, lt, schema, sql, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
+import type { Auditor } from "../audit/audit.ts";
 import { nothingToAudit } from "../audit/audit.ts";
-import type { Auditor } from "../http/route-kit.ts";
 import type { SecretBox } from "../secrets/secret-box.ts";
 import type { ServerConfig } from "../services.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";

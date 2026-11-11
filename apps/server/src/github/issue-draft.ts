@@ -7,8 +7,8 @@ import {
 import { and, asc, type Database, eq, isNull, schema, tenantTransactions } from "@helpos/db";
 import type { Logger } from "pino";
 import { aiBudget } from "../ai-budget/budget.ts";
+import type { Auditor } from "../audit/audit.ts";
 import { messageText } from "../drafts/html-text.ts";
-import type { Auditor } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 
 const { messages, conversations } = schema;
