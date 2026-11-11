@@ -23,7 +23,7 @@ import { ensureJobQueues } from "../jobs.ts";
 import { composeServices, defaultConfig } from "../services.ts";
 import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { aiBudget, type Reservation } from "./budget.ts";
+import { AiBusyError, aiBudget, type Reservation } from "./budget.ts";
 import { seedReservation, seedUsage, usageOn } from "./testing.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
@@ -190,23 +190,35 @@ describe("daily AI budget", () => {
     await seedUsage(db, acme, "2026-11-09", 100);
     // 100 used, 200 budget, 120 per call: exactly one more call fits.
     const [a, b] = await Promise.all([receive(7), receive(8)]);
-    const [ma, mb] = [mockModel(callCost), mockModel(callCost)];
-    const runs = await Promise.allSettled([
-      draft(acme, a.messageId, ma),
-      draft(acme, b.messageId, mb),
-    ]);
+    const released = Promise.withResolvers<void>();
+    const ma = mockModel({
+      ...callCost,
+      pause: async () => {
+        await released.promise;
+      },
+    });
+    const mb = mockModel(callCost);
+    const first = Promise.allSettled([draft(acme, a.messageId, ma)]);
+    try {
+      // Keep the reservation live until the second job has checked the budget. An instant
+      // mock can settle first, making the second job pause successfully instead of retrying.
+      await expect.poll(() => ma.doGenerateCalls.length).toBe(1);
+      await expect(draft(acme, b.messageId, mb)).rejects.toThrow(AiBusyError);
+      expect(await usageOn(db, acme, clock)).toMatchObject({ totalTokens: 100, calls: 0 });
+    } finally {
+      released.resolve();
+      expect((await first).map((r) => r.status)).toEqual(["fulfilled"]);
+    }
     expect(ma.doGenerateCalls.length + mb.doGenerateCalls.length).toBe(1);
-    // The other found the first's reservation holding the rest: refused, for pg-boss to retry.
-    const refused = runs.findIndex((r) => r.status === "rejected");
-    expect(runs.map((r) => (r.status === "rejected" ? String(r.reason) : "ok")).sort()).toEqual([
-      "AiBusyError: AI calls in flight hold the rest of today's budget: trying again later",
-      "ok",
-    ]);
+    expect(await usageOn(db, acme, clock)).toMatchObject({
+      totalTokens: 220,
+      reservedTokens: 0,
+      calls: 1,
+    });
     // Its retry finds the budget spent (100 + 120), and pauses the ticket without a call.
-    const retried = refused === 0 ? a : b;
-    const retry = await draft(acme, retried.messageId);
+    const retry = await draft(acme, b.messageId);
     expect(retry.doGenerateCalls).toHaveLength(0);
-    expect((await ticket(acme, retried.ticketId))?.aiPausedReason).toBe("daily_budget");
+    expect((await ticket(acme, b.ticketId))?.aiPausedReason).toBe("daily_budget");
   });
 
   it("regenerate is refused up front when the budget is spent, and keeps the current draft", async () => {
