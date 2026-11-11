@@ -6,8 +6,8 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 
 - **Pipes, not features.** If an agent can do it in one prompt, it isn't on this list.
 - **The gate first.** Every later pipe goes through it.
-- **Shadow mode early.** Shadow mode sends nothing to customers, so set B can be built alongside the gate.
-- **Prove the loop before widening the tool surface.** Fewer decisions without worse answers comes before connecting more outside tools.
+- **Real replies early.** Trust is earned from outcomes, and outcomes exist only once real replies reach customers. So the first real reply comes right after the gate and shadow mode, before the improve loop.
+- **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#77).
 - **Remove what the vision replaced, only once the replacement works.**
 
 ## The sets
@@ -15,64 +15,66 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 | Set                              | Exit goal                                                                                                                                                     |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ✅ **MVP**                       | Email → ticket → AI draft → approve → send, in shadow mode                                                                                                    |
-| **A. The gate**                  | Every action from any agent goes through one gate, and tests prove one writer at a time and no automatic resend                                               |
+| **A. The gate**                  | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
 | **B. Shadow mode** (alongside A) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
-| **C. Bring your agent**          | An outside agent (Claude Code, Codex) runs the improve loop on a workspace through MCP                                                                        |
-| **D. Safe real mail**            | Shadow mode can be turned off: replies reach real customers safely, customer outcomes are measured, then outside tools connect through the gate               |
-| **E. Paid hosted**               | Hosted sign-up, billing and onboarding work end to end                                                                                                        |
+| **C. First real reply**          | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
+| **D. Bring your agent**          | An outside agent (Claude Code, Codex) runs the improve loop through MCP. Outside tools connect last                                                           |
+| **E. Paid hosted**               | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
 | **Later**                        | On demand                                                                                                                                                     |
 
 ## A. The gate
 
+- #28 threat model, first pass, before the gate is designed
 - #130 no automatic resend · #139 send-failed replies under load
 - #165 one owner per conversation: expiring claims and versions
-- #13 the gate: per-agent permissions, caps, kill switch
-- #166 trust ladder per agent and action type
-- #167 playbook: ask once, remember, recheck
-- #168 AI disclosure and an always-available human handoff
+- #13 the gate: per-agent permissions, caps, kill switch. Agents can't approve
+- #166 trust ladder: state, demotion and caps now. Promotions open once real outcomes exist (after C)
+- #167 playbook: ask once, remember, recheck. It can never widen authority on its own
+- #168 AI disclosure, and "talk to a human" creates a decision for a person
 - #85 audit records the reason and the inputs · #10 API conventions (idempotency)
 
 ## B. Shadow mode
 
 - #169 bulk import · #170 Crisp migration skill · #179 replay imported conversations and review the answers
 - #178 no source, no answer
+- #52 sanitising and PII masking · #29 rate limiting. Before real conversations are imported and sent to a model
 - #171 approval page with Slack and email alerts · #124 tell the owners when a reply can't be sent · #131 inbound attachments
 - #172 knowledge gaps ranked by demand
-- #77 product events and the one number
-- #52 sanitising and PII masking · #29 rate limiting. Before real conversations are imported and sent to a model
+- #77 product events, the one number and sampled quality checks
 
-## C. Bring your agent
+## C. First real reply
+
+The remaining release-safety items from the [architecture overview](architecture/overview.md#mvp-vs-first-release), plus real email basics.
+
+- **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption · #8 leak harness · #78 incident response and retention
+- **Email:** #74 sending domain and DKIM signing · #75 bounces and quote stripping
+- **Ops:** #76 backup, restore, doctor
+
+## D. Bring your agent
 
 - #19 MCP server and skills, with features that announce themselves
 - #17 wake-ups: signed webhooks, event feed, fallback
-- #176 freshness loop: change events, last-checked dates, staleness flags
+- #176 freshness loop: knowledge revisions, change events, staleness flags
 - #173 queues and handoff
 - #71 waiting lists, then #175 remove the GitHub-specific code
 - #12 token rotation · #14 audit log query API
-
-## D. Safe real mail
-
-- **Email:** #31 SPF/DKIM/DMARC · #74 sending domain and DKIM signing · #75 bounces and quote stripping · #57 routing by envelope recipient
-- **Security:** #8 leak harness · #28 threat model · #78 incident response and retention
-- **Team:** #11 invites, password reset, roles
-- **Then, once customer outcomes are measured:** #15 envelope encryption, then #174 any MCP tool through the gate
-- **Ops:** #18 #6 separate worker · #20 observability · #21 production Docker + Compose · #76 backup, restore, doctor · #23 release automation · #22 quality gates and performance budgets
+- Last, once #77 shows fewer decisions without worse answers: #174 any MCP tool through the gate
 
 ## E. Paid hosted
 
-- Hosted sign-up: forward your support email, DNS check, shadow mode on by default
-- One slider by conversations, every feature on every plan. AI with your own key or ours at cost
-- Billing with Dodo Payments
-- Privacy policy, DPA, subprocessor list · GDPR export and delete
-- Trial abuse and spam sign-up protection
+- #180 sign-up to first replayed answer in minutes
+- #181 one slider by conversations with an AI allowance. Bring your own key always allowed
+- #182 export and deletion · #183 sign-up abuse protection
+- #11 invites, password reset, roles · #21 production Docker + Compose · #18 #6 separate worker
 
-Billing, metering and hosted admin live in the private hosted-service repo (ADR 0007). Everything else stays here.
+Billing (with Dodo Payments), metering and hosted admin live in the private hosted-service repo (ADR 0007). Everything else stays here.
 
 ## Later (on demand)
 
 - **The dashboard step:** settings and stats you can read without paying for AI, with the layout shaped by the agent
 - **Config, knowledge and policies in git** (ADR 0010, accepted). The sync waits, but new tables must keep it possible
-- #90 #91 #92 knowledge re-ingest and vector recall
+- #20 observability · #22 quality gates and performance budgets · #23 release automation
+- #57 routing by envelope recipient · #90 #91 #92 knowledge re-ingest and vector recall
 - More channels: chat widget, Slack, Discord, WhatsApp, SMS, voice
 - Enterprise: SSO, SCIM, data residency, SOC 2
 - #25 CLA lawyer review · #30 OpenSSF Scorecard

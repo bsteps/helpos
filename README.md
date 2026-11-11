@@ -17,20 +17,20 @@ The whole vision fits on one page: [docs/vision.md](docs/vision.md).
 - **Agents propose, the desk decides.** Trust is earned per agent and per action type. Your home screen is the decisions waiting for you, not a ticket list.
 - **Bring any agent.** Your own agents plug in through the API and MCP, and HelpOS ships skills that teach them to run it.
 - **Pipes, not features.** We build what agents can't safely do alone, and leave the rest to the agent.
-- **Simple pricing on the hosted version.** One slider by conversations, every feature on every plan. AI isn't where we make money: bring your own key, or use ours at cost.
+- **Simple pricing on the hosted version.** One slider by conversations, every feature on every plan. AI is included up to a fair allowance per conversation, and you can bring your own key any time. AI isn't where we make money.
 - **Self-host anywhere, free.** One Docker image + Postgres, on any VPS, cloud or your laptop.
 - **Secure by design.** Database-level tenant isolation, scoped agent permissions, approvals and a full audit log.
 
 ## Status
 
-| Set                     | What                                                                                                            | Status         |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- | -------------- |
-| MVP                     | Email → AI draft → approve → send, in shadow mode                                                               | ✅             |
-| **A. The gate**         | One owner per conversation, no automatic resend, per-agent permissions, trust ladder                            | 🏗️ In progress |
-| **B. Shadow mode**      | Bulk import, replay and review, no source no answer, PII masking, approval page, knowledge gaps, decision count | 🏗️ In progress |
-| **C. Bring your agent** | MCP + skills, wake-ups, freshness loop, queues and handoff, waiting lists                                       | ⏳             |
-| **D. Safe real mail**   | Shadow mode off: email auth, backups, customer outcomes, then outside tools through the gate                    | ⏳             |
-| **E. Paid hosted**      | Sign-up, one-slider pricing, AI at cost, privacy                                                                | ⏳             |
+| Set                     | What                                                                                                            | Status  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
+| MVP                     | Email → AI draft → approve → send, in shadow mode                                                               | ✅      |
+| **A. The gate**         | One owner per conversation, no automatic resend, per-agent permissions, agents can't approve, trust ladder      | ⏭️ Next |
+| **B. Shadow mode**      | Bulk import, replay and review, no source no answer, PII masking, approval page, knowledge gaps, the one number | ⏭️ Next |
+| **C. First real reply** | Release-safety items, real email basics, customer outcomes                                                      | ⏳      |
+| **D. Bring your agent** | MCP + skills, wake-ups, freshness loop, queues, waiting lists, then outside tools                               | ⏳      |
+| **E. Paid hosted**      | Sign-up, one slider with an AI allowance, privacy                                                               | ⏳      |
 
 Every feature and exit goal is in [docs/roadmap.md](docs/roadmap.md).
 
