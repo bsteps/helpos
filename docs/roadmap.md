@@ -7,28 +7,31 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 - **Pipes, not features.** If an agent can do it in one prompt, it isn't on this list.
 - **The gate first.** Every later pipe goes through it.
 - **Real replies early.** Trust is earned from outcomes, and outcomes exist only once real replies reach customers. So the first real reply comes right after the gate and shadow mode, before the improve loop.
-- **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#77).
+- **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#185).
 - **Remove what the vision replaced, only once the replacement works.**
 
 ## The sets
 
-| Set                              | Exit goal                                                                                                                                                     |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ✅ **MVP**                       | Email → conversation → AI draft → approve → send, in shadow mode                                                                                              |
-| **A. The gate**                  | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
-| **B. Shadow mode** (alongside A) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
-| **C. First real reply**          | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
-| **D. Bring your agent**          | The improve loop runs, from the built-in agent on a schedule and from an outside agent (Claude Code, Codex) through MCP. Outside tools connect last           |
-| **E. Paid hosted**               | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
-| **Later**                        | On demand                                                                                                                                                     |
+| Set                             | Exit goal                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅ **MVP**                      | Email → conversation → AI draft → approve → send, in shadow mode                                                                                              |
+| **A. The gate**                 | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
+| **B. Shadow mode** (after #187) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
+| **C. First real reply**         | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
+| **D. Bring your agent**         | The improve loop runs, from the built-in agent on a schedule and from an outside agent (Claude Code, Codex) through MCP. Outside tools connect last           |
+| **E. Paid hosted**              | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
+| **Later**                       | On demand                                                                                                                                                     |
 
 ## A. The gate
 
 - #28 threat model, first pass, before the gate is designed
+- #8 leak harness, before the new tables of A and B
+- #187 the one decision record. Set B starts once it lands
 - #184 rename tickets to conversations, before MCP tools are generated (#19)
 - #130 no automatic resend · #139 send-failed replies under load
 - #165 one owner per conversation: expiring claims and versions
-- #13 the gate and the one decision record: per-agent permissions, caps, kill switch. Agents can't approve
+- #13 the gate: an identity per agent (the built-in one too), permissions, and human-only approval
+- #188 caps and kill switch (only a person turns it off) · #189 approved means exactly that action
 - #166 trust ladder: state, demotion and caps now. Promotions open once real outcomes exist (after C)
 - #167 playbook: ask once, remember, recheck. It can never widen authority on its own
 - #168 AI disclosure, and "talk to a human" creates a decision for a person
@@ -39,7 +42,7 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 - #169 bulk import · #170 Crisp migration skill (a versioned file the built-in agent runs on an export)
 - #179 replay without peeking at the real reply, then re-run after knowledge gaps close: the improve loop's first proof
 - #178 no source, no answer
-- #52 sanitising and PII masking · #29 rate limiting. Before real conversations are imported and sent to a model
+- Before real conversations are imported and sent to a model: #52 sanitising and PII masking · #29 rate limiting · #76 backup and restore · #78 retention and incident response
 - #171 approval page with Slack and email alerts · #124 tell the owners when a reply can't be sent · #131 inbound attachments
 - #172 knowledge gaps ranked by demand
 - #77 product events and decision demand
@@ -48,9 +51,9 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 
 The remaining release-safety items from the [architecture overview](architecture/overview.md#mvp-vs-first-release), plus real email basics.
 
-- **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption · #8 leak harness · #78 incident response and retention
+- **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption
 - **Email:** #74 sending domain and DKIM signing · #75 bounces and quote stripping
-- **Ops:** #76 backup, restore, doctor
+- **Runs on** the existing image and demo compose. The production self-hosting release is #21 in E
 - **Outcomes:** #185 live outcomes, observation window, sampled quality checks · #186 trust promotions from real outcomes
 
 ## D. Bring your agent
@@ -61,7 +64,7 @@ The remaining release-safety items from the [architecture overview](architecture
 - #173 queues and handoff
 - #71 waiting lists, then #175 remove the GitHub-specific code
 - #12 token rotation · #14 audit log query API
-- Last, once #77 shows fewer decisions without worse answers: #174 any MCP tool through the gate
+- Last, once #185 shows fewer decisions without worse answers: #174 any MCP tool through the gate
 
 ## E. Paid hosted
 
@@ -87,4 +90,4 @@ Repo tooling issues (#113, #115, #126, #127) have no milestone. Pick them up any
 
 ## Not on the roadmap
 
-These are the agent's job, not ours: reports and dashboards, CSAT analysis, automation rules and routing logic, saved-reply and tag _choices_, article writing, website import, per-platform importers, tracker tickets, changelogs, and coding fixes. HelpOS stores and serves the data. Agents decide what goes in it.
+These are the agent's job, not ours: reports and dashboards, CSAT analysis, automation rules and routing logic, saved-reply and tag _choices_, article writing, crawling whole websites, per-platform importers, tracker tickets, changelogs, and coding fixes. HelpOS stores and serves the data. Agents decide what goes in it.

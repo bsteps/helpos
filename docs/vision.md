@@ -25,11 +25,11 @@ customer ─▶ │ conversations · customers · knowledge · playbook  │
 
 Today's helpdesks are huge systems built for a human to set up, read and operate, and nobody really does:
 
+- the knowledge base goes stale and the AI makes things up
+- the features and analytics go unused because nobody has time to work out what to do with them
 - support relays bugs to developers over chat, and the bugs get forgotten
 - customers leave out screenshots and repro steps
 - "it's fixed" is sent by hand, or never
-- the knowledge base goes stale and the AI makes things up
-- the features and analytics go unused because nobody has time to work out what to do with them
 
 HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 
@@ -41,7 +41,7 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 ## The rules to remember
 
 0. **Pipes, not features.** If an agent can do it in one prompt, we don't build it. We make the pipes strong, fast and light.
-1. **Agents propose, the desk decides.** Every action taken through HelpOS passes one gate, whether the agent is ours or yours. An outside agent acting elsewhere with its own keys is outside the gate. To govern an action on an outside tool, route it through HelpOS's tool connections.
+1. **Agents propose, the desk decides.** Every action taken through HelpOS passes one gate, whether the agent is ours or yours. The built-in agent is an agent like any other, with its own identity, permissions, trust and kill switch. An outside agent acting elsewhere with its own keys is outside the gate. To govern an action on an outside tool, route it through HelpOS's tool connections.
 2. **Inbox zero means zero decisions, not zero tickets.** The home screen is the decision queue.
 3. **Trust is earned per agent and per action type, from outcomes.** Approvals without edits, and customers who don't come back unhappy, move an action up the ladder. Corrections and unhappy returns move it down. Unknown outcomes never earn trust. Approving a decision and accepting a promotion are always done by a person.
 4. **Ask once, remember, recheck.** When unsure, ask. Your answer becomes a rule. Rules and knowledge are rechecked whenever the product changes or answers start going wrong.
@@ -55,13 +55,13 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 ## The first 10 minutes
 
 1. Forward your support email.
-2. Upload your old helpdesk's export and point HelpOS at your docs. The built-in agent maps the export with the migration skill.
+2. Upload your old helpdesk's export and add your docs' URLs as knowledge sources. The built-in agent maps the export with the migration skill.
 3. **Shadow mode** (the bottom rung of the trust ladder): the agent drafts everything and sends nothing to customers (replies go to you). Within minutes of the import, the desk shows "here's how I'd have answered your last 200 conversations".
 4. Turn on live replies, with a person approving each one. Promote only after real outcomes show what you can trust.
 
 ## The one number
 
-**Fewer decisions, customers just as happy.** Human decisions per 100 conversations go down, while customers coming back unhappy doesn't go up and sampled quality checks keep passing. Silence isn't proof: a customer who gave up didn't come back happy. Every decision counts, including the desk's own proposals, so an improve loop that makes more work than it saves shows up here.
+**Fewer decisions, customers just as happy.** Human work per 100 conversations goes down (decisions, quality checks and manual fixes), while customers coming back unhappy doesn't go up and sampled quality checks keep passing. Silence isn't proof: a customer who gave up didn't come back happy. Every decision counts, including the desk's own proposals, so an improve loop that makes more work than it saves shows up here.
 
 ## What we build (the pipes)
 
@@ -72,7 +72,7 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 - **Coordination:** ownership claims, queues, handoffs.
 - **Waiting lists:** customers waiting on the same fix, all told when it's done.
 - **Wake-ups:** events, signed webhooks, an event feed, scheduled wake-ups.
-- **The playbook:** written rules that humans and agents keep up to date.
+- **The playbook:** written rules that humans and agents keep up to date. Rules, knowledge and settings can also live in git (ADR 0010).
 - **Bulk import:** conversations, customers and articles, keeping threads and dates, and safe to run twice.
 - **Staying current:** change events (release, deploy, fix shipped), cited answers, and versioned rules and knowledge with staleness checks.
 - **Agent access:** API, MCP (we connect out to any tool's MCP server, gated by policy), skills.

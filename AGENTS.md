@@ -4,7 +4,7 @@ Instructions for AI coding agents (Claude Code, Codex, Cursor, …) working in t
 
 ## What this project is
 
-HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most support work, and humans approve risky actions, handle exceptions and teach. Agents are first-class users: **anything a human can do in the UI, an agent can do through the public API**, except actions kept human-only on purpose (enforced once #13 lands): approving decisions, accepting trust promotions, and managing tokens and credentials (an agent may only revoke its own token).
+HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most support work, and humans approve what agents haven't earned trust for, handle exceptions and teach. Agents are first-class users: **anything a human can do in the UI, an agent can do through the public API**, except actions kept human-only on purpose (enforced once #13 lands): approving decisions, accepting trust promotions, turning a kill switch off, and managing tokens and credentials (an agent may only revoke its own token).
 
 ## Before you change anything
 
@@ -91,7 +91,7 @@ When a rule here has a check, the check is the rule: if you hit it, do what its 
 
 Labels show where work is. Agents move them; humans only check `needs-human`. The list lives in `.github/labels.json` (a workflow syncs it to GitHub), so change labels there, not in the GitHub UI.
 
-- **Issues:** `needs-triage` (not reviewed yet) → `ready` (can be picked up) → `in-progress`. Set `in-progress` when you start an issue, and remove `ready`.
+- **Issues:** `needs-triage` (not reviewed yet) → `ready` (can be picked up) → `in-progress`. An issue that GitHub shows as "blocked by" another loses `ready` until the blocker closes. Set `in-progress` when you start an issue, and remove `ready`.
 - **PRs:** `pr:in-progress` → `pr:ready` → `land`. Open the PR with `pr:in-progress`. Move it to `pr:ready` once `pnpm verify` passes and your review findings are resolved. Move it to `land` once checks are green, unless it needs a human.
 - **`needs-human` is required** (instead of `land`) when a PR changes security, auth, tenant isolation or product defaults, or adds a lint or type suppression. Also use it whenever you are blocked on a decision only a person can make.
 - `human-only`, `security` and `area:*` stay as they are: what kind of work it is, not its state. Never pick up a `human-only` issue.
@@ -102,7 +102,7 @@ What's happening, by filter: `is:open label:needs-human` (the human queue), `is:
 
 ```
 apps/          deployable apps: server (Hono API) and web (dashboard); the chat widget comes later
-packages/      shared libraries (brand, db, sdk, …)
+packages/      shared libraries (ai, brand, db, files, safe-fetch; sdk comes with #19)
 docs/adr/      architecture decisions (read these)
 docs/architecture/overview.md   how the pieces fit together (read first)
 docs/          guides, including OPEN_SOURCE_101.md
