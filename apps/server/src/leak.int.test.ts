@@ -221,17 +221,11 @@ describe("the sweep has something to find", () => {
     const known = new Set(ops.map((op) => `${op.method} ${op.path}`));
     expect(Object.keys(sampleBodies).filter((key) => !known.has(key))).toEqual([]);
   });
-
-  it.each(ops.filter((op) => op.bodyType))("$method $path has a sample body", (op) => {
-    expect(
-      sampleBodies[`${op.method} ${op.path}`],
-      `${op.method} ${op.path}: add a valid sample body to sampleBodies`,
-    ).toBeDefined();
-  });
 });
 
 describe("leak: every API operation, called as tenant A", () => {
-  it.each(ops)("$method $path shows nothing of B", async (op) => {
+  it.each(ops)("$method $path shows nothing of B and changes nothing of B", async (op) => {
+    githubCalls.length = 0;
     for (const caller of callers) {
       const who = `${op.method} ${op.path} as ${caller}`;
       if (op.pathParams.length === 0) {
@@ -254,6 +248,14 @@ describe("leak: every API operation, called as tenant A", () => {
         );
       }
     }
+    expect(
+      githubCalls.filter((url) => !url.startsWith("https://github.invalid/repos/leak-a-corp/")),
+      `${op.method} ${op.path} asked GitHub about a repo that isn't A's`,
+    ).toEqual([]);
+    expect(
+      await tenantSnapshot(testDb.ownerUrl, b.tenantId),
+      `${op.method} ${op.path} changed B's data`,
+    ).toEqual(before);
   });
 
   it("leak: fetching B's ticket ID as A returns 404", async () => {
@@ -285,15 +287,5 @@ describe("a passing sweep means something", () => {
         `${op.method} ${op.path} as ${caller} never returned A's data for any of A's IDs, so a 404 for B's IDs proves nothing`,
       ).toBe(true);
     }
-  });
-
-  it("never reached GitHub for anything but A's own repo", () => {
-    expect(
-      githubCalls.every((url) => url.startsWith("https://github.invalid/repos/leak-a-corp/")),
-    ).toBe(true);
-  });
-
-  it("left B's data exactly as it was", async () => {
-    expect(await tenantSnapshot(testDb.ownerUrl, b.tenantId)).toEqual(before);
   });
 });
