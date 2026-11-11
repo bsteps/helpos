@@ -202,10 +202,13 @@ describe("liveFixNotice", () => {
 });
 
 describe("newDraftError", () => {
-  it.each(["daily_budget_reached", "already_answered", "nothing_to_answer", "not_found"])(
-    "doesn't tell the person to retry a refusal that a retry can't fix (%s)",
-    (code) => {
-      expect(newDraftError(code)).not.toMatch(/try again/i);
-    },
-  );
+  it.each([
+    "daily_budget_reached",
+    "already_answered",
+    "nothing_to_answer",
+    "ticket_closed",
+    "not_found",
+  ])("doesn't tell the person to retry a refusal that a retry can't fix (%s)", (code) => {
+    expect(newDraftError(code)).not.toMatch(/try again/i);
+  });
 });

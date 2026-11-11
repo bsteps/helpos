@@ -38,6 +38,8 @@ const now = () => clock;
 
 let testDb: TestDatabase;
 let db: Database;
+/** As the jobs role, to see what waits in the queue. */
+let jobsDb: Database;
 let auth: AuthStore;
 let runner: JobRunner;
 let acme: string;
@@ -84,6 +86,7 @@ const draftCount = (tenantId: string, ticketId: string) =>
 beforeAll(async () => {
   testDb = await startTestDatabase();
   db = createDatabase(testDb.appUrl);
+  jobsDb = createDatabase(testDb.jobsUrl);
   auth = createAuthStore(testDb.authUrl);
   // Ingest queues draft jobs; nothing works the queue here, the test runs the handler itself.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
@@ -105,6 +108,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await runner?.stop();
   await db?.close();
+  await jobsDb?.close();
   await auth?.close();
   await testDb?.stop();
 });
@@ -286,6 +290,78 @@ describe("daily AI budget", () => {
     expect(model.doGenerateCalls).toHaveLength(1);
     await draft(acme, paused.messageId);
     expect((await ticket(acme, paused.ticketId))?.aiPausedReason).toBeNull();
+  });
+});
+
+describe("a ticket paused by the budget", () => {
+  const waitingJobs = (messageId: string) =>
+    jobsDb.withTenant(acme, (tx) =>
+      tx.execute<{ data: { tenantId: string; messageId: string }; start: string }>(
+        sql`select data, start_after::text as start from pgboss.job
+            where name = 'draft-reply' and singleton_key like ${`%${messageId}:after:%`}`,
+      ),
+    );
+
+  it("is drafted again by itself once the UTC day rolls over", async () => {
+    clock = new Date("2026-11-20T15:00:00Z");
+    await seedUsage(db, acme, "2026-11-20", budget);
+    const email = await receive(30);
+    await draft(acme, email.messageId);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+
+    // Its job waits in the queue until just after midnight UTC.
+    const waiting = await waitingJobs(email.messageId);
+    expect(waiting.map((j) => new Date(j.start).toISOString())).toEqual([
+      "2026-11-21T00:01:00.000Z",
+    ]);
+    // Paused again the same day (a retry), it still has the one waiting job.
+    await draft(acme, email.messageId);
+    expect(await waitingJobs(email.messageId)).toHaveLength(1);
+
+    // When that job runs, the budget has reset: the ticket gets its draft.
+    clock = new Date("2026-11-21T00:01:00Z");
+    const [job] = waiting;
+    if (!job) throw new Error("no waiting job");
+    await draft(job.data.tenantId, job.data.messageId);
+    expect(await draftCount(acme, email.ticketId)).toBe(1);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBeNull();
+  });
+
+  it("closed while it waits, it gets no draft, no notice and costs nothing", async () => {
+    clock = new Date("2026-11-22T15:00:00Z");
+    await seedUsage(db, acme, "2026-11-22", budget);
+    const email = await receive(31);
+    await draft(acme, email.messageId);
+    expect((await ticket(acme, email.ticketId))?.aiPausedReason).toBe("daily_budget");
+    const [job] = await waitingJobs(email.messageId);
+    if (!job) throw new Error("no waiting job");
+
+    // Someone closes it in the dashboard before the budget resets.
+    const app = createApp(composeServices({ db, files, logger, clock: { now } }), {
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(["tickets:read", "tickets:write", "drafts:write"] as const),
+      }),
+    });
+    const closed = await app.request(`/v1/tickets/${email.ticketId}/close`, { method: "POST" });
+    expect(closed.status).toBe(200);
+    // The next day its waiting job runs: no model call, no reservation, no draft.
+    clock = new Date("2026-11-23T00:01:00Z");
+    const notices = () =>
+      jobsDb.withTenant(acme, (tx) =>
+        tx.execute(sql`select 1 from pgboss.job where name = 'draft-notice'`),
+      );
+    const noticesBefore = (await notices()).length;
+    const model = await draft(job.data.tenantId, job.data.messageId);
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(await draftCount(acme, email.ticketId)).toBe(0);
+    expect(await notices()).toHaveLength(noticesBefore);
+    expect(await usageOn(db, acme, clock)).toMatchObject({
+      totalTokens: 0,
+      reservedTokens: 0,
+      calls: 0,
+    });
   });
 });
 
