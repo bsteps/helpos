@@ -51,7 +51,6 @@ export function queueIngest(
   return enqueue(tx, ingestSourceJob, input, options);
 }
 
-/** A slug from a title: "Refunds & Returns!" becomes "refunds-returns". */
 export function slugify(title: string): string {
   return (
     title
@@ -75,10 +74,6 @@ export async function createSource(
   const id = uuidv7();
   const url = input.kind === "url" ? normalizeKnowledgeUrl(input.url) : null;
   const base = slugify(input.title);
-  // A slug the caller chose is kept or refused. One made from the title gets a random
-  // suffix when another source already has it (two pages can share a title), a new one on
-  // each try, and a title with no Latin letters or digits gets only that. A failed try rolled
-  // back, so the next one can reuse the id.
   const suffix = () => uuidv7().slice(-12);
   const slugs = input.slug
     ? [input.slug]
@@ -224,7 +219,6 @@ export async function updateSource(
             retryCount: 0,
             chunkCount: 0,
             embeddingModel: null,
-            // An ingest already fetching the old text sees this and doesn't write it.
             ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
           }
         : {}),
@@ -233,8 +227,6 @@ export async function updateSource(
     .returning();
   if (!row) throw new Error("update knowledge source: update returned no row");
   if (content) {
-    // The old passages go now, not when the new ones are ready: an edit often removes
-    // something wrong or private, and that must stop being quoted at once.
     await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, id));
     await queueIngest(
       tx,
@@ -271,7 +263,6 @@ export async function deleteSource(
     .for("update");
   if (!found) return "not_found" as const;
   if (found.managedBy === "git") return "managed_in_git" as const;
-  // Its chunks go with it (ON DELETE CASCADE); drafts' copies of its passages stay.
   await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));
   await audit(tx, "knowledge_source.deleted", { type: "knowledge_source", id });
   return "deleted" as const;
