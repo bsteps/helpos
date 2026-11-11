@@ -39,7 +39,9 @@
     "app:info": "node .claude/skills/verify-helpos/scripts/instance.mjs",
     "app:journey": "node .claude/skills/verify-helpos/scripts/journey-reply.mjs",
     "app:run": "node .claude/skills/verify-helpos/scripts/instance.mjs run",
-    "app:selftest": "node .claude/skills/verify-helpos/scripts/selftest.mjs"
+    "app:selftest": "node .claude/skills/verify-helpos/scripts/selftest.mjs",
+    "verify:send-reply": "node .claude/skills/verify-send-reply/scripts/check.mjs",
+    "verify:send-reply:mutations": "node .claude/skills/verify-send-reply/scripts/prove-mutations.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

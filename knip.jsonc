@@ -15,6 +15,8 @@
       "entry": ["scripts/*.mjs", "e2e/**/*.setup.ts"]
     }
   },
+  // Java runs the pinned TLC model checker; it is a system prerequisite, not an npm binary.
+  "ignoreBinaries": ["java"],
   "ignoreIssues": {
     // Follow-up: issue #84 is changing these folders in parallel, so their unused exports are
     // listed in the knip PR instead of deleted. Remove these lines once #84 lands.
