@@ -119,7 +119,7 @@ The AI only fills text fields, and the API sends GitHub only a title and a body,
 
 ## Core data model
 
-Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`.
+Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **except** `tenants` itself and `users`. A user can belong to several workspaces, so `users` has no single tenant. It's protected as decided in [ADR 0009](../adr/0009-tenant-isolation-extended.md), and `memberships` links it to tenants. IDs are UUIDv7. Every table has `created_at`/`updated_at`. Owner columns, roles, special grants and how to add a table are in [data-model.md](data-model.md).
 
 | Table                  | What it is                                                                                                             |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -167,5 +167,6 @@ The MVP is a demo to learn from, **not a release**. To stay small, it takes some
 ## Where to read more
 
 - Decisions: [`docs/adr/`](../adr/)
+- What is in the database and who may touch it: [`data-model.md`](data-model.md)
 - What PR reviews check, as checklists for authors and the AI checks: [`docs/checks/`](../checks/README.md)
 - What we build, in which order: [`docs/roadmap.md`](../roadmap.md) (one GitHub milestone per set)
