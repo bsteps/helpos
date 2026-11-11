@@ -1,6 +1,6 @@
 # Sign-in and sessions
 
-People sign in with email and password. There is no sign-up. An operator creates the workspace and owner with `pnpm helpos:init`, which prints a one-time link to set the password. A signed-out visitor who opens a ticket link is sent to sign in, then back to that ticket.
+People sign in with email and password. There is no sign-up. An operator creates the workspace and owner with `pnpm helpos:init`, which prints a one-time link to set the password. A signed-out visitor who opens a conversation link is sent to sign in, then back to that conversation.
 
 ## Sub-features
 
@@ -26,7 +26,7 @@ Preconditions: baseline.
 - **No token.** Open `/set-password` without `#token=...`, or reload after the page stripped it. You see `This page needs the full link you were sent. Open that link again.` and no form.
 - **Sign in.** At `/login`, fill `Email` and `Password`, then click `Sign in`. The heading `Inbox` appears and the header shows `Northwind Cycles`. API: `pnpm api none POST v1/auth/sign-in '{"email":"maya.okafor@northwind-cycles.test","password":"northwind demo password"}'` returns `204` with a `Set-Cookie`.
 - **Wrong password.** The page shows `Wrong email or password.`. The API answers `401 invalid_credentials`, the same as for an unknown email.
-- **Deep link.** Signed out, open `/tickets/<id>?from=notice`. You land on `/login?redirect=...`. After sign-in the URL is `/tickets/<id>?from=notice`.
+- **Deep link.** Signed out, open `/conversations/<id>?from=notice`. You land on `/login?redirect=...`. After sign-in the URL is `/conversations/<id>?from=notice`.
 - **Who am I.** `pnpm api owner GET v1/me` returns `actor.type` `user` with all 9 scopes. `pnpm api northwind:triage-bot GET v1/me` returns `actor.type` `agent` with its 3 scopes. `pnpm api none GET v1/me` returns `401`.
 - **Sign out.** Click `Sign out`. You are back on `/login`, and opening `/` sends you to `/login` again.
 

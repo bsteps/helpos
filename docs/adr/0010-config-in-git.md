@@ -29,7 +29,7 @@ Constraints from earlier ADRs:
 
 Each file is markdown with YAML frontmatter (`id`, `kind`, `version` and kind-specific fields), validated by a Zod schema per kind. The file body is the content.
 
-**Never in git:** tickets, messages, customers, audit log, memberships, tokens and any secret. These are operational data or credentials, not config.
+**Never in git:** conversations, messages, customers, audit log, memberships, tokens and any secret. These are operational data or credentials, not config.
 
 ### 2. The database is the runtime source of truth
 
