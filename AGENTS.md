@@ -84,6 +84,11 @@ When a rule here has a check, the check is the rule: if you hit it, do what its 
 | GitHub Actions pinned to a SHA, `persist-credentials: false`, locked-down AI review                                                                                                                                                  | `scripts/workflows.test.mjs`                                                                                                   |
 | Which scopes a route needs, whether a `none` audit reason holds, inbound content as data, safe output, `safe-fetch` for outside URLs                                                                                                 | Judgment: the tenant-isolation and security-baseline checks, and review                                                        |
 
+| Empty catch blocks are forbidden, including comment-only catches; no-op callbacks remain allowed | Biome plugin `empty-catch.grit`, `scripts/biome-plugins.test.mjs` |
+| Request bodies use route validation; only inbound email and GitHub webhook read raw bodies | Biome plugin `raw-request-body.grit`, `scripts/biome-plugins.test.mjs` |
+| JavaScript and TypeScript filenames use kebab-case | Biome `useFilenamingConvention`, `scripts/biome-plugins.test.mjs` |
+| Product display text uses `brand` outside its definition and tests | Biome plugin `brand-name.grit`, `scripts/biome-plugins.test.mjs` |
+
 ## Code style and patterns
 
 - **Feature folders:** each feature owns its schema, API routes, domain logic and tests. Shared code goes in `packages/`.
