@@ -1124,7 +1124,7 @@ describe("creating the issue", () => {
     });
     expect(fixed).toHaveLength(1);
     expect(stateFailures).toBe(0);
-    expect(await auditRows(email.conversationId)).toContainEqual({
+    expect.soft(await auditRows(email.conversationId)).toContainEqual({
       tenantId: acme,
       actorType: "system",
       actorId: "github-recheck",
@@ -1147,6 +1147,33 @@ describe("creating the issue", () => {
     expect(
       await (await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")).json(),
     ).toMatchObject({ githubIssue: { state: "closed" } });
+  });
+
+  it("attributes an expired recheck to the job when GitHub stays unavailable", async () => {
+    await connect();
+    const email = await receiveEmail();
+    duringStateCheck = async () => {
+      await db.withTenant(acme, (tx) =>
+        tx
+          .update(schema.conversationGithubIssues)
+          .set({ createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) })
+          .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
+      );
+    };
+    stateFailures = 2;
+    await createIssue(email.conversationId);
+    await expect
+      .poll(() => auditRows(email.conversationId), { timeout: 20_000 })
+      .toContainEqual({
+        tenantId: acme,
+        actorType: "system",
+        actorId: "github-recheck",
+        requestId: null,
+        action: "github_issue.recheck_failed",
+        targetType: "conversation",
+        targetId: email.conversationId,
+      });
+    expect((await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed")).toEqual([]);
   });
 
   it("says what GitHub said when a stale claim's search is refused, not 'unavailable'", async () => {
@@ -1645,7 +1672,6 @@ describe("creating the issue", () => {
         headers.authorization = `Bearer ${credential.token}`;
       }
       const email = await receiveEmail();
-      // A maintainer closes it as done the moment it exists: that webhook had nothing to match.
       duringCreate = async () => {
         const opened = openedIssues[0];
         if (opened) Object.assign(opened, { state: "closed", state_reason: "completed" });
@@ -1659,6 +1685,18 @@ describe("creating the issue", () => {
       expect(await res.json()).toMatchObject({ state: "closed" });
       const fixed = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
       expect(fixed).toHaveLength(1);
+      const detail = await api.request(`/v1/conversations/${email.conversationId}`, { headers });
+      expect(detail.status).toBe(200);
+      expect(await detail.json()).toMatchObject({ githubIssue: { state: "closed" } });
+      const draftList = await api.request(`/v1/conversations/${email.conversationId}/drafts`, {
+        headers,
+      });
+      expect(draftList.status).toBe(200);
+      expect(await draftList.json()).toMatchObject({
+        drafts: expect.arrayContaining([
+          expect.objectContaining({ kind: "fixed", status: "pending", body: fixedNoticeBody }),
+        ]),
+      });
       const context = {
         tenantId: acme,
         actorType,
@@ -1666,7 +1704,7 @@ describe("creating the issue", () => {
         requestId: res.headers.get("x-request-id"),
       };
       expect(context.requestId).toBeTruthy();
-      expect(await auditRows(email.conversationId)).toEqual([
+      expect.soft(await auditRows(email.conversationId)).toEqual([
         {
           ...context,
           action: "github_issue.created",
@@ -1894,6 +1932,25 @@ describe("the webhook", () => {
       (d) => d.kind === "fixed" && d.status !== "discarded",
     );
     expect(live).toEqual([]);
+    expect(await auditRows(email.conversationId)).toContainEqual({
+      tenantId: acme,
+      actorType: "system",
+      actorId: "github-recheck",
+      requestId: null,
+      action: "github_issue.reopened",
+      targetType: "conversation",
+      targetId: email.conversationId,
+    });
+    const fixed = (await draftsOf(email.conversationId)).find((d) => d.kind === "fixed");
+    expect(await auditRows(fixed?.id ?? "")).toContainEqual({
+      tenantId: acme,
+      actorType: "system",
+      actorId: "github-recheck",
+      requestId: null,
+      action: "draft.discarded",
+      targetType: "draft",
+      targetId: fixed?.id,
+    });
   });
 
   it("closed as completed → a pending 'fixed' draft; a replay changes nothing", async () => {
@@ -1908,6 +1965,22 @@ describe("the webhook", () => {
     expect(fixed[0]).toMatchObject({ status: "pending", body: fixedNoticeBody });
     expect(fixed[0]?.messageId).toBe(email.messageId);
     expect(await auditActions(acme, email.conversationId)).toContain("github_issue.closed");
+    const webhookContext = {
+      tenantId: acme,
+      actorType: "system",
+      actorId: "github-webhook",
+      requestId: res.headers.get("x-request-id"),
+    };
+    expect(webhookContext.requestId).toBeTruthy();
+    expect(await auditRows(email.conversationId)).toContainEqual({
+      ...webhookContext,
+      action: "github_issue.closed",
+      targetType: "conversation",
+      targetId: email.conversationId,
+    });
+    expect(await auditRows(fixed[0]?.id ?? "")).toEqual([
+      { ...webhookContext, action: "draft.created", targetType: "draft", targetId: fixed[0]?.id },
+    ]);
     const conversation = await (
       await call("GET", `/v1/conversations/${email.conversationId}`, "readOnly")
     ).json();
