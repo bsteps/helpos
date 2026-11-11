@@ -23,7 +23,7 @@ import { ensureJobQueues } from "../jobs.ts";
 import { composeServices, defaultConfig } from "../services.ts";
 import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { AiBusyError, aiBudget, type Reservation } from "./budget.ts";
+import { aiBudget, type Reservation } from "./budget.ts";
 import { seedReservation, seedUsage, usageOn } from "./testing.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
@@ -205,10 +205,8 @@ describe("daily AI budget", () => {
     const mb = mockModel(callCost);
     const first = Promise.allSettled([draft(acme, a.messageId, ma)]);
     try {
-      // Keep the reservation live until the second job has checked the budget. An instant
-      // mock can settle first, making the second job pause successfully instead of retrying.
       await expect.poll(() => ma.doGenerateCalls.length).toBe(1);
-      await expect(draft(acme, b.messageId, mb)).rejects.toThrow(AiBusyError);
+      await expect(draft(acme, b.messageId, mb)).resolves.toBe(mb);
       expect(await usageOn(db, acme, clock)).toMatchObject({ totalTokens: 100, calls: 0 });
     } finally {
       released.resolve();
@@ -400,7 +398,7 @@ describe("reserve and spend", () => {
       logger,
     });
     const result = await db.withTenant(other, (tx) => budget.reserve(tx, other, 50));
-    expect(result).toEqual({ refused: "over_budget", resetsAt: new Date("2027-01-02T00:00:00Z") });
+    expect(result).toEqual({ refused: "over_budget", retryAt: new Date("2027-01-02T00:00:00Z") });
   });
 
   it("two reservations at the cap at once: the second waits for the first, then is refused", async () => {
@@ -444,7 +442,7 @@ describe("reserve and spend", () => {
     const [a, b] = await Promise.all([first, second]);
     expect(a).toMatchObject({ tenantId: other, day: "2026-11-25", tokens: 150 });
     // 100 spent is under 200, but the first's 150 holds the rest.
-    expect(b).toBe("busy");
+    expect(b).toMatchObject({ refused: "busy" });
     expect(await usageOn(db, other, day)).toMatchObject({ totalTokens: 100, reservedTokens: 150 });
 
     // Settled to what it cost, it lets the rest go.
@@ -461,7 +459,7 @@ describe("reserve and spend", () => {
     await seedUsage(db, other, "2026-11-25", 40);
     expect(await db.withTenant(other, reserve)).toMatchObject({
       refused: "over_budget",
-      resetsAt: new Date("2026-11-26T00:00:00Z"),
+      retryAt: new Date("2026-11-26T00:00:00Z"),
     });
   });
 
@@ -497,7 +495,7 @@ describe("reserve and spend", () => {
     // A call whose process died holds the rest of the budget (60 + 150 of 200): until its
     // reservation runs out, it blocks.
     await seedReservation(db, other, "2026-11-29", 150, 60);
-    expect(await reserve()).toBe("busy");
+    expect(await reserve()).toMatchObject({ refused: "busy" });
     // Expiry charges the unknown bill, so it is over_budget rather than permanently busy.
     await seedReservation(db, other, "2026-11-29", 150, -1);
     expect(await reserve()).toMatchObject({ refused: "over_budget" });

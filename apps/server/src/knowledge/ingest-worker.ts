@@ -9,7 +9,7 @@ import {
 import { eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
-import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
+import { aiBudget, mapAiRefusal, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
@@ -209,9 +209,16 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const reservation = await transaction((tx) =>
       budget.reserve(tx, tenantId, tokenBound(...chunks)),
     );
-    // Other calls in flight hold the rest of today's budget: pg-boss tries again shortly.
-    if (reservation === "busy") throw new AiBusyError();
-    if ("refused" in reservation) return waitForBudget(reservation.resetsAt);
+    if ("refused" in reservation) {
+      return mapAiRefusal(reservation, {
+        busy: (startAfter) =>
+          transaction(async (tx) => {
+            if (!(await lockIfCurrent(tx))) return;
+            await enqueue(tx, ingestSourceJob, { tenantId, sourceId, requests }, { startAfter });
+          }),
+        over_budget: waitForBudget,
+      });
+    }
 
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
     try {

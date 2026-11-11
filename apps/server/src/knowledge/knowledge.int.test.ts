@@ -1912,7 +1912,7 @@ async function paidSearch(
   const reservation = await transaction((tx) =>
     budget.reserve(tx, query.tenantId, tokenBound(query.text)),
   );
-  if (reservation === "busy" || "refused" in reservation) throw new Error("Search budget refused");
+  if ("refused" in reservation) throw new Error("Search budget refused");
   return budget.spend(
     transaction,
     reservation,

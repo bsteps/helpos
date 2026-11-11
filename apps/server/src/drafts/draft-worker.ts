@@ -23,7 +23,7 @@ import {
 } from "@helpos/db";
 import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
-import { type AiBudget, AiBusyError, aiBudget, type Spent } from "../ai-budget/budget.ts";
+import { type AiBudget, aiBudget, mapAiRefusal, type Spent } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import {
   noKnowledge,
@@ -312,10 +312,13 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
     (deps.search ? tokenBound(query.text) : 0) +
     replyDraftTokenEstimate(input, deps.search ? knowledgeLimit : 0);
   const reservation = await budget.reserve(tx, payload.tenantId, estimate);
-  // Other drafts in flight hold the rest of today's budget: pg-boss tries again shortly.
-  if (reservation === "busy") throw new AiBusyError();
   if ("refused" in reservation) {
-    await pause(deps, reservation.resetsAt, payload, tx, row.conversationId);
+    await mapAiRefusal(reservation, {
+      busy: async (startAfter) => {
+        await enqueue(tx, draftReplyJob, payload, { startAfter });
+      },
+      over_budget: (retryAt) => pause(deps, retryAt, payload, tx, row.conversationId),
+    });
     return null;
   }
   return { conversationId: row.conversationId, input, query, reservation };
