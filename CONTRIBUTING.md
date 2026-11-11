@@ -19,6 +19,18 @@ pnpm dev                # starts Postgres + Mailpit, applies migrations, runs th
 
 Then open <http://localhost:3000/health> (should say `ok`) and <http://localhost:8025> (Mailpit, catches every email the app sends). Settings live in `.env`, created from `.env.example` on first run.
 
+### Run tests
+
+Run `pnpm exec vitest run --project unit` from the repo root for unit tests without Docker.
+Tests that need Postgres are named `*.int.test.ts`. Run them with
+`pnpm exec vitest run --project int` while Docker is running. The integration project starts
+one throwaway Postgres container and gives each test file its own migrated database.
+
+To test one package, use `pnpm --filter @helpos/server exec vitest run --project unit`
+or replace `unit` with `int`. `pnpm test`, `pnpm verify`, and CI run both projects.
+`pnpm test:scripts` checks that tests importing `@helpos/db/testing` or its local module
+use the integration filename.
+
 ## 2. Find something to work on
 
 - Issues labelled **`good first issue`** are a good start.
