@@ -33,7 +33,7 @@ export const tenants = pgTable(
      * customer gets mail before the release safety work ships. Turning it off is audited.
      */
     shadowMode: boolean("shadow_mode").notNull().default(true),
-    /** Where replies go in shadow mode, usually the design partner. Null: replies wait. */
+    /** Where replies go in shadow mode, usually the workspace owner. Null: replies wait. */
     shadowRecipient: text("shadow_recipient"),
     /**
      * AI tokens this workspace may use per UTC day, set by an operator (never through the API,

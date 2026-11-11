@@ -1,6 +1,6 @@
-# Demo instance for design partners
+# Demo instance
 
-One small instance that design partners can try: they forward their support mail to it and see AI drafts in the inbox. It runs on **any VPS with Docker**. Nothing in it is tied to a hosting vendor.
+One small instance that people can try: they forward their support mail to it and see AI drafts in the inbox. It runs on **any VPS with Docker**. Nothing in it is tied to a hosting vendor.
 
 Everything lives in [`deploy/demo/`](../../deploy/demo/):
 
@@ -46,7 +46,7 @@ The server receives mail at `POST https://<your-domain>/v1/inbound/email`. The b
 
 The Worker also adds a `Delivered-To` header with the address the email was really sent to, which is how forwarded mail finds its workspace (see below). Any provider that can POST the raw email and add that header works the same way. To move away from Cloudflare, only that Worker changes.
 
-## Add a design-partner workspace
+## Add a demo workspace
 
 ```bash
 cd deploy/demo
@@ -54,22 +54,22 @@ docker compose exec server node src/cli/init.ts \
   --workspace "Acme" --mailbox acme@<your-domain> --owner jane@acme.com
 ```
 
-- `--mailbox` is an address on **your demo domain**, not the partner's own address. Replies and notices are sent from it, and only your domain can pass SPF/DKIM. Mail sent "from" `support@acme.com` through your SMTP would be rejected or end up in spam.
-- `--owner` is the partner. They become the shadow recipient, so the drafts they approve come back to them, never to their customer.
-- `--owner` must be the partner's **personal** address, never the inbox they forward. Shadowed replies and notices go to the owner. If that inbox forwards them back, each one becomes a new ticket, and can loop.
+- `--mailbox` is an address on **your demo domain**, not the owner's own address. Replies and notices are sent from it, and only your domain can pass SPF/DKIM. Mail sent "from" `support@acme.com` through your SMTP would be rejected or end up in spam.
+- `--owner` is the person trying it. They become the shadow recipient, so the drafts they approve come back to them, never to their customer.
+- `--owner` must be the owner's **personal** address, never the inbox they forward. Shadowed replies and notices go to the owner. If that inbox forwards them back, each one becomes a new ticket, and can loop.
 - It prints a one-time link (valid 24 hours) where the owner sets their password. Send it only to them.
 
-Then the partner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the Worker's `Delivered-To` header is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a ticket in their inbox, with the confirmation link in it.
+Then the owner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the Worker's `Delivered-To` header is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a ticket in their inbox, with the confirmation link in it.
 
-Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft appears in the inbox, and the partner can approve it.
+Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft appears in the inbox, and the owner can approve it.
 
-To show bugs turning into GitHub issues, set `HELPOS_ENCRYPTION_KEY` in `.env` (see [self-hosting](../self-hosting.md#github-ticket--issue--its-fixed)), then the partner connects their repo under **Settings → GitHub** and adds the webhook it shows. The "it's fixed" emails are shadowed like every other reply. Keep the key next to your backups: a restored database can't read the stored token without it.
+To show bugs turning into GitHub issues, set `HELPOS_ENCRYPTION_KEY` in `.env` (see [self-hosting](../self-hosting.md#github-ticket--issue--its-fixed)), then the owner connects their repo under **Settings → GitHub** and adds the webhook it shows. The "it's fixed" emails are shadowed like every other reply. Keep the key next to your backups: a restored database can't read the stored token without it.
 
 ## Data and privacy
 
-Partners forward **real customer emails**. Their content is stored on the VPS and in the backups, and sent to the AI provider to write drafts. Before the first partner:
+Owners forward **real customer emails**. Their content is stored on the VPS and in the backups, and sent to the AI provider to write drafts. Before the first owner:
 
-- **Tell each partner** what's stored (emails, attachments, drafts), where (your VPS, its backups, the AI provider), and for how long. They should forward only mail they're allowed to share.
+- **Tell each owner** what's stored (emails, attachments, drafts), where (your VPS, its backups, the AI provider), and for how long. They should forward only mail they're allowed to share.
 - **Check the AI provider's API terms**: the content must not be used for training. Anthropic's API doesn't train on API data by default.
 - **Agree on when the data is deleted**, for example when the trial ends, and then wipe as below, off-site copies included. Backups keep data for up to 14 days after it's deleted.
 
@@ -108,7 +108,7 @@ sudo rm -rf backups/            # the dumps hold the same data
 docker compose up -d --build    # a fresh, empty instance, if you want one
 ```
 
-Also remove off-site backup copies, and ask partners to turn off their forwarding. Deleting a single workspace isn't built yet. To remove one partner's data, wipe the instance and re-add the other partners.
+Also remove off-site backup copies, and ask owners to turn off their forwarding. Deleting a single workspace isn't built yet. To remove one owner's data, wipe the instance and re-add the other owners.
 
 ## Manual steps (not in the repo)
 
@@ -121,5 +121,5 @@ These need someone with the accounts. The repo can't do them:
 5. **Get an AI API key** for `AI_API_KEY`.
 6. **Fill in `.env`** on the VPS with fresh secrets, then `docker compose up -d --build`.
 7. **Set up off-site backup copies** from `deploy/demo/backups/`.
-8. **Write a short data note for partners** and confirm the AI provider's terms (see Data and privacy).
-9. For each design partner: run the workspace command above, send them the password link, and help them set up forwarding.
+8. **Write a short data note for owners** and confirm the AI provider's terms (see Data and privacy).
+9. For each person trying it: run the workspace command above, send them the password link, and help them set up forwarding.

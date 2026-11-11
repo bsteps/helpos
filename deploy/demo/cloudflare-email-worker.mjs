@@ -4,7 +4,7 @@
 // Only the forwarding runs on Cloudflare. Any provider that can POST raw MIME works the same way.
 //
 // Workspaces on the demo use addresses on the demo domain (acme@<domain>), because the server
-// sends replies from the mailbox address, and only the demo domain can pass SPF/DKIM. Partners
+// sends replies from the mailbox address, and only the demo domain can pass SPF/DKIM. Owners
 // auto-forward their own inbox here, but a forwarded email still says `To: support@acme.com`.
 // So the worker puts the address it was really delivered to on top, as `Delivered-To`, which
 // the server checks first. scripts/smoke-demo.sh runs this exact code.

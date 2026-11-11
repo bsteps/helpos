@@ -1,95 +1,93 @@
 # Roadmap
 
-Every feature we want over the product's lifetime, grouped into sets. Each set is a finished, usable product for a named user, with one exit goal. Nothing lands before what it depends on. Sets are sized for one or two people working with coding agents.
-
-Each set is a GitHub milestone. MVP and Set 2a have issues. Later sets are rows here until we start them, so the tracker doesn't fill with stale issues. `#n` is an existing issue; ✅ means it's built.
+How we get from here to the [vision](vision.md). Each set is a GitHub milestone with one exit goal. Nothing lands before what it depends on. When this page disagrees with the vision, the vision wins. Accepted ADRs still bind: changing one takes a new ADR.
 
 ## Principles
 
-- **Wedge first.** "Support that fixes its own bugs" ships before generic helpdesk breadth.
-- **Riskiest assumption first.** Before automating the coding-agent step, we test it by hand (#69).
-- **Hosted first, paid early.** Design partners pay as soon as they're on real mail, by invoice first. We build billing when sign-ups justify it. Self-hosting is supported as docs plus Docker Compose, with no install target and no support promise.
-- **Evidence gates.** Set 2a starts only after 10 interviews (#33). Set 3 is re-ordered from what design partners actually asked for (#77).
+- **Pipes, not features.** If an agent can do it in one prompt, it isn't on this list.
+- **The gate first.** Every later pipe goes through it.
+- **Real replies early.** Trust is earned from outcomes, and outcomes exist only once real replies reach customers. So the first real reply comes right after the gate and shadow mode, before the improve loop.
+- **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#185).
+- **Remove what the vision replaced, only once the replacement works.**
 
 ## The sets
 
-| Set                      | For whom                                                           | Exit goal                                                                                                                                        |
-| ------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **MVP**                  | Founder + 3–5 design partners                                      | 10 interviews logged · 3 partners run the loop in shadow mode for 2 weeks · ≥50% of drafts approved unchanged · coding-agent spike decided (#69) |
-| **2a: safe real mail**   | Design partners on hosted, real customer mail                      | 3 partners live (shadow mode off) · 5+ agent PRs merged from real tickets · 2+ partners ask to pay                                               |
-| **2b: paid hosted**      | First paying customers                                             | 10 paying workspaces                                                                                                                             |
-| **3: complete helpdesk** | Dev-led SaaS teams switching from Help Scout, Crisp or plain email | 50 paying workspaces · 70% still paying after 3 months                                                                                           |
-| **4: platform + growth** | Growing teams, agent builders                                      | $5K MRR (about 170 workspaces at about $30 average)                                                                                              |
-| **Later**                | Enterprise, more channels                                          | On demand                                                                                                                                        |
+| Set                             | Exit goal                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅ **MVP**                      | Email → conversation → AI draft → approve → send, in shadow mode                                                                                              |
+| **A. The gate**                 | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
+| **B. Shadow mode** (after #187) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
+| **C. First real reply**         | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
+| **D. Bring your agent**         | The improve loop runs, from the built-in agent on a schedule and from an outside agent (Claude Code, Codex) through MCP. Outside tools connect last           |
+| **E. Paid hosted**              | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
+| **Later**                       | On demand                                                                                                                                                     |
 
-## MVP
+## A. The gate
 
-A demo to learn from, not a release. **Shadow mode** (#66) sends every outbound email to the design partner instead of the customer, so the release-only safety items in Set 2a can wait.
+- #28 threat model, first pass, before the gate is designed
+- #8 leak harness, before the new tables of A and B
+- #187 the one decision record. Set B starts once it lands
+- #184 rename tickets to conversations, before MCP tools are generated (#19)
+- #130 no automatic resend · #139 send-failed replies under load
+- #165 one owner per conversation: expiring claims and versions
+- #13 the gate: an identity per agent (the built-in one too), permissions, and human-only approval
+- #188 caps and kill switch (only a person turns it off) · #189 approved means exactly that action
+- #166 trust ladder: state, demotion and caps now. Promotions open once real outcomes exist (after C)
+- #167 playbook: ask once, remember, recheck. It can never widen authority on its own
+- #168 AI disclosure, and "talk to a human" creates a decision for a person
+- #85 audit records the reason and the inputs · #10 API conventions (idempotency)
 
-Order:
+## B. Shadow mode
 
-1. #63 ignore auto-replies, bounces and mail loops
-2. #45 AI draft → approve → send, with #64 daily AI spend cap
-3. #65 email the owner when a draft is waiting
-4. #16 SSRF-safe fetch
-5. #61 knowledge base, drafts cite sources
-6. #49 minimal agent tokens
-7. #46 inbox screen with email + password login, sanitised customer HTML
-8. #66 shadow mode
-9. #37 ticket → GitHub issue → "fixed" notify
-10. #67 demo instance
-11. #69 manual coding-agent spike
+- #169 bulk import · #170 Crisp migration skill (a versioned file the built-in agent runs on an export)
+- #179 replay without peeking at the real reply, then re-run after knowledge gaps close: the improve loop's first proof
+- #178 no source, no answer
+- Before real conversations are imported and sent to a model: #52 sanitising and PII masking · #29 rate limiting · #76 backup and restore · #78 retention and incident response
+- #171 approval page with Slack and email alerts · #124 tell the owners when a reply can't be sent · #131 inbound attachments
+- #172 knowledge gaps ranked by demand
+- #77 product events and decision demand
 
-Anytime: #62 this roadmap · #68 ADR on config in git (decision only).
-Human, in parallel: #33 interviews (the first 10 gate Set 2a) · #34 landing page + waitlist.
+## C. First real reply
 
-Done: ✅ #5 run locally · ✅ #44 email → ticket · ✅ #48 AI test harness · ✅ #55 tenant-safe jobs · ✅ withTenant + RLS + basic leak tests · ✅ #36 ADR 0009 · ✅ #50 architecture overview · ✅ #42 required AI review.
+The remaining release-safety items from the [architecture overview](architecture/overview.md#mvp-vs-first-release), plus real email basics.
 
-## Set 2a: safe real mail
+- **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption
+- **Email:** #74 sending domain and DKIM signing · #75 bounces and quote stripping
+- **Runs on** the existing image and demo compose. The production self-hosting release is #21 in E
+- **Outcomes:** #185 live outcomes, observation window, sampled quality checks · #186 trust promotions from real outcomes
 
-Shadow mode turns off at the end of this set. Everything in "safety" and "email" must be done first.
+## D. Bring your agent
 
-- **Wedge:** #70 GitHub App instead of a PAT · #71 many tickets → one issue, notify everyone affected · #72 coding agent opens the fix PR, approved and tracked (shape depends on #69) · #73 codebase-aware answers from the linked repo
-- **Safety:** #13 policy layer, caps, kill switch, signed approvals · #31 SPF/DKIM/DMARC check · #8 full leak harness · #15 envelope encryption · #29 rate limiting · #52 output sanitisation + PII masking · #28 threat model, including the coding-agent path · #78 incident response + data retention
-- **Email:** #74 custom sending domain, DKIM signing, attachments · #75 bounce handling, quote stripping
-- **Team:** #11 invites, password reset, roles
-- **Ops:** #18 #6 separate worker + worker DB role · #20 logs, error tracking, AI cost per workspace · #76 backup, restore, doctor · #21 production Docker + Compose · #23 release automation · #10 API conventions (before customers integrate)
-- **Evidence:** #77 product usage events and weekly summary
-- **Payment:** invoice or payment link for design partners (no billing code)
+- #19 MCP server and skills, with features that announce themselves
+- #17 wake-ups: signed webhooks, event feed, fallback
+- #176 freshness loop: knowledge revisions, change events, staleness flags
+- #173 queues and handoff
+- #71 waiting lists, then #175 remove the GitHub-specific code
+- #12 token rotation · #14 audit log query API
+- Last, once #185 shows fewer decisions without worse answers: #174 any MCP tool through the gate
 
-## Set 2b: paid hosted
+## E. Paid hosted
 
-- Hosted sign-up and onboarding: forward-your-support-email setup + DNS check
-- Pricing page decision
-- Usage metering (decide what counts as a "conversation") + AI-turn cap per conversation
-- Stripe billing with Stripe Tax, plans, trial (build when there are 10+ sign-ups)
-- Trial abuse and spam sign-up protection
-- Privacy policy, DPA, subprocessor list · GDPR export/delete as a documented manual process
-- Competitor comparison (Clanker Support, Plain, Chatbase) + "why switch" pages for Help Scout and Chatwoot users
+- #180 sign-up to first replayed answer in minutes
+- #181 one slider by conversations with an AI allowance. Bring your own key always allowed
+- #182 export and deletion · #183 sign-up abuse protection
+- #11 invites, password reset, roles · #21 production Docker + Compose · #18 #6 separate worker
 
-## Set 3: complete helpdesk
-
-Re-ordered from #77 data and design-partner requests before we start.
-
-- **Inbox:** statuses (open, pending, snoozed, closed) · assignment · internal notes · tags · search · saved replies · customer profile + history · realtime + collision warning (`Broadcaster`) · 2FA · OAuth login (GitHub, Google)
-- **Channels:** chat widget + identity-verified widget (only if interviews confirm demand) · IMAP inbound · create tickets through the API · #57 envelope-recipient routing
-- **AI:** triage (category, priority, language, sentiment) · test mode (replay past tickets) · autopilot within allowed rules · handoff + escalation · bring your own key · #19 bring your own agent via MCP · teach v1 (one-click "make this reply an article")
-- **Wedge:** customer-facing status page ("your bug is being fixed") · revenue-weighted feature requests v1 (manual MRR per customer)
-- **Knowledge:** basic public help center from the knowledge base
-- **Import:** email history (IMAP or mbox backfill)
-- **Notifications:** Slack
-- **Ops:** docs site (self-hosting + API) · status page · #24 seed data · #22 coverage and performance budgets in CI
-
-## Set 4: platform + growth
-
-- **Platform:** generated SDK (#19) · #12 token expiry, rotation, UI · #14 audit log query API · #17 outbound signed webhooks · #30 OpenSSF Scorecard · one-click deploy (Railway, Render) · audit log export
-- **Wedge:** config, knowledge and policies in git (implementing #68) · revenue-weighted requests v2 (from Stripe) · Linear + Jira · changelog → notify the customers who asked
-- **AI:** teach v2 (learn from human edits) · AI actions and tools (Stripe lookup, refund…) under the policy layer · multilingual replies
-- **Inbox:** views + filters · bulk actions · keyboard shortcuts · merge and split · SLAs + business hours · companies + custom fields
-- **Knowledge:** article editor · website import + scheduled re-crawl · AI answer box in the help center · help center custom domain · Notion, Confluence and docs-repo connectors
-- **Automation and reports:** rules + triggers · routing · dashboard (volume, AI resolution rate, first response time) · CSAT
-- **Business:** overage pricing · #25 CLA lawyer review (before large outside contributions)
+Billing (with Dodo Payments), metering and hosted admin live in the private hosted-service repo (ADR 0007). Everything else stays here.
 
 ## Later (on demand)
 
-Import from Zendesk, Help Scout, Intercom · Slack Connect, Discord · WhatsApp, SMS, social, voice · SSO (SAML, OIDC), SCIM · mobile app + push · proactive outbound messages · multilingual help center · plugin system + marketplace · Helm, Kubernetes · SOC 2, data residency, IP allowlist
+- **The dashboard step:** settings and stats you can read without paying for AI, with the layout shaped by the agent
+- **Config, knowledge and policies in git** (ADR 0010, accepted). The sync waits, but new tables must keep it possible
+- #20 observability · #22 quality gates and performance budgets · #23 release automation
+- #57 routing by envelope recipient · #90 #91 #92 knowledge re-ingest and vector recall
+- More channels: chat widget, Slack, Discord, WhatsApp, SMS, voice
+- Enterprise: SSO, SCIM, data residency, SOC 2
+- OAuth login (GitHub, Google)
+- #25 CLA lawyer review · #30 OpenSSF Scorecard
+
+Repo tooling issues (#113, #115, #126, #127) have no milestone. Pick them up any time.
+
+## Not on the roadmap
+
+These are the agent's job, not ours: reports and dashboards, CSAT analysis, automation rules and routing logic, saved-reply and tag _choices_, article writing, crawling whole websites, per-platform importers, tracker tickets, changelogs, and coding fixes. HelpOS stores and serves the data. Agents decide what goes in it.

@@ -1,4 +1,4 @@
-# Demo instance for design partners. Runs on any VPS with Docker:
+# Demo instance. Runs on any VPS with Docker:
 #   cp .env.example .env   # then replace every value
 #   docker compose up -d --build
 # Guide: docs/guides/demo-instance.md
@@ -82,7 +82,7 @@ services:
       # GitHub (ticket → issue → "it's fixed"). Empty key: no repo can be connected.
       HELPOS_ENCRYPTION_KEY: ${HELPOS_ENCRYPTION_KEY:-}
       HELPOS_GITHUB_API_URL: ${HELPOS_GITHUB_API_URL:-https://api.github.com}
-      # The demo runs in shadow mode only: every reply goes to the design partner, never to a
+      # The demo runs in shadow mode only: every reply goes to the workspace owner, never to a
       # customer. It's set here and not in .env because it's a fixed value, not read from .env, so
       # editing .env can't unlock it. scripts/check-demo-compose.mjs fails CI if this changes.
       HELPOS_ALLOW_SHADOW_MODE_OFF: "false"

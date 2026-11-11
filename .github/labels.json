@@ -37,7 +37,7 @@
   {
     "name": "human-only",
     "color": "C5DEF5",
-    "description": "Needs a human (interviews, legal, marketing); not for agents"
+    "description": "Requires a maintainer's decision or action; not for agents"
   },
   { "name": "security", "color": "B60205", "description": "Security-related" },
   { "name": "area:db", "color": "0E8A16", "description": "Area: db" },

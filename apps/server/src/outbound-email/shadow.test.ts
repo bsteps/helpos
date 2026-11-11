@@ -17,7 +17,7 @@ const reply: ReplyEmail = {
   date: new Date("2026-11-07T10:00:00Z"),
 };
 const shadowReplyTo = "no-reply@acme.test";
-const shadowOn = { shadowMode: true, shadowRecipient: "partner@acme.test", shadowReplyTo };
+const shadowOn = { shadowMode: true, shadowRecipient: "owner@acme.test", shadowReplyTo };
 
 /** Git checks the fixture out with LF (see .gitattributes), so line endings are compared as LF. */
 const lf = (s: string) => s.replaceAll("\r\n", "\n");
@@ -26,7 +26,7 @@ describe("shadow mode delivery", () => {
   it("sends to the shadow recipient and never to the customer", () => {
     const delivery = planDelivery(reply, shadowOn);
     if (delivery.kind !== "shadow") throw new Error(`got ${delivery.kind}`);
-    expect(delivery.email.to).toBe("partner@acme.test");
+    expect(delivery.email.to).toBe("owner@acme.test");
     expect(delivery.intendedTo).toBe("jane@customer.test");
     // Answering it can't reach the support mailbox and open a ticket.
     expect(delivery.email.replyTo).toBe(shadowReplyTo);
@@ -48,7 +48,7 @@ describe("shadow mode delivery", () => {
     expect(
       planDelivery(reply, {
         shadowMode: false,
-        shadowRecipient: "partner@acme.test",
+        shadowRecipient: "owner@acme.test",
         shadowReplyTo,
       }),
     ).toEqual({ kind: "customer", email: reply });
@@ -63,7 +63,7 @@ describe("shadow mode delivery", () => {
     expect(raw).toBe(lf(readFileSync(fixture, "utf8")));
     // Header names are case-insensitive, and nodemailer normalises their case.
     const headers = (raw.split("\n\n")[0] ?? "").toLowerCase();
-    expect(headers).toContain("\nto: partner@acme.test");
+    expect(headers).toContain("\nto: owner@acme.test");
     expect(headers).toContain("\nreply-to: no-reply@acme.test");
     expect(headers).toContain(`${intendedToHeader.toLowerCase()}: jane@customer.test`);
   });

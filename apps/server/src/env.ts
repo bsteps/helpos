@@ -29,7 +29,7 @@ export const envSchema = z.object({
   // How long a new draft waits before owners are emailed. Approved sooner, no email is sent.
   HELPOS_NOTICE_DELAY_SECONDS: z.coerce.number().int().min(0).default(300),
   // Shadow mode can only be turned off when this is "true". Unset until the release safety work
-  // (Set 2a) ships, so no workspace can send to real customers yet.
+  // (set C, first real reply) ships, so no workspace can send to real customers yet.
   HELPOS_ALLOW_SHADOW_MODE_OFF: z
     .enum(["true", "false"])
     .default("false")

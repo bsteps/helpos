@@ -45,7 +45,7 @@ flowchart LR
 | `packages/ai`         | Builds the AI model from env, prompt helpers, the mock model for tests                                                                                                                                                    | —                                  |
 | `packages/brand`      | Product name and branding. Never hardcode the name                                                                                                                                                                        | —                                  |
 | `packages/safe-fetch` | SSRF-safe HTTP GET for imports and webhooks: blocks private, loopback, link-local and metadata addresses after DNS and on every redirect; timeouts and size limits                                                        | —                                  |
-| `evals/`              | AI eval cases, run by `pnpm eval` (ADR 0005)                                                                                                                                                                              | `packages/ai`                      |
+| `packages/ai` evals   | AI eval cases, run by `pnpm eval` (ADR 0005)                                                                                                                                                                              | `packages/ai`                      |
 
 Each feature (inbound email, drafts, tokens, GitHub…) is a folder inside `apps/server` that owns its routes, domain logic and tests (AGENTS.md). Pure domain logic stays separate from I/O. A draft is written only by `apps/server/src/drafts/lifecycle.ts`: one table of allowed status changes, and named operations (create a reply or a "fixed" notice, approve, discard, mark sent or failed, retry) that each make the change, check the status it starts from, and record the audit event, in the caller's transaction. Routes, the workers and the GitHub loop call those; a lint check fails on a drafts write anywhere else.
 
@@ -151,7 +151,7 @@ Every table below has `tenant_id` with RLS enabled and forced (ADR 0003), **exce
 
 ## MVP vs first release
 
-The MVP (milestone **MVP**) is a demo to learn from, **not a release**. To stay small, it takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (Set 2a in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the design partner, never to a real customer:
+The MVP is a demo to learn from, **not a release**. To stay small, it takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (set C, first real reply, in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the workspace owner, never to a real customer:
 
 | MVP shortcut                               | Required before release                   |
 | ------------------------------------------ | ----------------------------------------- |
