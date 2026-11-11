@@ -161,7 +161,7 @@ it.each(["init", "token", "ai-budget", "seed"])(
   async (name) => {
     const cli = fileURLToPath(new URL(`./${name}.ts`, import.meta.url));
     const result = await new Promise<{
-      code: number | string | undefined;
+      code: number | string | null | undefined;
       stdout: string;
       stderr: string;
     }>((resolve) => {
