@@ -34,8 +34,13 @@ every owner.
 Actions outside drafts accept an empty details object. Recording their inputs is
 outside #85. Strict schemas reject extra fields, including body text.
 
-Migration `0023_audit-details.sql` adds a nullable column without a backfill or
+Migration `0024_audit-details.sql` adds a nullable column without a backfill or
 default. `NULL` means legacy details are unavailable. It does not mean an empty
 body, a manual discard, or any other reconstructed input. New events written
 through `recordAudit()` store validated objects. Old events and raw historical
 fixtures keep `NULL`. No historical event is rewritten.
+
+The demo seed stores details only when its scenarios retain the exact inputs.
+Token events use empty objects. Unedited creation, approval, and send events retain
+known hashes or transitions. Creation before an edit, intermediate edit bodies,
+and the historical discard reason remain `NULL` because those inputs are unavailable.

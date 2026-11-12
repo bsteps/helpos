@@ -1,5 +1,6 @@
 import type { schema } from "@helpos/db";
 import { describe, expect, it } from "vitest";
+import { auditDetails, hashBody } from "../audit/details.ts";
 import { draftTransitions } from "../drafts/lifecycle.ts";
 import { buildDemoData } from "./demo-data.ts";
 
@@ -117,4 +118,30 @@ describe("demo draft lifecycle invariants", () => {
       expect(draft.updatedAt?.getTime()).toBe(previousTime);
     },
   );
+});
+
+it("keeps all 35 demo audit rows compatible without inventing unknown historical inputs", () => {
+  const events = buildDemoData().tenants.flatMap((tenant) => tenant.audit);
+  expect(events).toHaveLength(35);
+  expect(events.filter((event) => event.details == null).map((event) => event.action)).toEqual([
+    "draft.discarded",
+    "draft.created",
+    "draft.edited",
+    "draft.edited",
+  ]);
+  for (const event of events) {
+    const validator = Object.entries(auditDetails).find(([action]) => action === event.action)?.[1];
+    expect(validator).toBeDefined();
+    if (event.details != null) expect(validator?.safeParse(event.details).success).toBe(true);
+  }
+  for (const { tenant, draft } of cases) {
+    const history = tenant.audit.filter((event) => event.targetId === draft.id);
+    const edited = history.some((event) => event.action === "draft.edited");
+    expect(history[0]?.details).toEqual(
+      edited ? null : { bodyHash: hashBody(draft.body), messageId: draft.messageId, kind: "reply" },
+    );
+    for (const event of history.filter((event) => event.action === "draft.approved")) {
+      expect(event.details).toEqual({ reviewedBodyHash: hashBody(draft.body) });
+    }
+  }
 });

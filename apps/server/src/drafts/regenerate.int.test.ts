@@ -190,6 +190,7 @@ it.each([
         actorType: actor.type,
         actorId: actor.id,
         requestId: audit.requestId,
+        details: { reason: "manual", operation: "regenerate" },
       },
     ]);
   },

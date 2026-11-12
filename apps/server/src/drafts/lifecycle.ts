@@ -119,11 +119,6 @@ export type DraftChange =
 type DraftValues = typeof drafts.$inferInsert;
 type DraftSet = { [K in Exclude<keyof DraftValues, "status">]?: DraftValues[K] | SQL };
 
-/**
- * The conditional update every single-draft change goes through: it applies only while the
- * draft is in one of the operation's `from` statuses (and `also`, when given), so two changes
- * at once can't both win.
- */
 async function change(
   tx: TenantTx,
   context: AuditContext,

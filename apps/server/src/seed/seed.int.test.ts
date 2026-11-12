@@ -92,6 +92,25 @@ describe("seedDemoData", () => {
     }
   });
 
+  it("stores all historical audit details exactly as planned, including unknown NULL inputs", async () => {
+    let count = 0;
+    let unknown = 0;
+    for (const tenant of buildDemoData().tenants) {
+      const stored = await db.withTenant(tenant.tenant.id, (tx) =>
+        tx.select().from(schema.auditEvents).orderBy(asc(schema.auditEvents.id)),
+      );
+      expect(stored).toEqual(
+        tenant.audit
+          .map((event) => ({ ...event, details: event.details ?? null }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+      );
+      count += stored.length;
+      unknown += stored.filter((event) => event.details === null).length;
+    }
+    expect(count).toBe(35);
+    expect(unknown).toBe(4);
+  });
+
   it("keeps each workspace's data to itself", async () => {
     const [northwind, lumen] = buildDemoData().tenants;
     if (!northwind || !lumen) throw new Error("expected two demo workspaces");
