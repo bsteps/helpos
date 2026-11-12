@@ -82,6 +82,10 @@ An independent two-axis review (standards and spec) ran against parent `2cb0ef55
 
 Still open from #226: `EnqueueOptions.retryLimit` has no caller. ADR 0009 says `app_enqueue()` accepts only the options `enqueue()` uses, so removing it from `enqueue()` alone would leave the SQL allowlist wider than its caller. Removing it from both needs a migration and a recheck of the send-path model, which is outside this integration. #226 stays open for that item.
 
+The parent branch later advanced to `d135968947928aeaa242a4e44533408dc78a0e9e`, which widens its own outbound-request and raw-body checks. That commit is merged here without conflicts. It overlaps this group only in `scripts/biome-plugins.test.mjs`, and the plugin, Biome configuration and Knip tests pass after the merge.
+
+A security review of this group's own diff against the parent found nothing to fix. It checked that token and password-link secrets reach only stdout, that the token and budget commands keep `withTenant()` and their audit actors, that the seed guard still refuses before any connection, that strict argument parsing skips no check, and that no removed export is a security control a consumer needs.
+
 Kept on purpose: `DraftResult.toolCalls` and the `tools` option of `draftReply`, because the offline evals read them. Operator-visible changes from #245: unknown or positional arguments now print usage and exit 2 instead of a stack trace and exit 1, arguments are checked before environment variables, and `db:seed` refuses any argument. Every in-repo caller runs `db:seed` without arguments.
 
 ## Later dependency mappings and limits
