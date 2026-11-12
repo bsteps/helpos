@@ -42,7 +42,7 @@ The unique #139 range is `ba4305a..388ed1f`, exactly one commit and one file. Or
 
 ## Necessary parent refresh
 
-The refresh branch `314-migration-refresh` starts at the pinned shared PR313 parent `80e638451a639947fc88cc96af5ee9ef4c73bb7f`. It merges existing PR315 head `54645de0cbe91bbd8d3dd584e9cc0ea714e6a02b`, preserving its merge, all 15 linear source identities, and the exact unique #139 patch. This parent includes actual main `c401a765a80f8e32a16bbdaf03629f20841171dc` with PR311's typed knowledge state. PR313 is still awaiting its independent verdict and merge at assembly. PR315 must account for the actual squash commit before targeting main. No source branch is rewritten or pushed.
+The refresh branch `314-migration-refresh` starts at the pinned shared PR313 parent `80e638451a639947fc88cc96af5ee9ef4c73bb7f`. It merges existing PR315 head `54645de0cbe91bbd8d3dd584e9cc0ea714e6a02b`, preserving its merge, all 15 linear source identities, and the exact unique #139 patch. This parent includes actual main `c401a765a80f8e32a16bbdaf03629f20841171dc` with PR311's typed knowledge state. PR313 was independently reviewed at that parent and squash-merged as `58451595845f67aef0fb35e0ba584bac71ad1045`. The squash tree equals the pinned parent tree exactly. Merge `95c41ec8e1bae8bcb1fef284cd19ed6a5989c07e` records the actual main ancestry once and retains the assembled tree without any code delta. PR315 now targets actual main without duplicating parent scope. No source branch is rewritten or pushed.
 
 Integration conflicts require these resolutions.
 
@@ -131,9 +131,9 @@ The decision trail is `E:/Projects/helpdesk/.helpos/autopilot/314-integration.ts
 
 ## Refresh validation
 
-Offline Drizzle generation produced migration 0023 against the exact typed-state predecessor. Initial focused unit checks passed 26 server, 5 Actor, and 22 dashboard assertions. Typecheck passed all seven packages after the badge import reconciliation, with three fresh tasks and four cached tasks. The first dashboard command used the server-only unit project name and stopped before tests; rerunning with its existing configuration passed.
+Offline Drizzle generation produced migration 0023 against the exact typed-state predecessor. Focused unit checks passed 26 lifecycle/MIME/identity, 152 access/route/job, 5 Actor, and 22 dashboard assertions. Typecheck passed all seven packages after the badge import reconciliation, with three fresh tasks and four cached tasks. The first dashboard command used the server-only unit project name and stopped before tests; rerunning with its existing configuration passed.
 
-The serialized heavy slot has been requested from the parent. No refreshed DB, browser, model, mutation, or full gate result is claimed yet. Unchanged source review and 36 frozen statechart reports remain inherited evidence.
+The parent activated the exclusive heavy slot after confirming PR313 merged. Refreshed evidence is recorded below. Unchanged source reviews and 36 frozen statechart reports remain inherited evidence.
 
 ### Source overlap accounting
 
@@ -157,3 +157,19 @@ After the documented draft test rename, 51 of the 73 linear-chain paths still ma
 | `packages/db/src/testing.ts`                                                                      | Parent observable worker waits plus source uncertain-draft leak fixture.                                   |
 
 The shared `.env` SHA-256 at refresh start is `604264a8e6a93210d1899d0a0c9a028c0df589ed47290353b81cd4b67267c1d1`. This checkout setup copied those bytes into its own environment file. No shared environment write is needed.
+
+### Fresh checks after the actual parent merge
+
+The DB focused run passed 35 assertions and exposed one defect in the new rollback fixture. Removing the old constraint made migration fail before its additive work. Restoring that constraint as NOT VALID allows deliberately invalid legacy data, so the assertion now proves failure at the new status constraint. The corrected two-test predecessor/data/rollback run passes. Existing typed-state translation and rollback, schema/RLS, job integration, drift detection, and repeated migration/job installation assertions passed unchanged.
+
+The send-focused run passed 98 integration assertions in eight files against real Postgres, pg-boss and Mailpit. It includes uncertain acceptance, COMMIT failure, physical worker death, no fresh automatic attempt, exact audit identity, audit-tenant rollback, cross-tenant denial, lifecycle predicates, headers and fixture bytes.
+
+`pnpm verify:send-reply` matched all 36 expected outcomes and selectively maintained fingerprints. All 36 freshly generated model/config pairs equal #193 frozen inputs byte for byte. The 24 holds and 12 expected known/mutant breaks retain their reviewed statechart explanations without rendering again. `pnpm verify:send-reply:mutations` passed both eight-assertion baseline/restored runs, rejected all four source mutations at their five intended assertions, and restored both covered source files byte for byte.
+
+The refreshed browser run passed 22 laptop/phone cases with one existing viewport skip across inbox, failed-send and uncertain-send recovery. Both temporary negative controls failed at their intended assertions. A wrong sent-status expectation fails the 45-second persisted-state predicate for the exact response draft. A browser-only stale approved response allows the API predicate to pass and fails the retained Not sent badge assertion. The temporary test is removed. OpenAPI regeneration produces no metadata diff.
+
+The fresh native Comment Sicko review covers only integration-authored changes, with zero new comments, suppressions, deletions or open constraints. Deslop keeps only necessary parent conflicts, generated metadata, characterization tests and provenance. Root owns the later independent combined review.
+
+The full publication gate runs once on the final stable committed head after scratch fixtures finish. Its exact SHA, result and fresh/cache split are recorded in the append-only decision trail and PR evidence. Previous full-gate receipts remain historical, not a claim about this refreshed head. Shared Docker is preserved; test-owned databases, containers and processes are cleaned up by their harnesses.
+
+`pnpm test:scripts` passed all 107 tests with no skips after browser and source mutation restoration. This includes corrected lexical/nested fingerprint invalidation, model negative controls, filename and Knip fixtures. No scratch test remains before the full gate.

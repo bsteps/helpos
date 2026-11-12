@@ -112,6 +112,8 @@ it("rolls back the column and journal entry if the expanded status constraint ca
       await tx`update drafts set status = 'invalid' where status = 'approved'`;
     });
   }
+  await owner`alter table drafts add constraint drafts_status
+    check (status in ('pending', 'approved', 'sent', 'send_failed', 'discarded')) not valid`;
   const before = await Promise.all(tenantIds.map(rows));
   const journal = await owner`select * from drizzle.__drizzle_migrations order by id`;
   await expect(runMigrations(ownerUrl)).rejects.toMatchObject({
