@@ -5,13 +5,13 @@ import { run as seed } from "./seed-command.ts";
 import { run as token } from "./token-command.ts";
 
 const commands = [
-  { name: "helpos:init", run: init, missing: ["--workspace"] },
-  { name: "helpos:token", run: token, missing: ["--mailbox"] },
-  { name: "helpos:ai-budget", run: budget, missing: ["--tokens"] },
-  { name: "db:seed", run: seed, missing: ["--seed"] },
+  { name: "helpos:init", run: init, missing: [["--workspace"]] },
+  { name: "helpos:token", run: token, missing: [["--mailbox"]] },
+  { name: "helpos:ai-budget", run: budget, missing: [["--tokens"]] },
+  { name: "db:seed", run: seed, missing: [] },
 ];
 for (const command of commands) {
-  for (const args of [["--unknown"], ["unexpected"], command.missing]) {
+  for (const args of [["--unknown"], ["unexpected"], ...command.missing]) {
     it(`${command.name} rejects ${JSON.stringify(args)} before requiring environment`, async () => {
       let stdout = "";
       let stderr = "";
