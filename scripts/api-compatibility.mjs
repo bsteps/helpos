@@ -20,6 +20,10 @@ export function intendedBreak(body) {
   return markers[0].slice("API-Break: ".length);
 }
 
+// Clients must already tolerate an unknown value in a response enum (a new error code, say), so
+// adding one is reported but needs no API-Break justification.
+const additive = new Set(["response-property-enum-value-added"]);
+
 export function compareSpecs({ binary, base, current, justification, report }) {
   for (const [name, input] of [
     ["base", base],
@@ -50,15 +54,16 @@ export function compareSpecs({ binary, base, current, justification, report }) {
   const text = `${JSON.stringify(findings, null, 2)}\n`;
   if (report) writeFileSync(report, text);
   process.stdout.write(text);
-  if (findings.length && !justification)
+  const breaking = findings.filter((finding) => !additive.has(finding.id));
+  if (breaking.length && !justification)
     throw new Error(
       "Breaking API changes require the documented API-Break: justification in the PR body.",
     );
-  if (findings.length)
+  if (breaking.length)
     process.stdout.write(
       `Intended API break, still requires human review: ${JSON.stringify(justification)}\n`,
     );
-  return findings;
+  return breaking;
 }
 
 export function readBaseSpec(root, baseRef) {
@@ -112,8 +117,11 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   const baseRef = event?.pull_request?.base?.sha ?? process.argv[2];
   if (!baseRef)
     throw new Error("Pass the actual PR base commit/ref, or run from a pull_request event.");
-  const body =
-    event?.pull_request?.body ?? (process.argv[3] ? readFileSync(process.argv[3], "utf8") : "");
+  const body = event
+    ? (event.pull_request?.body ?? "")
+    : process.argv[3]
+      ? readFileSync(process.argv[3], "utf8")
+      : "";
   await checkCompatibility({
     root,
     baseRef,

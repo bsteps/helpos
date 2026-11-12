@@ -59,6 +59,17 @@ test("an additive optional response field is compatible", () => {
   );
 });
 
+test("a new response enum value, such as an error code, is reported but compatible", () => {
+  assert.deepEqual(
+    compare((doc) => {
+      doc.components.schemas.Error.properties.error.enum.push("brand_new_code");
+    }),
+    [],
+  );
+  const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+  assert.ok(report.some((finding) => finding.id === "response-property-enum-value-added"));
+});
+
 test("one justified body marker permits the break and retains its report", () => {
   const reason = intendedBreak(
     "## Why\nAPI-Break: conversations.get changes subject to an integer; consumers must migrate.\n",
