@@ -4,7 +4,7 @@ This integration finishes the existing safeguards for large and multilingual AI 
 
 ## Base and source mapping
 
-Assembly starts at PR313 head `80e638451a639947fc88cc96af5ee9ef4c73bb7f`, which contains actual main `c401a765a80f8e32a16bbdaf03629f20841171dc`. That parent contains PR311 migration 0022, the unit and integration test projects, current-main renames, and worker waits. Publication waits for the coordinator's PR313 merge confirmation and one reconciliation onto actual main.
+Assembly starts at PR313 head `80e638451a639947fc88cc96af5ee9ef4c73bb7f`, which contains actual main `c401a765a80f8e32a16bbdaf03629f20841171dc`. That parent contains PR311 migration 0022, the unit and integration test projects, current-main renames, and worker waits. PR313 merged as `58451595845f67aef0fb35e0ba584bac71ad1045` at `2026-11-12T08:12:20Z`. Both parent trees are `76d65b01ff5cace2f0b9070676f2c32190c091cb`. One local rebase onto that actual main preserves the complete integration tree, proven by `git diff --exit-code 5241251 86fe621`. No original source branch changes.
 
 All three frozen sources have old common base `19c68cfaef774a0d7afdfb75700a56892c6e06a7`. Only their unique commits above that base are applied, in this order. Original branches, commits, and discussions remain intact.
 
@@ -15,6 +15,8 @@ All three frozen sources have old common base `19c68cfaef774a0d7afdfb75700a56892
 | #225, PR258      | `5da478168a82819d4b1cb7f66aae06599a298fef` | `16de7719f195f05968d0ddc2f13d41b0b4881ad8` |
 | #225, PR258      | `8a530ee456b7e3be6c5440562350e665440ee811` | `f7221fa508f22471433b55680e6ad1834fe8597e` |
 | #227, PR262      | `f30258d96761a9c30be2d509865a64a051727fd6` | `cb746abd8bc292aa2751bd6cac836605fffa3f8c` |
+
+After the one main reconciliation, those five assembly commits map in order to `b7fbdeaf4549b099b8e3548cc652da071d0cfe3c`, `d2d57ab4e23630e86fdf97b18492a2aa304fef2f`, `997568733dcf31df17266c49aa57d31827e898e1`, `e6084f7b760832ff738f90434f66e077cc29959b`, and `cbb4b2ef696eae503e233c7f10c0fc684dec1fbe`. Assembly manifest commit `5241251` maps to `86fe621`. The original source and assembly commits remain available locally.
 
 The only textual conflict is adjacent imports in `draft-issue.test.ts`. Resolution keeps `fenceEmail` and `tokenBound` from #225 and `expectLinearGrowth` from #227. The #225 cost-estimate section remains unchanged when #227 is applied. Production files require no conflict edits. The parent already uses conversation terminology in eval types; Git merges the source comment correction without changing those types.
 
@@ -48,7 +50,13 @@ Focused execution uses `pnpm exec vitest run --project unit packages/ai/src` fro
 
 Local probe code and individual assertion logs are under `.helpos/verify/316/`. `negative-controls.mjs` executes mutations serially with byte restoration in `finally`. The first schema probe matched a different source expression and stopped without changing the file; correcting that probe to remove `issueSchemaTokenBound` reaches the intended failing assertion. Scripts and mutation fixtures finish before Knip or full gates run.
 
-The heavy Docker and full-suite slot is queued after PR313's fresh recheck and #314. Final fresh quote, cost, usage, growth, offline eval, and Japanese warning/edit checks, followed by the stable committed-head full gate, remain required after resource grant. Cache hits will be reported separately from fresh execution. Hosted CI and a fresh independent integration review remain coordinator-owned gates.
+The coordinator grants the exclusive heavy slot after #314 releases it. The completed pure tests, negative controls, offline evals, and Comment Sicko remain valid because reconciliation changes ancestry without changing file bytes. No repeat is needed for a model or process change.
+
+The existing `internal-quote.spec.ts` laptop flow passes fresh with the server's mock note temporarily replaced by the committed Japanese eval note. Its owner-setup dependency also passes. This uses the real server, worker, knowledge ingestion and retrieval, Postgres, and built dashboard with mock chat and embeddings. A separate shared-browser pass verifies the public draft API flags the Japanese quote, shows the dashboard warning, then clears both after an edit through the dashboard. `GET /v1/ai-usage` returns 200 with 330 input tokens, 30 output tokens, and 360 total tokens across two calls. This proves warning/edit transport and deterministic accounting, not live provider behavior.
+
+`japanese-server.mjs` restores the temporary server fixture byte for byte on process exit. The temporary Playwright config is removed. The noninteractive process session has closed stdin, so its stdin shutdown hook cannot run; the owned server process is stopped, its wrapper restores the fixture, and Testcontainers cleans its own session `5812aab52559`. The original shared Postgres and Mailpit containers stay running. The shared browser tab closes, and port 4173 is free. `browser-api.json`, `japanese-e2e.log`, and before/after screenshots retain the observations under `.helpos/verify/316/` and the browser artifact directory.
+
+Repo script checks run serially after restoration and before Knip. The required publication gate is `EVAL_LIVE=0 pnpm verify` at the stable committed head containing this manifest. Its exact SHA, outcome, cache hits, and fresh tasks are recorded in the append-only decision trail and replacement PR. Hosted CI and a fresh independent integration review remain coordinator-owned gates.
 
 ## Later overlaps and limits
 
