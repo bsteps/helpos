@@ -1,3 +1,4 @@
+import { isHuman } from "@helpos/db/actor";
 import { createRoute, type RouteConfig } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { type AuditAction, auditTrail } from "../audit/audit.ts";
@@ -65,7 +66,7 @@ function accessRefusal(
   if ("noCaller" in access) return null;
   if (!principal) return "unauthorized";
   if ("anyCaller" in access) return null;
-  if (access.humansOnly && principal.actor.type !== "user") return "session_required";
+  if (access.humansOnly && !isHuman(principal.actor)) return "session_required";
   const held = (s: Scope) => principal.scopes.has(s);
   const ok = "allScopes" in access ? access.allScopes.every(held) : access.anyScope.some(held);
   return ok ? null : "forbidden";

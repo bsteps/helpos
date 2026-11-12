@@ -7,6 +7,7 @@ import {
   tokenBound,
 } from "@helpos/ai";
 import { enqueue, eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import { SafeFetchError, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
 import type { Logger } from "pino";
@@ -36,7 +37,7 @@ export interface IngestWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-const ingestActor = { type: "system", id: "ingest-source" } as const;
+const ingestActor = builtInActors.ingestWorker;
 
 /** A help-center page is far smaller; anything bigger is not an article. */
 export const maxPageBytes = 2 * 1024 * 1024;

@@ -34,7 +34,7 @@ const variants = [
     mutate: (source) =>
       replace(
         source,
-        "await markSendFailed(tx, auditorFor(payload.tenantId, sendWorkerActor), payload.draftId);",
+        "await markSendFailed(\n    tx,\n    { tenantId: payload.tenantId, actor: sendWorkerActor, requestId: null },\n    payload.draftId,\n  );",
         "return;",
       ),
   },
@@ -54,19 +54,30 @@ const variants = [
     file: send,
     properties: ["NoResendWithoutPerson", "SentOnlyWhenApproved"],
     mutate: (source) => {
-      let changed = replace(source, 'if (draft.status === "sent") return;', "");
+      let changed = replace(source, "if (isSentDraft(draft)) return;", "");
       changed = replace(
         changed,
-        'draft.status !== "approved" || ',
-        '(draft.status !== "approved" && draft.status !== "sent") || ',
+        "!isApprovedDraft(draft) &&",
+        "!isApprovedDraft(draft) && !isSentDraft(draft) &&",
       );
       const smtp = "await deps.transport.send({ from: row.mailbox, to: [email.to], raw });";
       changed = replace(changed, smtp, "");
       return replace(
         changed,
-        "const raw = await buildReply(email);",
-        `const raw = await buildReply(email);\n    ${smtp}`,
+        'const raw = await composeEmail({ kind: "reply", ...email });',
+        `const raw = await composeEmail({ kind: "reply", ...email });\n    ${smtp}`,
       );
+    },
+  },
+  {
+    name: "marker-recheck-removed",
+    file: send,
+    properties: ["MarkerGuard"],
+    mutate: (source) => {
+      const start = source.indexOf("      if (\n        current?.status");
+      const end = source.indexOf("      try {", start);
+      if (start < 0 || end < 0) throw new Error("marker guard not found");
+      return source.slice(0, start) + source.slice(end);
     },
   },
 ];
@@ -98,7 +109,10 @@ run("baseline", [], false);
 for (const variant of variants) {
   const original = originals.get(variant.file);
   try {
-    writeFileSync(resolve(root, variant.file), variant.mutate(original.toString()));
+    writeFileSync(
+      resolve(root, variant.file),
+      variant.mutate(original.toString().replaceAll("\r\n", "\n")),
+    );
     const diff = spawnSync("git", ["diff", "--", variant.file], { cwd: root, encoding: "utf8" });
     writeFileSync(resolve(evidence, `${variant.name}.patch`), diff.stdout);
     run(variant.name, variant.properties, true);

@@ -33,6 +33,10 @@ const aInputTokens = 17;
 const bInputTokens = 987654;
 
 const sampleBodies: Record<string, unknown> = {
+  "POST /v1/drafts/{id}/resolve-send": {
+    messageId: "<attempt@example.test>",
+    decision: "mark_sent",
+  },
   "POST /v1/inbound/email": `From: x@elsewhere.test\r\nTo: support@${bTag}.test\r\nSubject: hi\r\nMessage-ID: <leak-probe@elsewhere.test>\r\n\r\nhello`,
   "POST /v1/auth/sign-in": { email: `owner@${bTag}.test`, password: "a wrong password" },
   "POST /v1/auth/password": { token: "not-a-real-token", password: "a long enough password" },
@@ -331,8 +335,14 @@ describe("leak: every API operation, called as tenant A", () => {
         op.method === "DELETE" &&
         op.path === "/v1/tokens/{id}" &&
         unknown.status === 403;
+      const agentCannotResolveSend =
+        caller === "agent" &&
+        op.method === "POST" &&
+        op.path === "/v1/drafts/{id}/resolve-send" &&
+        unknown.status === 403 &&
+        JSON.parse(unknown.text).error === "session_required";
       expect(
-        agentRevokesOnlyItsOwnToken || unknown.status === 404,
+        agentRevokesOnlyItsOwnToken || agentCannotResolveSend || unknown.status === 404,
         `${who} with an unknown ID gave ${unknown.status} ${unknown.text}: the request should reach its lookup and find nothing (is the sample body valid?)`,
       ).toBe(true);
       for (const id of bIds) {

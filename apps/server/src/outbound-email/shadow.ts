@@ -1,5 +1,5 @@
 import { brand } from "@helpos/brand";
-import type { ReplyEmail } from "./transport.ts";
+import type { ReplyEmail } from "./composer.ts";
 
 /** Carries the customer address a shadowed reply would have gone to. */
 export const intendedToHeader = `X-${brand.name}-Intended-To`;

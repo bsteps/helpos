@@ -27,7 +27,7 @@ test("a reply that failed to send is retried from the conversation and arrives o
   await expect(page.getByText("Closed", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Inbox" }).first().click();
   const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: subject }) });
-  await expect(row.getByText("Reply not sent")).toBeVisible();
+  await expect(row.getByText("Reply needs attention")).toBeVisible();
   await expect(row.getByText("Closed", { exact: true })).toBeVisible();
   await row.getByRole("link", { name: subject }).click();
 

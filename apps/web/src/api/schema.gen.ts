@@ -1027,6 +1027,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/drafts/{id}/resolve-send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve an uncertain send
+         * @description Human decision for a reply that may already have gone out. Mark it sent or explicitly send again. The Message-ID binds the decision to the attempt reviewed.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        messageId: string;
+                        /** @enum {string} */
+                        decision: "mark_sent" | "send_again";
+                    };
+                };
+            };
+            responses: {
+                /** @description The resolved draft */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Draft"];
+                    };
+                };
+                /** @description No valid credentials */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The credentials lack the required scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found in this workspace */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description This uncertain attempt is no longer current */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/drafts/{id}/discard": {
         parameters: {
             query?: never;
@@ -2439,7 +2524,8 @@ export interface components {
             /** @enum {string} */
             kind: "reply" | "fixed";
             /** @enum {string} */
-            status: "pending" | "approved" | "sent" | "send_failed" | "discarded";
+            status: "pending" | "approved" | "sent" | "send_failed" | "send_uncertain" | "discarded";
+            outboundMessageId: string | null;
             body: string;
             /** Format: date-time */
             createdAt: string;

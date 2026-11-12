@@ -12,6 +12,7 @@ import {
   useCreateDraft,
   useDiscardDraft,
   useEditDraft,
+  useResolveSend,
   useRetryDraft,
 } from "@/api/queries.ts";
 import { EmailFrame } from "@/components/email-frame.tsx";
@@ -23,7 +24,7 @@ import {
   AlertIcon,
   AlertTitle,
 } from "@/components/ui/alert.tsx";
-import { AnimatedBadge } from "@/components/ui/animated-badge.tsx";
+import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/ui/animated-badge.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Card,
@@ -244,9 +245,10 @@ const statusBadge = {
   pending: { status: "info", label: "Waiting for approval" },
   approved: { status: "loading", label: "Sending" },
   sent: { status: "success", label: "Sent" },
+  send_uncertain: { status: "danger", label: "Delivery uncertain" },
   send_failed: { status: "danger", label: "Not sent" },
   discarded: { status: "neutral", label: "Discarded" },
-} as const;
+} satisfies Record<Draft["status"], { status: AnimatedBadgeStatus; label: string }>;
 
 const chooseNote = {
   discarded: "The draft was discarded. Nothing has gone to the customer.",
@@ -430,6 +432,8 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
   const edit = useEditDraft(conversationId);
   const approve = useApproveDraft(conversationId);
   const retry = useRetryDraft(conversationId);
+  const resolve = useResolveSend(conversationId);
+  const uncertain = draft.status === "send_uncertain";
   const discard = useDiscardDraft(conversationId);
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(draft.body);
@@ -437,7 +441,12 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
   const pending = draft.status === "pending";
   const failed = draft.status === "send_failed";
   const cited = draft.sources.filter((s) => s.cited);
-  const busy = edit.isPending || approve.isPending || retry.isPending || discard.isPending;
+  const busy =
+    resolve.isPending ||
+    edit.isPending ||
+    approve.isPending ||
+    retry.isPending ||
+    discard.isPending;
   const fixed = draft.kind === "fixed";
 
   const discardButton = (variant: "outline" | "ghost") => (
@@ -461,7 +470,9 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
                 : "Nothing is sent until you approve it."
               : failed
                 ? "Approved, but it couldn't be sent."
-                : "Approved. It goes out in a moment."}
+                : uncertain
+                  ? "This reply may already have gone out."
+                  : "Approved. It goes out in a moment."}
         </CardDescription>
         <CardAction>
           <AnimatedBadge status={badge.status} size="sm">
@@ -471,6 +482,18 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
+        {uncertain ? (
+          <Alert variant="warning">
+            <AlertIcon />
+            <AlertContent>
+              <AlertTitle>This reply may already have gone out</AlertTitle>
+              <AlertDescription>
+                Check your mail provider before deciding. Mark sent records your confirmation. Send
+                again may deliver a duplicate.
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : null}
         {failed ? (
           <Alert variant="destructive" data-testid="send-failed-alert">
             <AlertIcon />
@@ -560,12 +583,12 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
             </AlertContent>
           </Alert>
         ) : null}
-        {retry.isError || discard.isError ? (
+        {resolve.isError || retry.isError || discard.isError ? (
           <Alert variant="destructive">
             <AlertIcon />
             <AlertContent>
               <AlertDescription>
-                {isConflict(retry.error ?? discard.error)
+                {isConflict(resolve.error ?? retry.error ?? discard.error)
                   ? "This reply changed since you opened it. Check where it stands now."
                   : "That didn't work. Try again."}
               </AlertDescription>
@@ -574,6 +597,22 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
         ) : null}
       </CardContent>
 
+      {uncertain && draft.outboundMessageId ? (
+        <CardFooter className="flex-wrap justify-end">
+          {(["mark_sent", "send_again"] as const).map((decision) => (
+            <Button
+              key={decision}
+              disabled={busy}
+              onClick={() => {
+                if (draft.outboundMessageId)
+                  resolve.mutate({ id: draft.id, messageId: draft.outboundMessageId, decision });
+              }}
+            >
+              {decision === "mark_sent" ? "Mark sent" : "Send again"}
+            </Button>
+          ))}
+        </CardFooter>
+      ) : null}
       {failed ? (
         <CardFooter className="flex-wrap justify-end">
           {discardButton("outline")}

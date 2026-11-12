@@ -1,4 +1,5 @@
 import { schema } from "@helpos/db";
+import type { Actor } from "@helpos/db/actor";
 import type { MiddlewareHandler } from "hono";
 
 /**
@@ -14,7 +15,7 @@ export type Scope = (typeof scopes)[number];
 export interface Principal {
   tenantId: string;
   /** For an agent, the ID of its token: one token is one agent identity. */
-  actor: { type: "user" | "agent"; id: string };
+  actor: Extract<Actor, { type: "user" | "agent" }>;
   scopes: ReadonlySet<Scope>;
 }
 

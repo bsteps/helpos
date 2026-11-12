@@ -19,7 +19,12 @@ describe("draft lifecycle", () => {
         "pending → discarded (discard)",
         "send_failed → discarded (discard)",
         "pending → discarded (discardStale)",
-        "approved → sent (markSent)",
+        "approved → send_uncertain (markSending)",
+        "send_uncertain → send_uncertain (markSending)",
+        "send_uncertain → sent (markSent)",
+        "send_uncertain → sent (confirmSent)",
+        "send_uncertain → send_uncertain (resend)",
+        "send_uncertain → approved (rejectSend)",
         "approved → send_failed (markSendFailed)",
         "send_failed → approved (retry)",
       ].sort(),
@@ -27,7 +32,7 @@ describe("draft lifecycle", () => {
   });
 
   it("counts a draft as open until it is sent or discarded", () => {
-    expect(openStatuses).toEqual(["pending", "approved", "send_failed"]);
+    expect(openStatuses).toEqual(["pending", "approved", "send_failed", "send_uncertain"]);
   });
 
   it("reaches every status from a new pending draft", () => {

@@ -1,4 +1,5 @@
 import { type Database, eq, schema } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import { z } from "zod";
 import { recordAudit } from "../audit/audit.ts";
 
@@ -31,7 +32,7 @@ export async function setAiBudget(
     if (!updated) return { ok: false, reason: "workspace_not_found" } as const;
     await recordAudit(tx, {
       tenantId: input.tenantId,
-      actor: { type: "system", id: "operator-cli" },
+      actor: builtInActors.operatorCli,
       action: "workspace.ai_budget_changed",
       target: { type: "workspace", id: input.tenantId },
       requestId: null,

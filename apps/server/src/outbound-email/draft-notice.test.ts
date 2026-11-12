@@ -1,16 +1,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-  buildDraftNotice,
-  noticeSnippetLength,
-  noticeSubject,
-  noticeText,
-  snippet,
-} from "./draft-notice.ts";
+import { composeEmail } from "./composer.ts";
+import { noticeSnippetLength, noticeSubject, noticeText, snippet } from "./draft-notice.ts";
 
 const fixture = new URL("../../../../fixtures/email/outbound/draft-notice.eml", import.meta.url);
 
 const notice = {
+  kind: "draft_notice" as const,
   from: "support@acme.test",
   replyTo: "no-reply@acme.test",
   to: "owner@acme.test",
@@ -26,7 +22,7 @@ const lf = (s: string) => s.replaceAll("\r\n", "\n");
 
 describe("draft notice email", () => {
   it("matches the fixture", async () => {
-    const raw = lf(new TextDecoder().decode(await buildDraftNotice(notice)));
+    const raw = lf(new TextDecoder().decode(await composeEmail(notice)));
     // UPDATE_FIXTURES=1 rewrites the fixture after an intended change; review the diff.
     if (process.env.UPDATE_FIXTURES) writeFileSync(fixture, raw);
     expect(raw).toBe(lf(readFileSync(fixture, "utf8")));
@@ -34,7 +30,7 @@ describe("draft notice email", () => {
 
   it("keeps customer text out of the headers", async () => {
     const raw = new TextDecoder().decode(
-      await buildDraftNotice({ ...notice, customerText: "Subject: hacked\nBcc: x@evil.test" }),
+      await composeEmail({ ...notice, customerText: "Subject: hacked\nBcc: x@evil.test" }),
     );
     const headers = raw.split("\r\n\r\n")[0] ?? "";
     expect(headers).toContain(`Subject: ${noticeSubject}`);
