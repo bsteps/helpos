@@ -70,3 +70,18 @@ Evidence is in this checkout under `.helpos/333/`, including accounting, selecti
 At committed `d3dccd014decca207c3fd1155a9d69898139ab94`, the root-granted focused run passed 190 tests in ten files. It selected composed HTTP, idempotency, pagination, dashboard, sessions, tokens and knowledge plus database schema, migrations and tenant-leak tests. Both projects used maxWorkers=1 against one separate PG container, inspected at 536870912 memory bytes and 1000000000 NanoCpus. The container ID was `405102d204c52e8eea1e8bd7919207f7d3a73ae2f2761c1b1143cbea5954661e`, on port 35459.
 
 The runner exited 0 and awaited container stop. Its receipt confirms the PG container is gone and both checkout and main `.env` hashes are unchanged. No shared container was changed. The normal transient Testcontainers reaper also exited after the runner process ended, confirmed by an empty exact-ID running-container query. The test log and resource receipt are `.helpos/333/focused-pg.log` and `focused-pg-receipt.json`. The static covered-function fingerprint check reports no drift and did not invoke TLC or regenerate correspondence.
+
+## Stable combined coverage
+
+The single root-granted combined coverage campaign ran at exact `81004b848e40e79496cf4d6c59f2364b985a1685`, with code unchanged from `d3dccd0`. It passed all 1,475 tests in 101 files with maxWorkers=1 and fileParallelism=false. No coverage correction or repeat campaign was needed.
+
+| Metric     | Actual numerator and denominator | Measured | Unchanged floor |
+| ---------- | -------------------------------- | -------- | --------------- |
+| Statements | 3690 / 4628                      | 79.73%   | 76%             |
+| Branches   | 2286 / 3301                      | 69.25%   | 64%             |
+| Functions  | 810 / 1095                       | 73.97%   | 70%             |
+| Lines      | 3247 / 4046                      | 80.25%   | 77%             |
+
+The report includes 150 production files, including 35 dashboard files and 25 dashboard files with zero line coverage. Untested UI remains in the denominator. Generated types and the documented test helpers remain excluded. This measures Node source execution, not browser flow coverage. The selection retains the landed #241 and #200 changes and both server response-contract setups.
+
+The campaign captured seven owned PG containers, three short owned Mailpit containers and one Testcontainers reaper over the run. This includes the existing migration tests that start separate PG fixtures. All PG/Mailpit fixtures stopped before the runner exited 0. The reaper also exited, confirmed with an empty exact-ID running-container query after process exit. Both `.env` hashes are unchanged. Shared containers were untouched. No browser, live provider, TLC, performance or mutation campaign ran. Evidence includes `.helpos/333/coverage.log`, `coverage-receipt.json`, `coverage-denominator.json`, and the standard `coverage/coverage-summary.json` and HTML report. The final plain full gate remains separately scheduled.

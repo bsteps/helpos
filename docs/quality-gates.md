@@ -33,7 +33,7 @@ The exclusions have these purposes.
 
 No source folder is excluded because its coverage is low. An unimported temporary production file with 500 functions makes the coverage gate fail and is then removed in the negative proof.
 
-The combined configuration includes the landed #241 test split and #200 worker waits. Server and DB unit and integration projects run each test file once. Both server projects retain `apps/server/src/testing/setup.ts`; only integration projects initialize Postgres. `app.int.test.ts`, `knowledge/knowledge.int.test.ts`, `web/dashboard.int.test.ts` and `http/pagination.int.test.ts` are integration tests. `testing/contract.test.ts` remains a unit test. The selection test resolves the real Vitest projects without executing tests. Source percentages above are historical and do not predict combined coverage.
+The combined configuration includes the landed #241 test split and #200 worker waits. Server and DB unit and integration projects run each test file once. Both server projects retain `apps/server/src/testing/setup.ts`; only integration projects initialize Postgres. `app.int.test.ts`, `knowledge/knowledge.int.test.ts`, `web/dashboard.int.test.ts` and `http/pagination.int.test.ts` are integration tests. `testing/contract.test.ts` remains a unit test. The selection test resolves the real Vitest projects without executing tests. Source percentages above are historical. The combined #333 campaign passes 1,475 tests in 101 files. It measures statements 79.73%, branches 69.25%, functions 73.97% and lines 80.25%, with unchanged floors. Its 150 production files include 35 dashboard files, 25 with zero line coverage. See [the integration evidence](integrations/333-public-http-contracts.md).
 
 ## Bundles
 
