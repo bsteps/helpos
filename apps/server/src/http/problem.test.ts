@@ -157,6 +157,16 @@ describe("HTTP problem details and request IDs", () => {
     },
   );
 
+  it("labels an unreadable server failure as internal_error, not a caller mistake", async () => {
+    const { app } = fixture();
+    app.get("/raw-response", (c) => c.text("private failure details", 500));
+    const res = await app.request("/raw-response");
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(JSON.parse(body)).toMatchObject({ error: "internal_error", status: 500 });
+    expect(body).not.toContain("private failure details");
+  });
+
   it("does not trust arbitrary boundary strings or their extensions as public API errors", async () => {
     const { app } = fixture();
     app.get("/external", (c) =>

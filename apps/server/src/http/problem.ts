@@ -29,7 +29,7 @@ export function httpConventions(logger: Services["logger"]): MiddlewareHandler {
       );
       const body: z.infer<typeof errorBody> = parsed.success
         ? parsed.data
-        : { error: "bad_request" };
+        : { error: c.res.status >= 500 ? "internal_error" : "bad_request" };
       c.res = new Response(JSON.stringify(problemBody(c.res.status, body, requestId)), {
         status: c.res.status,
         headers: c.res.headers,
