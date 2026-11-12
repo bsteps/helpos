@@ -2,16 +2,17 @@ import { createMemoryFileStore } from "@helpos/files";
 import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../app.ts";
+import { type AppServices, createApp } from "../app.ts";
 import { apiRoute } from "../auth/access.ts";
+import { maxEmailBytes } from "../inbound-email/route.ts";
+import { createLogger } from "../logger.ts";
 import { composeServices } from "../services.ts";
 import { errorSchema, json } from "./route-kit.ts";
 
 const unused = (): never => {
   throw new Error("private failure details");
 };
-function fixture() {
-  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+function fixture(logger: AppServices["logger"] = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }) {
   const app = createApp(
     composeServices({
       db: {
@@ -23,6 +24,7 @@ function fixture() {
       },
       logger,
       files: createMemoryFileStore(),
+      config: { inboundSecret: "test-inbound-secret" },
     }),
   );
   for (const path of ["/raw-response", "/failure", "/conflict", "/framework", "/external"]) {
@@ -49,6 +51,98 @@ function fixture() {
 }
 
 describe("HTTP problem details and request IDs", () => {
+  it("correlates the inbound email handler's own warning with its error response", async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (line) => lines.push(line) });
+    const { app } = fixture(logger);
+    const response = await app.request("/v1/inbound/email", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-inbound-secret",
+        "content-type": "message/rfc822",
+        "content-length": String(maxEmailBytes + 1),
+        "x-request-id": "inbound-rejection",
+      },
+      body: "unread email body",
+    });
+    expect(response.status).toBe(413);
+    expect(response.headers.get("x-request-id")).toBe("inbound-rejection");
+    expect(await response.json()).toMatchObject({ instance: "urn:request:inbound-rejection" });
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({
+        msg: "inbound email rejected: too large",
+        requestId: "inbound-rejection",
+      }),
+      expect.objectContaining({ msg: "request completed", requestId: "inbound-rejection" }),
+    ]);
+    expect(lines.join("")).not.toContain("test-inbound-secret");
+    expect(lines.join("")).not.toContain("unread email body");
+  });
+
+  it("keeps every nested service log tied to its request during concurrent requests", async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (line) => lines.push(line) });
+    const { app } = fixture(logger);
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    app.get("/raw-response", async (c) => {
+      const label = c.req.query("label");
+      logger.info({ label, phase: "before" }, "nested service");
+      if (label === "first") {
+        started.resolve();
+        await release.promise;
+      } else {
+        await started.promise;
+        release.resolve();
+      }
+      logger.warn({ label, phase: "after" }, "nested service");
+      return c.json({});
+    });
+    const responses = await Promise.all(
+      ["first", "second"].map((label) =>
+        app.request(`/raw-response?label=${label}`, {
+          headers: { "x-request-id": `${label}-request` },
+        }),
+      ),
+    );
+    const entries = lines.map((line) => JSON.parse(line));
+    expect(entries).toHaveLength(6);
+    for (const [index, label] of ["first", "second"].entries()) {
+      expect(responses[index]?.headers.get("x-request-id")).toBe(`${label}-request`);
+      for (const phase of ["before", "after"]) {
+        expect(entries).toContainEqual(
+          expect.objectContaining({ label, phase, requestId: `${label}-request` }),
+        );
+      }
+    }
+  });
+
+  it("correlates nested and error logs with generated IDs without leaking into unrelated logs", async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ level: "info" }, { write: (line) => lines.push(line) });
+    const { app } = fixture(logger);
+    logger.info("outside request: before");
+    app.get("/failure", async () => {
+      await Promise.resolve();
+      logger.warn("nested service failure");
+      return unused();
+    });
+    const response = await app.request("/failure");
+    const requestId = response.headers.get("x-request-id");
+    logger.info("outside request: after");
+    const entries = lines.map((line) => JSON.parse(line));
+    expect(response.status).toBe(500);
+    expect(requestId).toBeTruthy();
+    expect(entries).toEqual([
+      expect.not.objectContaining({ requestId: expect.anything() }),
+      expect.objectContaining({ msg: "nested service failure", requestId }),
+      expect.objectContaining({ msg: "unhandled error", requestId }),
+      expect.objectContaining({ msg: "request completed", requestId }),
+      expect.not.objectContaining({ requestId: expect.anything() }),
+    ]);
+    expect(lines.join("")).not.toContain("private failure details");
+  });
+
   it.each([200, 204] as const)(
     "correlates a raw %s response with its completion log",
     async (status) => {

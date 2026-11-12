@@ -1,4 +1,11 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import pino, { type DestinationStream, type Logger, type LoggerOptions } from "pino";
+
+const requestContext = new AsyncLocalStorage<{ requestId: string }>();
+
+export function withRequestId<Result>(requestId: string, run: () => Result): Result {
+  return requestContext.run({ requestId }, run);
+}
 
 /**
  * Fields that hold credentials. Our code never logs them on purpose; this catches the one
@@ -28,6 +35,8 @@ export function createLogger(
 ): Logger {
   const config: LoggerOptions = {
     ...options,
+    mixin: () => ({ ...requestContext.getStore() }),
+    mixinMergeStrategy: (entry, context) => ({ ...entry, ...context }),
     redact: { paths: redactedPaths, censor: "[redacted]" },
     // Every error is logged as its summary, never its message: `logger.error({ err }, …)` is
     // safe wherever it's written. `err` and `error` go through these; the hook below covers an

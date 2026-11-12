@@ -13,7 +13,10 @@ Known codes retain their safe extensions. Knowledge-source ingestion failure rea
 The dashboard derives `ErrorCode` from its generated client and checks an exhaustive common message map plus contextual overrides.
 Successful JSON responses keep `application/json`.
 
-Every response returns `X-Request-Id`. Completion logs and unexpected-error logs carry that same ID.
+Every response returns `X-Request-Id`. All server logs emitted while handling that request carry the same ID,
+including nested service calls, failures and idempotent replays, so one ID finds the request's full log history.
+The logger inherits it through async request context, which stays isolated between concurrent requests.
+Startup and independent background work have no HTTP request ID.
 An accepted incoming request ID is retained. Otherwise the server generates one.
 Request logs contain the method, path and status, without query strings, credentials or bodies.
 

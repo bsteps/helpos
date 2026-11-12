@@ -104,6 +104,16 @@ An independent review of `0023c69..17625d9` against base `4cbbdc13e31a4de6a743a5
 - An unreadable 5xx body became `bad_request`; it is now `internal_error`.
 - `docs/quality-gates.md` and `docs/api-conventions.md` carried measurement history and issue references, and AGENTS.md said `pnpm verify` runs everything CI runs. They now state rules and reasons only, and AGENTS.md lists the new enforced rules.
 
-Reported, not changed: stored replay bodies have no retention job (the table revokes DELETE); only request-completion, unhandled-error and readiness logs carry the request ID; no list route uses the pagination helper yet. `/security-review` on the fixed head found no high-confidence vulnerability.
+Reported at that review: stored replay bodies have no retention job (the table revokes DELETE); only request-completion, unhandled-error and readiness logs carried the request ID; no list route uses the pagination helper yet. `/security-review` on that fixed head found no high-confidence vulnerability. The request-log gap is addressed below.
 
 The hosted failure-video gap is closed. Probe [PR340](https://github.com/bsteps/helpos/pull/340) (closed, never merged) ran this branch's unchanged Playwright config and upload step on `17625d9` with one deliberately failing test. [Run 43214261280](https://github.com/bsteps/helpos/actions/runs/43214261280) uploaded `playwright-traces` containing `test-results/…/video.webm` (25,667 bytes, valid WebM header), its screenshot and trace. The review fixes do not touch the Playwright config or the upload step.
+
+## Request-log correlation
+
+The user requested request IDs throughout request handling. The shared logger now inherits the active HTTP request ID through `AsyncLocalStorage`, including nested services and child loggers. The active ID takes precedence over a stale ID in a log entry. Middleware starts the context after incoming ID validation and keeps response handling and error logs inside it. Concurrent requests have separate contexts, and unrelated startup and background logs receive no invented HTTP identity.
+
+Four regression tests cover interleaved requests, generated IDs and context restoration after an exception, an existing inbound-email warning, and child logger redaction with a stale ID. The first two failed before the source fix. All 28 focused logger/HTTP tests and 569 server unit tests pass. Workspace typechecks, Biome and Knip pass. No database schema, queue payload, replay retention, public response or authorization behavior changes.
+
+The follow-up starts at `1eef3830605ab360fbb16bf758afc22dedc939c7`. The PR now targets `main`, observed at `9890b531627d68bbfb7110ca7090fbfcef6f8f7c`, with merge base `58451595845f67aef0fb35e0ba584bac71ad1045`. This change does not refresh parent branches or assume that their squash-merged history has been reconciled.
+
+A fresh `claude-work` Opus 5.5 high recheck was attempted for this change, including the actual `/security-review` and comments review. It failed before executing with `Claude API rate limit reached. Try again later.` The prior clear reviews cover `1eef383`, not this follow-up. Fresh independent code/security review is blocked, and hosted CI for the new commit remains pending. No merge is authorized.

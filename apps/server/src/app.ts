@@ -21,6 +21,7 @@ import { httpConventions } from "./http/problem.ts";
 import { errorResponse, notFound } from "./http/route-kit.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
+import { withRequestId } from "./logger.ts";
 import type { Services } from "./services.ts";
 import { registerStatsRoutes } from "./stats/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
@@ -72,6 +73,7 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
   app.use("*", requestId());
+  app.use("*", (c, next) => withRequestId(c.get("requestId"), next));
   app.use("*", httpConventions(logger));
   app.use("*", async (c, next) => {
     c.set("idempotency", idempotency(services));
