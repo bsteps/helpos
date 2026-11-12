@@ -408,7 +408,7 @@ describe("adding and ingesting sources", () => {
         title: "Unknown charset",
         url: pageUrl(path),
       });
-      expect((await ingested(acme, added.id)).status).toBe("ready");
+      expect((await ingested(acme, added.id)).state.status).toBe("ready");
       expect((await chunksOf(acme, added.id))[0]?.content).toBe("Crème brûlée is free.");
     },
   );
