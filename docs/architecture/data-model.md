@@ -24,6 +24,7 @@ Every table is in the `public` schema, has row-level security (RLS) enabled **an
 | `integrations`               | `tenant_id`  | A workspace's link to an outside service (GitHub: repo, plus the token and webhook secret, encrypted).                           |
 | `conversation_github_issues` | `tenant_id`  | The GitHub issue made from a conversation, and whether it's open or closed.                                                      |
 | `api_tokens`                 | `tenant_id`  | An agent's token (`hos_…`), stored as a hash, with its scopes. Revoked, never deleted.                                           |
+| `http_idempotency`           | `tenant_id`  | Durable write reservations and replay responses, isolated by caller. Expired and uncertain keys never run again.                 |
 | `audit_events`               | `tenant_id`  | Append-only log of every human, agent and system action.                                                                         |
 | `ai_usage`                   | `tenant_id`  | AI tokens a workspace used (and has reserved) per UTC day, for the daily budget.                                                 |
 

@@ -324,7 +324,7 @@ describe("a send that fails for good", () => {
 
     const retry = await call("POST", `/v1/drafts/${draft.id}/retry`, "approver");
     expect(retry.status).toBe(409);
-    expect(await retry.json()).toEqual({ error: "not_send_failed" });
+    expect(await retry.json()).toMatchObject({ error: "not_send_failed" });
     expect((await draftsOf(conversationId))[0]?.status).toBe("discarded");
     expect(await mailFor(subject)).toEqual([]);
     expect(await auditOf(draft.id)).toEqual([

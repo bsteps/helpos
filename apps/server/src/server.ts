@@ -20,6 +20,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { type AppOptions, createApp } from "./app.ts";
 import type { Env } from "./env.ts";
+import { jobs } from "./jobs.ts";
 import { createSmtpTransport } from "./outbound-email/transport.ts";
 import { createSecretBox } from "./secrets/secret-box.ts";
 import { composeServices, type Services, type ServicesInput } from "./services.ts";
@@ -71,6 +72,7 @@ export function composeServer(input: ServerInput): Server {
       ? {}
       : { pollingIntervalSeconds: input.pollingIntervalSeconds }),
   });
+  services.queueReady = () => runner.ready(jobs.map((job) => job.queue));
   return {
     services,
     runner,

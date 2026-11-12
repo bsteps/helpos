@@ -255,7 +255,7 @@ describe("daily AI budget", () => {
       body: JSON.stringify({ regenerate: true }),
     });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "daily_budget_reached" });
+    expect(await res.json()).toMatchObject({ error: "daily_budget_reached" });
     const drafts = await db.withTenant(acme, (tx) =>
       tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, email.conversationId)),
     );
@@ -597,7 +597,7 @@ describe("per-workspace AI budget", () => {
       body: JSON.stringify({ recipient: "x@other.test", aiDailyTokenBudget: 1_000_000 }),
     });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "session_required" });
+    expect(await res.json()).toMatchObject({ error: "session_required" });
     // And no API operation accepts a budget at all.
     const doc = await (await app.request("/openapi.json")).text();
     expect(doc).not.toMatch(/aiDailyTokenBudget|ai_daily_token_budget/);

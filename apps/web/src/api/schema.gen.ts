@@ -4,6 +4,91 @@
  */
 
 export interface paths {
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The HTTP process is live */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/readyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Database and job queues are available */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok";
+                        };
+                    };
+                };
+                /** @description Database or job queues are unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbound/email": {
         parameters: {
             query?: never;
@@ -20,7 +105,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -48,13 +136,22 @@ export interface paths {
                         "application/json": components["schemas"]["InboundEmailResult"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description Missing or wrong secret */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No workspace has this address. Nothing was stored */
@@ -63,7 +160,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Larger than 10485760 bytes */
@@ -72,7 +178,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not a usable email (e.g. no From address) */
@@ -81,7 +187,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -108,7 +223,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -128,13 +246,22 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description Wrong email or password (`invalid_credentials`) */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Sent by a browser from another site (`forbidden_origin`) */
@@ -143,7 +270,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Human sign-in isn't configured on this server */
@@ -152,7 +288,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -179,7 +315,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -192,13 +331,31 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description Sent by a browser from another site (`forbidden_origin`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Human sign-in isn't configured on this server */
@@ -207,7 +364,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -234,7 +391,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -260,7 +420,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Sent by a browser from another site (`forbidden_origin`) */
@@ -269,7 +429,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Human sign-in isn't configured on this server */
@@ -278,7 +447,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -324,7 +493,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -374,7 +543,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Called with an agent token (`session_required`), or without `workspace:admin` */
@@ -383,7 +552,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -396,7 +565,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -418,13 +590,22 @@ export interface paths {
                         "application/json": components["schemas"]["CreatedApiToken"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Called with an agent token (`session_required`), or without `workspace:admin` */
@@ -433,7 +614,25 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -461,7 +660,10 @@ export interface paths {
         delete: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -476,13 +678,22 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Neither `workspace:admin` in a human session nor the token itself */
@@ -491,7 +702,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -500,7 +711,25 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -551,7 +780,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -560,7 +789,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -610,7 +839,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -619,7 +848,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -628,7 +857,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -657,7 +886,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -674,13 +906,22 @@ export interface paths {
                         "application/json": components["schemas"]["Conversation"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -689,7 +930,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -698,7 +939,25 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -748,7 +1007,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -757,7 +1016,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -766,7 +1025,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -779,7 +1038,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -817,13 +1079,22 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -832,7 +1103,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -841,7 +1112,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed conversation (`conversation_closed`) */
@@ -850,7 +1121,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -881,7 +1161,10 @@ export interface paths {
         patch: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -904,13 +1187,22 @@ export interface paths {
                         "application/json": components["schemas"]["Draft"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -919,7 +1211,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -928,7 +1220,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The draft is no longer pending */
@@ -937,7 +1229,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -960,7 +1261,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -983,13 +1287,22 @@ export interface paths {
                         "application/json": components["schemas"]["Draft"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -998,7 +1311,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1007,7 +1320,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The draft is no longer pending, or was edited since it was reviewed */
@@ -1016,7 +1329,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1043,7 +1365,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -1068,13 +1393,22 @@ export interface paths {
                         "application/json": components["schemas"]["Draft"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1083,7 +1417,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1092,7 +1426,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description This uncertain attempt is no longer current */
@@ -1101,7 +1435,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1128,7 +1471,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -1145,13 +1491,22 @@ export interface paths {
                         "application/json": components["schemas"]["Draft"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1160,7 +1515,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1169,7 +1524,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The draft is not pending or `send_failed` */
@@ -1178,7 +1533,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1205,7 +1569,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -1222,13 +1589,22 @@ export interface paths {
                         "application/json": components["schemas"]["Draft"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1237,7 +1613,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1246,7 +1622,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The draft was never approved, or was discarded */
@@ -1255,7 +1631,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1301,7 +1686,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1310,7 +1695,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1360,7 +1745,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1369,7 +1754,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1382,7 +1767,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -1423,7 +1811,22 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["KnowledgeSource"];
+                        "application/problem+json": components["schemas"]["KnowledgeSource"] & {
+                            /** @constant */
+                            type: "about:blank";
+                            title: string;
+                            status: number;
+                            instance: string;
+                        };
+                    };
+                };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No valid credentials */
@@ -1432,7 +1835,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1441,7 +1844,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The workspace already has a source with this slug (`slug_taken`), or with this URL (`url_taken`, with its `sourceId`). URLs are compared without the fragment, host case or a default port. */
@@ -1450,7 +1853,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["KnowledgeSourceConflict"];
+                        "application/problem+json": components["schemas"]["KnowledgeSourceConflict"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1477,7 +1889,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -1491,7 +1906,22 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["KnowledgeSource"];
+                        "application/problem+json": components["schemas"]["KnowledgeSource"] & {
+                            /** @constant */
+                            type: "about:blank";
+                            title: string;
+                            status: number;
+                            instance: string;
+                        };
+                    };
+                };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No valid credentials */
@@ -1500,7 +1930,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1509,7 +1939,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1518,7 +1948,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The source is managed in the workspace's git repo (`managed_in_git`): it's re-ingested on sync */
@@ -1527,7 +1957,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1555,7 +1994,10 @@ export interface paths {
         delete: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -1570,13 +2012,22 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1585,7 +2036,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1594,7 +2045,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The source is managed in the workspace's git repo (`managed_in_git`): delete the file there */
@@ -1603,7 +2054,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1617,7 +2077,10 @@ export interface paths {
         patch: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -1635,7 +2098,13 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["KnowledgeSource"];
+                        "application/problem+json": components["schemas"]["KnowledgeSource"] & {
+                            /** @constant */
+                            type: "about:blank";
+                            title: string;
+                            status: number;
+                            instance: string;
+                        };
                     };
                 };
                 /** @description `content` sent for a URL source (`content_not_editable`) */
@@ -1644,7 +2113,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No valid credentials */
@@ -1653,7 +2122,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1662,7 +2131,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -1671,7 +2140,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The source is managed in the workspace's git repo (`managed_in_git`): edit the file there */
@@ -1680,7 +2149,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1727,7 +2205,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No valid credentials */
@@ -1736,7 +2214,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1745,7 +2223,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1793,7 +2271,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1802,7 +2280,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1819,7 +2297,10 @@ export interface paths {
         patch: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -1842,13 +2323,22 @@ export interface paths {
                         "application/json": components["schemas"]["ShadowMode"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1857,7 +2347,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Turning shadow mode off is not allowed on this server */
@@ -1866,7 +2356,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1908,7 +2407,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1917,7 +2416,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -1929,7 +2428,10 @@ export interface paths {
         put: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -1952,13 +2454,22 @@ export interface paths {
                         "application/json": components["schemas"]["GithubConnected"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -1967,7 +2478,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description GitHub refused the token (`token_rejected`), or the token can't see the repo (`repo_not_found`) */
@@ -1976,7 +2496,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description GitHub could not be reached (`github_unavailable`) */
@@ -1985,7 +2505,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
@@ -1994,7 +2514,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -2007,7 +2527,10 @@ export interface paths {
         delete: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -2020,13 +2543,22 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -2035,7 +2567,25 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Idempotency storage or a required service is unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -2061,7 +2611,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -2076,13 +2629,22 @@ export interface paths {
                         "application/json": components["schemas"]["GithubWebhookSecret"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -2091,7 +2653,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No repo is connected (`not_connected`) */
@@ -2100,7 +2662,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
@@ -2109,7 +2680,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -2136,7 +2707,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -2153,13 +2727,22 @@ export interface paths {
                         "application/json": components["schemas"]["GithubIssueDraft"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -2168,7 +2751,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -2177,7 +2760,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No message from the customer to work from (`nothing_to_report`), or today's AI budget is spent (`daily_budget_reached`) */
@@ -2186,7 +2769,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The AI provider failed (`ai_unavailable`) */
@@ -2195,7 +2778,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description AI is not configured on this server (`ai_not_configured`), or the workspace's other AI calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute */
@@ -2204,7 +2787,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -2231,7 +2814,10 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path: {
                     id: string;
                 };
@@ -2255,13 +2841,22 @@ export interface paths {
                         "application/json": components["schemas"]["GithubIssueLink"];
                     };
                 };
+                /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
                 /** @description No valid credentials */
                 401: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The credentials lack the required scope */
@@ -2270,7 +2865,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Not found in this workspace */
@@ -2279,7 +2874,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description No repo is connected (`not_connected`), the conversation already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
@@ -2288,7 +2883,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation (`issue_not_linked`). Don't create it again: close that one or link it by hand */
@@ -2297,9 +2892,15 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
+                        "application/problem+json": {
                             error: string;
                             url: string;
+                        } & {
+                            /** @constant */
+                            type: "about:blank";
+                            title: string;
+                            status: number;
+                            instance: string;
                         };
                     };
                 };
@@ -2309,7 +2910,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
@@ -2318,7 +2919,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -2347,7 +2948,10 @@ export interface paths {
                 query: {
                     workspace: string;
                 };
-                header?: never;
+                header?: {
+                    /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                    "Idempotency-Key"?: string;
+                };
                 path?: never;
                 cookie?: never;
             };
@@ -2379,7 +2983,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Unknown workspace, no repo connected, or a missing or wrong signature */
@@ -2388,7 +2992,16 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The idempotency key conflicts, is pending, or has expired */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Larger than 1048576 bytes */
@@ -2397,7 +3010,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Neither JSON nor GitHub's form encoding */
@@ -2406,7 +3019,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
                 /** @description Too many deliveries waiting to be checked (`busy`); try again */
@@ -2415,7 +3028,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/problem+json": components["schemas"]["Error"];
                     };
                 };
             };
@@ -2430,6 +3043,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Error: {
+            error: string;
+        } & {
+            /** @constant */
+            type: "about:blank";
+            title: string;
+            status: number;
+            instance: string;
+        };
         InboundEmailResult: {
             /** @enum {string} */
             status: "created" | "threaded" | "duplicate";
@@ -2437,9 +3059,6 @@ export interface components {
             conversationId: string;
             /** Format: uuid */
             messageId: string;
-        };
-        Error: {
-            error: string;
         };
         Me: {
             actor: {
@@ -2588,6 +3207,12 @@ export interface components {
             error: string;
             /** Format: uuid */
             sourceId?: string;
+        } & {
+            /** @constant */
+            type: "about:blank";
+            title: string;
+            status: number;
+            instance: string;
         };
         KnowledgeSourceUpdate: {
             title?: string;

@@ -784,7 +784,7 @@ describe("re-ingesting", () => {
     );
     const res = await reingest(git?.id ?? "");
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "managed_in_git" });
+    expect(await res.json()).toMatchObject({ error: "managed_in_git" });
   });
 });
 
@@ -1221,7 +1221,7 @@ describe("knowledge API", () => {
       slug: "billing/faq",
     });
     expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ error: "slug_taken" });
+    expect(await again.json()).toMatchObject({ error: "slug_taken" });
     // Another workspace can use it: the conflict says nothing about other workspaces.
     expect((await addSource("outsider", { ...body, slug: "billing/faq" })).slug).toBe(
       "billing/faq",
@@ -1242,7 +1242,7 @@ describe("knowledge API", () => {
     ]) {
       const again = await post("editor", url, "Refunds again");
       expect(again.status).toBe(409);
-      expect(await again.json()).toEqual({ error: "url_taken", sourceId: id });
+      expect(await again.json()).toMatchObject({ error: "url_taken", sourceId: id });
     }
     // The same slug too: whichever constraint Postgres checks first, it's the URL that's taken.
     const sameSlug = await call("POST", "/v1/knowledge/sources", "editor", {
@@ -1251,7 +1251,7 @@ describe("knowledge API", () => {
       url: "https://docs.example.test/refunds?lang=en",
       slug,
     });
-    expect(await sameSlug.json()).toEqual({ error: "url_taken", sourceId: id });
+    expect(await sameSlug.json()).toMatchObject({ error: "url_taken", sourceId: id });
     // A different path or query is a different page.
     expect((await post("editor", "https://docs.example.test/Refunds?lang=en")).status).toBe(201);
     expect((await post("editor", "https://docs.example.test/refunds?lang=fr")).status).toBe(201);
@@ -1261,7 +1261,7 @@ describe("knowledge API", () => {
     const { id: theirId } = (await theirs.json()) as SourceJson;
     expect(theirId).not.toBe(id);
     const theirAgain = await post("outsider", "https://docs.example.test/refunds?lang=en#x");
-    expect(await theirAgain.json()).toEqual({ error: "url_taken", sourceId: theirId });
+    expect(await theirAgain.json()).toMatchObject({ error: "url_taken", sourceId: theirId });
   });
 
   it("makes a unique slug when another source has the same title", async () => {
@@ -1353,7 +1353,7 @@ describe("knowledge API", () => {
     );
     const res = await call("DELETE", `/v1/knowledge/sources/${row?.id}`, "editor");
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "managed_in_git" });
+    expect(await res.json()).toMatchObject({ error: "managed_in_git" });
   });
 
   it("another workspace can't see or delete Acme's sources", async () => {
@@ -1771,7 +1771,7 @@ describe("editing sources", () => {
     const url = await insertUrlSource("edit-url", "/refunds");
     const res = await edit(url, { content: "Not a page." });
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "content_not_editable" });
+    expect(await res.json()).toMatchObject({ error: "content_not_editable" });
     expect((await edit(url, { title: "Renamed page" })).status).toBe(200);
   });
 
@@ -1808,7 +1808,7 @@ describe("editing sources", () => {
     );
     const res = await edit(git?.id ?? "", { visibility: "public" });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "managed_in_git" });
+    expect(await res.json()).toMatchObject({ error: "managed_in_git" });
     expect(await sourceOf(acme, git?.id ?? "")).toMatchObject({ visibility: "internal" });
   });
 });

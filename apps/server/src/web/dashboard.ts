@@ -7,7 +7,11 @@ import { secureHeaders } from "hono/secure-headers";
 /** Paths the API owns. Everything else is the dashboard. */
 function isApiPath(path: string): boolean {
   return (
-    path === "/health" || path === "/openapi.json" || path === "/v1" || path.startsWith("/v1/")
+    path === "/health" ||
+    path === "/readyz" ||
+    path === "/openapi.json" ||
+    path === "/v1" ||
+    path.startsWith("/v1/")
   );
 }
 

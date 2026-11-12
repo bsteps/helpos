@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import { z } from "zod";
-import type { Database, TenantTx } from "./client.ts";
+import type { Database, PingResult, TenantTx } from "./client.ts";
 
 // Background jobs. pg-boss runs as the `jobs` role and owns the
 // `pgboss` schema. The app role can only enqueue, through jobs_api.app_enqueue(), and handlers
@@ -141,6 +141,7 @@ export type TenantWorker<P> = (
 export interface JobRunner {
   /** Starts pg-boss. Call installJobs() first (migrate step). */
   start(): Promise<void>;
+  ready(queues: readonly string[]): Promise<PingResult>;
   /**
    * Creates the queue if needed, and sets its retry policy when given. enqueue() refuses a
    * queue that doesn't exist yet.
@@ -239,6 +240,18 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   return {
     ensureQueue,
+    ready: async (queues) => {
+      try {
+        const available = await boss.getQueues();
+        const names = new Set(available.map((queue) => queue.name));
+        if (!queues.every((name) => names.has(name))) {
+          return { ok: false, error: new Error("required queue is missing") };
+        }
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    },
     start: async () => {
       await boss.start();
     },

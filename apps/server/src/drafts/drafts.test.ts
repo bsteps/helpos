@@ -387,7 +387,7 @@ describe("shadow mode", () => {
   it("turning it off is refused while the server flag is unset, and nothing changes", async () => {
     const res = await call("PATCH", "/v1/workspace/shadow-mode", "shadowAdmin", { enabled: false });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "shadow_mode_locked" });
+    expect(await res.json()).toMatchObject({ error: "shadow_mode_locked" });
     const after = await call("GET", "/v1/workspace/shadow-mode", "shadowAdmin");
     expect(await after.json()).toMatchObject({ enabled: true });
     expect(await shadowAudit()).toHaveLength(0);
@@ -672,7 +672,7 @@ describe("POST /v1/conversations/{id}/drafts", () => {
       body: "A second answer",
     });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "already_answered" });
+    expect(await res.json()).toMatchObject({ error: "already_answered" });
   });
 
   it("checks scope, workspace and input", async () => {

@@ -17,6 +17,7 @@ import {
   customers,
   draftCitations,
   drafts,
+  httpIdempotency,
   integrations,
   knowledgeChunks,
   knowledgeEmbeddingDimensions,
@@ -333,6 +334,14 @@ export async function seedLeakTenant(
       name: seeded.tokenName,
       tokenHash: seeded.tokenHash,
       scopes: ["conversations:read"],
+    });
+    await tx.insert(httpIdempotency).values({
+      tenantId,
+      actorType: "agent",
+      actorId: ids.token,
+      keyHash: `${tag}-key-hash`,
+      fingerprint: `${tag}-fingerprint`,
+      expiresAt: new Date("2099-01-01T00:00:00Z"),
     });
     await tx.insert(integrations).values({
       id: ids.integration,

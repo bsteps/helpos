@@ -203,7 +203,13 @@ describe("GET /v1/conversations/{id}", () => {
     const theirs = await get(`/v1/conversations/${id}`, "outsider");
     const unknown = await get("/v1/conversations/00000000-0000-7000-8000-000000000000", "reader");
     expect([theirs.status, unknown.status]).toEqual([404, 404]);
-    expect(await theirs.json()).toEqual(await unknown.json());
+    const theirRequestId = theirs.headers.get("x-request-id");
+    const unknownRequestId = unknown.headers.get("x-request-id");
+    expect(theirRequestId).toBeTruthy();
+    expect(unknownRequestId).toBeTruthy();
+    expect((await theirs.text()).replace(theirRequestId ?? "missing", "request-id")).toEqual(
+      (await unknown.text()).replace(unknownRequestId ?? "missing", "request-id"),
+    );
   });
 });
 
