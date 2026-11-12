@@ -25,6 +25,30 @@ function fixture() {
 }
 
 describe("HTTP problem details and request IDs", () => {
+  it.each([200, 204] as const)(
+    "correlates a raw %s response with its completion log",
+    async (status) => {
+      const { app, logger } = fixture();
+      app.get(
+        "/raw-response",
+        () =>
+          new Response(status === 204 ? null : "{}", {
+            status,
+            headers: { "x-response-probe": "preserved" },
+          }),
+      );
+      const requestId = `raw-response-${status}`;
+      const res = await app.request("/raw-response", { headers: { "x-request-id": requestId } });
+      expect(res.status).toBe(status);
+      expect(res.headers.get("x-request-id")).toBe(requestId);
+      expect(res.headers.get("x-response-probe")).toBe("preserved");
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId, status, path: "/raw-response" }),
+        "request completed",
+      );
+    },
+  );
+
   it.each([
     ["GET", "/missing", 404, "not_found"],
     ["GET", "/v1/conversations", 401, "unauthorized"],
