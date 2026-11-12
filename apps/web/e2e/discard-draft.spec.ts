@@ -130,7 +130,14 @@ test("a closed conversation hides AI regeneration and rejects stale requests", a
     data: { regenerate: true },
   });
   expect(refused.status()).toBe(409);
-  expect(await refused.json()).toEqual({ error: "conversation_closed" });
+  expect(refused.headers()["content-type"]).toContain("application/problem+json");
+  expect(await refused.json()).toEqual({
+    type: "about:blank",
+    title: "Conflict",
+    status: 409,
+    error: "conversation_closed",
+    instance: `urn:request:${refused.headers()["x-request-id"]}`,
+  });
   const manual = await page.request.post(`/v1/conversations/${conversationId}/drafts`, {
     data: { body: "Glad you found the answer." },
   });
