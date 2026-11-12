@@ -17,7 +17,7 @@ The [security-baseline check](../checks/security-baseline.md) flags a PR that do
 
 ## What we protect
 
-1. **Each workspace's data.** Conversations, customers, knowledge (internal notes most of all) and the audit log.
+1. **Each workspace's data.** Conversations, customers, knowledge (internal notes most of all), saved API write results and the audit log.
 2. **What goes out in the workspace's name.** A wrong email to a customer can't be unsent.
 3. **Authority.** Who may approve, accept a promotion, change limits, turn a kill switch off, and manage tokens.
 4. **Secrets.** Agent tokens, session cookies, integration tokens, the server's encryption key and a workspace's own AI key.
@@ -157,6 +157,25 @@ The vision adds rules that ADR 0004 doesn't state. They don't contradict it. The
 - **An outside agent acting elsewhere with its own keys.** HelpOS can't govern what it never sees. To govern an action on an outside tool, route it through HelpOS's tool connections (#174). This is vision rule 1.
 - **The operator.** A self-hoster, or the hosted service's own infrastructure and staff, is trusted with the box.
 - **The AI provider's own security.** We limit what we send (`T15`).
+
+## Saved API write results
+
+Keyed write requests can store their JSON response in `http_idempotency.response_body`. This is another
+plaintext store of workspace content, including conversation data, draft text and knowledge. Its table
+has forced tenant RLS, and keys are hashed and scoped to the tenant and actor. Every replay requires
+current authentication and route access; the fingerprint includes current scopes. Credential-bearing
+and provider/authentication routes refuse keys, and responses carrying cookies are not saved.
+
+The 24-hour limit controls replay eligibility, not data retention. Accessing an expired key clears its
+response body. No scheduled purge clears unaccessed bodies, so those copies can remain indefinitely,
+including after the original resource changes or is deleted. This is an open retention gap. Data
+inventory, deletion and incident-response work must account for these saved copies too.
+The open work is [bounded response retention without deleting tombstones](https://github.com/bsteps/helpos/issues/346).
+
+An eventual purge must clear expired response bodies while preserving key tombstones. Deleting a
+tombstone could admit the same keyed write again and repeat an external effect. The reservation and
+its unknown outcome must remain protected even when no body can be replayed. See
+[API conventions](../api-conventions.md#idempotent-writes) for the refusal and expiration behavior.
 
 ## Uncertain reply delivery
 
