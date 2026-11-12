@@ -837,11 +837,13 @@ export const conversationGithubIssues = pgTable(
   ],
 );
 
+export const httpIdempotencyActorTypes = ["user", "agent"] as const;
+
 export const httpIdempotency = pgTable(
   "http_idempotency",
   {
     ...tenantColumns(),
-    actorType: text("actor_type").notNull(),
+    actorType: text("actor_type", { enum: httpIdempotencyActorTypes }).notNull(),
     actorId: uuid("actor_id").notNull(),
     keyHash: text("key_hash").notNull(),
     fingerprint: text("fingerprint").notNull(),
@@ -851,7 +853,7 @@ export const httpIdempotency = pgTable(
   },
   (t) => [
     unique("http_idempotency_identity").on(t.tenantId, t.actorType, t.actorId, t.keyHash),
-    check("http_idempotency_actor", sql`${t.actorType} in ('user', 'agent')`),
+    enumCheck("http_idempotency_actor", t.actorType, httpIdempotencyActorTypes),
     check("http_idempotency_response", sql`${t.responseStatus} between 200 and 499`),
     tenantIsolation(),
   ],

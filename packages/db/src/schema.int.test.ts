@@ -220,6 +220,7 @@ const enumChecks = [
   ["drafts", "drafts_status", schema.draftStatuses],
   ["drafts", "drafts_kind", schema.draftKinds],
   ["audit_events", "audit_events_actor_type", schema.actorTypes],
+  ["http_idempotency", "http_idempotency_actor", schema.httpIdempotencyActorTypes],
   ["knowledge_sources", "knowledge_sources_kind", schema.knowledgeSourceKinds],
   ["knowledge_sources", "knowledge_sources_visibility", schema.knowledgeVisibilities],
   ["knowledge_sources", "knowledge_sources_managed_by", schema.managedByValues],
