@@ -14,9 +14,12 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
+import { type AiBudget, dailyBudgetRefusal, mapAiRefusal } from "../ai-budget/budget.ts";
 import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
+import { type Details, type DiscardDetails, hashBody } from "../audit/details.ts";
+import { clearAiPause, markMessageSent, recordActivity } from "../conversations/lifecycle.ts";
 import { mailboxDomain, outboundMessageId } from "../outbound-email/composer.ts";
-import { sendReplyJob } from "./jobs.ts";
+import { draftReplyJob, sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
 // The one module that writes the drafts table. Routes and workers call the operations below,
@@ -68,7 +71,7 @@ export const draftTransitions = {
   retry: { from: ["send_failed"], to: "approved", audit: "draft.send_retried" },
 } as const satisfies Record<string, Transition>;
 
-type DraftOperation = keyof typeof draftTransitions;
+type DraftOperation = Exclude<keyof typeof draftTransitions, "discardStale">;
 
 /**
  * Statuses a draft can still move on from: it is waiting for approval, being sent, or waiting
@@ -116,12 +119,6 @@ export type DraftChange =
 type DraftValues = typeof drafts.$inferInsert;
 type DraftSet = { [K in Exclude<keyof DraftValues, "status">]?: DraftValues[K] | SQL };
 
-/**
- * The conditional update every single-draft change goes through: it applies only while the
- * draft is in one of the operation's `from` statuses (and `also`, when given), so two changes
- * at once can't both win. When nothing matched, the draft is read again to tell a missing one
- * (404) from one in another status (409).
- */
 async function change(
   tx: TenantTx,
   context: AuditContext,
@@ -131,17 +128,54 @@ async function change(
   also?: SQL,
 ): Promise<DraftChange> {
   const { from, to, audit: action } = draftTransitions[operation];
+  const [previous] = await tx.select().from(drafts).where(eq(drafts.id, id)).for("update");
+  if (!previous) return { outcome: "not_found" };
   const [changed] = await tx
     .update(drafts)
     .set({ ...set, status: to })
     .where(and(eq(drafts.id, id), inArray(drafts.status, [...from]), also))
     .returning();
   if (!changed) {
-    const [current] = await tx.select().from(drafts).where(eq(drafts.id, id));
-    return current ? { outcome: "conflict", draft: current } : { outcome: "not_found" };
+    return { outcome: "conflict", draft: previous };
   }
-  await recordAudit(tx, { ...context, action, target: { type: "draft", id } });
+  await recordAudit(tx, {
+    ...context,
+    action,
+    target: { type: "draft", id },
+    details: changeDetails(operation, previous, changed),
+  });
   return { outcome: "changed", draft: changed };
+}
+
+function changeDetails(
+  operation: DraftOperation,
+  previous: DraftRow,
+  changed: DraftRow,
+): Details<(typeof draftTransitions)[DraftOperation]["audit"]> {
+  switch (operation) {
+    case "edit":
+      return { oldBodyHash: hashBody(previous.body), newBodyHash: hashBody(changed.body) };
+    case "approve":
+      return { reviewedBodyHash: hashBody(changed.body) };
+    case "discard":
+      return { reason: "manual", operation: "discard" };
+    case "retry":
+      return { reason: "retry_failed" };
+    case "resend":
+      return { reason: "resend_uncertain" };
+    case "rejectSend":
+      return { fromStatus: "send_uncertain", toStatus: "approved" };
+    case "markSending":
+      return {
+        fromStatus: previous.status === "approved" ? "approved" : "send_uncertain",
+        toStatus: "send_uncertain",
+      };
+    case "confirmSent":
+    case "markSent":
+      return { fromStatus: "send_uncertain", toStatus: "sent" };
+    case "markSendFailed":
+      return { fromStatus: "approved", toStatus: "send_failed" };
+  }
 }
 
 /** Queues the send. Its key is the draft, so a send already queued isn't queued twice. */
@@ -231,6 +265,7 @@ export async function retrySend(
     ...context,
     action: draftTransitions.retry.audit,
     target: { type: "draft", id },
+    details: { reason: "requeue_approved" },
   });
   await queueSend(tx, current);
   return { outcome: "changed", draft: current };
@@ -279,11 +314,8 @@ export async function resolveUncertainSend(
   }
   if (input.decision === "mark_sent") {
     const sentAt = new Date();
-    await tx.update(messages).set({ sentAt }).where(eq(messages.id, draft.sentMessageId));
-    await tx
-      .update(conversations)
-      .set({ lastMessageAt: sentAt })
-      .where(eq(conversations.id, draft.conversationId));
+    await markMessageSent(tx, draft.sentMessageId, sentAt);
+    await recordActivity(tx, draft.conversationId, sentAt);
     return change(tx, context, "confirmSent", id, { sentAt, resendRequested: false });
   }
   const domain = input.messageId.slice(input.messageId.lastIndexOf("@") + 1, -1);
@@ -322,7 +354,7 @@ export function markSendFailed(
 export async function discardStale(
   tx: TenantTx,
   context: AuditContext,
-  where: { conversationIds: string[]; kind: DraftKind },
+  where: { conversationIds: string[]; kind: DraftKind; details: DiscardDetails },
 ): Promise<string[]> {
   if (where.conversationIds.length === 0) return [];
   const { from, to, audit: action } = draftTransitions.discardStale;
@@ -336,9 +368,17 @@ export async function discardStale(
         inArray(drafts.status, [...from]),
       ),
     )
-    .returning({ id: drafts.id });
-  for (const { id } of stale)
-    await recordAudit(tx, { ...context, action, target: { type: "draft", id } });
+    .returning({ id: drafts.id, messageId: drafts.messageId });
+  for (const { id, messageId } of stale)
+    await recordAudit(tx, {
+      ...context,
+      action,
+      target: { type: "draft", id },
+      details:
+        where.details.reason === "superseded" && where.details.newerMessageId === messageId
+          ? { reason: "manual", operation: "replace" }
+          : where.details,
+    });
   return stale.map((d) => d.id);
 }
 
@@ -392,6 +432,53 @@ export async function liveDraftFor(
   return live;
 }
 
+export type RegenerateResult =
+  | { outcome: "queued"; discardedDraftIds: string[] }
+  | {
+      outcome:
+        | "not_found"
+        | "nothing_to_answer"
+        | "already_answered"
+        | "conversation_closed"
+        | "daily_budget_reached";
+    };
+
+export async function regenerateDraft(
+  tx: TenantTx,
+  context: AuditContext,
+  conversationId: string,
+  budget: Pick<AiBudget, "today">,
+): Promise<RegenerateResult> {
+  const lock = await lockConversationForDrafting(tx, conversationId);
+  if (!lock) return { outcome: "not_found" };
+  const messageId = lock.answering;
+  if (!messageId) return { outcome: "nothing_to_answer" };
+  const live = await liveDraftFor(tx, messageId, "reply");
+  if (live && !isPendingDraft(live)) return { outcome: "already_answered" };
+  if (lock.closed) return { outcome: "conversation_closed" };
+  const refusal = dailyBudgetRefusal(await budget.today(tx, context.tenantId));
+  const refused =
+    refusal &&
+    mapAiRefusal(refusal, {
+      busy: () => null,
+      over_budget: () => "daily_budget_reached" as const,
+    });
+  if (refused) return { outcome: refused };
+  const discardedDraftIds = await discardStale(tx, context, {
+    conversationIds: [conversationId],
+    kind: "reply",
+    details: { reason: "manual", operation: "regenerate" },
+  });
+  await clearAiPause(tx, conversationId, "draft_failed");
+  await enqueue(
+    tx,
+    draftReplyJob,
+    { tenantId: context.tenantId, messageId },
+    { singletonKey: messageId },
+  );
+  return { outcome: "queued", discardedDraftIds };
+}
+
 /** Saves a new pending draft, queues the owners' notice, and records it. */
 async function insertPending(
   tx: TenantTx,
@@ -413,6 +500,7 @@ async function insertPending(
     ...context,
     action: "draft.created",
     target: { type: "draft", id: draft.id },
+    details: { bodyHash: hashBody(draft.body), messageId: draft.messageId, kind: draft.kind },
   });
   return draft;
 }
@@ -434,12 +522,13 @@ export async function createReply(
     noticeDelaySeconds: number;
   },
 ): Promise<DraftRow> {
-  await discardStale(tx, context, { conversationIds: [input.conversationId], kind: "reply" });
+  await discardStale(tx, context, {
+    conversationIds: [input.conversationId],
+    kind: "reply",
+    details: { reason: "superseded", newerMessageId: input.messageId },
+  });
   const draft = await insertPending(tx, context, { ...input, kind: "reply" });
-  await tx
-    .update(conversations)
-    .set({ aiPausedReason: null })
-    .where(eq(conversations.id, input.conversationId));
+  await clearAiPause(tx, input.conversationId);
   return draft;
 }
 

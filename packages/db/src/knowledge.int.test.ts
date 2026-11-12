@@ -1,7 +1,12 @@
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 import { createDatabase, type Database, type TenantTx } from "./client.ts";
-import { normalizeKnowledgeUrl, searchKnowledge } from "./knowledge.ts";
+import {
+  hasSearchableKnowledge,
+  type KnowledgeQuery,
+  normalizeKnowledgeUrl,
+  searchKnowledge,
+} from "./knowledge.ts";
 import {
   type KnowledgeVisibility,
   knowledgeEmbeddingDimensions,
@@ -11,7 +16,7 @@ import {
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
-// Vector search under row-level security. The leak cases live in leak.test.ts.
+// Vector search under row-level security. The leak cases live in leak.int.test.ts.
 
 let testDb: TestDatabase;
 let db: Database;
@@ -38,7 +43,7 @@ async function seedChunks(
   lean: number,
   axis: number,
   visibility: KnowledgeVisibility = "internal",
-): Promise<void> {
+): Promise<string> {
   const [source] = await tx
     .insert(knowledgeSources)
     .values({
@@ -61,6 +66,7 @@ async function seedChunks(
                     else random() * 0.01 + g * 0 end
         from generate_series(1, ${knowledgeEmbeddingDimensions}) i), ',') || ']')::vector
     from generate_series(1, ${count}) g`);
+  return source.id;
 }
 
 beforeAll(async () => {
@@ -93,12 +99,85 @@ async function forceIndex(tx: TenantTx): Promise<void> {
 }
 
 describe("searchKnowledge", () => {
+  it("requires an approver or customer audience by type", () => {
+    expectTypeOf<KnowledgeQuery>().toExtend<{ audience: "approver" | "customer" }>();
+    expectTypeOf<Omit<KnowledgeQuery, "audience">>().not.toExtend<KnowledgeQuery>();
+    expectTypeOf<
+      Omit<KnowledgeQuery, "audience"> & { audience: "internal" }
+    >().not.toExtend<KnowledgeQuery>();
+  });
+
+  it.each([undefined, "internal", null])("rejects an untyped audience %s", async (audience) => {
+    const input: KnowledgeQuery = {
+      tenantId: small,
+      embedding: query,
+      embeddingModel: model,
+      limit: 5,
+      audience: "customer",
+    };
+    Reflect.set(input, "audience", audience);
+    await expect(db.withTenant(small, (tx) => searchKnowledge(tx, input))).rejects.toThrow();
+    const { tenantId, embeddingModel } = input;
+    await expect(
+      db.withTenant(small, (tx) =>
+        hasSearchableKnowledge(tx, { tenantId, embeddingModel, audience: input.audience }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("keeps customer results public and both audiences inside their tenant", async () => {
+    const owners = [uuidv7(), uuidv7()];
+    const seeded = await Promise.all(
+      owners.map((tenantId) =>
+        db.withTenant(tenantId, async (tx) => {
+          await tx.insert(tenants).values({ id: tenantId, name: tenantId });
+          const internalId = await seedChunks(tx, tenantId, 1, 10, 3);
+          const publicId = await seedChunks(tx, tenantId, 2, 0.2, 4, "public");
+          return { tenantId, internalId, publicId };
+        }),
+      ),
+    );
+    for (const { tenantId, internalId, publicId } of seeded) {
+      const base = { tenantId, embedding: query, embeddingModel: model, limit: 20 };
+      const customer = await db.withTenant(tenantId, (tx) =>
+        searchKnowledge(tx, { ...base, audience: "customer" }),
+      );
+      expect(customer.map((h) => [h.sourceId, h.visibility])).toEqual([
+        [publicId, "public"],
+        [publicId, "public"],
+      ]);
+      const approver = await db.withTenant(tenantId, (tx) =>
+        searchKnowledge(tx, { ...base, audience: "approver" }),
+      );
+      expect(approver.map((h) => h.sourceId)).toEqual([internalId, publicId, publicId]);
+      for (const outsider of seeded.filter((s) => s.tenantId !== tenantId)) {
+        for (const audience of ["customer", "approver"] as const) {
+          expect(
+            await db.withTenant(tenantId, (tx) =>
+              searchKnowledge(tx, { ...base, tenantId: outsider.tenantId, audience }),
+            ),
+          ).toEqual([]);
+          expect(
+            await db.withTenant(tenantId, (tx) =>
+              hasSearchableKnowledge(tx, {
+                tenantId: outsider.tenantId,
+                embeddingModel: model,
+                audience,
+              }),
+            ),
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
   it("sets hnsw.iterative_scan for the rest of its transaction only", async () => {
     const inside = await db.withTenant(small, async (tx) => {
       await searchKnowledge(tx, {
         tenantId: small,
         embedding: query,
         embeddingModel: model,
+        audience: "approver",
         limit: 1,
       });
       return tx.execute<{ v: string }>(sql`select current_setting('hnsw.iterative_scan') as v`);
@@ -114,7 +193,13 @@ describe("searchKnowledge", () => {
 
   it("returns the nearest chunks first, with their source", async () => {
     const hits = await db.withTenant(large, (tx) =>
-      searchKnowledge(tx, { tenantId: large, embedding: query, embeddingModel: model, limit: 5 }),
+      searchKnowledge(tx, {
+        tenantId: large,
+        embedding: query,
+        embeddingModel: model,
+        audience: "approver",
+        limit: 5,
+      }),
     );
     expect(hits).toHaveLength(5);
     expect(hits.every((h) => h.title === "Doc" && h.visibility === "internal")).toBe(true);
@@ -129,8 +214,8 @@ describe("searchKnowledge", () => {
         tenantId: large,
         embedding: query,
         embeddingModel: model,
+        audience: "customer",
         limit: 5,
-        visibility: ["public"],
       });
     });
     expect(hits.map((h) => [h.title, h.visibility])).toEqual([
@@ -141,7 +226,13 @@ describe("searchKnowledge", () => {
 
   it("never compares vectors from another embedding model", async () => {
     const hits = await db.withTenant(large, (tx) =>
-      searchKnowledge(tx, { tenantId: large, embedding: query, embeddingModel: "other", limit: 5 }),
+      searchKnowledge(tx, {
+        tenantId: large,
+        embedding: query,
+        embeddingModel: "other",
+        audience: "approver",
+        limit: 5,
+      }),
     );
     expect(hits).toEqual([]);
   });
@@ -153,6 +244,7 @@ describe("searchKnowledge", () => {
           tenantId: small,
           embedding: [1, 0],
           embeddingModel: model,
+          audience: "approver",
           limit: 5,
         }),
       ),
@@ -163,18 +255,8 @@ describe("searchKnowledge", () => {
           tenantId: small,
           embedding: query,
           embeddingModel: model,
+          audience: "approver",
           limit: 1_000,
-        }),
-      ),
-    ).rejects.toThrow();
-    await expect(
-      db.withTenant(small, (tx) =>
-        searchKnowledge(tx, {
-          tenantId: small,
-          embedding: query,
-          embeddingModel: model,
-          limit: 5,
-          visibility: [],
         }),
       ),
     ).rejects.toThrow();
@@ -211,6 +293,7 @@ describe("vector recall for a small tenant among large ones", () => {
         tenantId: small,
         embedding: query,
         embeddingModel: model,
+        audience: "approver",
         limit: 5,
       });
     });

@@ -63,7 +63,11 @@ const principals: Record<string, () => Principal> = {
   outsider: () => principal(other, ["conversations:read", "drafts:write", "drafts:approve"]),
   shadowApprover: () =>
     principal(shadowed, ["conversations:read", "drafts:write", "drafts:approve"]),
-  shadowAdmin: () => principal(shadowed, ["conversations:read", "workspace:admin"]),
+  shadowAdmin: () => ({
+    tenantId: shadowed,
+    actor: { type: "user", id: "test-shadow-admin" },
+    scopes: new Set(["conversations:read", "workspace:admin"] as const),
+  }),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -403,7 +407,7 @@ describe("shadow mode", () => {
       expect(await res.json()).toEqual({ enabled: false, recipient: "owner@shadowed.test" });
       const audit = await shadowAudit();
       expect(audit.map((e) => [e.action, e.actorType, e.actorId, e.targetId])).toEqual([
-        ["workspace.shadow_mode_disabled", "agent", "test-agent", shadowed],
+        ["workspace.shadow_mode_disabled", "user", "test-shadow-admin", shadowed],
       ]);
       expect(audit[0]?.requestId).toBe(res.headers.get("x-request-id"));
     } finally {

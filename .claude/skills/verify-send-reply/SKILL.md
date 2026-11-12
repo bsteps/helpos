@@ -54,34 +54,39 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Other fingerprints remain unchanged.
+Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. `defineJob`, `consume`, and `work` were selectively rechecked against the two-phase send contract after AI deferrals and stored-payload validation: `handleSendReply` returns no deferral, so no send successor is enqueued; the logging wrapper still awaits and rethrows failures; the last-attempt condition and rollback-before-give-up order stay intact; and pg-boss settles after the callback. Other fingerprints remain unchanged. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
 | apps/server/src/outbound-email/composer.ts | outboundMessageId | PersonApproves, PersonResolvesResend (Message-ID generation) | `e5a275b0a465` |
 | apps/server/src/outbound-email/composer.ts | composeEmail | WorkerLocksAndChecks, PreparationFails (MIME preparation before the marker commit) | `0703cec0ca33` |
-| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `ebd0b7dfec33` |
+| apps/server/src/drafts/send-worker.ts | handleSendReply | WorkerLocksAndChecks, WorkerRechecksMarker, PreparationFails, SmtpAccepts, SmtpRejects, SmtpReplyLost, TransactionCommits, TransactionCommitFails | `2e188d038b39` |
+| apps/server/src/conversations/lifecycle.ts | addMessage | WorkerLocksAndChecks, PreparationFails (prepared outbound insert) | `020e1b6717de` |
+| apps/server/src/conversations/lifecycle.ts | markMessageSent | TransactionCommits, PersonResolvesSent (message sentAt) | `f28d8643de0c` |
+| apps/server/src/conversations/lifecycle.ts | recordActivity | TransactionCommits, PersonResolvesSent (conversation lastMessageAt) | `5f93e14833be` |
+| apps/server/src/conversations/lifecycle.ts | removeRejectedMessage | SmtpRejects (remove unaccepted preparation) | `b52ac63e24c0` |
 | apps/server/src/drafts/send-worker.ts | handleSendGaveUp | GiveUpMarksFailed, GiveUpFails | `360cf5ea8938` |
 | apps/server/src/drafts/lifecycle.ts | isApprovedDraft | WorkerLocksAndChecks, SmtpRejects | `dee671731e8f` |
 | apps/server/src/drafts/lifecycle.ts | isSentDraft | WorkerLocksAndChecks, SmtpRejects | `785296718047` |
 | apps/server/src/drafts/lifecycle.ts | isUncertainDraft | WorkerLocksAndChecks, SmtpRejects | `dbc8777e2d84` |
 | apps/server/src/drafts/lifecycle.ts | draftTransitions | MarkSendFailedFrom, and the status guards of every Person action | `12c52c5be6fa` |
-| apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `1f420c4dcc39` |
+| apps/server/src/drafts/lifecycle.ts | change | the conditional update and row lock every status change goes through | `2d5a1057fb04` |
+| apps/server/src/drafts/lifecycle.ts | changeDetails | audit inputs within every Person and Worker transaction | `bba5eacea934` |
 | apps/server/src/drafts/lifecycle.ts | queueSend | Enqueue | `1d94c013aa00` |
 | apps/server/src/drafts/lifecycle.ts | approveDraft | PersonApproves | `7a552dec2357` |
-| apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `185fefbe5193` |
+| apps/server/src/drafts/lifecycle.ts | retrySend | PersonRetriesSend | `70a6a6dbe8d5` |
 | apps/server/src/drafts/lifecycle.ts | discardDraft | PersonDiscards | `86be6a5eba54` |
 | apps/server/src/drafts/lifecycle.ts | markSending | WorkerLocksAndChecks | `1cbbda9a6c54` |
 | apps/server/src/drafts/lifecycle.ts | rejectSend | SmtpRejects | `67eb47b77809` |
-| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `e9923bbac2bb` |
+| apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `b4dbff48c01d` |
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `97968274f48d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `1ab4b0b08c2b` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
-| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `a99b2cee9f9e` |
+| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
-| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `246f97b5f432` |
-| packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `1c138699acca` |
+| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `13c7c8ab11d4` |
+| packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `0ac5978b52bb` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->
 
@@ -94,6 +99,8 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 **Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.0 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
 
 **Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
+
+Stored payloads are assumed valid in this model. Malformed payloads fail before tenant handlers or give-up callbacks run. The runner reports a fixed error with queue and job ID on the last attempt. The real malformed-job regressions in `packages/db/src/jobs.int.test.ts` and `apps/server/src/invalid-job.int.test.ts` cover that separate behavior. The valid-payload model does not prove it.
 
 ## Known findings
 

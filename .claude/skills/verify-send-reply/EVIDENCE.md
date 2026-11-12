@@ -1,3 +1,40 @@
+## Audit input review for issue 85
+
+`change` now locks and reads the draft before its existing conditional update.
+That keeps an edit's old body hash tied to the row being edited, including when
+two edits race. The update still checks the same transition statuses and optional
+body or resend guard. A conflict returns that locked row without auditing it.
+`changeDetails` derives body hashes, discard reasons, retry reasons and status
+transitions from that operation. `recordAudit` validates them before insertion.
+An invalid event throws inside the caller's transaction and rolls back its writes.
+
+Review compared `change`, `changeDetails`, approval, retry, discard, sending,
+rejection, uncertainty resolution, sent and failed-send updates with their mapped
+actions. The extra read acquires the row lock earlier within the same transaction.
+It creates no new commit boundary. Approval still guards the exact reviewed body
+and queues the same job after its audit. Retry retains its approved requeue and
+singleton key. Explicit resend keeps its new Message-ID and singleton generation.
+The rejection path for an explicit resend keeps `send_uncertain` and now records
+that unchanged status truthfully. Normal rejection still restores `approved`.
+
+The worker's preparation commit, second-transaction marker recheck, SMTP call,
+final commit and pg-boss settlement stay separate. `PersonApproves`,
+`PersonRetriesSend`, `PersonDiscards`, `PersonResolvesSent`, `PersonResolvesResend`,
+`WorkerLocksAndChecks`, `SmtpRejects`, `TransactionCommits` and `GiveUpMarksFailed`
+retain their existing guards and committed effects. Audit validation failures are
+transaction failures already covered by rollback and give-up failure behavior.
+The model does not represent audit contents. No model action, invariant, bound or
+known-finding allowance changes. The new details helper joins fingerprint coverage.
+Lost retry and failed give-up remain known `NoSilentStall` findings.
+
+## Conversation write ownership review for issue 240
+
+The extraction onto the pinned #193 parent keeps the same SQL, await order, caller transactions, clocks, guards and audit events. `handleSendReply` still commits the prepared outbound message with `sentAt: null` and `markSending` before SMTP. Its second transaction locks and rechecks the same marker, calls SMTP, then confirms the message, marks the draft sent and updates conversation activity. Definite rejection still changes the draft before removing the prepared message. An explicit resend rejection retains the original uncertainty.
+
+`resolveUncertainSend` still locks the draft and validates status, Message-ID and sent-message identity before confirming the message and activity, then recording `draft.send_confirmed`. The resend branch is unchanged. `addMessage`, `markMessageSent`, `recordActivity` and `removeRejectedMessage` now own the extracted statements, so their bodies join the coverage record. The corrected declaration selector from #193 remains in use, and the scratch checker fixture copies the new module.
+
+No model action, invariant, bound or known-finding allowance changes. `WorkerLocksAndChecks`, `SmtpRejects`, `TransactionCommits` and `PersonResolvesSent` describe the same committed effects. Audit writes stay where they were relative to those effects. The pre-refresh run reproduced the expected model results and rejected only the changed worker and resolution fingerprints. Source mutations and the final runner results are recorded in the issue 240 decision trail. Lost retry and failed give-up still break `NoSilentStall`; this refactor does not fix them.
+
 # Issue 130 verification
 
 ## Issue 193 actor boundary
@@ -172,3 +209,17 @@ The review demonstrated that setting `MarkSendFailedFrom == {}` in the base mode
 `node --test .claude/skills/verify-send-reply/scripts/check.test.mjs` runs the real checker in an isolated fixture, verifies all four passing controls, applies that base-model break and requires rejection. It is included in `pnpm test:scripts` and explicitly skips when Java is absent. The controls cover these mutation scenarios; they do not make known-failure allowances distinguish all possible regressions. Continue reviewing their traces when the model changes.
 
 The four new controls also passed `/statechart` review in Linux. Verification now checks 24 scenario/invariant results, four passing controls and four failing mutants. `pnpm verify` and all 81 tests in `pnpm test:scripts` passed after this change.
+
+## Busy-budget retry allowance (#203)
+
+AI steps handlers can return a delayed continuation. The job runner, which owns pg-boss retry metadata, carries `retryLimit - retryCount` into its successor. Busy work consumes no failure allowance, and previously failed calls cannot regain retries. The successor uses the queue's retry delay and backoff from its own first failure; this change preserves the cumulative failure count, not the old job's backoff position.
+
+The send-model actions remain unchanged: transactional send handlers return no deferral, errors still reach pg-boss after the transaction rejects, and give-up still runs only when retryCount reaches retryLimit. The additional return path applies to AI steps jobs outside this bounded send model. The defineJob return wrapper and consume/work fingerprints change; no promises or known findings are removed. This source branch retains the earlier send implementation; integration must carry these runner changes into the separately verified #130/#195/#213 stack and recheck that combined result.
+
+A real production-registry/Postgres/pg-boss regression alternates two provider failures, a busy deferral, one more failure, another deferral, then the fourth failure. It asserts remaining limits of one and zero on successors, exactly four model calls, one give-up, and draft_failed. The old implementation fails because the first successor has retry_limit=3 instead of 1. The existing 31-deferral recovery and ingestion recovery tests still pass. Queue eligibility is accelerated in the test database; real claims, settlements and handler results remain in use.
+
+## Stored payload boundary
+
+The #335 assembly preserves the valid-payload path through `consume`: the handler receives the same remaining failure allowance, give-up still runs after handler rollback on the last failure, and pg-boss settles the rethrown error. Invalid payloads instead throw a fixed `InvalidJobPayloadError` before either typed callback, so the log entry names the failure without its message. Only the final invalid attempt reports queue and job ID. No payload, validation detail or tenant identifier is passed to the error hook.
+
+Only the `createJobRunner.consume` coverage fingerprint changes, from `1c5921f6eb32` to `13c7c8ab11d4`. Computing the last-attempt condition once, before validation, keeps the valid-payload order: handler, rollback, give-up on the last attempt, rethrow. `work`, `defineJob`, enqueue SQL, send operations, policy constants, the model, mutants and checker remain unchanged from the assembled prerequisites. The 36 frozen model outcomes remain inherited evidence under their original valid-payload assumptions. They do not prove malformed-job behavior. At `efbab5f0e136db139cf043528dd3ff7602399c04`, the root-granted serial Postgres phase passes all eight selected suites and 96 tests, including the original real pg-boss and composed-server malformed-job regressions. The capped container and test process exited before the slot was released. The [integration record](../../../docs/integrations/335-persistence-job-contracts.md) records resources, results, and limits. Known lost-retry and give-up `NoSilentStall` findings remain open.

@@ -95,7 +95,11 @@ it.each([
       const fixed = await createFixedNotice(tx, context, input);
       expect(fixed).not.toBeNull();
       expect(
-        await discardStale(tx, context, { conversationIds: [input.conversationId], kind: "reply" }),
+        await discardStale(tx, context, {
+          conversationIds: [input.conversationId],
+          kind: "reply",
+          details: { reason: "manual", operation: "regenerate" },
+        }),
       ).toEqual([second.id]);
       return [first.id, second.id, fixed?.id];
     });
