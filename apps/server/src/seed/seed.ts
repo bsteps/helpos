@@ -1,4 +1,5 @@
 import { type AuthStore, type Database, type JobRunner, schema } from "@helpos/db";
+import { seedConversationHistory } from "../conversations/lifecycle.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { queueIngest } from "../knowledge/sources.ts";
 import type { ServerConfig } from "../services.ts";
@@ -65,8 +66,7 @@ export async function seedDemoData(deps: {
         .values(t.tokens.map(({ token, ...row }) => ({ ...row, tokenHash: hashToken(token) })))
         .onConflictDoNothing();
       await tx.insert(schema.auditEvents).values(t.audit).onConflictDoNothing();
-      await tx.insert(schema.conversations).values(t.conversations).onConflictDoNothing();
-      await tx.insert(schema.messages).values(t.messages).onConflictDoNothing();
+      await seedConversationHistory(tx, t);
       await tx.insert(schema.drafts).values(t.drafts).onConflictDoNothing();
       // Inserted before the citations that point at them; only new ones are queued.
       const added = await tx
