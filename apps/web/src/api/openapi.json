@@ -24,6 +24,43 @@
       }
     },
     "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "about:blank"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "integer"
+              },
+              "instance": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "title",
+              "status",
+              "instance"
+            ]
+          }
+        ]
+      },
       "InboundEmailResult": {
         "type": "object",
         "properties": {
@@ -48,17 +85,6 @@
           "status",
           "conversationId",
           "messageId"
-        ]
-      },
-      "Error": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "error"
         ]
       },
       "Me": {
@@ -868,6 +894,32 @@
         },
         "required": [
           "error"
+        ],
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "about:blank"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "integer"
+              },
+              "instance": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "title",
+              "status",
+              "instance"
+            ]
+          }
         ]
       },
       "KnowledgeSourceUpdate": {
@@ -1103,6 +1155,78 @@
     "parameters": {}
   },
   "paths": {
+    "/health": {
+      "get": {
+        "security": [],
+        "x-access": {
+          "noCaller": "Liveness reveals only that the HTTP process can answer a request."
+        },
+        "responses": {
+          "200": {
+            "description": "The HTTP process is live",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "security": [],
+        "x-access": {
+          "noCaller": "Readiness reveals only whether the database and job queues are available."
+        },
+        "responses": {
+          "200": {
+            "description": "Database and job queues are available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or job queues are unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/inbound/email": {
       "post": {
         "summary": "Receive an inbound email",
@@ -1110,6 +1234,19 @@
         "security": [
           {
             "inboundSecret": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
           }
         ],
         "x-access": {
@@ -1150,10 +1287,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing or wrong secret",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1163,7 +1310,17 @@
           "404": {
             "description": "No workspace has this address. Nothing was stored",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1173,7 +1330,7 @@
           "413": {
             "description": "Larger than 10485760 bytes",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1183,7 +1340,17 @@
           "422": {
             "description": "Not a usable email (e.g. no From address)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1197,6 +1364,19 @@
       "post": {
         "summary": "Sign in with email and password",
         "description": "Starts a human session and sets it as an HttpOnly cookie. A wrong email and a wrong password get the same answer. There is no sign-up: users are created by the operator. Agents use tokens instead (`POST /v1/tokens`).",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "x-access": {
           "noCaller": "The caller proves who they are with an email and password in the body."
         },
@@ -1233,10 +1413,20 @@
           "204": {
             "description": "Signed in; the session cookie is set"
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Wrong email or password (`invalid_credentials`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1246,7 +1436,17 @@
           "403": {
             "description": "Sent by a browser from another site (`forbidden_origin`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1256,7 +1456,7 @@
           "503": {
             "description": "Human sign-in isn't configured on this server",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1270,6 +1470,19 @@
       "post": {
         "summary": "Sign out",
         "description": "Ends the current session and clears its cookie. Safe to call without one.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "x-access": {
           "noCaller": "The session cookie, if any, is the only credential, and signing out without one is harmless."
         },
@@ -1280,10 +1493,30 @@
           "204": {
             "description": "Signed out"
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "403": {
             "description": "Sent by a browser from another site (`forbidden_origin`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1293,7 +1526,7 @@
           "503": {
             "description": "Human sign-in isn't configured on this server",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1307,6 +1540,19 @@
       "post": {
         "summary": "Set a password with a one-time link",
         "description": "Uses the token from a password setup link (printed by `helpos:init`) to set the user's password, 12 to 128 characters. The token works once. Every existing session of that user is signed out.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "x-access": {
           "noCaller": "The one-time token in the body proves the caller holds the password setup link."
         },
@@ -1347,7 +1593,7 @@
           "400": {
             "description": "The link is unknown, used or expired (`invalid_token`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1357,7 +1603,17 @@
           "403": {
             "description": "Sent by a browser from another site (`forbidden_origin`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1367,7 +1623,7 @@
           "503": {
             "description": "Human sign-in isn't configured on this server",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1403,7 +1659,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1417,6 +1673,19 @@
       "post": {
         "summary": "Create an agent token",
         "description": "Creates a token for one agent, with exactly the scopes given. The response holds the token itself, the only time it is shown: store it right away. Needs a human session with `workspace:admin`; an agent token can't create tokens. A token can only get scopes its creator holds (`scope_not_held`).",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -1474,10 +1743,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1487,7 +1766,27 @@
           "403": {
             "description": "Called with an agent token (`session_required`), or without `workspace:admin`",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1535,7 +1834,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1545,7 +1844,7 @@
           "403": {
             "description": "Called with an agent token (`session_required`), or without `workspace:admin`",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1559,6 +1858,28 @@
       "delete": {
         "summary": "Revoke an agent token",
         "description": "Revokes a token at once: every later request with it gets 401. The token stays listed, so audit events still name it. Revoking a revoked token changes nothing. Needs a human session with `workspace:admin`, or the token itself: an agent can always revoke its own token, e.g. when it may have leaked.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -1574,25 +1895,24 @@
             "api_token.revoked"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "204": {
             "description": "Revoked"
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1602,7 +1922,7 @@
           "403": {
             "description": "Neither `workspace:admin` in a human session nor the token itself",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1612,7 +1932,27 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1698,7 +2038,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1708,7 +2048,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1757,7 +2097,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1767,7 +2107,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1777,7 +2117,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1791,6 +2131,28 @@
       "post": {
         "summary": "Close a conversation",
         "description": "Marks the conversation `closed` and audit-logs it. Closing a closed conversation changes nothing. Pending drafts are left as they are. Needs `conversations:write` and `conversations:read`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -1807,17 +2169,6 @@
             "conversation.closed"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "200": {
             "description": "The closed conversation",
@@ -1829,10 +2180,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1842,7 +2203,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1852,7 +2213,27 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1912,7 +2293,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1922,7 +2303,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1932,7 +2313,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1944,6 +2325,28 @@
       "post": {
         "summary": "Write a draft, or ask the AI for a new one",
         "description": "Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -1961,17 +2364,6 @@
             "draft.discarded"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2044,10 +2436,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2057,7 +2459,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2067,7 +2469,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2077,7 +2479,17 @@
           "409": {
             "description": "No customer message to answer (`nothing_to_answer`), or the latest one already has an approved or sent reply (`already_answered`), or `regenerate` was asked after today's AI budget was spent (`daily_budget_reached`) or on a closed conversation (`conversation_closed`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2091,6 +2503,28 @@
       "patch": {
         "summary": "Edit a pending draft",
         "description": "Replaces the body of a draft that is still `pending`. Needs `drafts:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2106,17 +2540,6 @@
             "draft.edited"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2149,10 +2572,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2162,7 +2595,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2172,7 +2605,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2182,7 +2615,17 @@
           "409": {
             "description": "The draft is no longer pending",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2196,6 +2639,28 @@
       "post": {
         "summary": "Approve a draft and send it",
         "description": "Marks a `pending` draft `approved` and queues it to be sent, in one transaction. This is the only way a reply reaches a customer. Sending happens in the background: the draft becomes `sent` once the email is out, and a failed send is retried. The request carries the body the approver reviewed: if the draft was edited since, nothing is approved (409). Needs `drafts:approve`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2211,17 +2676,6 @@
             "draft.approved"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2252,10 +2706,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2265,7 +2729,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2275,7 +2739,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2285,7 +2749,17 @@
           "409": {
             "description": "The draft is no longer pending, or was edited since it was reviewed",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2299,6 +2773,28 @@
       "post": {
         "summary": "Resolve an uncertain send",
         "description": "Human decision for a reply that may already have gone out. Mark it sent or explicitly send again. The Message-ID binds the decision to the attempt reviewed.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2316,17 +2812,6 @@
             "draft.send_retried"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2366,10 +2851,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2379,7 +2874,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2389,7 +2884,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2399,7 +2894,17 @@
           "409": {
             "description": "This uncertain attempt is no longer current",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2413,6 +2918,28 @@
       "post": {
         "summary": "Discard a pending or failed draft",
         "description": "Marks a `pending` or `send_failed` draft `discarded`, so it can never be approved or sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2428,17 +2955,6 @@
             "draft.discarded"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "200": {
             "description": "The discarded draft",
@@ -2450,10 +2966,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2463,7 +2989,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2473,7 +2999,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2483,7 +3009,17 @@
           "409": {
             "description": "The draft is not pending or `send_failed`",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2497,6 +3033,28 @@
       "post": {
         "summary": "Retry sending a failed draft",
         "description": "Queues a `send_failed` draft to be sent again and marks it `approved`, in one transaction. It goes out with the same Message-ID as the failed attempts, the same text, and to whoever shadow mode says at the time it is sent. Safe to repeat: a `sent` draft is returned as it is, and an `approved` one has its send queued again only if none is queued already, so it is never sent twice. Needs `drafts:approve`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2512,17 +3070,6 @@
             "draft.send_retried"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "200": {
             "description": "The draft, queued to send (or already sending or sent)",
@@ -2534,10 +3081,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2547,7 +3104,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2557,7 +3114,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2567,7 +3124,17 @@
           "409": {
             "description": "The draft was never approved, or was discarded",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2605,7 +3172,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2615,7 +3182,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2664,7 +3231,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2674,7 +3241,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2686,6 +3253,19 @@
       "post": {
         "summary": "Add a knowledge source",
         "description": "Adds a web page (`kind: url`) or a markdown document (`kind: markdown`; to upload a file, send its text). It is ingested in the background: fetched through an SSRF-safe fetch, split into passages and embedded, which counts toward the daily AI budget. The status turns `ready` or `failed`. AI drafts then quote matching passages as reference data and record which ones they cite. One page per URL source: links are not followed. `slug` defaults to one made from the title. `visibility` defaults to `internal`. Needs `knowledge:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2805,10 +3385,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2818,7 +3408,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2828,9 +3418,19 @@
           "409": {
             "description": "The workspace already has a source with this slug (`slug_taken`), or with this URL (`url_taken`, with its `sourceId`). URLs are compared without the fragment, host case or a default port.",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/KnowledgeSourceConflict"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -2842,6 +3442,28 @@
       "post": {
         "summary": "Ingest a knowledge source again",
         "description": "Sets the source back to `pending` (or preserves a budget wait) and queues it, e.g. after a `failed` ingest, after the page changed, or after the embedding model changed. Until the new ingest is done, drafts keep using the current passages. If it fails on a temporary problem (the site is down, the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable (no text, too long, not a page), they're removed. Asking again while it's pending queues nothing new, but a request made during a fetch gets a fetch of its own. Needs `knowledge:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2857,17 +3479,6 @@
             "knowledge_source.reingest_requested"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "202": {
             "description": "The source, pending or waiting for the daily budget",
@@ -2879,10 +3490,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2892,7 +3513,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2902,7 +3523,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2912,7 +3533,17 @@
           "409": {
             "description": "The source is managed in the workspace's git repo (`managed_in_git`): it's re-ingested on sync",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2926,6 +3557,28 @@
       "patch": {
         "summary": "Edit a knowledge source",
         "description": "Changes a source's `title`, `visibility` or, for a markdown source, `content`, keeping its id and slug so drafts' citations still point at it. A title or visibility change applies at once: the next search sees it. A content change removes the old passages straight away, so text taken out is never quoted again, and ingests the new text in the background (status `pending`, counted toward the daily AI budget). Until that is done the source has no passages. Sending what it already has changes nothing and logs nothing. Needs `knowledge:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -2943,17 +3596,6 @@
             "knowledge_source.made_internal"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2978,7 +3620,7 @@
           "400": {
             "description": "`content` sent for a URL source (`content_not_editable`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2988,7 +3630,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -2998,7 +3640,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3008,7 +3650,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3018,7 +3660,17 @@
           "409": {
             "description": "The source is managed in the workspace's git repo (`managed_in_git`): edit the file there",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3030,6 +3682,28 @@
       "delete": {
         "summary": "Delete a knowledge source",
         "description": "Deletes the source and its passages. Drafts written with it keep their copy of the passages they saw, with `sourceId` null. Needs `knowledge:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3045,25 +3719,24 @@
             "knowledge_source.deleted"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "204": {
             "description": "Deleted"
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3073,7 +3746,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3083,7 +3756,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3093,7 +3766,17 @@
           "409": {
             "description": "The source is managed in the workspace's git repo (`managed_in_git`): delete the file there",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3155,7 +3838,7 @@
           "400": {
             "description": "`from` is not before `to`, or the range is too long",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3165,7 +3848,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3175,7 +3858,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3213,7 +3896,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3223,7 +3906,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3235,6 +3918,19 @@
       "patch": {
         "summary": "Change the workspace's shadow mode",
         "description": "Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) unless the server allows it. Needs a human session with `workspace:admin`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3284,10 +3980,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3297,7 +4003,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3307,7 +4013,17 @@
           "409": {
             "description": "Turning shadow mode off is not allowed on this server",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3346,7 +4062,7 @@
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3356,7 +4072,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3368,6 +4084,19 @@
       "put": {
         "summary": "Connect a GitHub repo",
         "description": "Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown; connecting the same repo again (a new token) keeps the secret unless `rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs `workspace:admin` in a human session.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3423,10 +4152,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3436,7 +4175,17 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3446,7 +4195,7 @@
           "422": {
             "description": "GitHub refused the token (`token_rejected`), or the token can't see the repo (`repo_not_found`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3456,7 +4205,7 @@
           "502": {
             "description": "GitHub could not be reached (`github_unavailable`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3466,7 +4215,7 @@
           "503": {
             "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3478,6 +4227,19 @@
       "delete": {
         "summary": "Disconnect the GitHub repo",
         "description": "Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3498,10 +4260,20 @@
           "204": {
             "description": "Disconnected, or nothing was connected"
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3511,7 +4283,27 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Idempotency storage or a required service is unavailable",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3525,6 +4317,19 @@
       "post": {
         "summary": "Give the GitHub webhook a new secret",
         "description": "Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3552,10 +4357,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3565,7 +4380,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3575,7 +4390,17 @@
           "404": {
             "description": "No repo is connected (`not_connected`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3585,7 +4410,7 @@
           "503": {
             "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3599,6 +4424,28 @@
       "post": {
         "summary": "Ask the AI to draft a GitHub issue from a conversation",
         "description": "Suggests a title and body (steps to reproduce, expected, actual) from the conversation's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3615,17 +4462,6 @@
             "github_issue.drafted"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "responses": {
           "200": {
             "description": "The suggested issue",
@@ -3637,10 +4473,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3650,7 +4496,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3660,7 +4506,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3670,7 +4516,7 @@
           "409": {
             "description": "No message from the customer to work from (`nothing_to_report`), or today's AI budget is spent (`daily_budget_reached`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3680,7 +4526,7 @@
           "502": {
             "description": "The AI provider failed (`ai_unavailable`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3690,7 +4536,7 @@
           "503": {
             "description": "AI is not configured on this server (`ai_not_configured`), or the workspace's other AI calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3704,6 +4550,28 @@
       "post": {
         "summary": "Create a GitHub issue from a conversation",
         "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the conversation. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the conversation gets a `fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "security": [
           {
             "apiAuth": []
@@ -3722,17 +4590,6 @@
             "draft.created"
           ]
         },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3770,10 +4627,20 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3783,7 +4650,7 @@
           "403": {
             "description": "The credentials lack the required scope",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3793,7 +4660,7 @@
           "404": {
             "description": "Not found in this workspace",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3803,7 +4670,7 @@
           "409": {
             "description": "No repo is connected (`not_connected`), the conversation already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`)",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3813,7 +4680,7 @@
           "500": {
             "description": "The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation (`issue_not_linked`). Don't create it again: close that one or link it by hand",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "type": "object",
                   "properties": {
@@ -3827,6 +4694,32 @@
                   "required": [
                     "error",
                     "url"
+                  ],
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "about:blank"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "integer"
+                        },
+                        "instance": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "instance"
+                      ]
+                    }
                   ]
                 }
               }
@@ -3835,7 +4728,7 @@
           "502": {
             "description": "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the conversation stays claimed, and a try after five minutes first looks for that issue again",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3845,7 +4738,7 @@
           "503": {
             "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3864,13 +4757,18 @@
             "githubSignature": []
           }
         ],
-        "x-access": {
-          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
-        },
-        "x-audit": {
-          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
-        },
         "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+          },
           {
             "schema": {
               "type": "string",
@@ -3881,6 +4779,12 @@
             "in": "query"
           }
         ],
+        "x-access": {
+          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
+        },
+        "x-audit": {
+          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
+        },
         "requestBody": {
           "required": false,
           "content": {
@@ -3934,7 +4838,7 @@
           "400": {
             "description": "Not a GitHub event payload",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3944,7 +4848,17 @@
           "401": {
             "description": "Unknown workspace, no repo connected, or a missing or wrong signature",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The idempotency key conflicts, is pending, or has expired",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3954,7 +4868,7 @@
           "413": {
             "description": "Larger than 1048576 bytes",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3964,7 +4878,7 @@
           "415": {
             "description": "Neither JSON nor GitHub's form encoding",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -3974,7 +4888,7 @@
           "503": {
             "description": "Too many deliveries waiting to be checked (`busy`); try again",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }

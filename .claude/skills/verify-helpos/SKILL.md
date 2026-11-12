@@ -28,7 +28,7 @@ V=.claude/skills/verify-helpos/scripts
 `pnpm app:doctor` is read-only. Run it first, and again whenever anything looks off. It checks:
 
 - API and dashboard ports are held by HelpOS processes (not a stranger).
-- `/health` reports the database ok.
+- `/readyz` reports the database and job queues ready.
 - The dashboard proxies `/v1` to the API.
 - Mailpit answers.
 - The inbound secret is set.

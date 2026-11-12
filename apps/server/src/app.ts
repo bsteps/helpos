@@ -14,6 +14,10 @@ import { humanSessions } from "./auth/session.ts";
 import { registerConversationRoutes } from "./conversations/routes.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerGithubRoutes } from "./github/routes.ts";
+import { registerHealthRoutes } from "./http/health.ts";
+import { idempotency } from "./http/idempotency.ts";
+import { httpConventions } from "./http/problem.ts";
+import { notFound } from "./http/route-kit.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import type { Services } from "./services.ts";
@@ -26,7 +30,16 @@ import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 /** What the API (web role) is built from: the shared services, never its own copies. */
 export type AppServices = Pick<
   Services,
-  "db" | "files" | "logger" | "clock" | "config" | "model" | "auth" | "secretBox" | "github"
+  | "db"
+  | "files"
+  | "logger"
+  | "clock"
+  | "config"
+  | "model"
+  | "auth"
+  | "secretBox"
+  | "github"
+  | "queueReady"
 >;
 
 export interface AppOptions {
@@ -58,18 +71,15 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   const app = new OpenAPIHono();
   // Every response carries X-Request-Id, and audit events record it.
   app.use("*", requestId());
+  app.use("*", httpConventions(logger));
+  app.use("*", async (c, next) => {
+    c.set("idempotency", idempotency(services));
+    await next();
+  });
   // Routes authenticate their own callers (see apiRoute()); this says how.
   app.use("*", callerResolver(resolve));
 
-  // Liveness + readiness in one: the server is only useful if it can reach Postgres.
-  // The body stays minimal on purpose, so it reveals nothing about the setup.
-  app.get("/health", async (c) => {
-    const ping = await db.ping();
-    if (ping.ok) return c.json({ status: "ok", database: "ok" }, 200);
-    // The details go to the log, never to the (unauthenticated) response.
-    logger.error({ err: ping.error }, "health check: database unreachable");
-    return c.json({ status: "error", database: "unreachable" }, 503);
-  });
+  registerHealthRoutes(app, services);
 
   app.openAPIRegistry.registerComponent("securitySchemes", "apiAuth", {
     type: "http",
@@ -108,9 +118,11 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
     if (err instanceof HTTPException && err.status >= 400 && err.status < 500) {
       return c.json({ error: clientErrorCodes[err.status] ?? "bad_request" }, err.status);
     }
-    logger.error({ err, path: c.req.path }, "unhandled error");
+    logger.error({ err, requestId: c.get("requestId"), path: c.req.path }, "unhandled error");
     return c.json({ error: "internal_error" }, 500);
   });
+
+  app.notFound(notFound);
 
   // The public API contract. The dashboard, SDK and MCP tools are generated from it.
   app.doc31("/openapi.json", {

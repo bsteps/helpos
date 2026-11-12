@@ -47,6 +47,7 @@ describe("migrations", () => {
       "customers",
       "draft_citations",
       "drafts",
+      "http_idempotency",
       "integrations",
       "knowledge_chunks",
       "knowledge_sources",

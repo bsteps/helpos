@@ -240,7 +240,7 @@ describe("POST /v1/inbound/email: email → conversation", () => {
     const filesBefore = files.files.size;
     const res = await post(fixture("unknown-mailbox.eml"));
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "unknown_mailbox" });
+    expect(await res.json()).toMatchObject({ error: "unknown_mailbox" });
     expect(files.files.size).toBe(filesBefore);
     for (const tenant of [acme, other]) {
       const found = await db.withTenant(tenant, (tx) =>

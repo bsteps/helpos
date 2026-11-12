@@ -2,6 +2,7 @@ import { isHuman } from "@helpos/db/actor";
 import { createRoute, type RouteConfig } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { type AuditAction, auditTrail } from "../audit/audit.ts";
+import { keyedWrite } from "../http/idempotency.ts";
 import { errorSchema, json } from "../http/route-kit.ts";
 import type { Authenticate, Principal, Scope } from "./principal.ts";
 
@@ -92,7 +93,12 @@ async function resolveCaller(c: Context): Promise<Principal | undefined> {
   return principal;
 }
 
-function enforce(name: string, access: Access, audit: Audit | undefined): MiddlewareHandler {
+function enforce(
+  name: string,
+  access: Access,
+  audit: Audit | undefined,
+  write: boolean,
+): MiddlewareHandler {
   return async (c, next) => {
     const principal = "noCaller" in access ? undefined : await resolveCaller(c);
     const tokenId =
@@ -100,32 +106,48 @@ function enforce(name: string, access: Access, audit: Audit | undefined): Middle
     const refusal = accessRefusal(access, principal, tokenId);
     if (refusal === "unauthorized") return c.json({ error: refusal }, 401);
     if (refusal) return c.json({ error: refusal }, 403);
-    if (!audit || "none" in audit) return next();
-
-    const trail = { recorded: new Set<AuditAction>(), nothingChanged: false };
-    await auditTrail.run(trail, next);
-    // A failed request already has its error; another here would only hide it.
-    if (c.res.status >= 500) return;
-    const declared: readonly AuditAction[] = audit.records;
-    const undeclared = [...trail.recorded].filter((a) => !declared.includes(a));
-    if (undeclared.length > 0) {
-      throw new Error(
-        `${name} recorded ${undeclared.join(", ")}: add it to the route's audit.records`,
-      );
-    }
-    // Only a success: a refused or failed request has rolled back, audit event and all.
-    const ok = c.res.status >= 200 && c.res.status < 300;
-    if (ok && trail.recorded.size === 0 && !trail.nothingChanged) {
-      throw new Error(
-        `${name} succeeded without an audit event: call recordAudit() in the handler's ` +
-          `transaction, or nothingToAudit() when the request changed nothing`,
-      );
-    }
+    const run = () => enforceAudit(name, audit, c, next);
+    return write ? keyedWrite(c, run) : run();
   };
+}
+
+async function enforceAudit(
+  name: string,
+  audit: Audit | undefined,
+  c: Context,
+  next: () => Promise<void>,
+) {
+  if (!audit || "none" in audit) return next();
+
+  const trail = { recorded: new Set<AuditAction>(), nothingChanged: false };
+  await auditTrail.run(trail, next);
+  if (c.res.status >= 500) return;
+  const declared: readonly AuditAction[] = audit.records;
+  const undeclared = [...trail.recorded].filter((a) => !declared.includes(a));
+  if (undeclared.length > 0) {
+    throw new Error(
+      `${name} recorded ${undeclared.join(", ")}: add it to the route's audit.records`,
+    );
+  }
+  const ok = c.res.status >= 200 && c.res.status < 300;
+  if (ok && trail.recorded.size === 0 && !trail.nothingChanged) {
+    throw new Error(
+      `${name} succeeded without an audit event: call recordAudit() in the handler's ` +
+        `transaction, or nothingToAudit() when the request changed nothing`,
+    );
+  }
 }
 
 const unauthorizedResponse = json(errorSchema, "No valid credentials");
 const forbiddenResponse = json(errorSchema, "The credentials lack the required scope");
+const writeErrorResponses = {
+  400: json(
+    errorSchema,
+    "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+  ),
+  409: json(errorSchema, "The idempotency key conflicts, is pending, or has expired"),
+  503: json(errorSchema, "Idempotency storage or a required service is unavailable"),
+};
 
 /**
  * The 401 and 403 an access rule can produce, documented on the route without it saying so.
@@ -166,17 +188,33 @@ export function apiRoute<const R extends Omit<RouteConfig, "middleware">, const 
   // TypeScript can't see that removing `access` and `audit` from R leaves R's own route fields.
   const route = rest as unknown as R;
   const name = `${route.method.toUpperCase()} ${route.path}`;
+  const write = ["post", "put", "patch", "delete"].includes(route.method);
   // Spelled out, so the route's type names its parts instead of inlining the library's.
-  const responses: AuthResponses<A> & R["responses"] = {
+  const responses = {
     ...authResponses<A>(access),
+    ...(write ? writeErrorResponses : {}),
     ...route.responses,
   };
   return createRoute({
     ...route,
+    ...(write
+      ? {
+          parameters: [
+            {
+              in: "header" as const,
+              name: "Idempotency-Key",
+              required: false,
+              schema: { type: "string" as const, minLength: 1, maxLength: 200 },
+              description:
+                "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md.",
+            },
+          ],
+        }
+      : {}),
     ...("noCaller" in access || route.security ? {} : { security: [{ apiAuth: [] }] }),
     responses,
     "x-access": access,
     ...(audit ? { "x-audit": audit } : {}),
-    middleware: [enforce(name, access, audit)] as const,
+    middleware: [enforce(name, access, audit, write)] as const,
   });
 }

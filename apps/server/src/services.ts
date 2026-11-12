@@ -1,5 +1,5 @@
 import type { EmbeddingModel, LanguageModel } from "@helpos/ai";
-import type { AuthStore, Database, RetryPolicy } from "@helpos/db";
+import type { AuthStore, Database, PingResult, RetryPolicy } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
@@ -73,6 +73,7 @@ type ServiceDb = Pick<
 export interface Services {
   db: ServiceDb;
   files: FileStore;
+  queueReady: () => Promise<PingResult>;
   logger: Pick<Logger, "error" | "warn" | "info">;
   clock: Clock;
   config: ServerConfig;
@@ -108,6 +109,8 @@ export function composeServices(input: ServicesInput): Services {
   return {
     db: input.db,
     files: input.files,
+    queueReady:
+      input.queueReady ?? (async () => ({ ok: false, error: new Error("queue not configured") })),
     logger: input.logger,
     clock: input.clock ?? systemClock,
     config: { ...defaultConfig, ...input.config },

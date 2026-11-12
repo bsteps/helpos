@@ -176,6 +176,13 @@
       "when": 1794476909005,
       "tag": "0024_audit-details",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794478713374,
+      "tag": "0025_http-idempotency",
+      "breakpoints": true
     }
   ]
 }

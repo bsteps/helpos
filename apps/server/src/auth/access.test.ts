@@ -122,7 +122,7 @@ describe("the declared access is enforced, before the body is read", () => {
     async (op) => {
       const res = await call(op, as("agent", scopes));
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "session_required" });
+      expect(await res.json()).toMatchObject({ error: "session_required" });
     },
   );
 });
@@ -134,6 +134,12 @@ type CatalogAccess =
 type CatalogOperation = Omit<Operation, "access"> & { access: CatalogAccess | undefined };
 
 const callerExceptions: Record<string, CatalogAccess> = {
+  "GET /health": {
+    noCaller: "Liveness reveals only that the HTTP process can answer a request.",
+  },
+  "GET /readyz": {
+    noCaller: "Readiness reveals only whether the database and job queues are available.",
+  },
   "POST /v1/auth/sign-in": {
     noCaller: "The caller proves who they are with an email and password in the body.",
   },
@@ -407,7 +413,7 @@ describe("self-or-admin access precedes parameter validation and database work",
     async (principal) => {
       const res = await appAs(principal).request("/v1/tokens/not-a-uuid", { method: "DELETE" });
       expect(res.status).toBe(principal ? 403 : 401);
-      expect(await res.json()).toEqual({ error: principal ? "forbidden" : "unauthorized" });
+      expect(await res.json()).toMatchObject({ error: principal ? "forbidden" : "unauthorized" });
     },
   );
 

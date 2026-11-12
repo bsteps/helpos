@@ -143,7 +143,7 @@ describe("sign-in", () => {
     ]) {
       const res = await call("/v1/auth/sign-in", { method: "POST", body });
       expect(res.status).toBe(401);
-      expect(await res.json()).toEqual({ error: "invalid_credentials" });
+      expect(await res.json()).toMatchObject({ error: "invalid_credentials" });
       expect(res.headers.getSetCookie()).toEqual([]);
     }
   });
@@ -260,7 +260,13 @@ describe("a session cookie", () => {
     const theirs = await call(`/v1/conversations/${theirConversation}`, { cookie });
     expect(theirs.status).toBe(404);
     expect(unknown.status).toBe(404);
-    expect(await theirs.json()).toEqual(await unknown.json());
+    const theirRequestId = theirs.headers.get("x-request-id");
+    const unknownRequestId = unknown.headers.get("x-request-id");
+    expect(theirRequestId).toBeTruthy();
+    expect(unknownRequestId).toBeTruthy();
+    expect((await theirs.text()).replace(theirRequestId ?? "missing", "request-id")).toEqual(
+      (await unknown.text()).replace(unknownRequestId ?? "missing", "request-id"),
+    );
     const list = await (await call("/v1/conversations", { cookie })).text();
     expect(list).not.toContain(theirConversation);
     expect(list).not.toContain(other.tenantId);
@@ -290,7 +296,7 @@ describe("POST /v1/auth/password", () => {
       body: { token, password: "someone else's try" },
     });
     expect(again.status).toBe(400);
-    expect(await again.json()).toEqual({ error: "invalid_token" });
+    expect(await again.json()).toMatchObject({ error: "invalid_token" });
   });
 
   it("refuses a password shorter than 12 characters before touching the token", async () => {

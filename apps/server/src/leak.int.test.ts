@@ -192,7 +192,10 @@ afterAll(async () => {
 async function send(op: Operation, caller: Caller, id?: string) {
   const path = op.path.replaceAll(/\{[^}]+\}/g, id ?? "");
   const query = op.uuidQuery.map((name) => `${name}=${b.tenantId}`).join("&");
-  const init: RequestInit = { method: op.method, headers: { "x-leak-caller": caller } };
+  const init: RequestInit = {
+    method: op.method,
+    headers: { "x-leak-caller": caller, "x-request-id": "tenant-leak-probe" },
+  };
   if (op.bodyType) {
     const sample = sampleBodies[`${op.method} ${op.path}`];
     if (sample === undefined) {
@@ -214,6 +217,8 @@ function expectedReplies(caller: Caller): Record<string, ExpectedReply> {
   const sessionRequired = { status: 403, body: { error: "session_required" } };
   const human = (reply: ExpectedReply) => (caller === "user" ? reply : sessionRequired);
   return {
+    "GET /health": { status: 200, body: { status: "ok" } },
+    "GET /readyz": { status: 503, body: { error: "not_ready" } },
     "POST /v1/inbound/email": { status: 401, body: { error: "unauthorized" } },
     "POST /v1/auth/sign-in": { status: 503, body: { error: "sessions_disabled" } },
     "POST /v1/auth/sign-out": { status: 503, body: { error: "sessions_disabled" } },

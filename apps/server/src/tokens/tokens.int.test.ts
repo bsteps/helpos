@@ -316,7 +316,7 @@ describe("token auth", () => {
     ]) {
       const res = await call("GET", path, as());
       expect(res.status, path).toBe(401);
-      expect(await res.json()).toEqual({ error: "unauthorized" });
+      expect(await res.json()).toMatchObject({ error: "unauthorized" });
     }
   });
 
@@ -391,7 +391,7 @@ describe("creating tokens", () => {
       },
     );
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "session_required" });
+    expect(await res.json()).toMatchObject({ error: "session_required" });
     expect((await call("GET", "/v1/tokens", { token: agent.token })).status).toBe(403);
     expect((await call("DELETE", `/v1/tokens/${victim.id}`, { token: agent.token })).status).toBe(
       403,
@@ -410,7 +410,7 @@ describe("creating tokens", () => {
       },
     );
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(await res.json()).toMatchObject({ error: "forbidden" });
     expect((await call("GET", "/v1/tokens", { session: "member" })).status).toBe(403);
   });
 
@@ -425,7 +425,7 @@ describe("creating tokens", () => {
       },
     );
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "scope_not_held" });
+    expect(await res.json()).toMatchObject({ error: "scope_not_held" });
   });
 
   it.each([

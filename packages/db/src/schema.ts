@@ -828,3 +828,23 @@ export const conversationGithubIssues = pgTable(
     tenantIsolation(),
   ],
 );
+
+export const httpIdempotency = pgTable(
+  "http_idempotency",
+  {
+    ...tenantColumns(),
+    actorType: text("actor_type").notNull(),
+    actorId: uuid("actor_id").notNull(),
+    keyHash: text("key_hash").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    responseStatus: integer("response_status"),
+    responseBody: text("response_body"),
+  },
+  (t) => [
+    unique("http_idempotency_identity").on(t.tenantId, t.actorType, t.actorId, t.keyHash),
+    check("http_idempotency_actor", sql`${t.actorType} in ('user', 'agent')`),
+    check("http_idempotency_response", sql`${t.responseStatus} between 200 and 499`),
+    tenantIsolation(),
+  ],
+);

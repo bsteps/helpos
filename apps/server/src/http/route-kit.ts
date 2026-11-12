@@ -8,11 +8,29 @@ import { type AuditContext, type Auditor, auditorFor } from "../audit/audit.ts";
 /** The one error body of the API. Registered once, as the `Error` component. */
 export const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
+const problemDetails = {
+  type: "object" as const,
+  properties: {
+    type: { type: "string" as const, const: "about:blank" },
+    title: { type: "string" as const },
+    status: { type: "integer" as const },
+    instance: { type: "string" as const },
+  },
+  required: ["type", "title", "status", "instance"],
+};
+
 /** An OpenAPI response with a JSON body. */
-export const json = <T extends z.ZodType>(schema: T, description: string) => ({
-  description,
-  content: { "application/json": { schema } },
-});
+export function json<T extends z.ZodType>(schema: T, description: string) {
+  const error = schema instanceof z.ZodObject && "error" in schema.shape;
+  return {
+    description,
+    content: {
+      [error ? "application/problem+json" : "application/json"]: {
+        schema: error ? schema.openapi({ allOf: [problemDetails] }) : schema,
+      },
+    },
+  };
+}
 
 /** A required JSON request body. */
 export const jsonBody = <T extends z.ZodType>(schema: T) => ({
