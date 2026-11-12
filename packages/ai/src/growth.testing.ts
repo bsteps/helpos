@@ -27,17 +27,37 @@ export function expectLinearGrowth<T>(
     count *= 2;
   }
 
-  const pairs = Array.from({ length: 7 }, (_, i) => {
-    if (i % 2 === 0) {
-      const n = measure(small, count);
-      return { n, eightN: measure(large, count) };
-    }
-    const eightN = measure(large, count);
-    return { n: measure(small, count), eightN };
-  });
+  const collect = (count: number) =>
+    Array.from({ length: 7 }, (_, pair) => {
+      const samples = Array.from({ length: 3 }, (_, i) => {
+        if ((pair + i) % 2 === 0) {
+          const n = measure(small, count);
+          return { n, eightN: measure(large, count) };
+        }
+        const eightN = measure(large, count);
+        return { n: measure(small, count), eightN };
+      });
+      // Use each input's fastest batch to reduce scheduling noise at equal work counts.
+      return {
+        n: Math.min(...samples.map(({ n }) => n)),
+        eightN: Math.min(...samples.map(({ eightN }) => eightN)),
+        samples,
+      };
+    });
+  let pairs = collect(count);
+  const discarded: { count: number; pairs: typeof pairs }[] = [];
+  while (pairs.some(({ n, eightN }) => n < 2 || eightN < 2) && count < 1_024) {
+    discarded.push({ count, pairs });
+    count *= 2;
+    // Restart all seven pairs so a speed change cannot mix batch sizes or select ratios.
+    pairs = collect(count);
+  }
   const ratios = pairs.map(({ n, eightN }) => eightN / n).sort((a, b) => a - b);
-  const evidence = JSON.stringify({ count, pairs, ratios });
-  expect(Math.min(...pairs.map(({ n }) => n)), evidence).toBeGreaterThan(1);
+  const evidence = JSON.stringify({ count, pairs, ratios, discarded });
+  expect(
+    Math.min(...pairs.flatMap(({ n, eightN }) => [n, eightN])),
+    evidence,
+  ).toBeGreaterThanOrEqual(2);
   // 8x the input costs about 8x when linear and 64x when quadratic. The median of the pairs
   // ignores a pause on a busy machine. A quadratic part too small to dominate at n passes.
   expect(ratios[Math.floor(ratios.length / 2)], evidence).toBeLessThan(24);
