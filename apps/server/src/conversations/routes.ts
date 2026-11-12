@@ -4,7 +4,14 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { draftWhere } from "../drafts/lifecycle.ts";
-import { auditContext, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
+import {
+  auditContext,
+  errorSchema,
+  idParams,
+  json,
+  notFound,
+  notFoundResponse,
+} from "../http/route-kit.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 import { inHistory } from "./history.ts";
 import { closeConversation } from "./lifecycle.ts";
@@ -79,6 +86,7 @@ const conversationDetailSchema = conversationSchema
 const maxLimit = 100;
 
 const listConversationsRoute = apiRoute({
+  operationId: "conversations.list",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/conversations",
@@ -97,10 +105,12 @@ const listConversationsRoute = apiRoute({
   },
   responses: {
     200: json(z.object({ conversations: z.array(conversationSchema) }), "The conversations"),
+    400: json(errorSchema, "Invalid conversation filters"),
   },
 });
 
 const getConversationRoute = apiRoute({
+  operationId: "conversations.get",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/conversations/{id}",
@@ -114,6 +124,8 @@ const getConversationRoute = apiRoute({
 });
 
 const closeConversationRoute = apiRoute({
+  operationId: "conversations.close",
+  idempotency: "replay",
   // conversations:read too: the answer is the conversation, with its customer.
   access: { allScopes: ["conversations:write", "conversations:read"] },
   audit: { records: ["conversation.closed"] },

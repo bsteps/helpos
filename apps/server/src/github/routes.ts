@@ -8,6 +8,7 @@ import { apiRoute } from "../auth/access.ts";
 import {
   auditContext,
   auditor,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -105,6 +106,7 @@ const notConfigured = json(
 );
 
 const getRoute = apiRoute({
+  operationId: "github.getConnection",
   // An admin may read it too: they connect and disconnect, so they must see what is there.
   access: { anyScope: ["github:write", "workspace:admin"] },
   method: "get",
@@ -117,6 +119,10 @@ const getRoute = apiRoute({
 });
 
 const connectRoute = apiRoute({
+  operationId: "github.connect",
+  idempotency: {
+    refuse: "The request carries a GitHub token; retrying the PUT replaces the same connection.",
+  },
   // A token is a credential to the customer's code host: only a human admin stores one.
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.connected"] },
@@ -161,6 +167,8 @@ const connectRoute = apiRoute({
 });
 
 const disconnectRoute = apiRoute({
+  operationId: "github.disconnect",
+  idempotency: "replay",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.disconnected"] },
   method: "delete",
@@ -174,6 +182,10 @@ const disconnectRoute = apiRoute({
 
 const rotatePath = `${integrationPath}/webhook-secret`;
 const rotateRoute = apiRoute({
+  operationId: "github.rotateWebhookSecret",
+  idempotency: {
+    refuse: "The response contains the new webhook secret, which must never be stored.",
+  },
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.webhook_secret_rotated"] },
   method: "post",
@@ -195,6 +207,8 @@ const rotateRoute = apiRoute({
 });
 
 const draftIssueRoute = apiRoute({
+  operationId: "github.draftIssue",
+  idempotency: "replay",
   access: { allScopes: ["github:write", "conversations:read"] },
   audit: { records: ["github_issue.drafted"] },
   method: "post",
@@ -224,6 +238,8 @@ const draftIssueRoute = apiRoute({
 });
 
 const createIssueRoute = apiRoute({
+  operationId: "github.createIssue",
+  idempotency: "replay",
   // conversations:read too: the issue is made from the conversation, and the conversation's customer is who is
   // told when it is fixed, so a caller that cannot read the conversation cannot pick it either.
   access: { allScopes: ["github:write", "conversations:read"] },
@@ -268,7 +284,7 @@ const createIssueRoute = apiRoute({
         "claimed, and a try after five minutes first looks for that issue again",
     ),
     500: json(
-      z.object({ error: z.string(), url: z.string() }),
+      z.object({ ...errorSchema.shape, url: z.string() }),
       "The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation " +
         "(`issue_not_linked`). Don't create it again: close that one or link it by hand",
     ),
@@ -309,17 +325,17 @@ function registerConnectionRoutes(
     const { tenantId } = c.get("principal");
     const audit = auditor(c);
     const box = deps.secretBox;
-    if (!box) return c.json({ error: "encryption_not_configured" }, 503);
+    if (!box) return errorResponse(c, { error: "encryption_not_configured" }, 503);
     const input = c.req.valid("json");
     const repo = parseRepo(input.repo);
-    if (!repo) return c.json({ error: "invalid_repo" }, 422);
+    if (!repo) return errorResponse(c, { error: "invalid_repo" }, 422);
 
     const check = await deps.github(input.token).checkRepo(repo);
     if (!check.ok) {
       deps.logger.warn({ reason: check.reason }, "github connect: GitHub refused");
       return check.reason === "github_unavailable"
-        ? c.json({ error: check.reason }, 502)
-        : c.json({ error: check.reason }, 422);
+        ? errorResponse(c, { error: check.reason }, 502)
+        : errorResponse(c, { error: check.reason }, 422);
     }
 
     const connected = await deps.db.withTenant(tenantId, async (tx) => {
@@ -350,14 +366,14 @@ function registerConnectionRoutes(
     const { tenantId } = c.get("principal");
     const audit = auditor(c);
     const box = deps.secretBox;
-    if (!box) return c.json({ error: "encryption_not_configured" }, 503);
+    if (!box) return errorResponse(c, { error: "encryption_not_configured" }, 503);
     const rotated = await deps.db.withTenant(tenantId, async (tx) => {
       const result = await rotateWebhookSecret(tx, box, tenantId);
       if (result)
         await audit(tx, "github.webhook_secret_rotated", { type: "integration", id: result.id });
       return result;
     });
-    if (!rotated) return c.json({ error: "not_connected" }, 404);
+    if (!rotated) return errorResponse(c, { error: "not_connected" }, 404);
     // The old secret stops working now, not once the webhook's copy of it expires.
     secrets.forget(tenantId);
     // Never cached: the response is the secret's only copy.
@@ -382,7 +398,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
   app.openapi(draftIssueRoute, async (c) => {
     const { tenantId } = c.get("principal");
     const model = deps.model;
-    if (!model) return c.json({ error: "ai_not_configured" }, 503);
+    if (!model) return errorResponse(c, { error: "ai_not_configured" }, 503);
     const { id: conversationId } = c.req.valid("param");
     const outcome = await draftIssue(
       { ...deps, model },
@@ -392,11 +408,11 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       case "not_found":
         return notFound(c);
       case "refused":
-        return c.json({ error: outcome.error }, 409);
+        return errorResponse(c, { error: outcome.error }, 409);
       case "ai_unavailable":
-        return c.json({ error: "ai_unavailable" }, 502);
+        return errorResponse(c, { error: "ai_unavailable" }, 502);
       case "ai_busy":
-        return c.json({ error: "ai_busy" }, 503);
+        return errorResponse(c, { error: "ai_busy" }, 503);
       case "drafted":
         return c.json({ title: outcome.title, body: outcome.body }, 200);
     }
@@ -405,7 +421,7 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
   app.openapi(createIssueRoute, async (c) => {
     const principal = c.get("principal");
     const secretBox = deps.secretBox;
-    if (!secretBox) return c.json({ error: "encryption_not_configured" }, 503);
+    if (!secretBox) return errorResponse(c, { error: "encryption_not_configured" }, 503);
     const outcome = await createIssue(
       { ...deps, secretBox },
       {
@@ -420,11 +436,11 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
       case "not_found":
         return notFound(c);
       case "conflict":
-        return c.json({ error: outcome.error }, 409);
+        return errorResponse(c, { error: outcome.error }, 409);
       case "github_failed":
-        return c.json({ error: outcome.error }, 502);
+        return errorResponse(c, { error: outcome.error }, 502);
       case "not_linked":
-        return c.json({ error: "issue_not_linked", url: outcome.url }, 500);
+        return errorResponse(c, { error: "issue_not_linked", url: outcome.url }, 500);
       case "created":
         return c.json(outcome.link, 201);
     }

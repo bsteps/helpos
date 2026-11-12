@@ -1,5 +1,5 @@
 import type { TenantTx } from "@helpos/db";
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { requestId } from "hono/request-id";
 import { describe, expect, it } from "vitest";
 import { apiRoute } from "../auth/access.ts";
@@ -12,6 +12,18 @@ const principal: Principal = {
   scopes: new Set(["conversations:read"]),
 };
 
+describe("JSON response media", () => {
+  it("distinguishes a resource's nullable error field from a typed API error", () => {
+    expect(
+      Object.keys(json(z.object({ error: z.string().nullable() }), "Resource").content),
+    ).toEqual(["application/json"]);
+    expect(Object.keys(json(errorSchema, "Problem").content)).toEqual(["application/problem+json"]);
+    expect(
+      Object.keys(json(errorSchema.extend({ sourceId: z.uuid() }), "Extended problem").content),
+    ).toEqual(["application/problem+json"]);
+  });
+});
+
 /** What `recordAudit` inserts, so a test can read what the helper filled in. */
 function fakeTx() {
   const rows: Record<string, unknown>[] = [];
@@ -22,6 +34,7 @@ function fakeTx() {
 }
 
 const readRoute = apiRoute({
+  operationId: "test.routeKit.readThing",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/thing",
@@ -34,6 +47,39 @@ function appWith(resolve: ((r: Request) => Promise<Principal | null>) | null) {
   if (resolve) app.use("*", callerResolver(resolve));
   return app;
 }
+
+describe("apiRoute operation names", () => {
+  it.each(["", " ", "\t\n"])("refuses a blank operationId %j", (operationId) => {
+    expect(() =>
+      apiRoute({
+        operationId,
+        access: { noCaller: "Only tests operation naming." },
+        method: "get",
+        path: "/name-probe",
+        responses: { 200: { description: "ok" } },
+      }),
+    ).toThrow("apiRoute requires a nonempty operationId");
+  });
+
+  it("keeps the declared semantic name when a path changes", () => {
+    for (const path of ["/before", "/after"]) {
+      const app = new OpenAPIHono();
+      const route = apiRoute({
+        operationId: "test.routeKit.stableName",
+        access: { noCaller: "Only tests operation naming." },
+        method: "get",
+        path,
+        responses: { 200: { description: "ok" } },
+      });
+      app.openapi(route, (c) => c.body(null, 200));
+      const doc = app.getOpenAPI31Document({
+        openapi: "3.1.0",
+        info: { title: "Test", version: "0" },
+      });
+      expect(doc.paths?.[path]?.get?.operationId).toBe("test.routeKit.stableName");
+    }
+  });
+});
 
 describe("apiRoute resolves the caller itself", () => {
   it("lets a caller with the scope in, with no path middleware registered", async () => {
@@ -75,6 +121,7 @@ describe("apiRoute resolves the caller itself", () => {
 describe("apiRoute documents what its access implies", () => {
   const spec = (access: Parameters<typeof apiRoute>[0]["access"]) => {
     const route = apiRoute({
+      operationId: "test.routeKit.accessDocumentation",
       access,
       method: "get",
       path: "/x",
@@ -102,6 +149,7 @@ describe("apiRoute documents what its access implies", () => {
 
   it("lets a route say something more specific than the default", () => {
     const route = apiRoute({
+      operationId: "test.routeKit.overrideResponse",
       access: { allScopes: ["workspace:admin"], humansOnly: true },
       method: "get",
       path: "/x",

@@ -25,6 +25,7 @@ export default defineConfig({
     locale: "en-US",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   projects: [
     // The owner sets their password through the one-time link once; the rest sign in with it.

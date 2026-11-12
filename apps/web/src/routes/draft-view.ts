@@ -1,4 +1,5 @@
 import type { ConversationDetail, Draft } from "@/api/client.ts";
+import { type ErrorMessages, errorMessage } from "../api/error-messages.ts";
 import { formatDateTime } from "../lib/format.ts";
 
 export function newestReply(drafts: Draft[]): Draft | undefined {
@@ -83,22 +84,18 @@ export function waitingOn(conversation: ConversationDetail | undefined, ask: Ask
     draftView(conversation, drafts, ask, false).kind === "writing";
 }
 
-/** What to tell the person when asking for or saving a new draft fails, by API error code. */
+const newDraftMessages = {
+  daily_budget_reached:
+    "Today's AI budget is spent, so the AI can't write a draft until midnight UTC. You can write one yourself.",
+  already_answered: "The customer's latest message already has a reply that was approved or sent.",
+  nothing_to_answer: "There's no customer message to answer.",
+  conversation_closed:
+    "This conversation is closed, so the AI won't draft for it. You can write a reply yourself.",
+  not_found: "This conversation is gone, or you no longer have access to it.",
+} satisfies ErrorMessages;
+
 export function newDraftError(code: string | undefined): string {
-  switch (code) {
-    case "daily_budget_reached":
-      return "Today's AI budget is spent, so the AI can't write a draft until midnight UTC. You can write one yourself.";
-    case "already_answered":
-      return "The customer's latest message already has a reply that was approved or sent.";
-    case "nothing_to_answer":
-      return "There's no customer message to answer.";
-    case "conversation_closed":
-      return "This conversation is closed, so the AI won't draft for it. You can write a reply yourself.";
-    case "not_found":
-      return "This conversation is gone, or you no longer have access to it.";
-    default:
-      return "That didn't work. Try again.";
-  }
+  return errorMessage(code, newDraftMessages);
 }
 
 export function draftTitle(draft: Pick<Draft, "kind" | "status">): string {

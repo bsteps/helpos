@@ -136,6 +136,7 @@ type TenantWorker<P> = (
 export interface JobRunner {
   /** Starts pg-boss. Call installJobs() first (migrate step). */
   start(): Promise<void>;
+  ready(queues: readonly string[]): ReturnType<Database["ping"]>;
   /**
    * Creates the queue if needed, and sets its retry policy when given. enqueue() refuses a
    * queue that doesn't exist yet.
@@ -259,6 +260,18 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   return {
     ensureQueue,
+    ready: async (queues) => {
+      try {
+        const available = await boss.getQueues();
+        const names = new Set(available.map((queue) => queue.name));
+        if (!queues.every((name) => names.has(name))) {
+          return { ok: false, error: new Error("required queue is missing") };
+        }
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    },
     start: async () => {
       await boss.start();
     },

@@ -8,7 +8,7 @@ import {
 } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
-import { errorSchema, json, jsonBody } from "../http/route-kit.ts";
+import { errorResponse, errorSchema, json, jsonBody } from "../http/route-kit.ts";
 import { apiRoute } from "./access.ts";
 import { scopes } from "./principal.ts";
 import { fromForeignOrigin } from "./session.ts";
@@ -37,6 +37,8 @@ const meSchema = z
   .openapi("Me");
 
 const signInRoute = apiRoute({
+  operationId: "auth.signIn",
+  idempotency: { refuse: "No caller to scope the key to, and the response sets a session cookie." },
   access: { noCaller: "The caller proves who they are with an email and password in the body." },
   audit: { none: "Signing in changes no workspace data, and users live outside workspaces." },
   method: "post",
@@ -60,6 +62,8 @@ const signInRoute = apiRoute({
 });
 
 const signOutRoute = apiRoute({
+  operationId: "auth.signOut",
+  idempotency: { refuse: "No caller to scope the key to; signing out again is harmless." },
   access: {
     noCaller:
       "The session cookie, if any, is the only credential, and signing out without one is harmless.",
@@ -73,6 +77,8 @@ const signOutRoute = apiRoute({
 });
 
 const setPasswordRoute = apiRoute({
+  operationId: "auth.setPassword",
+  idempotency: { refuse: "No caller to scope the key to; the one-time link proves the caller." },
   access: {
     noCaller: "The one-time token in the body proves the caller holds the password setup link.",
   },
@@ -96,6 +102,7 @@ const setPasswordRoute = apiRoute({
 });
 
 const meRoute = apiRoute({
+  operationId: "auth.getIdentity",
   access: {
     anyCaller: "Every caller may ask who it is; the answer is its own identity and scopes.",
   },
@@ -114,7 +121,7 @@ function setCookies(c: Context, cookies: string[]): void {
 export function registerAuthRoutes(app: OpenAPIHono, deps: AuthRoutesDeps): void {
   app.use("/v1/auth/*", async (c, next) => {
     if (fromForeignOrigin(c.req.raw, deps.trustedOrigin)) {
-      return c.json({ error: "forbidden_origin" }, 403);
+      return errorResponse(c, { error: "forbidden_origin" }, 403);
     }
     // Answers about credentials must never be cached by a proxy or the browser.
     c.header("cache-control", "no-store");
@@ -122,26 +129,26 @@ export function registerAuthRoutes(app: OpenAPIHono, deps: AuthRoutesDeps): void
   });
 
   app.openapi(signInRoute, async (c) => {
-    if (!deps.sessions) return c.json({ error: "sessions_disabled" }, 503);
+    if (!deps.sessions) return errorResponse(c, { error: "sessions_disabled" }, 503);
     const { email, password } = c.req.valid("json");
     const result = await deps.sessions.signIn(email, password, c.req.raw.headers);
-    if (!result.ok) return c.json({ error: "invalid_credentials" }, 401);
+    if (!result.ok) return errorResponse(c, { error: "invalid_credentials" }, 401);
     setCookies(c, result.setCookie);
     return c.body(null, 204);
   });
 
   app.openapi(signOutRoute, async (c) => {
-    if (!deps.sessions) return c.json({ error: "sessions_disabled" }, 503);
+    if (!deps.sessions) return errorResponse(c, { error: "sessions_disabled" }, 503);
     const { setCookie } = await deps.sessions.signOut(c.req.raw.headers);
     setCookies(c, setCookie);
     return c.body(null, 204);
   });
 
   app.openapi(setPasswordRoute, async (c) => {
-    if (!deps.passwords) return c.json({ error: "sessions_disabled" }, 503);
+    if (!deps.passwords) return errorResponse(c, { error: "sessions_disabled" }, 503);
     const { token, password } = c.req.valid("json");
     const result = await deps.passwords.setPassword(token, password);
-    if (!result.ok) return c.json({ error: "invalid_token" }, 400);
+    if (!result.ok) return errorResponse(c, { error: "invalid_token" }, 400);
     return c.body(null, 204);
   });
 
@@ -153,7 +160,7 @@ export function registerAuthRoutes(app: OpenAPIHono, deps: AuthRoutesDeps): void
         .from(schema.tenants)
         .where(eq(schema.tenants.id, principal.tenantId)),
     );
-    if (!workspace) return c.json({ error: "unauthorized" }, 401);
+    if (!workspace) return errorResponse(c, { error: "unauthorized" }, 401);
     return c.json(
       {
         actor: { type: principal.actor.type, id: principal.actor.id },

@@ -30,6 +30,7 @@ const usageSchema = z
   .openapi("AiUsage");
 
 const usageRoute = apiRoute({
+  operationId: "ai.getUsage",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/ai-usage",

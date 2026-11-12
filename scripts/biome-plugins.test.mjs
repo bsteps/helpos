@@ -83,7 +83,12 @@ test("domain modules cannot import HTTP values or types", () => {
     'import "../http/route-kit.ts";\n',
     'export const kit = await import("../http/route-kit.ts");\n',
   ]) {
-    for (const name of ["github/issues.ts", "github/issue-draft.ts", "ai-budget/set-budget.ts"]) {
+    for (const name of [
+      "github/issues.ts",
+      "github/issue-draft.ts",
+      "ai-budget/set-budget.ts",
+      "github/app.ts",
+    ]) {
       assert.ok(pluginMessages(source, name).some((m) => m.includes("Domain modules")));
     }
   }
@@ -97,6 +102,7 @@ test("HTTP adapters can import HTTP helpers and domain modules can import audit 
     "shadow-mode-routes.ts",
     "http/helpers.ts",
     "auth/access.ts",
+    "apps/server/src/app.ts",
     "github/webhook.ts",
     "domain.test.ts",
   ]) {

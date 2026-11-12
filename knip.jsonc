@@ -11,7 +11,11 @@
       "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
     },
     "apps/server": {
-      "entry": ["src/worker.ts", "src/cli/{init,token,ai-budget,seed,openapi}.ts"]
+      "entry": [
+        "src/worker.ts",
+        "src/cli/{init,token,ai-budget,seed,openapi}.ts",
+        "scripts/read-budget.ts"
+      ]
     },
     "apps/web": {
       // Playwright picks up *.setup.ts through a testMatch regex knip can't read.

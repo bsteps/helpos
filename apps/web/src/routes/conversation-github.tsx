@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
 import { ExternalLink, GitBranch } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { ApiError, type ConversationDetail } from "@/api/client.ts";
+import { ApiError, type ConversationDetail, type ErrorCode } from "@/api/client.ts";
+import { type ErrorMessages, errorMessage } from "@/api/error-messages.ts";
 import { githubQuery, useCreateGithubIssue, useDraftGithubIssue } from "@/api/queries.ts";
 import { Textarea } from "@/components/textarea.tsx";
 import {
@@ -28,43 +29,47 @@ import { Loader } from "@/components/ui/loader.tsx";
 import { webHref } from "@/lib/web-href.ts";
 
 /** Why the AI couldn't draft the issue. The form still opens, empty, to write it by hand. */
+const draftMessages = {
+  daily_budget_reached:
+    "Today's AI budget is spent, so there's no suggestion. Write the issue yourself.",
+  ai_not_configured:
+    "AI isn't set up on this server, so there's no suggestion. Write the issue yourself.",
+} satisfies ErrorMessages;
+
 function draftProblem(error: unknown): string {
-  if (error instanceof ApiError && error.code === "daily_budget_reached") {
-    return "Today's AI budget is spent, so there's no suggestion. Write the issue yourself.";
-  }
-  if (error instanceof ApiError && error.code === "ai_not_configured") {
-    return "AI isn't set up on this server, so there's no suggestion. Write the issue yourself.";
-  }
-  return "The AI couldn't draft this issue. Write it yourself, or try again later.";
+  return errorMessage(
+    error instanceof ApiError ? error.code : undefined,
+    draftMessages,
+    "The AI couldn't draft this issue. Write it yourself, or try again later.",
+  );
 }
 
 /** Errors after which an issue may exist on GitHub: "No issue was created" would be wrong. */
-const mayHaveIssue = new Set(["github_outcome_unknown", "issue_not_linked"]);
+const mayHaveIssue = new Set<string>([
+  "github_outcome_unknown",
+  "issue_not_linked",
+] satisfies ErrorCode[]);
+
+const createMessages = {
+  token_rejected:
+    "GitHub refused the workspace's token: it has expired, or can't open issues in this repo. An owner needs to give it Issues read and write access, or connect a new token.",
+  repo_not_found: "GitHub says the repo doesn't exist, or the token can't see it.",
+  issue_rejected:
+    "GitHub refused this issue, perhaps because it's too long. Nothing was created; shorten it and try again.",
+  github_unavailable: "Couldn't reach GitHub. Nothing was created; try again.",
+  already_linked: "This conversation already has an issue.",
+  github_outcome_unknown:
+    "GitHub didn't answer, so it isn't known whether the issue was opened. Check the repo; if it isn't there, try again in five minutes.",
+  creation_pending:
+    "An issue for this conversation is being opened, or GitHub's answer to the last try was lost. Try again in five minutes: nothing is opened twice.",
+  issue_not_linked:
+    "The issue was opened on GitHub, but couldn't be linked to this conversation. Find it in the repo before creating another.",
+  reconnect_required:
+    "The stored token can't be read any more. An owner needs to connect the repo again.",
+} satisfies ErrorMessages;
 
 function createProblem(error: unknown): string {
-  if (!(error instanceof ApiError)) return "That didn't work. Try again.";
-  switch (error.code) {
-    case "token_rejected":
-      return "GitHub refused the workspace's token: it has expired, or can't open issues in this repo. An owner needs to give it Issues read and write access, or connect a new token.";
-    case "repo_not_found":
-      return "GitHub says the repo doesn't exist, or the token can't see it.";
-    case "issue_rejected":
-      return "GitHub refused this issue, perhaps because it's too long. Nothing was created; shorten it and try again.";
-    case "github_unavailable":
-      return "Couldn't reach GitHub. Nothing was created; try again.";
-    case "already_linked":
-      return "This conversation already has an issue.";
-    case "github_outcome_unknown":
-      return "GitHub didn't answer, so it isn't known whether the issue was opened. Check the repo; if it isn't there, try again in five minutes.";
-    case "creation_pending":
-      return "An issue for this conversation is being opened, or GitHub's answer to the last try was lost. Try again in five minutes: nothing is opened twice.";
-    case "issue_not_linked":
-      return "The issue was opened on GitHub, but couldn't be linked to this conversation. Find it in the repo before creating another.";
-    case "reconnect_required":
-      return "The stored token can't be read any more. An owner needs to connect the repo again.";
-    default:
-      return "That didn't work. Try again.";
-  }
+  return errorMessage(error instanceof ApiError ? error.code : undefined, createMessages);
 }
 
 /** The conversation's GitHub issue, or the way to create one. Nothing for callers without the scope. */

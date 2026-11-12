@@ -4,6 +4,7 @@ import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import {
   auditor,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -45,6 +46,8 @@ const adminRefused = json(
 );
 
 const createTokenRoute = apiRoute({
+  operationId: "tokens.create",
+  idempotency: { refuse: "The response contains the new token, which must never be stored." },
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["api_token.created"] },
   method: "post",
@@ -67,6 +70,7 @@ const createTokenRoute = apiRoute({
 });
 
 const listTokensRoute = apiRoute({
+  operationId: "tokens.list",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   method: "get",
   path: "/v1/tokens",
@@ -81,6 +85,8 @@ const listTokensRoute = apiRoute({
 });
 
 const revokeTokenRoute = apiRoute({
+  operationId: "tokens.revoke",
+  idempotency: "replay",
   access: { selfOrAdmin: { tokenIdParam: "id" } },
   audit: { records: ["api_token.revoked"] },
   method: "delete",
@@ -115,7 +121,7 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
     const { name, scopes } = c.req.valid("json");
     // No one can hand an agent more than they hold themselves.
     if (scopes.some((s) => !principal.scopes.has(s))) {
-      return c.json({ error: "scope_not_held" }, 403);
+      return errorResponse(c, { error: "scope_not_held" }, 403);
     }
     const { row, token } = await deps.db.withTenant(principal.tenantId, (tx) =>
       createApiToken(tx, {

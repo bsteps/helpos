@@ -2,7 +2,8 @@ import { isHuman } from "@helpos/db/actor";
 import { createRoute, type RouteConfig } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { type AuditAction, auditTrail } from "../audit/audit.ts";
-import { errorSchema, json } from "../http/route-kit.ts";
+import { keyedWrite } from "../http/idempotency.ts";
+import { errorResponse, errorSchema, json } from "../http/route-kit.ts";
 import type { Authenticate, Principal, Scope } from "./principal.ts";
 
 /**
@@ -36,7 +37,20 @@ export type Audit =
   | { readonly records: readonly [AuditAction, ...AuditAction[]] }
   | { readonly none: string };
 
-type WriteMethod = "post" | "put" | "patch" | "delete";
+/**
+ * What a write route does with an `Idempotency-Key`. Required on every POST, PUT, PATCH and
+ * DELETE, so no write stores its response for replay without saying so.
+ *
+ * - `"replay"`: the response is stored and replayed to a retry with the same key
+ *   (docs/api-conventions.md).
+ * - `refuse`: a keyed request gets `400 idempotency_not_supported` before the handler runs. Say
+ *   why. A route whose request or response carries a credential refuses, so it is never stored.
+ *   A `noCaller` route always refuses: there is no caller to scope the key to.
+ */
+export type Idempotency = "replay" | { readonly refuse: string };
+
+const writeMethods = ["post", "put", "patch", "delete"] as const;
+type WriteMethod = (typeof writeMethods)[number];
 
 /**
  * Proof that a caller holds `scope`. Only `Grant.check()` makes one, so a function that takes a
@@ -92,40 +106,64 @@ async function resolveCaller(c: Context): Promise<Principal | undefined> {
   return principal;
 }
 
-function enforce(name: string, access: Access, audit: Audit | undefined): MiddlewareHandler {
+function enforce(
+  name: string,
+  access: Access,
+  audit: Audit | undefined,
+  idempotency: Idempotency | undefined,
+): MiddlewareHandler {
   return async (c, next) => {
     const principal = "noCaller" in access ? undefined : await resolveCaller(c);
     const tokenId =
       "selfOrAdmin" in access ? c.req.param(access.selfOrAdmin.tokenIdParam) : undefined;
     const refusal = accessRefusal(access, principal, tokenId);
-    if (refusal === "unauthorized") return c.json({ error: refusal }, 401);
-    if (refusal) return c.json({ error: refusal }, 403);
-    if (!audit || "none" in audit) return next();
-
-    const trail = { recorded: new Set<AuditAction>(), nothingChanged: false };
-    await auditTrail.run(trail, next);
-    // A failed request already has its error; another here would only hide it.
-    if (c.res.status >= 500) return;
-    const declared: readonly AuditAction[] = audit.records;
-    const undeclared = [...trail.recorded].filter((a) => !declared.includes(a));
-    if (undeclared.length > 0) {
-      throw new Error(
-        `${name} recorded ${undeclared.join(", ")}: add it to the route's audit.records`,
-      );
+    if (refusal === "unauthorized") return errorResponse(c, { error: refusal }, 401);
+    if (refusal) return errorResponse(c, { error: refusal }, 403);
+    const run = () => enforceAudit(name, audit, c, next);
+    if (idempotency === "replay") return keyedWrite(c, run);
+    if (idempotency && c.req.header("Idempotency-Key") !== undefined) {
+      return errorResponse(c, { error: "idempotency_not_supported" }, 400);
     }
-    // Only a success: a refused or failed request has rolled back, audit event and all.
-    const ok = c.res.status >= 200 && c.res.status < 300;
-    if (ok && trail.recorded.size === 0 && !trail.nothingChanged) {
-      throw new Error(
-        `${name} succeeded without an audit event: call recordAudit() in the handler's ` +
-          `transaction, or nothingToAudit() when the request changed nothing`,
-      );
-    }
+    return run();
   };
+}
+
+async function enforceAudit(
+  name: string,
+  audit: Audit | undefined,
+  c: Context,
+  next: () => Promise<void>,
+) {
+  if (!audit || "none" in audit) return next();
+
+  const trail = { recorded: new Set<AuditAction>(), nothingChanged: false };
+  await auditTrail.run(trail, next);
+  if (c.res.status >= 500) return;
+  const declared: readonly AuditAction[] = audit.records;
+  const undeclared = [...trail.recorded].filter((a) => !declared.includes(a));
+  if (undeclared.length > 0) {
+    throw new Error(
+      `${name} recorded ${undeclared.join(", ")}: add it to the route's audit.records`,
+    );
+  }
+  const ok = c.res.status >= 200 && c.res.status < 300;
+  if (ok && trail.recorded.size === 0 && !trail.nothingChanged) {
+    throw new Error(
+      `${name} succeeded without an audit event: call recordAudit() in the handler's ` +
+        `transaction, or nothingToAudit() when the request changed nothing`,
+    );
+  }
 }
 
 const unauthorizedResponse = json(errorSchema, "No valid credentials");
 const forbiddenResponse = json(errorSchema, "The credentials lack the required scope");
+const writeErrorResponses = {
+  400: json(errorSchema, "Invalid request, or an Idempotency-Key this route refuses or can't read"),
+};
+const replayErrorResponses = {
+  409: json(errorSchema, "The idempotency key conflicts, is pending, or has expired"),
+  503: json(errorSchema, "Idempotency storage or a required service is unavailable"),
+};
 
 /**
  * The 401 and 403 an access rule can produce, documented on the route without it saying so.
@@ -149,34 +187,62 @@ function authResponses<A extends Access>(access: A): AuthResponses<A> {
 
 /**
  * The only way to define an API route: `createRoute()` plus a required `access`, and on a
- * write route a required `audit`. Both are enforced by middleware: access before validation
- * and the handler, audit after the handler. Both are published in the OpenAPI document
- * (`x-access`, `x-audit`), so agents can read what each operation needs and records.
+ * write route a required `audit` and `idempotency`. All are enforced by middleware: access
+ * before validation and the handler, audit after the handler. All are published in the OpenAPI
+ * document (`x-access`, `x-audit`, `x-idempotency`), so agents can read what each operation
+ * needs, records and replays.
  *
  * The caller is authenticated here too, so a route needs no path middleware, and it gets
  * what follows from its `access`: the `apiAuth` security scheme and the 401 and 403 responses.
  * A `noCaller` route proves its caller another way and states that in its own `security`.
  */
-export function apiRoute<const R extends Omit<RouteConfig, "middleware">, const A extends Access>(
-  config: R & { access: A } & (R["method"] extends WriteMethod
-      ? { audit: Audit }
-      : { audit?: never }),
+export function apiRoute<
+  const R extends Omit<RouteConfig, "middleware"> & { operationId: string },
+  const A extends Access,
+>(
+  config: R & {
+    access: A;
+    operationId: R["operationId"] extends "" ? never : string;
+  } & (R["method"] extends WriteMethod
+      ? {
+          audit: Audit;
+          idempotency: A extends { noCaller: string } ? { readonly refuse: string } : Idempotency;
+        }
+      : { audit?: never; idempotency?: never }),
 ) {
-  const { access, audit, ...rest } = config;
-  // TypeScript can't see that removing `access` and `audit` from R leaves R's own route fields.
+  if (!config.operationId.trim()) throw new Error("apiRoute requires a nonempty operationId");
+  const { access, audit, idempotency, ...rest } = config;
+  // TypeScript can't see that removing these fields from R leaves R's own route fields.
   const route = rest as unknown as R;
   const name = `${route.method.toUpperCase()} ${route.path}`;
-  // Spelled out, so the route's type names its parts instead of inlining the library's.
-  const responses: AuthResponses<A> & R["responses"] = {
+  const write = writeMethods.some((method) => method === route.method);
+  const responses = {
     ...authResponses<A>(access),
+    ...(write ? writeErrorResponses : {}),
+    ...(idempotency === "replay" ? replayErrorResponses : {}),
     ...route.responses,
   };
   return createRoute({
     ...route,
+    ...(idempotency === "replay"
+      ? {
+          parameters: [
+            {
+              in: "header" as const,
+              name: "Idempotency-Key",
+              required: false,
+              schema: { type: "string" as const, minLength: 1, maxLength: 200 },
+              description:
+                "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md.",
+            },
+          ],
+        }
+      : {}),
     ...("noCaller" in access || route.security ? {} : { security: [{ apiAuth: [] }] }),
     responses,
     "x-access": access,
     ...(audit ? { "x-audit": audit } : {}),
-    middleware: [enforce(name, access, audit)] as const,
+    ...(idempotency ? { "x-idempotency": idempotency } : {}),
+    middleware: [enforce(name, access, audit, idempotency)] as const,
   });
 }

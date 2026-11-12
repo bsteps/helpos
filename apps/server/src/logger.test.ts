@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLogger, errorSummary } from "./logger.ts";
+import { createLogger, errorSummary, withoutRequestId, withRequestId } from "./logger.ts";
 
 const pat = "github_pat_11AAAAAAA0secretsecretsecret_abcdefghijklmnopqrstuvwxyz0123";
 
@@ -10,6 +10,53 @@ function capture() {
 }
 
 describe("logger", () => {
+  it("restores the HTTP context after an independent callback throws", () => {
+    const { logger, output } = capture();
+    withRequestId("active-request", () => {
+      expect(() =>
+        withoutRequestId(() => {
+          logger.info("independent callback");
+          throw new Error("callback failed");
+        }),
+      ).toThrow("callback failed");
+      logger.info("HTTP request continues");
+    });
+    expect(
+      output()
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toEqual([
+      expect.not.objectContaining({ requestId: expect.anything() }),
+      expect.objectContaining({ msg: "HTTP request continues", requestId: "active-request" }),
+    ]);
+  });
+
+  it("uses the active request ID on child loggers and preserves redaction", async () => {
+    const { logger, output } = capture();
+    const child = logger.child({ component: "nested-service" });
+    await withRequestId("current-request", async () => {
+      await Promise.resolve();
+      child.info({ requestId: "stale-request", token: pat }, "service called");
+      child.warn("string-only log");
+    });
+    expect(output()).not.toContain(pat);
+    expect(output()).not.toContain("stale-request");
+    expect(
+      output()
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toEqual([
+      expect.objectContaining({
+        requestId: "current-request",
+        component: "nested-service",
+        token: "[redacted]",
+      }),
+      expect.objectContaining({ requestId: "current-request", msg: "string-only log" }),
+    ]);
+  });
+
   it("redacts a token logged by accident, at the top level or one level down", () => {
     const { logger, output } = capture();
     logger.info({ token: pat }, "connect");

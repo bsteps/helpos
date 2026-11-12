@@ -3,7 +3,7 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
-import { errorSchema, json } from "../http/route-kit.ts";
+import { errorResponse, errorSchema, json } from "../http/route-kit.ts";
 import type { SecretBox } from "../secrets/secret-box.ts";
 import type { ServerConfig } from "../services.ts";
 import { githubWebhookActor } from "./fixed-notice.ts";
@@ -58,6 +58,10 @@ const webhookPayload = z
   .openapi("GithubWebhookPayload");
 
 const webhookRoute = apiRoute({
+  operationId: "github.receiveWebhook",
+  idempotency: {
+    refuse: "No caller to scope the key to; the webhook signature proves the sender.",
+  },
   access: {
     noCaller:
       "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret.",
@@ -125,7 +129,7 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     webhookPath,
     bodyLimit({
       maxSize: maxWebhookBytes,
-      onError: (c) => c.json({ error: "too_large" }, 413),
+      onError: (c) => errorResponse(c, { error: "too_large" }, 413),
     }),
   );
   // Unsigned requests can't be told from GitHub's until a secret is read from the database,
@@ -193,7 +197,7 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     const signature = c.req.header("x-hub-signature-256") ?? "";
     const workspace = z.uuid().safeParse(c.req.query("workspace"));
     if (!signatureHeader.test(signature) || !workspace.success) {
-      return c.json({ error: "unauthorized" }, 401);
+      return errorResponse(c, { error: "unauthorized" }, 401);
     }
     // One spelling per workspace: the cache, the gate's share and the secret's binding all key
     // on it.
@@ -204,12 +208,12 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
     const secret = await secretFor(tenantId, body, signature);
     if (secret === "busy") {
       c.header("Retry-After", "5");
-      return c.json({ error: "busy" }, 503);
+      return errorResponse(c, { error: "busy" }, 503);
     }
     // The HMAC is computed whether or not there is a secret, so an unknown workspace's 401
     // takes as long as a wrong signature's. Every miss gives the same 401.
     const matches = signatureMatches(secret ?? "", body, signature);
-    if (secret === null || !matches) return c.json({ error: "unauthorized" }, 401);
+    if (secret === null || !matches) return errorResponse(c, { error: "unauthorized" }, 401);
     known.add(tenantId);
     // Readable again (reconnected): if it breaks later, that's worth a warning again.
     warned.delete(tenantId);
@@ -226,8 +230,9 @@ export function registerGithubWebhook(app: OpenAPIHono, deps: GithubWebhookDeps)
         ? c.req.valid("json")
         : c.req.valid("form"),
     );
-    if (payload === "unsupported") return c.json({ error: "unsupported_media_type" }, 415);
-    if (payload === "invalid") return c.json({ error: "invalid_payload" }, 400);
+    if (payload === "unsupported")
+      return errorResponse(c, { error: "unsupported_media_type" }, 415);
+    if (payload === "invalid") return errorResponse(c, { error: "invalid_payload" }, 400);
     const ignored = { status: "ignored" as const, conversations: 0 };
     if (event !== "issues" || !payload.issue || !payload.repository) return c.json(ignored, 200);
     // The event's own repo, not only the connected one: a conversation linked while another repo was

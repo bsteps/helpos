@@ -8,6 +8,7 @@ import { apiRoute, Grant } from "../auth/access.ts";
 import type { Principal } from "../auth/principal.ts";
 import {
   auditContext,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -99,6 +100,7 @@ type DraftJson = z.infer<typeof draftSchema>;
 type DraftSourceJson = z.infer<typeof draftSourceSchema>;
 
 const listRoute = apiRoute({
+  operationId: "drafts.list",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/conversations/{id}/drafts",
@@ -112,6 +114,8 @@ const listRoute = apiRoute({
 });
 
 const editRoute = apiRoute({
+  operationId: "drafts.edit",
+  idempotency: "replay",
   access: { allScopes: ["drafts:write"] },
   audit: { records: ["draft.edited"] },
   method: "patch",
@@ -130,6 +134,8 @@ const editRoute = apiRoute({
 });
 
 const approveRoute = apiRoute({
+  operationId: "drafts.approve",
+  idempotency: "replay",
   access: { allScopes: ["drafts:approve"] },
   audit: { records: ["draft.approved"] },
   method: "post",
@@ -153,6 +159,8 @@ const approveRoute = apiRoute({
 });
 
 const discardRoute = apiRoute({
+  operationId: "drafts.discard",
+  idempotency: "replay",
   access: { allScopes: ["drafts:write"] },
   audit: { records: ["draft.discarded"] },
   method: "post",
@@ -170,6 +178,8 @@ const discardRoute = apiRoute({
 });
 
 const retryRoute = apiRoute({
+  operationId: "drafts.retry",
+  idempotency: "replay",
   access: { allScopes: ["drafts:approve"] },
   audit: { records: ["draft.send_retried"] },
   method: "post",
@@ -190,6 +200,8 @@ const retryRoute = apiRoute({
 });
 
 const createDraftRoute = apiRoute({
+  operationId: "drafts.create",
+  idempotency: "replay",
   // conversations:read too: the draft answers the conversation, so it shows what the customer wrote.
   access: { allScopes: ["drafts:write", "conversations:read"] },
   audit: { records: ["draft.created", "draft.discarded"] },
@@ -344,7 +356,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
       return presentOne(tx, principal, edited.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 
@@ -359,7 +371,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
       return presentOne(tx, principal, approved.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 
@@ -410,7 +422,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       result === "daily_budget_reached" ||
       result === "conversation_closed"
     ) {
-      return c.json({ error: result }, 409);
+      return errorResponse(c, { error: result }, 409);
     }
     if (result === "queued") return c.json({ status: "queued" as const }, 202);
     return c.json(result, 201);
@@ -428,7 +440,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return presentOne(tx, principal, discarded.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 }
@@ -447,12 +459,14 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return presentOne(tx, principal, retried.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_send_failed" }, 409);
     return c.json(result, 200);
   });
 }
 
 const resolveRoute = apiRoute({
+  operationId: "drafts.resolveSend",
+  idempotency: "replay",
   access: { allScopes: ["drafts:approve"], humansOnly: true },
   audit: { records: ["draft.send_confirmed", "draft.send_retried"] },
   method: "post",
@@ -488,7 +502,8 @@ function registerResolveRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return presentOne(tx, principal, resolved.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_current_uncertain_send" }, 409);
+    if (result === "conflict")
+      return errorResponse(c, { error: "not_current_uncertain_send" }, 409);
     return c.json(result, 200);
   });
 }

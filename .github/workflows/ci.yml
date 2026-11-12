@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 # Least privilege: CI only needs to read the code.
 permissions:
@@ -24,12 +25,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # don't leave a token on disk for later steps
+          fetch-depth: 0
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Provision pinned API comparison tool
+        run: node scripts/setup-oasdiff.mjs
+      - name: Compare API contract to the actual PR base
+        if: github.event_name == 'pull_request'
+        run: node scripts/api-compatibility.mjs --event "$GITHUB_EVENT_PATH"
       - run: pnpm exec biome ci .
       # Unused files, exports and dependencies (knip.jsonc).
       - run: pnpm knip
@@ -47,7 +54,20 @@ jobs:
             exit 1
           fi
           pnpm exec vitest run --project unit
-      - run: pnpm exec turbo run typecheck test build
+      - run: pnpm exec turbo run typecheck build
+      - run: pnpm test:coverage
+      - run: pnpm check:widget
+      - run: pnpm test:performance
+      - name: Upload coverage and read latency evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quality-gate-evidence
+          path: |
+            coverage/
+            .helpos/read-budget.json
+          include-hidden-files: true
+          retention-days: 7
       - run: pnpm test:scripts
       # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).
       - run: pnpm eval
@@ -57,7 +77,7 @@ jobs:
         run: |
           pnpm dev > dev.log 2>&1 &
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000/health; then exit 0; fi
+            if curl -sf http://localhost:3000/readyz; then exit 0; fi
             sleep 2
           done
           cat dev.log
@@ -81,7 +101,7 @@ jobs:
       # Builds the dashboard, then runs every flow at laptop and phone size against a real
       # server with throwaway Postgres and Mailpit containers (apps/server/src/e2e/serve.ts).
       - run: pnpm test:e2e
-      - name: Upload traces and screenshots
+      - name: Upload failure traces, screenshots and videos
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

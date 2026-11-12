@@ -56,10 +56,10 @@ function ownedByHelpos(url) {
 const checks = [
   { name: `api port is ${brand.name}`, run: async () => ownedByHelpos(inst.apiUrl) },
   {
-    name: "api health",
+    name: "api readiness",
     run: async () => {
-      const { status, body } = await get(`${inst.apiUrl}/health`);
-      return { ok: status === 200 && body.database === "ok", detail: JSON.stringify(body) };
+      const { status, body } = await get(`${inst.apiUrl}/readyz`);
+      return { ok: status === 200 && body.status === "ok", detail: JSON.stringify(body) };
     },
   },
   { name: `dashboard port is ${brand.name}`, run: async () => ownedByHelpos(inst.webUrl) },

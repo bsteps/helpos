@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { openApiDocument } from "../openapi.ts";
 import { composeServices } from "../services.ts";
-import type { Access } from "./access.ts";
+import type { Access, Idempotency } from "./access.ts";
 import { type Principal, type Scope, scopes } from "./principal.ts";
 
 // Sweeps every operation in the served API document, so a new route is covered the moment it
@@ -18,18 +18,33 @@ interface Operation {
   method: string;
   path: string;
   access: Access | undefined;
+  idempotency: Idempotency | undefined;
+  keyed: boolean;
   responses: Record<string, unknown>;
 }
 
 async function operations(): Promise<Operation[]> {
   const doc = (await openApiDocument()) as {
-    paths: Record<string, Record<string, { "x-access"?: Access; responses: object }>>;
+    paths: Record<
+      string,
+      Record<
+        string,
+        {
+          "x-access"?: Access;
+          "x-idempotency"?: Idempotency;
+          parameters?: { name: string }[];
+          responses: object;
+        }
+      >
+    >;
   };
   return Object.entries(doc.paths).flatMap(([path, ops]) =>
     Object.entries(ops).map(([method, op]) => ({
       method: method.toUpperCase(),
       path,
       access: op["x-access"],
+      idempotency: op["x-idempotency"],
+      keyed: (op.parameters ?? []).some((p) => p.name === "Idempotency-Key"),
       responses: op.responses as Record<string, unknown>,
     })),
   );
@@ -87,6 +102,53 @@ describe("every API operation declares who may call it", () => {
   });
 });
 
+const writes = ops.filter((op) => ["POST", "PUT", "PATCH", "DELETE"].includes(op.method));
+
+describe("every write declares what a keyed retry does", () => {
+  it.each(writes)(
+    "$method $path has x-idempotency and advertises the key only if it replays",
+    (op) => {
+      expect(
+        op.idempotency,
+        `${op.method} ${op.path}: give apiRoute() an \`idempotency\``,
+      ).toBeDefined();
+      expect(op.keyed).toBe(op.idempotency === "replay");
+    },
+  );
+
+  it("refuses keys on the routes whose request or response carries a credential", () => {
+    for (const name of [
+      "POST /v1/tokens",
+      "PUT /v1/integrations/github",
+      "POST /v1/integrations/github/webhook-secret",
+    ]) {
+      const op = writes.find((w) => `${w.method} ${w.path}` === name);
+      expect(op?.idempotency, name).toEqual({ refuse: expect.any(String) });
+    }
+  });
+
+  it.each(writes.filter((op) => op.idempotency !== "replay"))(
+    "$method $path refuses a keyed request before any database work",
+    async (op) => {
+      const url = op.path.replaceAll(/\{[^}]+\}/g, "0190d6a4-0000-7000-8000-000000000003");
+      const res = await appAs(as("user", scopes)).request(url, {
+        method: op.method,
+        headers: { "content-type": "application/json", "idempotency-key": "retry-1" },
+        body: "{}",
+      });
+      const refusal = {
+        status: res.status,
+        error: ((await res.json()) as { error: string }).error,
+      };
+      expect(refusal).toBeOneOf([
+        { status: 400, error: "idempotency_not_supported" },
+        // A provider route checks its signature or shared secret first.
+        { status: 401, error: "unauthorized" },
+      ]);
+    },
+  );
+});
+
 describe("the declared access is enforced, before the body is read", () => {
   it.each(scoped)("$method $path documents 401 and 403", (op) => {
     expect(Object.keys(op.responses)).toEqual(expect.arrayContaining(["401", "403"]));
@@ -122,7 +184,7 @@ describe("the declared access is enforced, before the body is read", () => {
     async (op) => {
       const res = await call(op, as("agent", scopes));
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "session_required" });
+      expect(await res.json()).toMatchObject({ error: "session_required" });
     },
   );
 });
@@ -131,9 +193,17 @@ type CatalogAccess =
   | { allScopes: readonly string[]; humansOnly?: true }
   | { anyScope: readonly string[]; humansOnly?: true }
   | Extract<Access, { noCaller: string } | { anyCaller: string } | { selfOrAdmin: object }>;
-type CatalogOperation = Omit<Operation, "access"> & { access: CatalogAccess | undefined };
+type CatalogOperation = Omit<Operation, "access" | "idempotency" | "keyed"> & {
+  access: CatalogAccess | undefined;
+};
 
 const callerExceptions: Record<string, CatalogAccess> = {
+  "GET /health": {
+    noCaller: "Liveness reveals only that the HTTP process can answer a request.",
+  },
+  "GET /readyz": {
+    noCaller: "Readiness reveals only whether the database and job queues are available.",
+  },
   "POST /v1/auth/sign-in": {
     noCaller: "The caller proves who they are with an email and password in the body.",
   },
@@ -407,7 +477,7 @@ describe("self-or-admin access precedes parameter validation and database work",
     async (principal) => {
       const res = await appAs(principal).request("/v1/tokens/not-a-uuid", { method: "DELETE" });
       expect(res.status).toBe(principal ? 403 : 401);
-      expect(await res.json()).toEqual({ error: principal ? "forbidden" : "unauthorized" });
+      expect(await res.json()).toMatchObject({ error: principal ? "forbidden" : "unauthorized" });
     },
   );
 

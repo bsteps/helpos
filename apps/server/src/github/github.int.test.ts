@@ -22,17 +22,20 @@ import {
 } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { requestId } from "hono/request-id";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiBudget } from "../ai-budget/budget.ts";
 import { usageOn } from "../ai-budget/testing.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
+import { httpConventions } from "../http/problem.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { intendedToHeader } from "../outbound-email/shadow.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
 import { composeServer, type Server } from "../server.ts";
 import { defaultConfig, systemClock } from "../services.ts";
+import { contractApp } from "../testing/contract.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { addFixedDraft, fixedNoticeBody, githubWebhookActor } from "./fixed-notice.ts";
 import { octokitGithub } from "./github-api.ts";
@@ -492,13 +495,13 @@ describe("connecting a repo", () => {
       token: badPat,
     });
     expect(rejected.status).toBe(422);
-    expect(await rejected.json()).toEqual({ error: "token_rejected" });
+    expect(await rejected.json()).toMatchObject({ error: "token_rejected" });
     const missing = await call("PUT", "/v1/integrations/github", "owner", {
       repo: "acme/nope",
       token: pat,
     });
     expect(missing.status).toBe(422);
-    expect(await missing.json()).toEqual({ error: "repo_not_found" });
+    expect(await missing.json()).toMatchObject({ error: "repo_not_found" });
     githubDown = true;
     const down = await call("PUT", "/v1/integrations/github", "owner", {
       repo: "acme/app",
@@ -540,7 +543,7 @@ describe("connecting a repo", () => {
         token: pat,
       });
       expect(res.status).toBe(503);
-      expect(await res.json()).toEqual({ error: "encryption_not_configured" });
+      expect(await res.json()).toMatchObject({ error: "encryption_not_configured" });
     } finally {
       app = makeApp();
     }
@@ -697,7 +700,7 @@ describe("connecting a repo", () => {
       rotateWebhookSecret: true,
     });
     expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({ error: "token_rejected" });
+    expect(await res.json()).toMatchObject({ error: "token_rejected" });
   });
 
   it("gives the webhook a new secret without the token, for a human admin only", async () => {
@@ -829,7 +832,8 @@ describe("drafting an issue with the AI", () => {
         "owner",
       );
       expect(res.status).toBe(502);
-      expect(await res.json()).toEqual({ error: "ai_unavailable" });
+      expect(await res.json()).toMatchObject({ error: "ai_unavailable" });
+      expect(JSON.stringify(logger.warn.mock.calls)).toContain("usage not settled");
       const after = await usageOn(db, acme);
       expect(after.reservedTokens).toBeGreaterThan(before.reservedTokens);
       expect(after.totalTokens).toBe(before.totalTokens);
@@ -921,7 +925,7 @@ describe("drafting an issue with the AI", () => {
     app = makeApp({ budget: 0 });
     const spent = await call("POST", path, "githubAgent");
     expect(spent.status).toBe(409);
-    expect(await spent.json()).toEqual({ error: "daily_budget_reached" });
+    expect(await spent.json()).toMatchObject({ error: "daily_budget_reached" });
     app = makeApp();
   });
 });
@@ -968,7 +972,7 @@ describe("creating the issue", () => {
       },
     );
     expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ error: "already_linked" });
+    expect(await again.json()).toMatchObject({ error: "already_linked" });
   });
 
   it("refuses extra fields such as labels or assignees", async () => {
@@ -1002,7 +1006,7 @@ describe("creating the issue", () => {
     expect(res.status).toBe(502);
     const text = await res.text();
     // GitHub's 422: the issue itself was refused, so "try again later" would never help.
-    expect(JSON.parse(text)).toEqual({ error: "issue_rejected" });
+    expect(JSON.parse(text)).toMatchObject({ error: "issue_rejected" });
     expect(text).not.toContain(pat);
     rejectCreate = false;
     await createIssue(email.conversationId);
@@ -1023,7 +1027,7 @@ describe("creating the issue", () => {
     );
     expect(res.status).toBe(502);
     const text = await res.text();
-    expect(JSON.parse(text)).toEqual({ error: "github_outcome_unknown" });
+    expect(JSON.parse(text)).toMatchObject({ error: "github_outcome_unknown" });
     expect(text).not.toContain(pat);
     expect(everythingLogged()).not.toContain(pat);
   });
@@ -1258,7 +1262,7 @@ describe("creating the issue", () => {
       },
     );
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "token_rejected" });
+    expect(await res.json()).toMatchObject({ error: "token_rejected" });
   });
 
   it("doesn't block a conversation on a stale claim in a repo the token can no longer see", async () => {
@@ -1533,7 +1537,7 @@ describe("creating the issue", () => {
     );
     expect(res.status).toBe(500);
     const opened = openedIssues[0]?.number;
-    expect(await res.json()).toEqual({
+    expect(await res.json()).toMatchObject({
       error: "issue_not_linked",
       url: `https://github.com/acme/app/issues/${opened}`,
     });
@@ -1557,13 +1561,13 @@ describe("creating the issue", () => {
     listLags = true;
     const lost = await call("POST", path, "githubAgent", { title: "t", body: "b" });
     expect(lost.status).toBe(502);
-    expect(await lost.json()).toEqual({ error: "github_outcome_unknown" });
+    expect(await lost.json()).toMatchObject({ error: "github_outcome_unknown" });
     // The claim stays: a retry now is refused instead of opening a second issue.
     loseCreateAnswer = false;
     listLags = false;
     const retry = await call("POST", path, "githubAgent", { title: "t", body: "b" });
     expect(retry.status).toBe(409);
-    expect(await retry.json()).toEqual({ error: "creation_pending" });
+    expect(await retry.json()).toMatchObject({ error: "creation_pending" });
     // Once the claim is stale, the next try finds the earlier issue by its marker.
     await db.withTenant(acme, (tx) =>
       tx
@@ -1816,7 +1820,7 @@ describe("creating the issue", () => {
       },
     );
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "github_outcome_unknown" });
+    expect(await res.json()).toMatchObject({ error: "github_outcome_unknown" });
   });
 
   it("links an earlier claim's issue under its own repo after the workspace switched repos", async () => {
@@ -1886,7 +1890,7 @@ describe("creating the issue", () => {
       },
     );
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "not_connected" });
+    expect(await res.json()).toMatchObject({ error: "not_connected" });
   });
 });
 
@@ -1910,7 +1914,7 @@ describe("the webhook", () => {
     ];
     for (const res of refused) {
       expect(res.status).toBe(401);
-      expect(await res.json()).toEqual({ error: "unauthorized" });
+      expect(await res.json()).toMatchObject({ error: "unauthorized" });
     }
     // A body changed after signing is refused too.
     const body = JSON.stringify(payload);
@@ -2180,7 +2184,8 @@ describe("the webhook", () => {
         return db.withTenant(tenantId, fn);
       },
     };
-    const small = new OpenAPIHono();
+    const small = contractApp(new OpenAPIHono());
+    small.use("*", requestId(), httpConventions(logger));
     registerGithubWebhook(small, {
       db: slowDb,
       logger,
@@ -2195,7 +2200,7 @@ describe("the webhook", () => {
     // Another workspace finds the line full.
     const second = await forgedPing(small, other);
     expect(second.status).toBe(503);
-    expect(await second.json()).toEqual({ error: "busy" });
+    expect(await second.json()).toMatchObject({ error: "busy" });
     expect(lookups).toBe(1);
     release();
     expect((await first).status).toBe(401);
@@ -2211,7 +2216,8 @@ describe("the webhook", () => {
         return db.withTenant(tenantId, fn);
       },
     };
-    const small = new OpenAPIHono();
+    const small = contractApp(new OpenAPIHono());
+    small.use("*", requestId(), httpConventions(logger));
     small.use(async (c, next) => {
       c.set("requestId", "test");
       await next();

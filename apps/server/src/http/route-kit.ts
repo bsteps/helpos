@@ -1,18 +1,46 @@
 import { z } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { type AuditContext, type Auditor, auditorFor } from "../audit/audit.ts";
+import { type ErrorCode, errorCodeSchema } from "./error-codes.ts";
 
 // What every route file needs, in one place. A route file never defines its own copy: the
 // route-*.grit Biome plugins fail when one does (scripts/biome-plugins.test.mjs proves they fire).
 
 /** The one error body of the API. Registered once, as the `Error` component. */
-export const errorSchema = z.object({ error: z.string() }).openapi("Error");
+export const errorSchema = z.object({ error: errorCodeSchema }).openapi("Error");
+
+export function errorResponse<const T extends { error: ErrorCode }, S extends ContentfulStatusCode>(
+  c: Context,
+  body: T,
+  status: S,
+) {
+  return c.json(body, status);
+}
+
+const problemDetails = {
+  type: "object" as const,
+  properties: {
+    type: { type: "string" as const, const: "about:blank" },
+    title: { type: "string" as const },
+    status: { type: "integer" as const },
+    instance: { type: "string" as const },
+  },
+  required: ["type", "title", "status", "instance"],
+};
 
 /** An OpenAPI response with a JSON body. */
-export const json = <T extends z.ZodType>(schema: T, description: string) => ({
-  description,
-  content: { "application/json": { schema } },
-});
+export function json<T extends z.ZodType>(schema: T, description: string) {
+  const error = schema instanceof z.ZodObject && schema.shape.error === errorSchema.shape.error;
+  return {
+    description,
+    content: {
+      [error ? "application/problem+json" : "application/json"]: {
+        schema: error ? schema.openapi({ allOf: [problemDetails] }) : schema,
+      },
+    },
+  };
+}
 
 /** A required JSON request body. */
 export const jsonBody = <T extends z.ZodType>(schema: T) => ({
@@ -31,7 +59,7 @@ export const notFoundResponse = json(errorSchema, "Not found in this workspace")
 
 /** Answers a missing (or other workspace's) row. Pair it with `404: notFoundResponse`. */
 export function notFound(c: Context) {
-  return c.json({ error: "not_found" }, 404);
+  return errorResponse(c, { error: "not_found" }, 404);
 }
 
 export function auditContext(c: Context): AuditContext {

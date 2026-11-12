@@ -74,6 +74,7 @@ type ServiceDb = Pick<
 export interface Services {
   db: ServiceDb;
   files: FileStore;
+  queueReady: Database["ping"];
   logger: Pick<Logger, "error" | "warn" | "info">;
   clock: Clock;
   config: ServerConfig;
@@ -109,6 +110,8 @@ export function composeServices(input: ServicesInput): Services {
   return {
     db: input.db,
     files: input.files,
+    queueReady:
+      input.queueReady ?? (async () => ({ ok: false, error: new Error("queue not configured") })),
     logger: input.logger,
     clock: input.clock ?? systemClock,
     config: { ...defaultConfig, ...input.config },

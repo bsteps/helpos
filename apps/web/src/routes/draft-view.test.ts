@@ -218,6 +218,16 @@ describe("liveFixNotice", () => {
 });
 
 describe("newDraftError", () => {
+  it("preserves the contextual refusal and unknown-response wording", () => {
+    expect(newDraftError("daily_budget_reached")).toBe(
+      "Today's AI budget is spent, so the AI can't write a draft until midnight UTC. You can write one yourself.",
+    );
+    expect(newDraftError("not_found")).toBe(
+      "This conversation is gone, or you no longer have access to it.",
+    );
+    expect(newDraftError("external_code")).toBe("That didn't work. Try again.");
+    expect(newDraftError(undefined)).toBe("That didn't work. Try again.");
+  });
   it.each([
     "daily_budget_reached",
     "already_answered",

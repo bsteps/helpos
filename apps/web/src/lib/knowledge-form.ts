@@ -1,6 +1,6 @@
 import { ApiError, type KnowledgeSource, type KnowledgeSourceUpdate } from "../api/client.ts";
+import { errorMessage } from "../api/error-messages.ts";
 
-/** Why a change didn't happen, in words that say whether trying again can help. */
 export function knowledgeProblem(
   error: unknown,
   failed: string,
@@ -9,23 +9,29 @@ export function knowledgeProblem(
   if (!(error instanceof ApiError)) {
     return `${failed} Something went wrong. Check your connection, then try again or reload the page.`;
   }
-  switch (error.code) {
-    case "url_taken":
-      return `${failed} There's already a source for this URL.`;
-    case "slug_taken":
-      return `${failed} There's already a source with this title.`;
-    case "managed_in_git":
-      return `${failed} It's managed in the workspace's git repo now.`;
-  }
+  const specific = errorMessage(
+    error.code,
+    {
+      url_taken: `${failed} There's already a source for this URL.`,
+      slug_taken: `${failed} There's already a source with this title.`,
+      managed_in_git: `${failed} It's managed in the workspace's git repo now.`,
+    },
+    "",
+  );
+  if (specific) return specific;
   if (error.status === 404) return `${failed} It's no longer in this workspace.`;
   if (error.status === 401) return `${failed} You've been signed out. Sign in again, then retry.`;
-  if (error.code === "forbidden") return `${failed} Your account can't change knowledge sources.`;
+  const forbidden = errorMessage(
+    error.code,
+    { forbidden: `${failed} Your account can't change knowledge sources.` },
+    "",
+  );
+  if (forbidden) return forbidden;
   if (error.status === 403) return `${failed} Reload the page, then try again.`;
   if (error.status === 400) return invalid;
   return `${failed} Try again.`;
 }
 
-/** `required` accepts a title of only spaces, which the API refuses, so it's named here. */
 export const blankTitle = (title: string) =>
   title !== "" && title.trim() === "" ? "Add a title." : false;
 
@@ -55,11 +61,6 @@ export function knowledgeEditBody({
 
 type SourceRevision = Pick<KnowledgeSource, "title" | "visibility" | "state" | "updatedAt">;
 
-/**
- * Someone changed what the edit form edits, or its text is being read again. Not after this
- * person's own save, which changes it too before the form closes. A source that only finished
- * reading meanwhile doesn't count.
- */
 export function knowledgeChangedMeanwhile({
   source,
   opened,
