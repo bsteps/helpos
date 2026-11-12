@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `38c9ab9fc2b4`.
+Last confirmed at commit `2326ebf7a048`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -72,8 +72,8 @@ Last confirmed at commit `38c9ab9fc2b4`.
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `a99b2cee9f9e` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
-| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `2aeaf7d934eb` |
-| packages/db/src/jobs.ts | createJobRunner.work | one transaction per attempt (`transaction`, not `steps`) | `20eda0869cc2` |
+| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `246f97b5f432` |
+| packages/db/src/jobs.ts | createJobRunner.work | one transaction per attempt (`transaction`, not `steps`) | `1c138699acca` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->
 

@@ -18,7 +18,7 @@ import type { Authenticate, Principal, Scope } from "./principal.ts";
  */
 export type Access =
   | { readonly allScopes: readonly [Scope, ...Scope[]]; readonly humansOnly?: true }
-  | { readonly anyScope: readonly [Scope, Scope, ...Scope[]]; readonly humansOnly?: true }
+  | { readonly anyScope: readonly [Scope, Scope, ...Scope[]] }
   | { readonly anyCaller: string }
   | { readonly noCaller: string };
 
@@ -65,7 +65,9 @@ function accessRefusal(
   if ("noCaller" in access) return null;
   if (!principal) return "unauthorized";
   if ("anyCaller" in access) return null;
-  if (access.humansOnly && principal.actor.type !== "user") return "session_required";
+  if ("allScopes" in access && access.humansOnly && principal.actor.type !== "user") {
+    return "session_required";
+  }
   const held = (s: Scope) => principal.scopes.has(s);
   const ok = "allScopes" in access ? access.allScopes.every(held) : access.anyScope.some(held);
   return ok ? null : "forbidden";

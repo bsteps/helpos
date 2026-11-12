@@ -13,7 +13,7 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 
-export type InputClassNames = {
+type InputClassNames = {
   root?: string;
   label?: string;
   field?: string;

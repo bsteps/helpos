@@ -22,7 +22,6 @@ export {
 export { isUniqueViolation } from "./errors.ts";
 export {
   createJobRunner,
-  defineSystemJob,
   defineTenantJob,
   type EnqueueOptions,
   enqueue,
@@ -30,8 +29,6 @@ export {
   type JobRunner,
   type JobRunnerOptions,
   type RetryPolicy,
-  type SystemJob,
-  type SystemJobHandler,
   type TenantJob,
   type TenantJobHandler,
   type TenantStepsHandler,

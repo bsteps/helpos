@@ -38,7 +38,7 @@ import { createReply, liveDraftFor, lockConversationForDrafting } from "./lifecy
 const { draftCitations, messages, conversations } = schema;
 
 /** Passages retrieved per draft. More cost tokens and dilute the answer. */
-export const knowledgeLimit = Math.min(5, maxKnowledgeArticles);
+const knowledgeLimit = Math.min(5, maxKnowledgeArticles);
 /** The retrieval query is the email's start: subject and opening lines say what it's about. */
 const maxQueryChars = 2_000;
 
@@ -83,7 +83,7 @@ export interface DraftWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-export const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
+const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
 
 /**
  * The workspace's best-matching knowledge, or none when search fails (embedding provider down,

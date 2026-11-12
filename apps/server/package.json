@@ -13,7 +13,7 @@
     "token": "node --env-file-if-exists=../../.env src/cli/token.ts",
     "seed": "node --env-file-if-exists=../../.env src/cli/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --project unit --project int",
     "openapi": "node src/cli/openapi.ts",
     "e2e-server": "node src/e2e/serve.ts"
   },

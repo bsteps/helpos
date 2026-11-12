@@ -10,7 +10,12 @@ import {
   schema,
   tenantTransactions,
 } from "@helpos/db";
-import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import {
+  startTestDatabase,
+  type TestDatabase,
+  waitFor,
+  waitForTenantJobs,
+} from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ingestEmail } from "../inbound-email/ingest.ts";
@@ -245,10 +250,14 @@ describe("draft notice worker", () => {
       }),
       onGiveUp: handleNoticeGaveUp,
     });
-    // Queued with the default 5-minute delay. The worker polls every 0.5 s, so an undelayed
-    // job would have been sent well within this wait.
+    const before = await waitForTenantJobs(testDb, acme, { queues: [draftNoticeJob.queue] });
     const draft = await pendingDraft();
-    await new Promise((r) => setTimeout(r, 3_000));
+    const { deferred } = await waitForTenantJobs(testDb, acme, { queues: [draftNoticeJob.queue] });
+    const added = deferred.filter((job) => !before.deferred.some(({ id }) => id === job.id));
+    expect(added).toHaveLength(1);
+    expect(added[0]?.startAfter.getTime()).toBeGreaterThanOrEqual(
+      draft.createdAt.getTime() + 300_000,
+    );
     expect(sentFor(draft.conversationId)).toEqual([]);
   });
 
@@ -274,10 +283,10 @@ describe("draft notice worker", () => {
     const draft = await pendingDraft();
     // Too early for a 2 s delay: nothing now, and the job is queued again for when it's old enough.
     expect(await notify(draft.id, 2)).not.toHaveBeenCalled();
-    const deadline = Date.now() + 15_000;
-    while (sentFor(draft.conversationId).length === 0 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
+    await waitFor("the requeued notice", async () =>
+      sentFor(draft.conversationId).length > 0 ? true : undefined,
+    );
+    await waitForTenantJobs(testDb, acme, { queues: [draftNoticeJob.queue] });
     expect(sentFor(draft.conversationId)).toHaveLength(1);
   });
 });

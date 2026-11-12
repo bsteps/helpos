@@ -13,7 +13,12 @@ import {
   schema,
   sql,
 } from "@helpos/db";
-import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import {
+  startTestDatabase,
+  type TestDatabase,
+  waitFor,
+  waitForTenantJobs,
+} from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -204,6 +209,11 @@ const principals: Record<string, () => Principal> = {
   githubAgent: () => agent(acme, ["conversations:read", "github:write"]),
   // Can use the GitHub routes, but can't read conversations.
   githubOnly: () => agent(acme, ["github:write"]),
+  adminOnly: () => ({
+    tenantId: acme,
+    actor: { type: "user", id: "owner-user" },
+    scopes: new Set(["workspace:admin"]),
+  }),
   // An agent can't hold workspace:admin, but even a caller claiming it as an agent is refused.
   adminAgent: () => agent(acme, [...allScopes, "workspace:admin"]),
   readOnly: () => agent(acme, ["conversations:read", "drafts:write", "drafts:approve"]),
@@ -274,16 +284,6 @@ async function receiveEmail(to = "support@acme.test", body = "Export to CSV show
   const result = await ingestEmail({ db, files }, new TextEncoder().encode(raw));
   if (result.kind !== "created") throw new Error(`ingest: ${result.kind}`);
   return { ...result, subject: `Export broken ${emailCount}` };
-}
-
-async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const value = await fn();
-    if (value !== undefined) return value;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`timed out waiting for ${what}`);
 }
 
 const draftsOf = (conversationId: string) =>
@@ -555,6 +555,15 @@ describe("connecting a repo", () => {
     expect(await auditActions(acme, row.id)).toEqual(["github.connected"]);
 
     // Reading it back never shows the token or the secret.
+    for (const caller of ["githubOnly", "adminOnly"]) {
+      const status = await call("GET", "/v1/integrations/github", caller);
+      expect(status.status).toBe(200);
+      expect(await status.json()).toEqual({
+        connected: true,
+        repo: "acme/app",
+        webhookUrl: body.webhookUrl,
+      });
+    }
     const read = await call("GET", "/v1/integrations/github", "githubAgent");
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual({
@@ -715,6 +724,8 @@ describe("drafting an issue with the AI", () => {
   it("reserves the budget up front, so concurrent drafts can't both pass the cap", async () => {
     // Another workspace, so its usage starts at zero.
     const email = await receiveEmail("help@other.test");
+    const settled = await waitForTenantJobs(testDb, other, { queues: ["draft-reply"] });
+    expect(settled.deferred).toEqual([]);
     const path = `/v1/conversations/${email.conversationId}/github-issue/draft`;
     const usage = () =>
       db.withTenant(other, async (tx) => (await tx.select().from(schema.aiUsage))[0]);

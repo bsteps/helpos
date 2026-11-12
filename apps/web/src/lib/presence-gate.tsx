@@ -3,7 +3,7 @@
 import { useIsPresent } from "motion/react";
 import type { ReactNode } from "react";
 
-export interface PresenceGateRenderProps {
+interface PresenceGateRenderProps {
   /**
    * False from the render that starts the exit animation onward. An overlay
    * kept in the tree by `AnimatePresence` is still the topmost thing on the

@@ -10,10 +10,6 @@ export const brand = {
   name: "HelpOS",
   /** Lowercase identifier for CLIs, Docker images, env var prefixes. */
   slug: "helpos",
-  /** npm scope for internal packages. */
-  npmScope: "@helpos",
-  /** One-line description. */
-  tagline: "The open-source, agent-first helpdesk.",
   /** Public source repository (AGPL-3.0 §13 "Source" link points here). */
   repositoryUrl: "https://github.com/bsteps/helpos",
 } as const;

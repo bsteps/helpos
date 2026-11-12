@@ -22,13 +22,6 @@ export interface TenantJob<P extends { tenantId: string }> {
   payload: z.ZodType<P>;
 }
 
-/** A queue with no tenant, e.g. cleanup. Its handler gets no tenant client. */
-export interface SystemJob<P> {
-  kind: "system";
-  queue: string;
-  payload: z.ZodType<P>;
-}
-
 /**
  * Defines a tenant job. Payloads carry IDs only, never tenant content: the handler
  * reloads data inside withTenant(), so nothing lingers in job history. `tenantId` is always added.
@@ -48,11 +41,6 @@ export function defineTenantJob<const K extends string, const C extends string =
     { tenantId: string } & Record<K, string> & Record<C, number>
   >;
   return { kind: "tenant", queue: name, payload };
-}
-
-export function defineSystemJob<P>(queue: string, payload: z.ZodType<P>): SystemJob<P> {
-  const name = queueNameSchema.parse(`${SYSTEM_PREFIX}${queue}`);
-  return { kind: "system", queue: name, payload };
 }
 
 /** The only options app_enqueue() accepts. */
@@ -90,7 +78,6 @@ export async function enqueue<P extends { tenantId: string }>(
 }
 
 export type TenantJobHandler<P> = (payload: P, tx: TenantTx) => Promise<void>;
-export type SystemJobHandler<P> = (payload: P) => Promise<void>;
 
 /** Opens one transaction as the job's tenant: every query in it goes through withTenant(). */
 export type TenantTransaction = <T>(fn: (tx: TenantTx) => Promise<T>) => Promise<T>;
@@ -145,13 +132,9 @@ export interface JobRunner {
    * Creates the queue if needed, and sets its retry policy when given. enqueue() refuses a
    * queue that doesn't exist yet.
    */
-  ensureQueue(
-    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
-    retry?: RetryPolicy,
-  ): Promise<void>;
+  ensureQueue(job: TenantJob<{ tenantId: string }>, retry?: RetryPolicy): Promise<void>;
   /** Creates the queue if needed and starts working it. */
   work<P extends { tenantId: string }>(job: TenantJob<P>, worker: TenantWorker<P>): Promise<void>;
-  work<P>(job: SystemJob<P>, handler: SystemJobHandler<P>): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -178,7 +161,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   const pollingIntervalSeconds = options.pollingIntervalSeconds ?? 2;
 
   async function ensureQueue(
-    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
+    job: TenantJob<{ tenantId: string }>,
     retry?: RetryPolicy,
   ): Promise<void> {
     await boss.createQueue(job.queue);
@@ -192,8 +175,8 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     });
   }
 
-  async function consume<P>(
-    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
+  async function consume<P extends { tenantId: string }>(
+    job: TenantJob<P>,
     run: (payload: P) => Promise<void>,
     onLastFailure?: (payload: P) => Promise<void>,
   ): Promise<void> {
@@ -203,7 +186,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     await boss.work<unknown, unknown, typeof workOptions>(job.queue, workOptions, async (jobs) => {
       for (const { data, retryCount, retryLimit } of jobs) {
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
-        const payload = job.payload.parse(data) as P;
+        const payload = job.payload.parse(data);
         try {
           await run(payload);
         } catch (error) {
@@ -217,17 +200,12 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     });
   }
 
-  async function work(
-    job: TenantJob<{ tenantId: string }> | SystemJob<unknown>,
-    worker: TenantWorker<{ tenantId: string }> | SystemJobHandler<unknown>,
+  async function work<P extends { tenantId: string }>(
+    job: TenantJob<P>,
+    tenantWorker: TenantWorker<P>,
   ): Promise<void> {
-    if (job.kind === "system") {
-      await consume(job, worker as SystemJobHandler<unknown>);
-      return;
-    }
-    const tenantWorker = worker as TenantWorker<{ tenantId: string }>;
     const { onGiveUp } = tenantWorker;
-    await consume<{ tenantId: string }>(
+    await consume(
       job,
       (payload) =>
         tenantWorker.steps
@@ -242,7 +220,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     start: async () => {
       await boss.start();
     },
-    work: work as JobRunner["work"],
+    work,
     stop: () => boss.stop({ graceful: true, timeout: 5_000 }),
   };
 }

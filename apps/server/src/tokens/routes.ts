@@ -13,7 +13,6 @@ import {
   notFoundResponse,
 } from "../http/route-kit.ts";
 import { type ApiTokenRow, createApiToken } from "./create-token.ts";
-import { tokenScopes } from "./token.ts";
 
 const { apiTokens } = schema;
 
@@ -61,7 +60,7 @@ const createTokenRoute = apiRoute({
     body: jsonBody(
       z.strictObject({
         name: z.string().trim().min(1).max(100),
-        scopes: z.array(scopeSchema).min(1).max(tokenScopes.length),
+        scopes: z.array(scopeSchema).min(1).max(schema.apiTokenScopes.length),
       }),
     ),
   },

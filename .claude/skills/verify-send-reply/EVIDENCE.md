@@ -2,6 +2,10 @@
 
 Reconfirmed against 38c9ab9fc2b4 on 2026-11-12 after the #184 conversation rename. No product source changes are retained.
 
+## Dead system-job removal (#198)
+
+Reconfirmed against `2326ebf7a048`. `consume` narrows its payload type and removes a cast. `work` removes the unused system-job branch and its casts. The tenant handler, transaction boundaries, last-attempt check, give-up transaction and error propagation remain unchanged. The model needs no action or invariant changes. All 24 scenario results, four passing controls and four failing mutants matched the existing expectations. The known delivery and stall findings below remain open.
+
 ## Results
 
 `pnpm verify:send-reply` checks four invariants in six scenarios. The expected failures remain failures, and all four mutant checks violate their intended invariant. Four unchanged-model controls must pass under the exact same constants and faults as their paired mutants. Each mutant disables person retries. The ordinary model explores 246 states without injected faults and 1,378 with lease expiry. These are bounded model results, not a proof about arbitrary workers or retries.

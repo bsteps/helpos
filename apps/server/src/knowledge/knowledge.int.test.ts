@@ -16,7 +16,7 @@ import {
   sql,
   tenantTransactions,
 } from "@helpos/db";
-import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import { startTestDatabase, type TestDatabase, waitFor } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { createSafeFetch, isBlockedAddress, safeFetch } from "@helpos/safe-fetch";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -234,16 +234,6 @@ async function addSource(as: string, body: object): Promise<SourceJson> {
   const res = await call("POST", "/v1/knowledge/sources", as, body);
   if (res.status !== 201) throw new Error(`add source: ${res.status} ${await res.text()}`);
   return (await res.json()) as SourceJson;
-}
-
-async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const value = await fn();
-    if (value !== undefined) return value;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`timed out waiting for ${what}`);
 }
 
 /** Waits until the ingest job has finished with the source, either way. */

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { setTimeout as pollDelay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import postgres from "postgres";
@@ -42,6 +43,83 @@ export interface TestDatabase {
   jobsUrl: string;
   /** Drops the database, or stops its container when it has one of its own. */
   stop(): Promise<void>;
+}
+
+export async function waitFor<T>(
+  what: string,
+  read: () => Promise<T | undefined>,
+  {
+    timeoutMs = 20_000,
+    diagnostics = () => "condition is still undefined",
+  }: { timeoutMs?: number; diagnostics?: () => string } = {},
+): Promise<T> {
+  const deadline = performance.now() + timeoutMs;
+  do {
+    const value = await read();
+    if (value !== undefined) return value;
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) break;
+    await pollDelay(Math.min(100, remaining));
+  } while (performance.now() < deadline);
+  throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}: ${diagnostics()}`);
+}
+
+type TestJob = {
+  id: string;
+  queue: string;
+  state: "created" | "retry" | "active" | "completed" | "cancelled" | "failed";
+  startAfter: Date;
+  retryCount: number;
+  deferred: boolean;
+};
+
+/**
+ * Waits for this tenant's due jobs, their retries and any due follow-on jobs to settle.
+ * Future created jobs are returned as deferred, never fast-forwarded. Failed and cancelled
+ * jobs are terminal too: callers must still assert the application's outcome.
+ * Call after the producer transaction commits, with the relevant workers running.
+ */
+export async function waitForTenantJobs(
+  database: Pick<TestDatabase, "jobsUrl">,
+  tenantId: string,
+  { queues, timeoutMs = 20_000 }: { queues?: string[]; timeoutMs?: number } = {},
+): Promise<{ terminal: TestJob[]; deferred: TestJob[] }> {
+  const client = postgres(database.jobsUrl, {
+    max: 1,
+    onnotice: () => {},
+    connect_timeout: 5,
+    connection: { statement_timeout: Math.max(1, timeoutMs) },
+  });
+  let pending: TestJob[] = [];
+  try {
+    return await waitFor(
+      `tenant ${tenantId} jobs${queues ? ` in ${queues.join(", ")}` : ""} to settle`,
+      async () => {
+        const observed = await client<TestJob[]>`
+          select id, name as queue, state, start_after as "startAfter",
+            retry_count as "retryCount",
+            state = 'created' and start_after > pgboss.job_now() as deferred
+          from pgboss.job
+          where data->>'tenantId' = ${tenantId}
+            ${queues ? client`and name in ${client(queues)}` : client``}
+          order by created_on, id`;
+        pending = observed.filter(
+          (job) => !job.deferred && ["created", "retry", "active"].includes(job.state),
+        );
+        if (pending.length > 0) return undefined;
+        return {
+          terminal: observed.filter((job) => !job.deferred),
+          deferred: observed.filter((job) => job.deferred),
+        };
+      },
+      {
+        timeoutMs,
+        diagnostics: () => JSON.stringify({ pending: pending.slice(0, 10), total: pending.length }),
+      },
+    );
+  } finally {
+    await client.end({ timeout: 1 });
+  }
 }
 
 function urls(hostPort: string, database: string) {

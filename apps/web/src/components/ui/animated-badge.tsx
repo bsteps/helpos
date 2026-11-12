@@ -13,9 +13,9 @@ import type { ReactNode } from "react";
 import { EASE_OUT, SPRING_LAYOUT, SPRING_SWAP } from "@/lib/ease";
 import { cn } from "@/lib/utils";
 
-export type AnimatedBadgeStatus = "neutral" | "info" | "success" | "warning" | "danger" | "loading";
+type AnimatedBadgeStatus = "neutral" | "info" | "success" | "warning" | "danger" | "loading";
 
-export type AnimatedBadgeSize = "sm" | "md";
+type AnimatedBadgeSize = "sm" | "md";
 
 export interface AnimatedBadgeProps extends Omit<HTMLMotionProps<"span">, "children"> {
   status?: AnimatedBadgeStatus;
