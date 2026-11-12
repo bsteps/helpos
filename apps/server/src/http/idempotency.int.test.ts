@@ -98,9 +98,22 @@ describe("durable idempotency through the public API middleware", () => {
       const freshApp = createApp(composeServices({ ...services(), db: freshDb }), {
         authenticate: async () => principal(),
       });
-      const replay = await call(freshApp, "/v1/knowledge/sources", "durable", body);
+      const replay = await freshApp.request("/v1/knowledge/sources", {
+        method: "POST",
+        headers: {
+          "idempotency-key": "durable",
+          "content-type": "application/json",
+          "x-request-id": "durable-replay-request",
+        },
+        body: JSON.stringify(body),
+      });
       expect(replay.status).toBe(201);
       expect(replay.headers.get("idempotency-replayed")).toBe("true");
+      expect(replay.headers.get("x-request-id")).toBe("durable-replay-request");
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: "durable-replay-request", status: 201 }),
+        "request completed",
+      );
       expect(await replay.json()).toEqual(original);
     } finally {
       await freshDb.close();
@@ -383,9 +396,21 @@ describe("durable idempotency through the public API middleware", () => {
       },
     );
     expect((await call(instance, "/empty-probe", "empty", undefined, "DELETE")).status).toBe(204);
-    const replay = await call(instance, "/empty-probe", "empty", undefined, "DELETE");
+    const replay = await instance.request("/empty-probe", {
+      method: "DELETE",
+      headers: {
+        "idempotency-key": "empty",
+        "content-type": "application/json",
+        "x-request-id": "empty-replay-request",
+      },
+    });
     expect(replay.status).toBe(204);
     expect(await replay.text()).toBe("");
     expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    expect(replay.headers.get("x-request-id")).toBe("empty-replay-request");
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "empty-replay-request", status: 204 }),
+      "request completed",
+    );
   });
 });

@@ -33,6 +33,7 @@ export function httpConventions(logger: Services["logger"]): MiddlewareHandler {
       });
       c.header("Content-Type", "application/problem+json");
     }
+    c.header("X-Request-Id", requestId);
     logger.info(
       { requestId, method: c.req.method, path: c.req.path, status: c.res.status },
       "request completed",
