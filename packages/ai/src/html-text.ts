@@ -1,9 +1,7 @@
 import { Parser } from "htmlparser2";
 
-/** Page chrome and non-content: never knowledge. */
 const knowledgeSkippedTags = new Set([
   "head",
-  // The page title, even outside <head>: it is metadata, not body text.
   "title",
   "script",
   "style",
@@ -44,11 +42,7 @@ const blockTags = new Set([
   "figcaption",
 ]);
 
-/**
- * Marks text from a <pre> block until tidy() has run. A private-use character, removed from
- * the page's own text first, so a page can't fake it.
- */
-const preMark = "\uE000";
+const preformattedLineMarker = "\uE000";
 const codeFence = "```";
 
 /**
@@ -169,8 +163,6 @@ function extractText(html: string, format: "email" | "knowledge"): string {
         if (heading) emit(`\n\n${"#".repeat(Number(heading[1]))} `);
         else if (name === "li") emit("\n- ");
         else if (blockTags.has(name)) emit("\n\n");
-        // A markdown fence around code, so the chunker never reads "# install" in it as a
-        // heading, and the model sees it as code.
         if (name === "pre" && preDepth === 1) emit(`${codeFence}\n`);
       },
       ontext(data) {
@@ -179,10 +171,10 @@ function extractText(html: string, format: "email" | "knowledge"): string {
           emit(data.replaceAll("\u00a0", " "));
           return;
         }
-        const clean = data.replaceAll(preMark, "");
+        const clean = data.replaceAll(preformattedLineMarker, "");
         emit(
           preDepth > 0
-            ? preMark + clean.replaceAll("\n", `\n${preMark}`)
+            ? preformattedLineMarker + clean.replaceAll("\n", `\n${preformattedLineMarker}`)
             : clean.replaceAll(/\s+/g, " "),
         );
       },
@@ -223,18 +215,14 @@ function extractText(html: string, format: "email" | "knowledge"): string {
  */
 const nul = String.fromCharCode(0);
 
-/**
- * For text pulled out of HTML, where spacing is the page's layout, not content: trims each
- * line, collapses runs of spaces, and keeps at most one blank line between paragraphs.
- */
 function tidy(text: string): string {
   return text
     .replaceAll(nul, "")
     .replaceAll(/\r\n?/g, "\n")
     .split("\n")
     .map((line) =>
-      line.includes(preMark)
-        ? line.replaceAll(preMark, "").trimEnd()
+      line.includes(preformattedLineMarker)
+        ? line.replaceAll(preformattedLineMarker, "").trimEnd()
         : line.replaceAll(/[ \t]+/g, " ").trim(),
     )
     .join("\n")

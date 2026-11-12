@@ -8,6 +8,7 @@ import {
   eq,
   type JobRunner,
   schema,
+  tenantTransactions,
 } from "@helpos/db";
 import { containerHost, startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -208,19 +209,17 @@ it.each([false, true])(
     const approved = await call(`/v1/drafts/${draft.id}/approve`, { body });
     expect(approved.status).toBe(200);
     const envelopes: { from: string; to: string[]; raw: Uint8Array }[] = [];
-    await db.withTenant(tenantId, (tx) =>
-      handleSendReply({
-        files,
-        logger,
-        transport: {
-          send: async (envelope) => {
-            envelopes.push(envelope);
-            await smtp.send(envelope);
-          },
-          close: () => {},
+    await handleSendReply({
+      files,
+      logger,
+      transport: {
+        send: async (envelope) => {
+          envelopes.push(envelope);
+          await smtp.send(envelope);
         },
-      })({ tenantId, draftId: draft.id }, tx),
-    );
+        close: () => {},
+      },
+    })({ tenantId, draftId: draft.id }, tenantTransactions(db, tenantId));
     expect(envelopes).toHaveLength(1);
     const envelope = envelopes[0];
     if (!envelope) throw new Error("Missing SMTP envelope");

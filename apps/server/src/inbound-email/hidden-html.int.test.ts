@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mockModel } from "@helpos/ai/testing";
+import { mockEmbeddingModel, mockModel } from "@helpos/ai/testing";
 import { type AuthStore, createAuthStore, createDatabase, type Database } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -10,6 +10,7 @@ import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 const model = mockModel({ text: "Please reset your password." });
+const embeddingModel = mockEmbeddingModel();
 const secret = "hidden-html-fixture";
 let testDb: TestDatabase;
 let db: Database;
@@ -41,6 +42,15 @@ beforeAll(async () => {
     files: createMemoryFileStore(),
     logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
     model,
+    embeddingModel,
+    fetch: async (url) => ({
+      url,
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: Buffer.from(
+        '<main><h1>Login café 東京</h1><p>Visible knowledge.</p><div style="display:none">knowledge-hidden-display</div><div aria-hidden="true">knowledge-hidden-aria</div><div style="visibility:hidden">knowledge-hidden-visibility</div><pre>reset\n  password</pre></main>',
+      ),
+    }),
     config: { inboundSecret: secret, dailyTokenBudget: 1_000_000 },
   });
   await server.startWorker();
@@ -79,6 +89,64 @@ it("drafts an HTML-only API email without its hidden instructions", async () => 
   const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
   expect(prompt).toContain("Visible login question & café.");
   expect(prompt).toContain("Visible follow-up.");
+  expect(prompt).not.toContain("hidden-display");
+  expect(prompt).not.toContain("hidden-aria");
+  expect(prompt).not.toContain("hidden-visibility");
+});
+
+it("ingests visible knowledge through the API and quotes it in an HTML-only email draft", async () => {
+  const app = createApp(server.services, {
+    authenticate: async () => ({
+      tenantId,
+      actor: { type: "agent", id: "fixture" },
+      scopes: new Set(["conversations:read", "knowledge:write", "knowledge:read"]),
+    }),
+  });
+  const created = await app.request("/v1/knowledge/sources", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "url", title: "Login", url: "https://docs.example.test/login" }),
+  });
+  expect(created.status).toBe(201);
+  const source = z.object({ id: z.string() }).parse(await created.json());
+  await vi.waitFor(
+    async () => {
+      const response = await app.request("/v1/knowledge/sources");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        sources: [{ id: source.id, state: { status: "ready" } }],
+      });
+    },
+    { timeout: 20_000, interval: 200 },
+  );
+  const embedded = embeddingModel.doEmbedCalls.flatMap((call) => call.values).join("\n");
+  expect(embedded).toContain("# Login café 東京\n\nVisible knowledge.");
+  expect(embedded).toContain("reset\n  password");
+  expect(embedded).not.toContain("knowledge-hidden");
+  const raw = readFileSync(new URL("../../../../fixtures/email/hidden-html.eml", import.meta.url))
+    .toString()
+    .replace("Message-ID: <", "Message-ID: <knowledge-");
+  const response = await app.request("/v1/inbound/email", {
+    method: "POST",
+    headers: { authorization: `Bearer ${secret}`, "content-type": "message/rfc822" },
+    body: raw,
+  });
+  expect(response.status).toBe(201);
+  const { conversationId } = z.object({ conversationId: z.string() }).parse(await response.json());
+  await vi.waitFor(
+    async () => {
+      const drafts = await app.request(`/v1/conversations/${conversationId}/drafts`);
+      expect(drafts.status).toBe(200);
+      expect(await drafts.json()).toMatchObject({ drafts: [{ status: "pending" }] });
+    },
+    { timeout: 20_000, interval: 200 },
+  );
+  const prompt = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt);
+  expect(prompt).toContain("<untrusted_knowledge>");
+  expect(prompt).toContain("Login café 東京");
+  expect(prompt).toContain("Visible knowledge.");
+  expect(prompt).toContain("reset\\n  password");
+  expect(prompt).toContain("Visible login question & café.\\nVisible follow-up.");
   expect(prompt).not.toContain("hidden-display");
   expect(prompt).not.toContain("hidden-aria");
   expect(prompt).not.toContain("hidden-visibility");
