@@ -13,3 +13,4 @@ time_utc	action	reason	evidence	result
 2026-11-12T10:04:57.942127+00:00	db-focused	public preflight/index/tenant/job proof	91620760480544cd7d3a851d5fcfca37c7a549f9; .helpos/328-db-focused.log	exit0;3files56tests;12.57s;focused slot released
 2026-11-12T10:04:57.942130+00:00	contract-identity	preserve dependent331 checkpoint	9af ancestor;916 offline runtime checkpoint;OpenAPI/client regeneration no diff	no later production/type changes;protected315/319 paths unchanged
 2026-11-12T10:04:57.942132+00:00	publication-gate	one stable full gate after concrete grant	EVAL_LIVE=0 pnpm verify at next committed evidence head;result in PR/local runtime trail	not yet started;no mutation or source edits planned
+2026-11-12T10:12:15.130685+00:00	gate-preflight-fix	new manifest failed formatter beforeTurbo	574a4fde3586debd0cd8d62271b32928acf9248f; .helpos/328-full-verify.log	Biome table/line-ending formatting only; no test orPG task started; standaloneBiome now passes
