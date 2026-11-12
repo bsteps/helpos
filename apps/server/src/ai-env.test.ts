@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { describe, expect, it } from "vitest";
 import { envSchema } from "./env.ts";
@@ -82,12 +83,14 @@ describe("AI startup configuration", () => {
   });
 
   it.each(["AI_PROVIDER", "AI_EMBEDDING_PROVIDER"])(
-    "refuses actual startup with a safe diagnostic for %s",
+    "refuses actual startup from the repository root with a safe diagnostic for %s",
     (variable) => {
       const env: NodeJS.ProcessEnv = { ...process.env, ...base };
       for (const key of Object.keys(env)) if (key.startsWith("AI_")) delete env[key];
       env[variable] = "private-provider-value";
-      const result = spawnSync(process.execPath, ["src/main.ts"], {
+      const entrypoint = fileURLToPath(new URL("./main.ts", import.meta.url));
+      const result = spawnSync(process.execPath, [entrypoint], {
+        cwd: fileURLToPath(new URL("../../../", import.meta.url)),
         env,
         encoding: "utf8",
         timeout: 15000,
