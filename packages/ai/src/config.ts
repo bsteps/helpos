@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const aiProviders = ["openai", "anthropic"] as const;
-export type AiProvider = (typeof aiProviders)[number];
+const aiProviders = ["openai", "anthropic"] as const;
+type AiProvider = (typeof aiProviders)[number];
 
 export type AiConfig = {
   provider: AiProvider;

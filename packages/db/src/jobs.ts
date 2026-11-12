@@ -128,7 +128,7 @@ export interface RetryPolicy {
  * see it, so a job that keeps failing is never lost silently. The job still ends up failed in
  * pg-boss.
  */
-export type TenantWorker<P> = (
+type TenantWorker<P> = (
   | { transaction: TenantJobHandler<P>; steps?: never }
   | { steps: TenantStepsHandler<P>; transaction?: never }
 ) & { onGiveUp: TenantJobHandler<P> };

@@ -3,12 +3,15 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
+    "packages/*": {
+      "includeEntryExports": true
+    },
     ".": {
       // Repo tooling, plus the Cloudflare Email Worker the demo docs tell you to deploy by hand.
       "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
     },
     "apps/server": {
-      "entry": ["src/worker.ts", "src/cli/*.ts"]
+      "entry": ["src/worker.ts", "src/cli/{init,token,ai-budget,seed,openapi}.ts"]
     },
     "apps/web": {
       // Playwright picks up *.setup.ts through a testMatch regex knip can't read.

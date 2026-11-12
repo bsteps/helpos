@@ -66,7 +66,7 @@ export interface SessionOptions {
 /** Long enough to resist guessing; the upper bound keeps hashing cheap (Better Auth's limit). */
 export const passwordSchema = z.string().min(12).max(128);
 /** How long a password setup link works. */
-export const passwordSetupTtlMs = 24 * 60 * 60 * 1000;
+const passwordSetupTtlMs = 24 * 60 * 60 * 1000;
 
 const emailSchema = z.email().trim().toLowerCase();
 const userIdSchema = z.uuid();

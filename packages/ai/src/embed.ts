@@ -13,8 +13,8 @@ import { type PaidModel, paidModelOptions } from "./paid-model.ts";
  */
 export const embeddingDimensions = 1024;
 
-export const embeddingProviders = ["openai"] as const;
-export type EmbeddingProvider = (typeof embeddingProviders)[number];
+const embeddingProviders = ["openai"] as const;
+type EmbeddingProvider = (typeof embeddingProviders)[number];
 export type EmbeddingConfig = {
   provider: EmbeddingProvider;
   model: string;
