@@ -4,7 +4,7 @@
 
 Finish the existing email-input cleanup before feature work. Preserve the reply-safety parent's committed send phases, typed knowledge states, source operations, and tenant boundaries while combining the reviewed fixture, visible-text, and attachment changes.
 
-The preparation parent is exactly `80d10689dc1fe917c8f6364d5015edee9b7ad90e`, [PR 315](https://github.com/bsteps/helpos/pull/315), on `314-reply-safety`. It includes actual main `58451595845f67aef0fb35e0ba584bac71ad1045` and schema migration 0023. The parent is unmerged and requires its own independent and human reviews. This replacement targets `314-reply-safety`. Retargeting to main requires actual approved parent merge accounting first.
+The preparation parent is exactly `80d10689dc1fe917c8f6364d5015edee9b7ad90e`, [PR 315](https://github.com/bsteps/helpos/pull/315), on `314-reply-safety`. It includes actual main `58451595845f67aef0fb35e0ba584bac71ad1045` and schema migration 0023. The parent's [independent PASS+NOTES](https://github.com/bsteps/helpos/pull/315#issuecomment-6819229569) is not human approval. The parent remains unmerged and is not equivalent to main. This replacement targets `314-reply-safety`. Retargeting to main requires actual approved parent merge accounting first.
 
 Parent source and issue identities remain in [the reply-safety manifest](314-reply-safety.md). This integration does not reapply or close them. Its only issue closure references are 208, 224, 243, and 321.
 
@@ -44,6 +44,21 @@ The same integration commit extends the hidden-HTML API test with URL-source cre
 
 The required Comment Sicko pass identified five redundant comment blocks in the shared parser. The integration removes their 12 lines and renames internal `preMark` to `preformattedLineMarker`. Parser behavior stays the same. No suppressions, new branches, or sanitization rules were added. The remaining comments describe public contracts or external HTML, CSS, and Postgres constraints.
 
+Git object comparison against the final source head finds 30 of its 38 changed paths have identical blobs, including identical deletions. Eight source paths differ for the following explicit reasons. The added `page-fetch.ts` import is a separate mapped destination, not an additional source feature.
+
+| Source path                                    | Integrated difference                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `conversations/routes.ts`                      | Parent lifecycle and uncertainty filtering retained; shared import only              |
+| `drafts/draft-worker.ts`                       | Parent Actor, lifecycle, and typed worker retained; shared import only               |
+| `drafts/notice-worker.ts`                      | Parent Actor and lifecycle filtering retained; shared import only                    |
+| `inbound-email/email-fixtures-208.int.test.ts` | Existing generic transaction adapter replaces the one-transaction worker call        |
+| `inbound-email/hidden-html.int.test.ts`        | Knowledge-ready, captured embedding, and retrieved-draft proof added                 |
+| `knowledge/ingest-worker.ts`                   | Exact parent bytes retained; extraction import maps to `page-fetch.ts`               |
+| `docs/architecture/overview.md`                | Parent send and typed-state documentation retained alongside shared-parser paragraph |
+| `packages/ai/src/html-text.ts`                 | Five redundant comment blocks removed and internal marker renamed                    |
+
+The byte-accounting receipt is `.helpos/321/accounting.json`. It also verifies the exact seven source-to-commit mappings, preserved author identities and dates, common old source base, and unchanged parent send worker, lifecycle, job registry, database job runner, knowledge worker, source operations, and Biome configuration.
+
 ## Adjacent ownership
 
 Issue 317 owns fetch decoding and import-rule configuration. This integration changes only the extractor import at its existing fetch boundary. It does not change unknown-charset fallback, Biome configuration, `Fetcher`, or `PageText`.
@@ -58,11 +73,28 @@ The only dependency change is the reviewed source's `htmlparser2` 12.0.0 declara
 
 Before assembly, 56 unit characterization tests passed for knowledge extraction, page fetching, and the original email converter. After assembly, all 670 unit tests passed in the `unit` project. The focused shared-parser, knowledge extraction, fetch-boundary, and captured-eval run passed 70 tests again after comment cleanup. Server and AI typechecks passed. Biome check passed with two existing undeclared-environment warnings in `scripts/sync-labels.mjs`.
 
-Runtime activation is pending with the coordinator. The added knowledge integration test, real Postgres and Mailpit fixtures, restored integration negatives, and final stable `pnpm verify` have not run in this checkout yet. Those results must be recorded before publication as locally ready.
+The coordinator granted the exclusive runtime slot after the other owners released it. Fresh focused execution passed all 14 tests in `email-fixtures-208.int.test.ts`, `hidden-html.int.test.ts`, and `attachment-bounds.int.test.ts`. These exercise the composed public API and real Postgres, pg-boss, Mailpit SMTP, and local attachment files. Captured embedding and draft input proves URL-source ingestion reaches typed `ready` state and visible retrieved knowledge reaches the model. The fixture principals are injected, so the focused tests alone do not establish token authentication. No app journey that calls a live model or a browser was run.
+
+Four integration mutations ran serially through `.helpos/321/prove-integration.cjs`.
+
+- Replacing the thread lookup result with `null` failed both outbound-threading cases with `created` instead of `threaded`.
+- Disabling the shared hidden filter failed both captured-input tests, including hidden text reaching the knowledge embedding input.
+- Removing the attachment slice failed the storage/API assertion with 21 attachment rows instead of 20.
+- Removing filename truncation failed both the stored-name and Unicode filename assertions.
+
+Each mutation restored exact source bytes in `finally`. The restored three-file integration run passed all 14 tests. The first threading experiment used `undefined`, which is outside the lookup's declared result type, and the receipt matcher rejected its different failure. The experiment was corrected to the valid no-match value `null`; no product change was needed. The corrected negative and restored runs provide the recorded evidence.
+
+Fixture generation matched committed content after line-ending normalization. `pnpm test:scripts` passed 107 tests, including the source-fingerprint and accepted-finding regressions. Tooling tests and all mutations finished before Knip.
+
+The stable full gate ran once at `6a6c911b21bd8c4615828491c6d0c3ad302c4073` with `TURBO_FORCE=true` and `EVAL_LIVE=0`. `pnpm verify` passed all 15 tasks fresh, with zero cached tasks. This includes Biome, Knip, typechecks, build and bundle budget, 794 server tests, 109 database tests, 116 AI tests, 48 web unit tests, 64 safe-fetch tests, 11 files tests, 13 brand tests, 29 mock evals, and the demo configuration check. Subsequent edits only update this manifest. The exact receipts are `.helpos/321/verify.log`, `scripts.log`, `focused-integration.log`, `integration-restored.log`, and the four `*-int-negative.log` files.
 
 Offline restored negatives ran through `.helpos/321/prove-light.cjs`. Disabling hidden filtering failed six parser tests, including captured model input containing `hidden-display`. Removing the attachment slice failed with 21 instead of 20. Removing filename truncation failed with the original 260-character name. Each mutation restored exact source bytes in `finally`. The restored 70-test unit run and offline parse checks passed. Logs are under `.helpos/321/`. These are parser and captured-input checks, not evidence of database storage or SMTP delivery.
 
 The send-path coverage functions, model, and fingerprints are unchanged from the exact parent. The fixture adaptation calls its existing transaction adapter and does not alter a covered production function. No fingerprint confirmation is needed. Parent bounded verification is inherited evidence, not a fresh whole-system proof.
+
+Local manual review against the security-baseline and tenant-isolation checks found no new capability, scope, prompt, raw database access, or output-rendering change. Existing sanitization and approval paths remain. All tenant reads in added tests use `withTenant()`. The full gate freshly passed the existing token, cross-tenant, leak, send-invariant, and send-replay suites. This author review does not replace fresh independent integration review or human security review.
+
+All heavy commands exited and no checkout-owned Node process remained before the slot was released to the coordinator. Testcontainers cleaned up their resources. Shared Docker containers and `.env` were preserved. The pre-existing unrelated Mailpit container was left alone.
 
 ## Limits and remaining gates
 
