@@ -113,3 +113,9 @@ The security review of this delta and its integration points found no vulnerabil
 ## Reviewed prerequisite reconciliation
 
 The PR330 prerequisite published its reviewed head `cca86a0ae55124334fdd77eddf2a7160cace0896`, with boundary-check fixes and its own review record. It is now normal-merged without conflicts. The merge changes only Biome plugins and their script tests, Knip settings, two AGENTS rule rows, a path-independent CLI probe in the budget integration test, and the prerequisite records. No production source of this assembly changes. Fresh checks after the merge passed 81 Biome, Biome-config and Knip script tests, Biome, workspace typechecking, 150 AI unit tests and 19 startup environment tests. The Postgres budget test runs in hosted CI on this head.
+
+## Stable parent reconciliation
+
+The parent published its reviewed, CI-stable head `c03664d25179cb587a8cccf0c921dfc8f8b917a9`. It adds the AI history filter that hides unconfirmed send attempts from drafting and issue history, and it reconciles that parent's own final parents. It is now normal-merged. The one conflict, in `github/issue-draft.ts`, keeps this integration's `Auditor` import from the audit module and the parent's `inHistory` import. The domain-HTTP rule forbids the parent's route-kit import there. All other parent changes merged unchanged, and no file of this assembly's own delta changed. The inherited AI-history limitation recorded above is resolved by the parent.
+
+Fresh checks on the combined tree passed Biome, workspace typechecking, Knip, 150 AI unit tests, 38 offline evals and 447 server unit tests. The parent's changed Postgres tests for drafts and GitHub issues run in hosted CI on this head. No local Postgres, browser or full suite was run. The earlier code and security review results cover this assembly's unchanged delta; the merge adds only the resolved import line.
