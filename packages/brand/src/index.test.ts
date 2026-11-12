@@ -5,5 +5,4 @@ describe("brand", () => {
   it("keeps the slug a safe lowercase identifier", () => {
     expect(brand.slug).toMatch(/^[a-z][a-z0-9-]*$/);
   });
-
 });

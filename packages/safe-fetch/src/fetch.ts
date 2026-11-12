@@ -41,7 +41,7 @@ export interface SafeFetchOptions {
   logger?: SafeFetchLogger;
 }
 
-interface SafeFetchLogger {
+export interface SafeFetchLogger {
   warn: (details: object, message: string) => void;
 }
 

@@ -50,7 +50,6 @@ export async function run(
           tenantId,
           name: input.data.name,
           scopes: input.data.scopes,
-          // Whoever can run this already holds the database credentials.
           actor: { type: "system", id: "cli" },
           requestId: null,
         }),
