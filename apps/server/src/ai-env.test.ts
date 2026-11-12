@@ -67,10 +67,13 @@ describe("AI startup configuration", () => {
   );
 
   it.each([
-    { AI_PROVIDER: "private-invalid-provider" },
+    { AI_PROVIDER: "private-invalid-provider", AI_API_KEY: "private-chat-key" },
     { AI_PROVIDER: "openai", AI_MODEL: "example" },
     { AI_MODEL: "orphan-model" },
-    { AI_EMBEDDING_PROVIDER: "private-invalid-provider" },
+    {
+      AI_EMBEDDING_PROVIDER: "private-invalid-provider",
+      AI_EMBEDDING_API_KEY: "private-embed-key",
+    },
     { AI_EMBEDDING_PROVIDER: "openai" },
     { AI_EMBEDDING_BASE_URL: "private-invalid-url" },
     { AI_EMBEDDING_PROVIDER: "openai", AI_EMBEDDING_BASE_URL: "ftp://localhost" },

@@ -22,6 +22,7 @@ describe("edge input evals", () => {
     await draftReplyTask(model, c.input);
     const request = JSON.stringify(model.doGenerateCalls);
     expect(request).toContain("CUT-END!!");
+    expect(request).not.toContain("CUT-END!!S");
     expect(request).not.toContain("TAIL_REFUND_APPROVED");
   });
 
