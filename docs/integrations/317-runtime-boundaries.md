@@ -40,6 +40,15 @@ Only these commits are selected, in issue order 216, 217, then 230. Their stale 
 
 The remaining rule files, helper implementations, rule fixtures, TLS tests, certificate, and key retain their reviewed source content. No suppression, default, policy, credential, or dependency change is introduced.
 
+## Integration review fixes
+
+The independent integration review ran real Biome against bypass fixtures at head `2cb0ef55c5fa585ba93b807e3c843270cb131278`, base main `58451595845f67aef0fb35e0ba584bac71ad1045`. Three forms of the existing rules passed unflagged and are now covered:
+
+- The raw-body check missed Hono's `c.req.blob()` and every body read through `c.req.raw` (`json`, `text`, `formData`, `arrayBuffer`, `blob`). The two raw-body owners stay exempt, and `c.req.raw.headers` stays allowed.
+- The outbound check missed `node:http2` and `http2`, which make HTTP requests like `node:http`.
+
+The new fixtures fail against the previous plugins and pass with the fixed ones. Aliased globals (`const g = globalThis; g.fetch`), `Reflect.get`, `self.fetch`, destructured `req`, raw sockets (`node:net`, `node:tls`), `XMLHttpRequest`, `WebSocket` and `sendBeacon` remain outside the named forms.
+
 ## Evidence and limits
 
 Inherited evidence remains source evidence. PR257's independent review reports fresh script, knowledge, process, and plain-text API-helper checks, with cached Turbo tasks in its full gate. PR267's independent review reproduces the destructured-global bypass against the old plugin, restores it, and passes its full gate. PR259's review reports 68 fresh safe-fetch tests and mutations for DNS pinning, certificate verification, hostname verification, and localhost blocking, with 15 cached Turbo tasks in its full gate. These reports do not substitute for the final integration gate.

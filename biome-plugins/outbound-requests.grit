@@ -38,7 +38,9 @@ or {
       `"node:http"`,
       `"node:https"`,
       `"http"`,
-      `"https"`
+      `"https"`,
+      `"node:http2"`,
+      `"http2"`
     }
   },
   `import $source` where {
@@ -47,7 +49,9 @@ or {
       `"node:http"`,
       `"node:https"`,
       `"http"`,
-      `"https"`
+      `"https"`,
+      `"node:http2"`,
+      `"http2"`
     }
   },
   `export { $exports } from $source` where {
@@ -56,7 +60,9 @@ or {
       `"node:http"`,
       `"node:https"`,
       `"http"`,
-      `"https"`
+      `"https"`,
+      `"node:http2"`,
+      `"http2"`
     }
   },
   `export * from $source` where {
@@ -65,7 +71,9 @@ or {
       `"node:http"`,
       `"node:https"`,
       `"http"`,
-      `"https"`
+      `"https"`,
+      `"node:http2"`,
+      `"http2"`
     }
   },
   `import($source)` where {
@@ -74,7 +82,9 @@ or {
       `"node:http"`,
       `"node:https"`,
       `"http"`,
-      `"https"`
+      `"https"`,
+      `"node:http2"`,
+      `"http2"`
     }
   },
   `require($source)` where {
@@ -83,7 +93,9 @@ or {
       `"node:http"`,
       `"node:https"`,
       `"http"`,
-      `"https"`
+      `"https"`,
+      `"node:http2"`,
+      `"http2"`
     }
   }
 } as $request where {
