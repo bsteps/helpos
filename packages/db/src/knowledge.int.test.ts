@@ -16,7 +16,7 @@ import {
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
 
-// Vector search under row-level security. The leak cases live in leak.test.ts.
+// Vector search under row-level security. The leak cases live in leak.int.test.ts.
 
 let testDb: TestDatabase;
 let db: Database;

@@ -98,13 +98,18 @@ it("retains real failures across multiple busy deferrals", async () => {
       );
       if ("refused" in held) throw new Error("Expected a reservation");
       try {
-        await makeEligible();
-        await expect
-          .poll(async () => (await rows()).filter((row) => row.state === "created").length)
-          .toBe(1);
-        const queued = (await rows()).find((row) => row.state === "created");
-        expect(queued).toMatchObject({ retry_limit: remaining, retry_count: 0 });
-        expect((await rows()).some((row) => row.state === "failed")).toBe(false);
+        for (let attempt = 0; attempt < (remaining === 0 ? 3 : 1); attempt++) {
+          const completed = (await rows()).filter((row) => row.state === "completed").length;
+          await makeEligible();
+          await expect
+            .poll(async () => (await rows()).filter((row) => row.state === "completed").length)
+            .toBe(completed + 1);
+          const queued = (await rows()).filter((row) => row.state === "created");
+          expect(queued).toHaveLength(1);
+          expect(queued[0]).toMatchObject({ retry_limit: remaining, retry_count: 0 });
+          expect((await rows()).some((row) => row.state === "failed")).toBe(false);
+          expect(model.doGenerateCalls).toHaveLength(remaining === 0 ? 3 : 2);
+        }
       } finally {
         await paid.spend(tenantTransactions(db, tenantId), held, async () => undefined, {
           of: () => ({ inputTokens: 0, outputTokens: 0 }),

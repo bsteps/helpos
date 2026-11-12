@@ -169,6 +169,7 @@ it("keeps a busy draft queued past the retry horizon, then drafts after release"
 }, 60_000);
 
 it("defers busy ingestion without erasing its earlier temporary failure", async () => {
+  const retryAt = clock.toISOString();
   const paid = aiBudget({ clock: { now }, config: { dailyTokenBudget: budget }, logger });
   const held = await db.withTenant(acme, (tx) => paid.reserve(tx, acme, budget));
   if ("refused" in held) throw new Error("Expected a reservation");
@@ -186,7 +187,12 @@ it("defers busy ingestion without erasing its earlier temporary failure", async 
         kind: "markdown",
         title: "Help",
         content: "Reset your password.",
-        error: "embedding_unavailable",
+        state: {
+          status: "waiting",
+          reason: { code: "embedding_unavailable" },
+          retryAt,
+        },
+        retryCount: 1,
       })
       .returning();
     if (!source) throw new Error("Expected source");
@@ -234,7 +240,14 @@ it("defers busy ingestion without erasing its earlier temporary failure", async 
       expect(new Date(next?.start_after ?? 0).getTime()).toBeGreaterThanOrEqual(
         clock.getTime() + 30_000,
       );
-      expect(await source()).toMatchObject({ status: "pending", error: "embedding_unavailable" });
+      expect(await source()).toMatchObject({
+        state: {
+          status: "waiting",
+          reason: { code: "embedding_unavailable" },
+          retryAt,
+        },
+        retryCount: 1,
+      });
       clock = new Date(clock.getTime() + 30_000);
       if (attempt === 5) {
         release.resolve();
@@ -248,7 +261,7 @@ it("defers busy ingestion without erasing its earlier temporary failure", async 
     }
     await expect
       .poll(source, { timeout: 10_000 })
-      .toMatchObject({ status: "ready", error: null, chunkCount: 1 });
+      .toMatchObject({ state: { status: "ready" }, retryCount: 0, chunkCount: 1 });
     expect(gaveUp).not.toHaveBeenCalled();
   } finally {
     release.resolve();
