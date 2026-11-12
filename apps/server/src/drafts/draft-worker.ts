@@ -26,6 +26,7 @@ import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { type AiBudget, aiBudget, mapAiRefusal, type Spent } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
+import { inHistory } from "../conversations/history.ts";
 import {
   noKnowledge,
   SearchError,
@@ -288,6 +289,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
         eq(messages.conversationId, row.conversationId),
         ne(messages.id, payload.messageId),
         lt(messages.createdAt, row.createdAt),
+        inHistory(),
       ),
     )
     // Newest first, so the limit keeps the most recent; reversed below to oldest first.
