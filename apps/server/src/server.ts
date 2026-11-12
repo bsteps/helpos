@@ -21,6 +21,7 @@ import type { Logger } from "pino";
 import { type AppOptions, createApp } from "./app.ts";
 import type { Env } from "./env.ts";
 import { jobs } from "./jobs.ts";
+import { withoutRequestId } from "./logger.ts";
 import { createSmtpTransport } from "./outbound-email/transport.ts";
 import { createSecretBox } from "./secrets/secret-box.ts";
 import { composeServices, type Services, type ServicesInput } from "./services.ts";
@@ -64,10 +65,12 @@ export function composeServer(input: ServerInput): Server {
   const stopAiCalls = () => {
     if (!stopping.signal.aborted) stopping.abort(new Error("the server is shutting down"));
   };
+  const onJobError =
+    input.onJobError ?? ((err: unknown) => services.logger.error({ err }, "job runner error"));
   const runner = createJobRunner({
     jobsUrl: input.jobsUrl,
     db: input.db,
-    onError: input.onJobError ?? ((err) => services.logger.error({ err }, "job runner error")),
+    onError: (error) => withoutRequestId(() => onJobError(error)),
     ...(input.pollingIntervalSeconds === undefined
       ? {}
       : { pollingIntervalSeconds: input.pollingIntervalSeconds }),

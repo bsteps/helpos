@@ -7,6 +7,10 @@ export function withRequestId<Result>(requestId: string, run: () => Result): Res
   return requestContext.run({ requestId }, run);
 }
 
+export function withoutRequestId<Result>(run: () => Result): Result {
+  return requestContext.exit(run);
+}
+
 /**
  * Fields that hold credentials. Our code never logs them on purpose; this catches the one
  * that slips in by accident (a request object, an options bag), at the top level or one level
