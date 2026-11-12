@@ -1,0 +1,24 @@
+From: Jane <jane@customer.test>
+To: support@acme.test
+MIME-Version: 1.0
+Message-ID: <208-forward@customer.test>
+Subject: Forwarded receipt
+Content-Type: multipart/mixed; boundary="forward208"
+
+--forward208
+Content-Type: text/plain; charset=utf-8
+
+Please see the attached receipt.
+--forward208
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="receipt.eml"
+
+From: Original <original@customer.test>
+To: jane@customer.test
+Message-ID: <208-inner@customer.test>
+Subject: Original receipt
+Content-Type: text/plain; charset=utf-8
+
+Original receipt body.
+
+--forward208--

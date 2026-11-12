@@ -4,11 +4,11 @@ import {
   issueDraftTokenEstimate,
   type LanguageModel,
 } from "@helpos/ai";
+import { messageText } from "@helpos/ai/html-text";
 import { and, asc, type Database, eq, isNull, schema, tenantTransactions } from "@helpos/db";
 import type { Logger } from "pino";
 import { aiBudget, mapAiRefusal } from "../ai-budget/budget.ts";
 import { inHistory } from "../conversations/history.ts";
-import { messageText } from "../drafts/html-text.ts";
 import type { Auditor } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 

@@ -1,7 +1,6 @@
 import { brand } from "@helpos/brand";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { ApiError } from "@/api/client.ts";
 import { useSetPassword } from "@/api/queries.ts";
 import { Alert, AlertContent, AlertDescription, AlertIcon } from "@/components/ui/alert.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -13,19 +12,13 @@ import {
   CardTitle,
 } from "@/components/ui/card.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { setPasswordProblem } from "@/lib/auth.ts";
 
 const minLength = 12;
 
 /** The token arrives in the URL fragment, which never reaches a server. */
 function tokenFromUrl(): string | null {
   return new URLSearchParams(window.location.hash.slice(1)).get("token");
-}
-
-function message(error: unknown): string {
-  if (error instanceof ApiError && error.status === 400) {
-    return "This link has expired or was already used. Ask for a new one.";
-  }
-  return "Couldn't set the password. Try again.";
 }
 
 export function SetPasswordPage() {
@@ -91,7 +84,7 @@ export function SetPasswordPage() {
                 <Alert variant="destructive">
                   <AlertIcon />
                   <AlertContent>
-                    <AlertDescription>{message(setPassword.error)}</AlertDescription>
+                    <AlertDescription>{setPasswordProblem(setPassword.error)}</AlertDescription>
                   </AlertContent>
                 </Alert>
               ) : null}
