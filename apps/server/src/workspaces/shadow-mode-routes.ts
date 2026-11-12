@@ -23,6 +23,7 @@ const shadowModeSchema = z
 const path = "/v1/workspace/shadow-mode";
 
 const getRoute = apiRoute({
+  operationId: "workspaces.getShadowMode",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path,
@@ -33,6 +34,7 @@ const getRoute = apiRoute({
 });
 
 const patchRoute = apiRoute({
+  operationId: "workspaces.updateShadowMode",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: {
     records: [

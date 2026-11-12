@@ -1269,6 +1269,7 @@
   "paths": {
     "/health": {
       "get": {
+        "operationId": "health.checkLiveness",
         "security": [],
         "x-access": {
           "noCaller": "Liveness reveals only that the HTTP process can answer a request."
@@ -1300,6 +1301,7 @@
     },
     "/readyz": {
       "get": {
+        "operationId": "health.checkReadiness",
         "security": [],
         "x-access": {
           "noCaller": "Readiness reveals only whether the database and job queues are available."
@@ -1341,6 +1343,7 @@
     },
     "/v1/inbound/email": {
       "post": {
+        "operationId": "email.receive",
         "summary": "Receive an inbound email",
         "description": "Called by an email provider or relay with the raw MIME message as the body. The recipient address picks the workspace. Replies are threaded onto their conversation using In-Reply-To and References. The content is stored as data and never acted on.",
         "security": [
@@ -1474,6 +1477,7 @@
     },
     "/v1/auth/sign-in": {
       "post": {
+        "operationId": "auth.signIn",
         "summary": "Sign in with email and password",
         "description": "Starts a human session and sets it as an HttpOnly cookie. A wrong email and a wrong password get the same answer. There is no sign-up: users are created by the operator. Agents use tokens instead (`POST /v1/tokens`).",
         "parameters": [
@@ -1580,6 +1584,7 @@
     },
     "/v1/auth/sign-out": {
       "post": {
+        "operationId": "auth.signOut",
         "summary": "Sign out",
         "description": "Ends the current session and clears its cookie. Safe to call without one.",
         "parameters": [
@@ -1650,6 +1655,7 @@
     },
     "/v1/auth/password": {
       "post": {
+        "operationId": "auth.setPassword",
         "summary": "Set a password with a one-time link",
         "description": "Uses the token from a password setup link (printed by `helpos:init`) to set the user's password, 12 to 128 characters. The token works once. Every existing session of that user is signed out.",
         "parameters": [
@@ -1747,6 +1753,7 @@
     },
     "/v1/me": {
       "get": {
+        "operationId": "auth.getIdentity",
         "summary": "Who is calling",
         "description": "The caller's identity, workspace and scopes. Works for sessions and tokens.",
         "security": [
@@ -1783,6 +1790,7 @@
     },
     "/v1/tokens": {
       "post": {
+        "operationId": "tokens.create",
         "summary": "Create an agent token",
         "description": "Creates a token for one agent, with exactly the scopes given. The response holds the token itself, the only time it is shown: store it right away. Needs a human session with `workspace:admin`; an agent token can't create tokens. A token can only get scopes its creator holds (`scope_not_held`).",
         "parameters": [
@@ -1908,6 +1916,7 @@
         }
       },
       "get": {
+        "operationId": "tokens.list",
         "summary": "List the workspace's agent tokens",
         "description": "Every agent token, revoked ones too, oldest first. Never includes the tokens themselves. Needs a human session with `workspace:admin`.",
         "security": [
@@ -1968,6 +1977,7 @@
     },
     "/v1/tokens/{id}": {
       "delete": {
+        "operationId": "tokens.revoke",
         "summary": "Revoke an agent token",
         "description": "Revokes a token at once: every later request with it gets 401. The token stays listed, so audit events still name it. Revoking a revoked token changes nothing. Needs a human session with `workspace:admin`, or the token itself: an agent can always revoke its own token, e.g. when it may have leaked.",
         "parameters": [
@@ -2076,6 +2086,7 @@
     },
     "/v1/conversations": {
       "get": {
+        "operationId": "conversations.list",
         "summary": "List conversations",
         "description": "The workspace's conversations, most recent activity first, at most `limit` (default 50, max 100). `status` keeps only open or only closed ones. `status=open` with `orReplyNotSent=true` also keeps closed conversations whose reply couldn't be sent, so they aren't missed, listed first. Needs `conversations:read`.",
         "security": [
@@ -2172,6 +2183,7 @@
     },
     "/v1/conversations/{id}": {
       "get": {
+        "operationId": "conversations.get",
         "summary": "Read a conversation and its messages",
         "description": "One conversation with its emails, oldest first. Needs `conversations:read`.",
         "security": [
@@ -2241,6 +2253,7 @@
     },
     "/v1/conversations/{id}/close": {
       "post": {
+        "operationId": "conversations.close",
         "summary": "Close a conversation",
         "description": "Marks the conversation `closed` and audit-logs it. Closing a closed conversation changes nothing. Pending drafts are left as they are. Needs `conversations:write` and `conversations:read`.",
         "parameters": [
@@ -2357,6 +2370,7 @@
     },
     "/v1/conversations/{id}/drafts": {
       "get": {
+        "operationId": "drafts.list",
         "summary": "List a conversation's drafts",
         "description": "Every AI draft on the conversation, oldest first. Needs `conversations:read`.",
         "security": [
@@ -2435,6 +2449,7 @@
         }
       },
       "post": {
+        "operationId": "drafts.create",
         "summary": "Write a draft, or ask the AI for a new one",
         "description": "Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.",
         "parameters": [
@@ -2613,6 +2628,7 @@
     },
     "/v1/drafts/{id}": {
       "patch": {
+        "operationId": "drafts.edit",
         "summary": "Edit a pending draft",
         "description": "Replaces the body of a draft that is still `pending`. Needs `drafts:write`.",
         "parameters": [
@@ -2749,6 +2765,7 @@
     },
     "/v1/drafts/{id}/approve": {
       "post": {
+        "operationId": "drafts.approve",
         "summary": "Approve a draft and send it",
         "description": "Marks a `pending` draft `approved` and queues it to be sent, in one transaction. This is the only way a reply reaches a customer. Sending happens in the background: the draft becomes `sent` once the email is out, and a failed send is retried. The request carries the body the approver reviewed: if the draft was edited since, nothing is approved (409). Needs `drafts:approve`.",
         "parameters": [
@@ -2883,6 +2900,7 @@
     },
     "/v1/drafts/{id}/resolve-send": {
       "post": {
+        "operationId": "drafts.resolveSend",
         "summary": "Resolve an uncertain send",
         "description": "Human decision for a reply that may already have gone out. Mark it sent or explicitly send again. The Message-ID binds the decision to the attempt reviewed.",
         "parameters": [
@@ -3028,6 +3046,7 @@
     },
     "/v1/drafts/{id}/discard": {
       "post": {
+        "operationId": "drafts.discard",
         "summary": "Discard a pending or failed draft",
         "description": "Marks a `pending` or `send_failed` draft `discarded`, so it can never be approved or sent. Use it for a draft that shouldn't go out. Needs `drafts:write`.",
         "parameters": [
@@ -3143,6 +3162,7 @@
     },
     "/v1/drafts/{id}/retry": {
       "post": {
+        "operationId": "drafts.retry",
         "summary": "Retry sending a failed draft",
         "description": "Queues a `send_failed` draft to be sent again and marks it `approved`, in one transaction. It goes out with the same Message-ID as the failed attempts, the same text, and to whoever shadow mode says at the time it is sent. Safe to repeat: a `sent` draft is returned as it is, and an `approved` one has its send queued again only if none is queued already, so it is never sent twice. Needs `drafts:approve`.",
         "parameters": [
@@ -3258,6 +3278,7 @@
     },
     "/v1/ai-usage": {
       "get": {
+        "operationId": "ai.getUsage",
         "summary": "Today's AI usage for this workspace",
         "description": "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.",
         "security": [
@@ -3306,6 +3327,7 @@
     },
     "/v1/knowledge/sources": {
       "get": {
+        "operationId": "knowledge.listSources",
         "summary": "List knowledge sources",
         "description": "Every knowledge source in the workspace, oldest first, with its ingestion status. Needs `knowledge:read`.",
         "security": [
@@ -3363,6 +3385,7 @@
         }
       },
       "post": {
+        "operationId": "knowledge.createSource",
         "summary": "Add a knowledge source",
         "description": "Adds a web page (`kind: url`) or a markdown document (`kind: markdown`; to upload a file, send its text). It is ingested in the background: fetched through an SSRF-safe fetch, split into passages and embedded, which counts toward the daily AI budget. The status turns `ready` or `failed`. AI drafts then quote matching passages as reference data and record which ones they cite. One page per URL source: links are not followed. `slug` defaults to one made from the title. `visibility` defaults to `internal`. Needs `knowledge:write`.",
         "parameters": [
@@ -3552,6 +3575,7 @@
     },
     "/v1/knowledge/sources/{id}/reingest": {
       "post": {
+        "operationId": "knowledge.reingestSource",
         "summary": "Ingest a knowledge source again",
         "description": "Sets the source back to `pending` (or preserves a budget wait) and queues it, e.g. after a `failed` ingest, after the page changed, or after the embedding model changed. Until the new ingest is done, drafts keep using the current passages. If it fails on a temporary problem (the site is down, the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable (no text, too long, not a page), they're removed. Asking again while it's pending queues nothing new, but a request made during a fetch gets a fetch of its own. Needs `knowledge:write`.",
         "parameters": [
@@ -3667,6 +3691,7 @@
     },
     "/v1/knowledge/sources/{id}": {
       "patch": {
+        "operationId": "knowledge.updateSource",
         "summary": "Edit a knowledge source",
         "description": "Changes a source's `title`, `visibility` or, for a markdown source, `content`, keeping its id and slug so drafts' citations still point at it. A title or visibility change applies at once: the next search sees it. A content change removes the old passages straight away, so text taken out is never quoted again, and ingests the new text in the background (status `pending`, counted toward the daily AI budget). Until that is done the source has no passages. Sending what it already has changes nothing and logs nothing. Needs `knowledge:write`.",
         "parameters": [
@@ -3792,6 +3817,7 @@
         }
       },
       "delete": {
+        "operationId": "knowledge.deleteSource",
         "summary": "Delete a knowledge source",
         "description": "Deletes the source and its passages. Drafts written with it keep their copy of the passages they saw, with `sourceId` null. Needs `knowledge:write`.",
         "parameters": [
@@ -3900,6 +3926,7 @@
     },
     "/v1/stats/drafts": {
       "get": {
+        "operationId": "stats.getDraftOutcomes",
         "summary": "How many drafts were approved unchanged",
         "description": "Outcomes of the drafts created in a date range: approved unchanged, approved after an edit (by anyone), discarded, still pending, and the share of approved drafts that went out unchanged. The range is at most 400 days. Needs `stats:read`.",
         "security": [
@@ -3982,6 +4009,7 @@
     },
     "/v1/workspace/shadow-mode": {
       "get": {
+        "operationId": "workspaces.getShadowMode",
         "summary": "Read the workspace's shadow mode",
         "description": "Whether replies go to the shadow recipient instead of customers. Needs `conversations:read`.",
         "security": [
@@ -4028,6 +4056,7 @@
         }
       },
       "patch": {
+        "operationId": "workspaces.updateShadowMode",
         "summary": "Change the workspace's shadow mode",
         "description": "Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) unless the server allows it. Needs a human session with `workspace:admin`.",
         "parameters": [
@@ -4147,6 +4176,7 @@
     },
     "/v1/integrations/github": {
       "get": {
+        "operationId": "github.getConnection",
         "summary": "Read the workspace's GitHub connection",
         "description": "Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`, or `workspace:admin`.",
         "security": [
@@ -4194,6 +4224,7 @@
         }
       },
       "put": {
+        "operationId": "github.connect",
         "summary": "Connect a GitHub repo",
         "description": "Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown; connecting the same repo again (a new token) keeps the secret unless `rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs `workspace:admin` in a human session.",
         "parameters": [
@@ -4337,6 +4368,7 @@
         }
       },
       "delete": {
+        "operationId": "github.disconnect",
         "summary": "Disconnect the GitHub repo",
         "description": "Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.",
         "parameters": [
@@ -4427,6 +4459,7 @@
     },
     "/v1/integrations/github/webhook-secret": {
       "post": {
+        "operationId": "github.rotateWebhookSecret",
         "summary": "Give the GitHub webhook a new secret",
         "description": "Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.",
         "parameters": [
@@ -4534,6 +4567,7 @@
     },
     "/v1/conversations/{id}/github-issue/draft": {
       "post": {
+        "operationId": "github.draftIssue",
         "summary": "Ask the AI to draft a GitHub issue from a conversation",
         "description": "Suggests a title and body (steps to reproduce, expected, actual) from the conversation's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.",
         "parameters": [
@@ -4660,6 +4694,7 @@
     },
     "/v1/conversations/{id}/github-issue": {
       "post": {
+        "operationId": "github.createIssue",
         "summary": "Create a GitHub issue from a conversation",
         "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the conversation. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the conversation gets a `fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.",
         "parameters": [
@@ -4918,6 +4953,7 @@
     },
     "/v1/integrations/github/webhook": {
       "post": {
+        "operationId": "github.receiveWebhook",
         "summary": "Receive a GitHub webhook",
         "description": "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Conversations are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to conversations is closed as completed, each conversation gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.",
         "security": [

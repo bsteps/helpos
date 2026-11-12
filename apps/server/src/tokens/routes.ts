@@ -46,6 +46,7 @@ const adminRefused = json(
 );
 
 const createTokenRoute = apiRoute({
+  operationId: "tokens.create",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["api_token.created"] },
   method: "post",
@@ -68,6 +69,7 @@ const createTokenRoute = apiRoute({
 });
 
 const listTokensRoute = apiRoute({
+  operationId: "tokens.list",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   method: "get",
   path: "/v1/tokens",
@@ -82,6 +84,7 @@ const listTokensRoute = apiRoute({
 });
 
 const revokeTokenRoute = apiRoute({
+  operationId: "tokens.revoke",
   access: { selfOrAdmin: { tokenIdParam: "id" } },
   audit: { records: ["api_token.revoked"] },
   method: "delete",

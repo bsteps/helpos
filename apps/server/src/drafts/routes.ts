@@ -100,6 +100,7 @@ type DraftJson = z.infer<typeof draftSchema>;
 type DraftSourceJson = z.infer<typeof draftSourceSchema>;
 
 const listRoute = apiRoute({
+  operationId: "drafts.list",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/conversations/{id}/drafts",
@@ -113,6 +114,7 @@ const listRoute = apiRoute({
 });
 
 const editRoute = apiRoute({
+  operationId: "drafts.edit",
   access: { allScopes: ["drafts:write"] },
   audit: { records: ["draft.edited"] },
   method: "patch",
@@ -131,6 +133,7 @@ const editRoute = apiRoute({
 });
 
 const approveRoute = apiRoute({
+  operationId: "drafts.approve",
   access: { allScopes: ["drafts:approve"] },
   audit: { records: ["draft.approved"] },
   method: "post",
@@ -154,6 +157,7 @@ const approveRoute = apiRoute({
 });
 
 const discardRoute = apiRoute({
+  operationId: "drafts.discard",
   access: { allScopes: ["drafts:write"] },
   audit: { records: ["draft.discarded"] },
   method: "post",
@@ -171,6 +175,7 @@ const discardRoute = apiRoute({
 });
 
 const retryRoute = apiRoute({
+  operationId: "drafts.retry",
   access: { allScopes: ["drafts:approve"] },
   audit: { records: ["draft.send_retried"] },
   method: "post",
@@ -191,6 +196,7 @@ const retryRoute = apiRoute({
 });
 
 const createDraftRoute = apiRoute({
+  operationId: "drafts.create",
   // conversations:read too: the draft answers the conversation, so it shows what the customer wrote.
   access: { allScopes: ["drafts:write", "conversations:read"] },
   audit: { records: ["draft.created", "draft.discarded"] },
@@ -454,6 +460,7 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 }
 
 const resolveRoute = apiRoute({
+  operationId: "drafts.resolveSend",
   access: { allScopes: ["drafts:approve"], humansOnly: true },
   audit: { records: ["draft.send_confirmed", "draft.send_retried"] },
   method: "post",

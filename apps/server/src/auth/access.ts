@@ -179,11 +179,16 @@ function authResponses<A extends Access>(access: A): AuthResponses<A> {
  * what follows from its `access`: the `apiAuth` security scheme and the 401 and 403 responses.
  * A `noCaller` route proves its caller another way and states that in its own `security`.
  */
-export function apiRoute<const R extends Omit<RouteConfig, "middleware">, const A extends Access>(
-  config: R & { access: A } & (R["method"] extends WriteMethod
-      ? { audit: Audit }
-      : { audit?: never }),
+export function apiRoute<
+  const R extends Omit<RouteConfig, "middleware"> & { operationId: string },
+  const A extends Access,
+>(
+  config: R & {
+    access: A;
+    operationId: R["operationId"] extends "" ? never : string;
+  } & (R["method"] extends WriteMethod ? { audit: Audit } : { audit?: never }),
 ) {
+  if (!config.operationId.trim()) throw new Error("apiRoute requires a nonempty operationId");
   const { access, audit, ...rest } = config;
   // TypeScript can't see that removing `access` and `audit` from R leaves R's own route fields.
   const route = rest as unknown as R;

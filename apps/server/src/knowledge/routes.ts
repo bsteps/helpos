@@ -104,6 +104,7 @@ const sourceSchema = z
   .openapi("KnowledgeSource");
 
 const listRoute = apiRoute({
+  operationId: "knowledge.listSources",
   access: { allScopes: ["knowledge:read"] },
   method: "get",
   path: "/v1/knowledge/sources",
@@ -117,6 +118,7 @@ const listRoute = apiRoute({
 });
 
 const createSourceRoute = apiRoute({
+  operationId: "knowledge.createSource",
   access: { allScopes: ["knowledge:write"] },
   audit: { records: ["knowledge_source.created"] },
   method: "post",
@@ -145,6 +147,7 @@ const createSourceRoute = apiRoute({
 });
 
 const deleteRoute = apiRoute({
+  operationId: "knowledge.deleteSource",
   access: { allScopes: ["knowledge:write"] },
   audit: { records: ["knowledge_source.deleted"] },
   method: "delete",
@@ -166,6 +169,7 @@ const deleteRoute = apiRoute({
 });
 
 const reingestRoute = apiRoute({
+  operationId: "knowledge.reingestSource",
   access: { allScopes: ["knowledge:write"] },
   audit: { records: ["knowledge_source.reingest_requested"] },
   method: "post",
@@ -191,6 +195,7 @@ const reingestRoute = apiRoute({
 });
 
 const updateRoute = apiRoute({
+  operationId: "knowledge.updateSource",
   access: { allScopes: ["knowledge:write"] },
   audit: {
     records: [
