@@ -157,3 +157,11 @@ The vision adds rules that ADR 0004 doesn't state. They don't contradict it. The
 - **An outside agent acting elsewhere with its own keys.** HelpOS can't govern what it never sees. To govern an action on an outside tool, route it through HelpOS's tool connections (#174). This is vision rule 1.
 - **The operator.** A self-hoster, or the hosted service's own infrastructure and staff, is trusted with the box.
 - **The AI provider's own security.** We limit what we send (`T15`).
+
+## Uncertain reply delivery
+
+SMTP acceptance and the database commit are separate effects. A crash or lost response must not authorize another send. The send worker commits an attempt marker before SMTP and rechecks it under the draft lock. Only an approved draft or an explicit human resend request can create that marker. Automatic retries skip an existing marker.
+
+The public `resolve-send` action requires a human session and `drafts:approve`. Agent tokens are refused before request-body validation. The decision names the reviewed Message-ID and runs under the same tenant transaction and row lock as the state change. A stale or repeated decision returns a conflict. The audit records human confirmation or resend authorization. A resend uses a fresh attempt identity and retains the original uncertainty if it fails.
+
+The transport treats only an SMTP rejection response as known non-delivery. Other errors require a person. Postgres, pg-boss and Mailpit tests cover lost replies, failed COMMIT and worker termination. Separate tests cover the agent refusal, tenant boundary and stale decisions.

@@ -7,6 +7,7 @@ import {
   tokenBound,
 } from "@helpos/ai";
 import { eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
@@ -27,7 +28,7 @@ export interface IngestWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-const ingestActor = { type: "system", id: "ingest-source" } as const;
+const ingestActor = builtInActors.ingestWorker;
 
 function isTemporary(
   reason: schema.KnowledgeFailureReason,
