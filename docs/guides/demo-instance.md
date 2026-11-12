@@ -29,7 +29,7 @@ cp .env.example .env
 # Replace every value in .env. Make each secret with: openssl rand -hex 32
 docker compose up -d --build
 docker compose ps        # all running, "migrate" exited with 0
-curl https://<your-domain>/health
+curl https://<your-domain>/readyz   # {"status":"ok"} once the database and job queues are up
 ```
 
 Postgres has no public port. Only Caddy listens on the internet.
