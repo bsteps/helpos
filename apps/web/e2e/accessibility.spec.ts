@@ -42,6 +42,10 @@ test("every screen is accessible and fits a phone with long content", async ({
           .soft(contentWidth, `${screen}: horizontal overflow`)
           .toBeLessThanOrEqual(viewport.width);
       }
+      await testInfo.attach(screen, {
+        body: await page.screenshot({ fullPage: true }),
+        contentType: "image/png",
+      });
     });
   };
 
