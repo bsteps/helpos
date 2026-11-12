@@ -141,7 +141,12 @@ it("ingests visible knowledge through the API and quotes it in an HTML-only emai
     },
     { timeout: 20_000, interval: 200 },
   );
-  const prompt = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt);
+  const user = model.doGenerateCalls.at(-1)?.prompt.find((message) => message.role === "user");
+  if (!user) throw new Error("Missing draft model input");
+  const prompt = user.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
   expect(prompt).toContain("<untrusted_knowledge>");
   expect(prompt).toContain("Login café 東京");
   expect(prompt).toContain("Visible knowledge.");
