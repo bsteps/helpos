@@ -44,7 +44,7 @@ export type Audit =
  * - `"replay"`: the response is stored and replayed to a retry with the same key
  *   (docs/api-conventions.md).
  * - `refuse`: a keyed request gets `400 idempotency_not_supported` before the handler runs. Say
- *   why. A route whose response carries a credential refuses, so the credential is never stored.
+ *   why. A route whose request or response carries a credential refuses, so it is never stored.
  *   A `noCaller` route always refuses: there is no caller to scope the key to.
  */
 export type Idempotency = "replay" | { readonly refuse: string };
@@ -158,10 +158,9 @@ async function enforceAudit(
 const unauthorizedResponse = json(errorSchema, "No valid credentials");
 const forbiddenResponse = json(errorSchema, "The credentials lack the required scope");
 const writeErrorResponses = {
-  400: json(
-    errorSchema,
-    "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
-  ),
+  400: json(errorSchema, "Invalid request, or an Idempotency-Key this route refuses or can't read"),
+};
+const replayErrorResponses = {
   409: json(errorSchema, "The idempotency key conflicts, is pending, or has expired"),
   503: json(errorSchema, "Idempotency storage or a required service is unavailable"),
 };
@@ -220,6 +219,7 @@ export function apiRoute<
   const responses = {
     ...authResponses<A>(access),
     ...(write ? writeErrorResponses : {}),
+    ...(idempotency === "replay" ? replayErrorResponses : {}),
     ...route.responses,
   };
   return createRoute({

@@ -964,7 +964,7 @@ export interface operations {
                     "application/json": components["schemas"]["InboundEmailResult"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -991,15 +991,6 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Error"];
                 };
             };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
             /** @description Larger than 10485760 bytes */
             413: {
                 headers: {
@@ -1011,15 +1002,6 @@ export interface operations {
             };
             /** @description Not a usable email (e.g. no From address) */
             422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Idempotency storage or a required service is unavailable */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1052,7 +1034,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1072,15 +1054,6 @@ export interface operations {
             };
             /** @description Sent by a browser from another site (`forbidden_origin`) */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1115,7 +1088,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1126,15 +1099,6 @@ export interface operations {
             };
             /** @description Sent by a browser from another site (`forbidden_origin`) */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1187,15 +1151,6 @@ export interface operations {
             };
             /** @description Sent by a browser from another site (`forbidden_origin`) */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1308,7 +1263,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedApiToken"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1328,24 +1283,6 @@ export interface operations {
             };
             /** @description Called with an agent token (`session_required`), or without `workspace:admin` */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Idempotency storage or a required service is unavailable */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1376,7 +1313,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1557,7 +1494,7 @@ export interface operations {
                     "application/json": components["schemas"]["Conversation"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1708,7 +1645,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1793,7 +1730,7 @@ export interface operations {
                     "application/json": components["schemas"]["Draft"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1878,7 +1815,7 @@ export interface operations {
                     "application/json": components["schemas"]["Draft"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1965,7 +1902,7 @@ export interface operations {
                     "application/json": components["schemas"]["Draft"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2044,7 +1981,7 @@ export interface operations {
                     "application/json": components["schemas"]["Draft"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2123,7 +2060,7 @@ export interface operations {
                     "application/json": components["schemas"]["Draft"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2307,7 +2244,7 @@ export interface operations {
                     "application/json": components["schemas"]["KnowledgeSource"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2377,7 +2314,7 @@ export interface operations {
                     "application/json": components["schemas"]["KnowledgeSource"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2454,7 +2391,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2712,7 +2649,7 @@ export interface operations {
                     "application/json": components["schemas"]["ShadowMode"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2823,7 +2760,7 @@ export interface operations {
                     "application/json": components["schemas"]["GithubConnected"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2843,15 +2780,6 @@ export interface operations {
             };
             /** @description The credentials lack the required scope */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2907,7 +2835,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2972,7 +2900,7 @@ export interface operations {
                     "application/json": components["schemas"]["GithubWebhookSecret"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3001,15 +2929,6 @@ export interface operations {
             };
             /** @description No repo is connected (`not_connected`) */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3051,7 +2970,7 @@ export interface operations {
                     "application/json": components["schemas"]["GithubIssueDraft"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3146,7 +3065,7 @@ export interface operations {
                     "application/json": components["schemas"]["GithubIssueLink"];
                 };
             };
-            /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
+            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3272,15 +3191,6 @@ export interface operations {
             };
             /** @description Unknown workspace, no repo connected, or a missing or wrong signature */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

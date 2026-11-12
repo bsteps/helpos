@@ -1393,7 +1393,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1422,16 +1422,6 @@
               }
             }
           },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
           "413": {
             "description": "Larger than 10485760 bytes",
             "content": {
@@ -1444,16 +1434,6 @@
           },
           "422": {
             "description": "Not a usable email (e.g. no From address)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Idempotency storage or a required service is unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1510,7 +1490,7 @@
             "description": "Signed in; the session cookie is set"
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1531,16 +1511,6 @@
           },
           "403": {
             "description": "Sent by a browser from another site (`forbidden_origin`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1581,7 +1551,7 @@
             "description": "Signed out"
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1592,16 +1562,6 @@
           },
           "403": {
             "description": "Sent by a browser from another site (`forbidden_origin`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1680,16 +1640,6 @@
           },
           "403": {
             "description": "Sent by a browser from another site (`forbidden_origin`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1814,7 +1764,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1835,26 +1785,6 @@
           },
           "403": {
             "description": "Called with an agent token (`session_required`), or without `workspace:admin`",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Idempotency storage or a required service is unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1973,7 +1903,7 @@
             "description": "Revoked"
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2268,7 +2198,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2527,7 +2457,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2665,7 +2595,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2801,7 +2731,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2948,7 +2878,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3065,7 +2995,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3182,7 +3112,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3490,7 +3420,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3597,7 +3527,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3834,7 +3764,7 @@
             "description": "Deleted"
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4095,7 +4025,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4259,7 +4189,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4280,16 +4210,6 @@
           },
           "403": {
             "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4369,7 +4289,7 @@
             "description": "Disconnected, or nothing was connected"
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4457,7 +4377,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4488,16 +4408,6 @@
           },
           "404": {
             "description": "No repo is connected (`not_connected`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4575,7 +4485,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4731,7 +4641,7 @@
             }
           },
           "400": {
-            "description": "Invalid request or idempotency key; credential and provider writes refuse keyed requests",
+            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4999,16 +4909,6 @@
           },
           "401": {
             "description": "Unknown workspace, no repo connected, or a missing or wrong signature",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
             "content": {
               "application/problem+json": {
                 "schema": {

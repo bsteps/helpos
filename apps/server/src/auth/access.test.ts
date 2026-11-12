@@ -116,7 +116,7 @@ describe("every write declares what a keyed retry does", () => {
     },
   );
 
-  it("refuses keys on every route whose response carries a credential", () => {
+  it("refuses keys on the routes whose request or response carries a credential", () => {
     for (const name of [
       "POST /v1/tokens",
       "PUT /v1/integrations/github",
