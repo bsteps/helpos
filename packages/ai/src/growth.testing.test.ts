@@ -27,6 +27,15 @@ describe("expectLinearGrowth", () => {
     measuredGrowth((size) => size / 2_000);
   });
 
+  it("bounds measurement work when linear samples stay stable", () => {
+    let calls = 0;
+    measuredGrowth((size) => {
+      calls++;
+      return (size / 2_000) * 0.003;
+    });
+    expect(calls).toBeLessThan(30_000);
+  });
+
   it.each([81, 90, 130])("accepts linear work that speeds up at %s ms", (speedupAt) => {
     measuredGrowth((size, now) => (size / 2_000) * (now < speedupAt ? 1 : 0.1));
   });
