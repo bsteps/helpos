@@ -6,7 +6,7 @@ This integration finishes the reviewed checks from #216, #217, and #230 before f
 
 Assembly starts at the exact refreshed [PR313](https://github.com/bsteps/helpos/pull/313) head `80e638451a639947fc88cc96af5ee9ef4c73bb7f`, on local branch `317-runtime-boundaries`. That parent contains main `c401a765a80f8e32a16bbdaf03629f20841171dc`, including PR311's migration 0022, typed ingestion state, source operations, current names, unit and integration projects, and worker waits. None of its original source work is replayed or claimed here.
 
-PR313 has not merged at assembly time. Publication against main and the final stable-head gate wait for the coordinator's actual squash SHA and exclusive resource grant. The reconciliation and final evidence belong in the append-only decision trail at `E:/Projects/helpdesk/.helpos/autopilot/317-integration.tsv`.
+PR313 merged as `58451595845f67aef0fb35e0ba584bac71ad1045`. Its complete tree and the pinned parent tree both equal `76d65b01ff5cace2f0b9070676f2c32190c091cb`. Merge commit `2b4633889cf19f2ef336feb82de75d7a55dffa0f` accounts for actual main once without changing the assembled tree or rewriting the selected commits. The PR targets main and contains only the runtime-boundary delta above that merged parent. The coordinator granted the exclusive heavy slot after #316 released it. Final committed-head gate results and actual cache counts are recorded in the append-only decision trail at `E:/Projects/helpdesk/.helpos/autopilot/317-integration.tsv`.
 
 | Source                                                   | Exact head                                 | Source merge base with pinned main         | Inherited independent review                                                              |
 | -------------------------------------------------------- | ------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------- |
@@ -64,7 +64,7 @@ The HTTPS tests retain certificate verification, hostname verification, checked-
 
 Static restrictions cover the named syntax forms. They do not prove complete SSRF prevention. Deterministic mock evals prove machinery, prompt transport, and assertions, not live model quality or injection resistance. No live provider call is authorized. #205 remains deferred and is not a blocker. Unfinished advisory AI jobs provide no completed review, regardless of workflow status.
 
-The final committed-head `pnpm verify`, actual cache counts, CI, and fresh independent integration review are pending. Keep `pr:in-progress`, `needs-human`, and `security`. The coordinator owns the independent review. This owner never watches, approves, or merges the PR.
+The final gate runs `pnpm verify` with `EVAL_LIVE=0` after all scratch fixtures are restored. Its output is `.helpos/317-verify.log`, with the exact committed head and outcome recorded in the decision trail. Completed focused proof above is reused. CI and the fresh independent integration review remain separate requirements. Keep `pr:in-progress`, `needs-human`, and `security`. The coordinator owns the independent review. This owner never watches, approves, or merges the PR.
 
 ## Later-group overlaps
 
