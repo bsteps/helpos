@@ -111,10 +111,24 @@ After the fix, the light checks passed: 671 unit tests, Biome, AI and server typ
 - Missing Message-ID deliveries remain separate conversations. Content equality is not a delivery identity.
 - Storage retains the first 20 attachments and truncates decoded filenames to 255 Unicode code points after NUL removal. An overflow note replaces HTML presentation with visible plain text. Raw MIME retains all parts.
 - The attachment cap applies after PostalMime parses the message. It does not cap initial parser memory.
-- When an email has both parts, the model reads the text part and the dashboard renders the HTML part. A sender can make them differ. This split comes from the parent and needs its own issue.
+- Plain-text MIME parts still take precedence for AI consumers. The dashboard now shows that canonical message text by default, with sanitized HTML available separately. An approver no longer has to rely on a different MIME part or on the display sanitizer to discover the model's source text.
 - The HTML filter handles tested attributes and inline styles. It does not evaluate stylesheets or classes and does not prove model injection resistance.
 - Offline captured input proves deterministic filtering, quoting, transport, and assertions. No live Claude or Anthropic provider, credentials, account setup, or billable call is used. Issue 205 stays deferred.
 - The parent's known lost-retry and failed give-up findings remain open. This integration does not claim to fix them or prove eventual delivery.
 - Actual current-head CI, fresh independent integration review, and human security review remain required. Keep `pr:in-progress`, `needs-human`, and `security`. No merge, source closure, branch deletion, approval, or protection change is authorized.
 
 The append-only local decision log is `E:/Projects/helpdesk/.helpos/autopilot/321-integration.tsv`.
+
+## Approval text alignment
+
+The earlier blanket acceptance and security clearance did not establish that the approver could read the model's source text. The multipart split already existed on main, rather than being introduced by the reply-safety integration. The original hidden-text checklist passed, but its stated approval-safety purpose was incomplete.
+
+Main `ba30b806b295eaa37650dcff149e03fc7261fff3` is merged into this branch normally. The landed `inHistory()` filtering, its reply/GitHub regression tests, AI safeguards and exact parent integration receipt are retained. The only production conflict resolutions in the three readers preserve the shared parser imports alongside main's behavior.
+
+The approval view now renders the existing API `message.text` as primary content. It is the same `messageText()` result used for drafting, retrieval and history. Plain-text precedence is unchanged. The full text is available to the approver even when a prompt uses a bounded, fence-cleaned prefix. "Formatted email" is optional, uses the existing sanitizer and sandbox, and never replaces that text. No API, prompt, scope, dependency, persistence or send-path behavior changes.
+
+Two committed MIME fixtures reproduce the real disagreements. `multipart-mismatch.eml` has a plain refund request and an HTML receipt request. `html-textarea.eml` has a refund request inside a textarea that the text extractor keeps and the display sanitizer removes. Real API and worker tests assert that the public message text contains the same body captured at the mock model boundary, while the returned HTML differs. Playwright tests require that text to be visible before approval at laptop and phone sizes, including while the formatted view is open.
+
+Before the fix, the new multipart browser test failed because the source text was absent from the approval view, despite the API returning it. This failing state is committed at `c76b83e`. The production fix is `469ed3d`. The focused real Postgres/worker/API suite passed all 16 tests after the fix. The browser run passed eight cases, including setup, both mismatches at both viewports, both HTML sandbox cases and laptop frame resizing. The existing phone-resize case was skipped. Logs and the retained failing browser trace are under `.helpos/324/` in the review checkout. Models are offline adapters; these checks do not establish live-model injection resistance.
+
+The requested fresh Claude Work Opus review failed before reviewing any code because its five-hour usage limit was exhausted. The reported reset is 02:20 Asia/Kolkata. There is no fresh native `/security-review` result for the alignment fix, and the earlier result does not cover it. Independent final review and the stable gate remain open. Merge authorization is recorded, but does not substitute for these checks.
