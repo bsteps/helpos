@@ -11,7 +11,7 @@ import { compareSpecs, intendedBreak, readBaseSpec } from "./api-compatibility.m
 import { oasdiff } from "./oasdiff.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const binary = await oasdiff(root);
+const binary = await oasdiff(root, { download: false });
 const dir = mkdtempSync(join(tmpdir(), "helpos-compat-tests-"));
 after(() => rmSync(dir, { recursive: true, force: true }));
 const original = JSON.parse(
@@ -28,6 +28,16 @@ function compare(change, justification) {
   writeFileSync(current, JSON.stringify(doc));
   return compareSpecs({ binary, base, current, justification, report });
 }
+
+test("missing tool provisioning fails without a network request", async (t) => {
+  const cold = join(dir, "cold-tool-cache");
+  const fetch = t.mock.method(globalThis, "fetch", () => {
+    throw new Error("tests must not download tools");
+  });
+  await assert.rejects(oasdiff(cold, { download: false }), /setup-oasdiff\.mjs first/);
+  await assert.rejects(oasdiff(cold), /setup-oasdiff\.mjs first/);
+  assert.equal(fetch.mock.callCount(), 0);
+});
 
 test("removing or retyping a response field fails even with a current spec", () => {
   for (const change of [

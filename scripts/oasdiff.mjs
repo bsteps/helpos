@@ -9,7 +9,7 @@ const checksums = {
   win32: "d72f1c5c4ba4adddafa4ec3c38f1c34f09df8ddb2d2bdd75869f94145c5bcc6d",
 };
 
-export async function oasdiff(root) {
+export async function oasdiff(root, { download = false } = {}) {
   if (process.arch !== "x64" || !checksums[process.platform]) {
     throw new Error("The contract check supports Linux and Windows x64.");
   }
@@ -18,6 +18,9 @@ export async function oasdiff(root) {
   const archive = `oasdiff_${version}_${process.platform === "win32" ? "windows" : "linux"}_amd64.tar.gz`;
   const path = join(dir, archive);
   if (!existsSync(path)) {
+    if (!download) {
+      throw new Error("oasdiff is not provisioned. Run node scripts/setup-oasdiff.mjs first.");
+    }
     const response = await fetch(
       `https://github.com/oasdiff/oasdiff/releases/download/v${version}/${archive}`,
     );

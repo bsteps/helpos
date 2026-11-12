@@ -32,6 +32,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Provision pinned API comparison tool
+        run: node scripts/setup-oasdiff.mjs
       - name: Compare API contract to the actual PR base
         if: github.event_name == 'pull_request'
         run: node scripts/api-compatibility.mjs --event "$GITHUB_EVENT_PATH"

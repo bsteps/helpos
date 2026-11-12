@@ -126,8 +126,11 @@ and compares it with a freshly generated current document. It never defaults to 
 To reproduce locally, run `node scripts/api-compatibility.mjs <actual-base-commit-or-ref> [pr-body-file]`.
 Freshness tests still run independently.
 
-The compatibility check uses oasdiff 1.37.0, an Apache-2.0 tool. It downloads the upstream release
+The compatibility check uses oasdiff 1.37.0, an Apache-2.0 tool. The setup command downloads the upstream release
 archive for Linux or Windows x64 and verifies a pinned SHA-256 before extraction.
+CI provisions it explicitly with `node scripts/setup-oasdiff.mjs` before running compatibility tests.
+Run that setup command once before local script tests. Test setup only reads the verified cache;
+a missing archive fails with the setup command and never downloads a tool from a test.
 The test-only AJV and ajv-formats dependencies use MIT licences.
 Both documents pass standalone OpenAPI validation before comparison. External reference loading
 is disabled during validation and comparison, including for intended breaking changes.

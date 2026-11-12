@@ -196,33 +196,30 @@ describe("durable idempotency through the public API middleware", () => {
 
   it("conflicts on body, path, method, query, content-type and current scopes", async () => {
     const instance = app();
+    const key = "conflict-variants";
+    const payload = { ...body, slug: "conflict-variants-note" };
+    expect((await call(instance, "/v1/knowledge/sources", key, payload)).status).toBe(201);
     const variants = [
-      () => call(instance, "/v1/knowledge/sources", "durable", { ...body, title: "Changed" }),
-      () => call(instance, `/v1/conversations/${a.ids.conversation}/close`, "durable"),
-      () => call(instance, "/v1/knowledge/sources?changed=1", "durable", body),
+      () => call(instance, "/v1/knowledge/sources", key, { ...payload, title: "Changed" }),
+      () => call(instance, `/v1/conversations/${a.ids.conversation}/close`, key),
+      () => call(instance, "/v1/knowledge/sources?changed=1", key, payload),
       () =>
-        call(
-          instance,
-          `/v1/knowledge/sources/${a.ids.source}`,
-          "durable",
-          { title: "Changed" },
-          "PATCH",
-        ),
+        call(instance, `/v1/knowledge/sources/${a.ids.source}`, key, { title: "Changed" }, "PATCH"),
       () =>
         call(
           app({ ...principal(), scopes: new Set(["knowledge:write"]) }),
           "/v1/knowledge/sources",
-          "durable",
-          body,
+          key,
+          payload,
         ),
       () =>
         instance.request("/v1/knowledge/sources", {
           method: "POST",
           headers: {
-            "idempotency-key": "durable",
+            "idempotency-key": key,
             "content-type": "application/json; charset=utf-8",
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(payload),
         }),
     ];
     for (const variant of variants) {
@@ -233,20 +230,23 @@ describe("durable idempotency through the public API middleware", () => {
   });
 
   it("isolates the same key by tenant, actor id and actor type", async () => {
-    const otherTenant = await call(app(principal(b)), "/v1/knowledge/sources", "durable", body);
+    const key = "actor-tenant-isolation";
+    const payload = { ...body, slug: "actor-tenant-isolation-note" };
+    expect((await call(app(), "/v1/knowledge/sources", key, payload)).status).toBe(201);
+    const otherTenant = await call(app(principal(b)), "/v1/knowledge/sources", key, payload);
     expect(otherTenant.status).toBe(201);
     expect(otherTenant.headers.has("idempotency-replayed")).toBe(false);
     for (const caller of [
       principal(a, uuidv7()),
       { ...principal(), actor: { type: "agent" as const, id: a.ownerUserId } },
     ]) {
-      const res = await call(app(caller), "/v1/knowledge/sources", "durable", body);
+      const res = await call(app(caller), "/v1/knowledge/sources", key, payload);
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ error: "slug_taken" });
       expect(res.headers.has("idempotency-replayed")).toBe(false);
     }
-    expect((await rows()).filter((row) => row.keyHash === hash("durable"))).toHaveLength(3);
-    expect((await rows(b)).filter((row) => row.keyHash === hash("durable"))).toHaveLength(1);
+    expect((await rows()).filter((row) => row.keyHash === hash(key))).toHaveLength(3);
+    expect((await rows(b)).filter((row) => row.keyHash === hash(key))).toHaveLength(1);
   });
 
   it("refuses replay after actual token revocation and checks current authorization before parsing", async () => {
@@ -373,6 +373,9 @@ describe("durable idempotency through the public API middleware", () => {
   });
 
   it("replays terminal validation errors, expires responses without reexecution and supports empty 204", async () => {
+    const key = "expiry";
+    const payload = { ...body, slug: "expiry-note" };
+    expect((await call(app(), "/v1/knowledge/sources", key, payload)).status).toBe(201);
     const invalid = await call(app(), "/v1/knowledge/sources", "invalid", {});
     expect(invalid.status).toBe(400);
     expect(
@@ -384,11 +387,11 @@ describe("durable idempotency through the public API middleware", () => {
       tx
         .update(schema.httpIdempotency)
         .set({ expiresAt: new Date("2000-01-01T00:00:00Z") })
-        .where(eq(schema.httpIdempotency.keyHash, hash("durable"))),
+        .where(eq(schema.httpIdempotency.keyHash, hash(key))),
     );
-    const expired = await call(app(), "/v1/knowledge/sources", "durable", body);
+    const expired = await call(app(), "/v1/knowledge/sources", key, payload);
     expect(await expired.json()).toMatchObject({ error: "idempotency_expired" });
-    expect((await rows()).find((row) => row.keyHash === hash("durable"))?.responseBody).toBeNull();
+    expect((await rows()).find((row) => row.keyHash === hash(key))?.responseBody).toBeNull();
     const instance = app();
     instance.openapi(
       apiRoute({
