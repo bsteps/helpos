@@ -74,7 +74,8 @@
       "includes": [
         "apps/server/src/**/routes.ts",
         "apps/server/src/**/*-routes.ts",
-        "apps/server/src/**/route.ts"
+        "apps/server/src/**/route.ts",
+        "apps/web/src/routes/**"
       ],
       "linter": {
         "rules": {
