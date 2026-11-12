@@ -14,17 +14,17 @@ The [auditable operations record](329-auditable-operations.md) and [AI consumer 
 
 Only two originals are selected. Merge bases below are the same against either prerequisite head.
 
-| Original | Frozen head | Unique delta base | Merge base with prerequisites | Inherited independent review |
-| --- | --- | --- | --- | --- |
+| Original                                                  | Frozen head                                | Unique delta base                          | Merge base with prerequisites              | Inherited independent review                                                    |
+| --------------------------------------------------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------- |
 | [#196 / PR284](https://github.com/bsteps/helpos/pull/284) | `40b306329dd737172ea83e45facb2cc54b091bd0` | `7ad8b560bcf23033c31712cc0fe013cfa7fff2bd` | `0cb5ba823f010b8fb0ec7ac6061faeb673d31658` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/284#issuecomment-6807436619) |
 | [#228 / PR260](https://github.com/bsteps/helpos/pull/260) | `3d6af56b279ef2a9ec45fa407f58a4256f8e3f4f` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/260#issuecomment-6805592098) |
 
 PR284 contains one unique commit. Its migration-check ancestors are already integrated and are excluded. PR260 contains the malformed-job regression and its fix. Each source commit is applied once with its original author, authored date, and `cherry-pick -x` trailer.
 
-| Original commit | Applied commit | Change |
-| --- | --- | --- |
-| `40b306329dd737172ea83e45facb2cc54b091bd0` | `9eec78dc939c9b6919d157ae6a874e7f032b19cb` | Derive scalar CHECKs and workspace role types from allowed lists. |
-| `c5022aa248df51f9df8bc782dd8d2f035dfc6219` | `54c742eff43796cf132ecf1a3dd566790ca9e91a` | Retain the real malformed-job regression in both worker modes. |
+| Original commit                            | Applied commit                             | Change                                                                 |
+| ------------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------- |
+| `40b306329dd737172ea83e45facb2cc54b091bd0` | `9eec78dc939c9b6919d157ae6a874e7f032b19cb` | Derive scalar CHECKs and workspace role types from allowed lists.      |
+| `c5022aa248df51f9df8bc782dd8d2f035dfc6219` | `54c742eff43796cf132ecf1a3dd566790ca9e91a` | Retain the real malformed-job regression in both worker modes.         |
 | `3d6af56b279ef2a9ec45fa407f58a4256f8e3f4f` | `6709daf6c604191cc0a74cc0e69089db6b151f8a` | Report final invalid payload failure and preserve safe logger context. |
 
 Git receipts identify Nishant Tadvi <nishant.tadvi@yahoo.com> as the source author. The independent source reports identify GPT-6 Astra high authorship and GPT-6-sol xhigh verification. This assembly uses GPT-6.1-sol xhigh. Those reports establish model provenance; Git metadata alone does not. Incomplete advisory AI checks are not substantive review evidence.
@@ -33,13 +33,13 @@ Git receipts identify Nishant Tadvi <nishant.tadvi@yahoo.com> as the source auth
 
 The prerequisite merge had five conflicted files.
 
-| File | Resolution |
-| --- | --- |
-| `drafts/draft-worker.ts` | Keep shared paid-model and refusal mapping from PR336. Keep PR334's `pauseAi` domain operation and Actor audit ownership. Remove the stale direct-audit import. |
-| `drafts/routes.ts` | Keep PR334's extracted regenerate call rather than restore its old inline implementation. Move PR336's `dailyBudgetRefusal` and `mapAiRefusal` into `regenerateDraft` in `drafts/lifecycle.ts`. Preserve checks before discard, exact result values, clear-pause operation, enqueue, and audit details. |
-| `biome.json` | Keep both conversation-write and paid-AI enforcement. |
-| `scripts/biome-plugins.test.mjs` | Keep both sets of rule regressions. |
-| `verify-send-reply/SKILL.md` | Combine the selective conversation/audit and AI-runner alignment notes. Preserve each parent's current rows. |
+| File                             | Resolution                                                                                                                                                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `drafts/draft-worker.ts`         | Keep shared paid-model and refusal mapping from PR336. Keep PR334's `pauseAi` domain operation and Actor audit ownership. Remove the stale direct-audit import.                                                                                                                                         |
+| `drafts/routes.ts`               | Keep PR334's extracted regenerate call rather than restore its old inline implementation. Move PR336's `dailyBudgetRefusal` and `mapAiRefusal` into `regenerateDraft` in `drafts/lifecycle.ts`. Preserve checks before discard, exact result values, clear-pause operation, enqueue, and audit details. |
+| `biome.json`                     | Keep both conversation-write and paid-AI enforcement.                                                                                                                                                                                                                                                   |
+| `scripts/biome-plugins.test.mjs` | Keep both sets of rule regressions.                                                                                                                                                                                                                                                                     |
+| `verify-send-reply/SKILL.md`     | Combine the selective conversation/audit and AI-runner alignment notes. Preserve each parent's current rows.                                                                                                                                                                                            |
 
 The #196 pick conflicted only in `schema.ts`. The current `draftStatuses` already includes `send_uncertain`; the helper uses that complete unchanged list. Keep the complete `knowledge_sources_state` JSON CHECK and nonnegative retry-count CHECK from 0022. Only its kind, visibility, and managed-by scalar checks use the new helper. Keep audit details and imported shared Actor types.
 
@@ -69,15 +69,25 @@ Fresh light checks pass.
 - The two selected fingerprint regressions pass without starting TLC.
 - `pnpm --filter @helpos/db generate` reports no schema changes. No migration, snapshot, or journal changes result.
 - A direct Drizzle comparison against assembled prerequisite merge `031a435` matches all 20 tables' column types, enums, nullability, defaults, CHECK SQL, RLS flags, and policies. This is structure equivalence, not a fresh PostgreSQL catalog run.
-- Provenance assertions verify merge parents, all three original/applied authors and authored dates, `-x` trailers, once-only receipts, and protected prerequisite files. The source #196 negative catalog proof and #228 real malformed-job proof remain inherited evidence until rerun on this combined tree.
+- Provenance assertions verify merge parents, all three original/applied authors and authored dates, `-x` trailers, once-only receipts, and protected prerequisite files. The source #196 negative catalog proof remains inherited. Fresh combined catalog and malformed-job runtime execution is recorded below.
 - Biome and Knip pass. The inherited void-union advisory and two sync-labels environment warnings remain. No suppression or dependency is added.
 
 Local rerunnable light artifacts are `.helpos/335-schema-equivalence.mjs`, `.helpos/335-provenance.mjs`, `.helpos/335-provenance.json`, and `.helpos/335-fingerprints.mjs`. The fingerprint probe verifies all current coverage rows and unchanged model inputs. The targeted repository regression validates the updated coverage record. An initial probe also saw a CRLF-only template fingerprint difference after conflict editing; formatting restored LF and the original enqueue SQL fingerprint. No SQL or model change was needed.
 
 The one native same-model GPT-6.1-sol xhigh Comment Sicko/deslop pass found no required changes. It edited no files and deleted no comments. No `MUST KILL` flags, new suppressions, unsafe casts, or open constraints were found. Unchanged predecessor comments were excluded. The result is appended to the trail. Fresh independent integration review remains root-owned and is separate from this cleanup pass.
 
-The focused resource need is one serial Postgres slot using `--project int --maxWorkers 1`. The DB selection is `schema.int.test.ts`, `migrations.int.test.ts`, `jobs.int.test.ts`, and `leak.int.test.ts`. The server selection is `invalid-job.int.test.ts`, `drafts/regenerate.int.test.ts`, `ai-budget/busy-queue.int.test.ts`, and `ai-budget/busy-retries.int.test.ts`. These prove the new boundary and the prerequisite conflict ports with the existing real runtime tests. No fresh negative mutation campaign is requested.
+## Bounded Postgres proof
 
-No Docker, TLC, or full run starts without the root's concrete resource grant. After focused proof and a stable committed tree, one plain `EVAL_LIVE=0 pnpm verify` with valid cache is required. Final SHA, outcome, and fresh/cache split belong in the PR and local runtime trail without changing the tested commit. A live app journey would require Docker and real AI under `verify-helpos`, so it is not run under this offline scope. Source role/API proof remains inherited. Offline checks do not prove live model quality or injection resistance. #205 remains deferred.
+The root granted exactly eight prepared suites on one owned PostgreSQL container, capped at 512 MiB and one CPU. At unchanged production head `efbab5f0e136db139cf043528dd3ff7602399c04`, the single process passed all eight files and 96 tests in 50.55 seconds, exit 0. It used `--project int --maxWorkers 1` with file parallelism disabled. No test, schema, type, or production fix was needed.
+
+The DB suites were `schema.int.test.ts`, `migrations.int.test.ts`, `jobs.int.test.ts`, and `leak.int.test.ts`. The server suites were `invalid-job.int.test.ts`, `drafts/regenerate.int.test.ts`, `ai-budget/busy-queue.int.test.ts`, and `ai-budget/busy-retries.int.test.ts`. They verify the 13 current scalar enum catalogs, generated-schema no-op, migration/job installation idempotence, audit-details legacy data and rollback, tenant isolation, malformed-job final failure in both worker modes, composed-server safe logger context, regenerate sequencing, repeated busy deferrals, and remaining failure allowance including zero. These are existing real runtime tests. No new mutation campaign or malformed-payload formal claim is made.
+
+The local config `.helpos/335-vitest.config.mts` selects exactly those eight paths. The setup wrapper `.helpos/335-capped-setup.ts` applies Testcontainers resource quotas before invoking the unchanged repository setup and asserts Docker's actual limits. Docker inspection records `Memory=536870912` and `NanoCpus=1000000000` for owned container `a0d0777587411b1048b04f34c5c0a9745e2005f2f269887f8ffd02590a1fa999`. The wrapper is untracked local orchestration; no repository setup or test code changes.
+
+The process exited 0 and teardown completed at `2026-11-12T10:34:28.936Z`. Docker reports no remaining container with the #335 ownership label. The same three pre-existing containers remain. The bounded slot is released. Results and resource receipts are `.helpos/335-focused-pg.log`, `.helpos/335-focused-pg.exit`, `.helpos/335-pg-resource.json`, and `.helpos/335-pg-teardown.json`.
+
+## Remaining gates
+
+The single plain `EVAL_LIVE=0 pnpm verify` with valid cache requires the next concrete root grant after this bounded process has exited. It has not started. Final SHA, outcome, and fresh/cache split belong in the PR and local runtime trail without changing the tested commit. No TLC or browser run is authorized. A live app journey would require Docker and real AI under `verify-helpos`, so it is not run under this offline scope. Source role/API proof remains inherited. Offline checks do not prove live model quality or injection resistance. #205 remains deferred. PR336's separate CI timing test and documentation repair do not refresh the preserved prerequisite pins without an actual contract change.
 
 Publication waits for local readiness. The own-branch PR must retain `needs-human`, `security`, and `pr:in-progress`, target `329-auditable-operations`, and name PR336 explicitly. Link it immediately after creation. The root owns fresh independent integration review and final base choice. No source refresh, parent push, merge, approval, closure, deletion, settings change, or watch is authorized. The append-only [335-integration.tsv](335-integration.tsv) records decisions and outcomes.
