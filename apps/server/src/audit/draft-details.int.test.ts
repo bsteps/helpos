@@ -211,7 +211,7 @@ it("distinguishes explicit regeneration, same-message replacement, manual discar
   const third = await db.withTenant(tenantId, (tx) => createReply(tx, context(), f));
   expect((await events(second.id)).at(-1)?.details).toEqual({
     reason: "manual",
-    operation: "regenerate",
+    operation: "replace",
   });
   const newerId = await db.withTenant(tenantId, async (tx) => {
     const [message] = await tx

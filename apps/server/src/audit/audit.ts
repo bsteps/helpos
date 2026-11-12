@@ -3,7 +3,7 @@ import { schema, type TenantTx } from "@helpos/db";
 import type { Actor } from "@helpos/db/actor";
 import { type AuditAction, auditDetails, type Details } from "./details.ts";
 
-export interface AuditEvent<A extends AuditAction = AuditAction> {
+interface AuditEventBase<A extends AuditAction> {
   tenantId: string;
   actor: Actor;
   action: A;
@@ -13,8 +13,16 @@ export interface AuditEvent<A extends AuditAction = AuditAction> {
   };
   /** The HTTP request ID, or null when a background job acts. */
   requestId: string | null;
-  details?: Details<A>;
 }
+
+/** Details are optional only for actions whose schema accepts an empty object. */
+type DetailsArgs<A extends AuditAction> =
+  Record<string, never> extends Details<A> ? [details?: Details<A>] : [details: Details<A>];
+
+export type AuditEvent<A extends AuditAction = AuditAction> = AuditEventBase<A> &
+  (DetailsArgs<A> extends [details: Details<A>]
+    ? { details: Details<A> }
+    : { details?: Details<A> });
 
 export type { AuditAction } from "./details.ts";
 
@@ -42,9 +50,16 @@ export function nothingToAudit(_reason: string): void {
  * Appends one audit event. Takes the action's own transaction, so the event and the action
  * commit together or not at all. The table is append-only for the app role.
  */
-export async function recordAudit<A extends AuditAction>(
+export function recordAudit<A extends AuditAction>(
   tx: TenantTx,
   event: AuditEvent<A>,
+): Promise<void> {
+  return insertAudit(tx, event);
+}
+
+async function insertAudit(
+  tx: TenantTx,
+  event: AuditEventBase<AuditAction> & { details?: unknown },
 ): Promise<void> {
   const details = auditDetails[event.action].parse(event.details ?? {});
   await tx.insert(schema.auditEvents).values({
@@ -65,7 +80,7 @@ export type Auditor = <A extends AuditAction>(
   tx: TenantTx,
   action: A,
   target: AuditEvent["target"],
-  details?: Details<A>,
+  ...details: DetailsArgs<A>
 ) => Promise<void>;
 
 /**
@@ -77,13 +92,6 @@ export function auditorFor(
   actor: Actor,
   requestId: string | null = null,
 ): Auditor {
-  return (tx, action, target, details) =>
-    recordAudit(tx, {
-      tenantId,
-      actor,
-      action,
-      target,
-      requestId,
-      ...(details === undefined ? {} : { details }),
-    });
+  return (tx: TenantTx, action: AuditAction, target: AuditEvent["target"], details?: unknown) =>
+    insertAudit(tx, { tenantId, actor, action, target, requestId, details });
 }

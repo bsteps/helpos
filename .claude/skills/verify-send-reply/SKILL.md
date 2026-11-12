@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Other fingerprints remain unchanged. Conversation-write extraction uses the selective #240 fingerprints below. Audit instrumentation uses the selective #85 fingerprints below.
+Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. Other fingerprints remain unchanged.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |

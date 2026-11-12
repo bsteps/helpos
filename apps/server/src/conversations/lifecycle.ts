@@ -1,7 +1,11 @@
 import { and, eq, schema, type TenantTx } from "@helpos/db";
-import { type AuditContext, recordAudit } from "../audit/audit.ts";
+import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
 
 const { conversations, messages } = schema;
+const pauseAudit = {
+  daily_budget: "ai.paused",
+  draft_failed: "ai.draft_failed",
+} as const satisfies Record<schema.AiPausedReason, AuditAction>;
 type ConversationValues = typeof conversations.$inferInsert;
 type MessageValues = typeof messages.$inferInsert;
 
@@ -64,7 +68,7 @@ export async function pauseAi(
   await tx.update(conversations).set({ aiPausedReason: reason }).where(eq(conversations.id, id));
   await recordAudit(tx, {
     ...context,
-    action: reason === "daily_budget" ? "ai.paused" : "ai.draft_failed",
+    action: pauseAudit[reason],
     target: { type: "conversation", id },
   });
 }

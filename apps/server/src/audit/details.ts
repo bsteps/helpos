@@ -8,7 +8,7 @@ const empty = z.strictObject({});
 const discardDetails = z.discriminatedUnion("reason", [
   z.strictObject({
     reason: z.literal("manual"),
-    operation: z.enum(["discard", "regenerate"]),
+    operation: z.enum(["discard", "regenerate", "replace"]),
   }),
   z.strictObject({ reason: z.literal("superseded"), newerMessageId: id }),
   z.strictObject({ reason: z.literal("issue_reopened") }),

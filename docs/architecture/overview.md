@@ -81,7 +81,7 @@ sequenceDiagram
   Q->>DB: draft → sent + audit event (unknown outcome: human decision)
 ```
 
-Only the worker sends email. Approval, its audit event and the pg-boss job commit together. Before calling SMTP, the worker commits the prepared outbound message, its Message-ID and a `send_uncertain` marker. This marker is visible immediately, including if the worker dies on its last attempt and no retry runs. Its outbound message has no `sentAt` until delivery is confirmed.
+Only the worker sends email. Approval, its audit event and the pg-boss job commit together. Before calling SMTP, the worker commits the prepared outbound message, its Message-ID and a `send_uncertain` marker. This marker is visible immediately, including if the worker dies on its last attempt and no retry runs. Its outbound message has no `sentAt` until delivery is confirmed. Until then, the conversation history and the AI's view of the conversation (reply and issue drafts) leave it out.
 
 The worker then locks and rechecks that exact attempt, calls SMTP and commits `sent`. A retry that finds the marker sends nothing. SMTP accepting a reply followed by a failed COMMIT, a lost SMTP response or a worker crash therefore cannot cause an automatic resend. Message-ID deduplication by the recipient is not assumed.
 
