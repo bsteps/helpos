@@ -13,8 +13,3 @@ export const brand = {
   /** Public source repository (AGPL-3.0 §13 "Source" link points here). */
   repositoryUrl: "https://github.com/bsteps/helpos",
 } as const;
-
-export type Brand = typeof brand;
-
-/** Prefix for all environment variables, e.g. HELPOS_DATABASE_URL. */
-export const envPrefix = `${brand.slug.toUpperCase()}_`;

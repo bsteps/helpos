@@ -4,6 +4,7 @@ import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
+import { defaultPublicUrl } from "./defaults.ts";
 import { type GithubApiFactory, octokitGithub } from "./github/github-api.ts";
 import type { Fetcher } from "./knowledge/page-fetch.ts";
 import type { EmailTransport } from "./outbound-email/transport.ts";
@@ -44,7 +45,7 @@ export interface ServerConfig {
 }
 
 export const defaultConfig: ServerConfig = {
-  publicUrl: "http://localhost:3000",
+  publicUrl: defaultPublicUrl,
   inboundSecret: undefined,
   webDir: undefined,
   allowShadowModeOff: false,

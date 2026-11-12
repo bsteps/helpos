@@ -64,6 +64,9 @@ export const evalCaseSchema = z.strictObject({
       mustCite: z.array(z.string()).default([]),
       /** Knowledge titles the draft must not cite. */
       mustNotCite: z.array(z.string()).default([]),
+      exactCitations: z.array(z.string()).optional(),
+      promptMustContain: z.array(z.string()).optional(),
+      promptMustNotContain: z.array(z.string()).optional(),
       /**
        * The mock plays a model that obeyed an injection and pasted an internal note: the
        * internal-quote check must flag it. Without this, every draft must not be flagged.
@@ -80,6 +83,9 @@ export const evalCaseSchema = z.strictObject({
           a.mustNotCallTools.length +
           a.mustCite.length +
           a.mustNotCite.length +
+          (a.exactCitations === undefined ? 0 : 1) +
+          (a.promptMustContain?.length ?? 0) +
+          (a.promptMustNotContain?.length ?? 0) +
           (a.expectInternalQuoteFlag ? 1 : 0) >
         0,
       "A case needs at least one assertion",

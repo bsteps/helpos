@@ -1,0 +1,44 @@
+{
+  "name": "Answer the latest changed question",
+  "description": "The customer first asks about returns, then asks about shipping instead. Mock checks preserve both questions; a live run must answer the latest one and cite shipping.",
+  "input": {
+    "from": "customer@example.test",
+    "subject": "Order help",
+    "body": "Actually, I am keeping it. How long does standard shipping take?",
+    "history": [
+      {
+        "direction": "inbound",
+        "from": "customer@example.test",
+        "body": "How do I return my order?"
+      },
+      {
+        "direction": "outbound",
+        "from": "support@shop.test",
+        "body": "Are you asking about the return window?"
+      }
+    ],
+    "knowledge": [
+      {
+        "title": "Returns",
+        "content": "Returns are accepted within 30 days. Start a return in the Returns portal."
+      },
+      {
+        "title": "Standard shipping",
+        "content": "Standard shipping takes 3 to 5 business days."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Standard shipping takes 3 to 5 business days.\n[sources: K2]"
+  },
+  "assert": {
+    "mustMatch": ["3\\s*(?:to|[-\u2013])\\s*5 business days"],
+    "mustNotContain": ["Returns portal", "30 days"],
+    "exactCitations": ["Standard shipping"],
+    "promptMustContain": [
+      "How do I return my order?",
+      "Are you asking about the return window?",
+      "Actually, I am keeping it. How long does standard shipping take?"
+    ]
+  }
+}

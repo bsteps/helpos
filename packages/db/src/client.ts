@@ -37,7 +37,7 @@ export interface Database {
   close(): Promise<void>;
 }
 
-export interface MailboxRoute {
+interface MailboxRoute {
   tenantId: string;
   mailboxId: string;
 }
@@ -51,19 +51,22 @@ export interface ApiTokenRecord {
   revokedAt: Date | null;
 }
 
-export interface MembershipSummary {
+interface MembershipSummary {
   tenantId: string;
   role: schema.WorkspaceRole;
 }
 
-export type PingResult = { ok: true } | { ok: false; error: unknown };
+type PingResult = { ok: true } | { ok: false; error: unknown };
 
 const tenantIdSchema = z.uuid();
 const addressSchema = z.string().trim().toLowerCase().min(3).max(320);
 const tokenHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
-export function createDatabase(url: string): Database {
-  const client = postgres(url, { max: 10, connect_timeout: 5, onnotice: () => {} });
+export function createDatabase(urlOrClient: string | postgres.Sql): Database {
+  const client =
+    typeof urlOrClient === "string"
+      ? postgres(urlOrClient, { max: 10, connect_timeout: 5, onnotice: () => {} })
+      : urlOrClient;
   const db = drizzle(client, { schema });
 
   return {
