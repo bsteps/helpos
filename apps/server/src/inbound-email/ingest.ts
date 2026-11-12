@@ -12,6 +12,12 @@ import {
   uuidv7,
 } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
+import {
+  addMessage,
+  createConversation,
+  recordActivity,
+  reopenConversation,
+} from "../conversations/lifecycle.ts";
 import { draftReplyJob } from "../drafts/jobs.ts";
 import { type ParsedEmail, parseEmail } from "./parse.ts";
 
@@ -104,19 +110,11 @@ async function store(
   let conversationId: string;
   if (threadConversationId) {
     conversationId = threadConversationId;
-    await tx
-      .update(conversations)
-      // An out-of-office reply to a closed conversation must not reopen it. A person writing on a
-      // conversation a machine opened (e.g. answering a bounce) makes it a normal conversation.
-      .set(
-        email.automated
-          ? { lastMessageAt: now }
-          : { lastMessageAt: now, status: "open", automated: false },
-      )
-      .where(eq(conversations.id, conversationId));
+    if (email.automated) await recordActivity(tx, conversationId, now);
+    else await reopenConversation(tx, conversationId, now);
   } else {
     conversationId = uuidv7();
-    await tx.insert(conversations).values({
+    await createConversation(tx, {
       id: conversationId,
       tenantId,
       customerId,
@@ -133,7 +131,7 @@ async function store(
   await files.put(rawFileKey, raw);
 
   const messageId = uuidv7();
-  await tx.insert(messages).values({
+  await addMessage(tx, {
     id: messageId,
     tenantId,
     conversationId,

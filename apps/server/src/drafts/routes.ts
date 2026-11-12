@@ -1,5 +1,5 @@
 import { quotesInternalPassage } from "@helpos/ai";
-import { and, asc, type Database, enqueue, eq, inArray, schema, type TenantTx } from "@helpos/db";
+import { asc, type Database, eq, inArray, schema, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Logger } from "pino";
 import { aiBudget } from "../ai-budget/budget.ts";
@@ -16,17 +16,16 @@ import {
   notFoundResponse,
 } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
-import { draftReplyJob } from "./jobs.ts";
 import {
   approveDraft,
   createReply,
   type DraftRow,
   discardDraft,
-  discardStale,
   editDraft,
   isPendingDraft,
   liveDraftFor,
   lockConversationForDrafting,
+  regenerateDraft,
   resolveUncertainSend,
   retrySend,
 } from "./lifecycle.ts";
@@ -380,6 +379,13 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     const context = auditContext(c);
 
     const result = await deps.db.withTenant(tenantId, async (tx) => {
+      if ("regenerate" in input) {
+        const regenerated = await regenerateDraft(tx, context, conversationId, budget);
+        if (regenerated.outcome === "queued" && regenerated.discardedDraftIds.length === 0) {
+          nothingToAudit("queued; the worker audits the draft");
+        }
+        return regenerated.outcome;
+      }
       const lock = await lockConversationForDrafting(tx, conversationId);
       if (!lock) return "not_found" as const;
       const messageId = lock.answering;
@@ -387,32 +393,6 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       const live = await liveDraftFor(tx, messageId, "reply");
       if (live && !isPendingDraft(live)) return "already_answered" as const;
 
-      if ("regenerate" in input) {
-        // The worker drafts nothing for a closed conversation, so asking would wait forever.
-        if (lock.closed) return "conversation_closed" as const;
-        // Checked before anything is discarded: a refused regenerate leaves the current draft
-        // alone, and the caller hears why instead of waiting for a draft that never comes.
-        if ((await budget.today(tx, tenantId)).paused) return "daily_budget_reached" as const;
-        const stale = await discardStale(tx, context, {
-          conversationIds: [conversationId],
-          kind: "reply",
-        });
-        // Asking again is a fresh try: the old "every try failed" mark goes now, so it isn't
-        // shown while the new try runs, and a second failure sets it again for everyone to see.
-        await tx
-          .update(conversations)
-          .set({ aiPausedReason: null })
-          .where(
-            and(
-              eq(conversations.id, conversationId),
-              eq(conversations.aiPausedReason, "draft_failed"),
-            ),
-          );
-        await enqueue(tx, draftReplyJob, { tenantId, messageId }, { singletonKey: messageId });
-        // The AI's draft is audited when the worker writes it.
-        if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");
-        return "queued" as const;
-      }
       const draft = await createReply(tx, context, {
         tenantId,
         conversationId,

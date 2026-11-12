@@ -90,6 +90,7 @@ export async function handleNoticeGaveUp(
     tenantId: payload.tenantId,
     actor: noticeWorkerActor,
     action: "draft.notice_failed",
+    details: { draftId: payload.draftId },
     target: { type: "conversation", id: draft.conversationId },
     requestId: null,
   });
@@ -121,6 +122,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     // window taken and sends nothing.
     const [row] = await tx
       .select({
+        id: drafts.id,
         conversationId: drafts.conversationId,
         kind: drafts.kind,
         createdAt: drafts.createdAt,
@@ -247,6 +249,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       tenantId,
       actor: noticeWorkerActor,
       action: "draft.notice_sent",
+      details: { draftId: row.id },
       target: { type: "conversation", id: row.conversationId },
       requestId: null,
     });

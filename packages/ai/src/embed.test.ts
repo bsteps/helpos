@@ -14,13 +14,16 @@ import {
 } from "./embed.ts";
 import { tokenBound } from "./estimate.ts";
 import fixtures from "./fixtures/token-counts.json" with { type: "json" };
+import { withPaidModels } from "./paid-model.ts";
 import { mockEmbedding, mockEmbeddingModel } from "./testing.ts";
 
 const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * (b[i] ?? 0), 0);
 
 describe("embedTexts", () => {
   it("returns one vector per text, in order, with the token count", async () => {
-    const result = await embedTexts(mockEmbeddingModel(), ["refund policy", "shipping times"]);
+    const result = await withPaidModels(new AbortController().signal, (models) =>
+      embedTexts(models(mockEmbeddingModel()), ["refund policy", "shipping times"]),
+    );
     expect(result.embeddings).toHaveLength(2);
     expect(result.embeddings[0]).toHaveLength(embeddingDimensions);
     expect(result.tokens).toBe(4);
@@ -30,7 +33,9 @@ describe("embedTexts", () => {
     const wrong = new MockEmbeddingModelV4({
       doEmbed: async () => ({ embeddings: [[1, 2, 3]], warnings: [] }),
     });
-    await expect(embedTexts(wrong, ["x"])).rejects.toThrow(/3 dimensions/);
+    await expect(
+      withPaidModels(new AbortController().signal, (models) => embedTexts(models(wrong), ["x"])),
+    ).rejects.toThrow(/3 dimensions/);
     expect(wrong.doEmbedCalls[0]?.dimensions).toBe(embeddingDimensions);
   });
 
@@ -41,7 +46,13 @@ describe("embedTexts", () => {
         warnings: [],
       }),
     });
-    expect((await embedTexts(silent, ["x".repeat(40)])).tokens).toBe(40);
+    expect(
+      (
+        await withPaidModels(new AbortController().signal, (models) =>
+          embedTexts(models(silent), ["x".repeat(40)]),
+        )
+      ).tokens,
+    ).toBe(40);
   });
 
   it.each(fixtures.cases)(
@@ -53,7 +64,9 @@ describe("embedTexts", () => {
           warnings: [],
         }),
       });
-      const result = await embedTexts(model, [text]);
+      const result = await withPaidModels(new AbortController().signal, (models) =>
+        embedTexts(models(model), [text]),
+      );
       expect(result.tokens).toBe(tokenBound(text));
       for (const count of Object.values(counts))
         expect(result.tokens).toBeGreaterThanOrEqual(count);
@@ -71,20 +84,30 @@ describe("embedTexts", () => {
       }),
     });
     const texts = [...Array.from({ length: embedBatchSize }, () => "first"), "中文", "🙂"];
-    expect((await embedTexts(model, texts)).tokens).toBe(17);
+    expect(
+      (
+        await withPaidModels(new AbortController().signal, (models) =>
+          embedTexts(models(model), texts),
+        )
+      ).tokens,
+    ).toBe(17);
     expect(calls).toBe(2);
   });
 
   it("makes no call for no texts", async () => {
     const model = mockEmbeddingModel();
-    expect(await embedTexts(model, [])).toEqual({ embeddings: [], tokens: 0 });
+    expect(
+      await withPaidModels(new AbortController().signal, (models) => embedTexts(models(model), [])),
+    ).toEqual({ embeddings: [], tokens: 0 });
     expect(model.doEmbedCalls).toEqual([]);
   });
 
   it("embeds in batches, in order", async () => {
     const model = mockEmbeddingModel();
     const texts = Array.from({ length: embedBatchSize * 2 + 1 }, (_, i) => `text ${i}`);
-    const { embeddings } = await embedTexts(model, texts);
+    const { embeddings } = await withPaidModels(new AbortController().signal, (models) =>
+      embedTexts(models(model), texts),
+    );
     expect(model.doEmbedCalls.map((c) => c.values.length)).toEqual([
       embedBatchSize,
       embedBatchSize,
@@ -106,7 +129,11 @@ describe("embedTexts", () => {
         });
       },
     });
-    await expect(embedTexts(model, ["hello"])).rejects.toMatchObject({ tokens: 5 });
+    await expect(
+      withPaidModels(new AbortController().signal, (models) =>
+        embedTexts(models(model), ["hello"]),
+      ),
+    ).rejects.toMatchObject({ tokens: 5 });
     expect(calls).toBe(1);
   });
 
@@ -124,7 +151,9 @@ describe("embedTexts", () => {
       },
     });
     const texts = Array.from({ length: embedBatchSize + 1 }, () => "x");
-    const error = await embedTexts(flaky, texts).catch((e: unknown) => e);
+    const error = await withPaidModels(new AbortController().signal, (models) =>
+      embedTexts(models(flaky), texts),
+    ).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(EmbedError);
     expect(error).toMatchObject({ tokens: 51 });
   });
@@ -237,7 +266,9 @@ describe("createEmbeddingModel", () => {
         apiKey: undefined,
         baseURL: "http://localhost:11434/v1",
       });
-      const result = await embedTexts(model, ["hello"]);
+      const result = await withPaidModels(new AbortController().signal, (models) =>
+        embedTexts(models(model), ["hello"]),
+      );
       expect(result.embeddings[0]).toHaveLength(embeddingDimensions);
     } finally {
       globalThis.fetch = original;

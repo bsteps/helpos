@@ -208,6 +208,7 @@ describe("leak: acting as tenant A", () => {
         tenantId: tenantA,
         embedding: unitVector(leakEmbeddingAxis),
         embeddingModel: leakEmbeddingModel,
+        audience: "approver",
         limit: 20,
       }),
     );
@@ -221,6 +222,7 @@ describe("leak: acting as tenant A", () => {
         tenantId: tenantB,
         embedding: unitVector(leakEmbeddingAxis),
         embeddingModel: leakEmbeddingModel,
+        audience: "approver",
         limit: 20,
       }),
     );
@@ -230,6 +232,7 @@ describe("leak: acting as tenant A", () => {
         tenantId: tenantB,
         embedding: unitVector(leakEmbeddingAxis),
         embeddingModel: leakEmbeddingModel,
+        audience: "approver",
         limit: 20,
       }),
     );

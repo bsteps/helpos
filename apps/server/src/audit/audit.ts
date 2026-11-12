@@ -1,48 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { schema, type TenantTx } from "@helpos/db";
 import type { Actor } from "@helpos/db/actor";
+import { type AuditAction, auditDetails, type Details } from "./details.ts";
 
-export interface AuditEvent {
+interface AuditEventBase<A extends AuditAction> {
   tenantId: string;
   actor: Actor;
-  action:
-    | "draft.created"
-    | "draft.edited"
-    | "draft.approved"
-    | "draft.discarded"
-    | "draft.send_rejected"
-    | "draft.sending"
-    | "draft.send_confirmed"
-    | "draft.sent"
-    | "draft.send_failed"
-    | "draft.send_retried"
-    | "draft.notice_sent"
-    | "draft.notice_failed"
-    | "conversation.closed"
-    | "ai.paused"
-    | "ai.draft_failed"
-    | "knowledge_source.created"
-    | "knowledge_source.deleted"
-    | "knowledge_source.edited"
-    | "knowledge_source.made_public"
-    | "knowledge_source.made_internal"
-    | "knowledge_source.reingest_requested"
-    | "knowledge_source.ingested"
-    | "knowledge_source.failed"
-    | "workspace.shadow_mode_enabled"
-    | "workspace.shadow_mode_disabled"
-    | "workspace.shadow_recipient_changed"
-    | "workspace.ai_budget_changed"
-    | "api_token.created"
-    | "api_token.revoked"
-    | "github.connected"
-    | "github.disconnected"
-    | "github.webhook_secret_rotated"
-    | "github_issue.drafted"
-    | "github_issue.created"
-    | "github_issue.closed"
-    | "github_issue.reopened"
-    | "github_issue.recheck_failed";
+  action: A;
   target: {
     type: "draft" | "conversation" | "knowledge_source" | "workspace" | "api_token" | "integration";
     id: string;
@@ -51,7 +15,16 @@ export interface AuditEvent {
   requestId: string | null;
 }
 
-export type AuditAction = AuditEvent["action"];
+/** Details are optional only for actions whose schema accepts an empty object. */
+type DetailsArgs<A extends AuditAction> =
+  Record<string, never> extends Details<A> ? [details?: Details<A>] : [details: Details<A>];
+
+export type AuditEvent<A extends AuditAction = AuditAction> = AuditEventBase<A> &
+  (DetailsArgs<A> extends [details: Details<A>]
+    ? { details: Details<A> }
+    : { details?: Details<A> });
+
+export type { AuditAction } from "./details.ts";
 
 export type AuditContext = Pick<AuditEvent, "tenantId" | "actor" | "requestId">;
 
@@ -77,7 +50,18 @@ export function nothingToAudit(_reason: string): void {
  * Appends one audit event. Takes the action's own transaction, so the event and the action
  * commit together or not at all. The table is append-only for the app role.
  */
-export async function recordAudit(tx: TenantTx, event: AuditEvent): Promise<void> {
+export function recordAudit<A extends AuditAction>(
+  tx: TenantTx,
+  event: AuditEvent<A>,
+): Promise<void> {
+  return insertAudit(tx, event);
+}
+
+async function insertAudit(
+  tx: TenantTx,
+  event: AuditEventBase<AuditAction> & { details?: unknown },
+): Promise<void> {
+  const details = auditDetails[event.action].parse(event.details ?? {});
   await tx.insert(schema.auditEvents).values({
     tenantId: event.tenantId,
     actorType: event.actor.type,
@@ -86,15 +70,17 @@ export async function recordAudit(tx: TenantTx, event: AuditEvent): Promise<void
     targetType: event.target.type,
     targetId: event.target.id,
     requestId: event.requestId,
+    details,
   });
   auditTrail.getStore()?.recorded.add(event.action);
 }
 
 /** Records one audit event inside the action's own transaction, for an actor fixed up front. */
-export type Auditor = (
+export type Auditor = <A extends AuditAction>(
   tx: TenantTx,
-  action: AuditAction,
+  action: A,
   target: AuditEvent["target"],
+  ...details: DetailsArgs<A>
 ) => Promise<void>;
 
 /**
@@ -106,5 +92,6 @@ export function auditorFor(
   actor: Actor,
   requestId: string | null = null,
 ): Auditor {
-  return (tx, action, target) => recordAudit(tx, { tenantId, actor, action, target, requestId });
+  return (tx: TenantTx, action: AuditAction, target: AuditEvent["target"], details?: unknown) =>
+    insertAudit(tx, { tenantId, actor, action, target, requestId, details });
 }
