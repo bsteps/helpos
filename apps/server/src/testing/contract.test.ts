@@ -32,7 +32,52 @@ function fixture({
   return app;
 }
 
+function referencedResponse(ref: string, body: string | null = null) {
+  const app = contractApp(new OpenAPIHono());
+  app.openAPIRegistry.registerComponent("responses", "Payload", {
+    description: "JSON payload",
+    content: {
+      "application/json": {
+        schema: { type: "object", required: ["id"], properties: { id: { type: "integer" } } },
+      },
+    },
+  });
+  const alias = { description: "Response alias", $ref: ref };
+  app.openAPIRegistry.registerComponent("responses", "Alias", alias);
+  app.openAPIRegistry.registerPath({
+    method: "get",
+    path: "/references",
+    responses: { 200: { $ref: "#/components/responses/Alias" } },
+  });
+  app.get(
+    "/references",
+    () => new Response(body, { headers: { "content-type": "application/json" } }),
+  );
+  return app;
+}
+
 describe("the integration response boundary", () => {
+  it("resolves response reference chains before checking the required body", async () => {
+    const ref = "#/components/responses/Payload";
+    await expect(referencedResponse(ref).request("/references")).rejects.toThrow();
+    await expect(referencedResponse(ref, '{"id":"wrong"}').request("/references")).rejects.toThrow(
+      "response schema mismatch",
+    );
+    expect(await (await referencedResponse(ref, '{"id":1}').request("/references")).json()).toEqual(
+      {
+        id: 1,
+      },
+    );
+  });
+
+  it.each([
+    ["https://example.invalid/response.json", "external response refs are unsupported"],
+    ["#/components/responses/Alias", "cyclic response ref"],
+    ["#/components/responses/Missing", "undeclared response status"],
+  ])("rejects the unresolved response alias %s", async (ref, message) => {
+    await expect(referencedResponse(ref).request("/references")).rejects.toThrow(message);
+  });
+
   it("uses the matched path, method and status and preserves the original body", async () => {
     const app = fixture();
     const res = await app.request(new Request("http://localhost/things/42?view=full"));

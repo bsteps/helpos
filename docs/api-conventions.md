@@ -106,6 +106,7 @@ response bodies because validation reads a clone. Standalone integration apps mu
 The boundary reads the app's live OpenAPI registry, including test-only routes. It uses Hono's
 matched route and request method, then checks the declared status, media type and response schema.
 AJV 2020 validates local schema refs, composition and formats without coercion or removal of fields.
+Response reference chains resolve completely; cycles, missing targets and external refs fail.
 Text responses validate as strings. HEAD, 204, 304 and responses without content must be empty.
 Undocumented test routes, ambiguous overlapping paths, missing statuses, unsupported external refs
 and unexpected media types fail. Register test probe contracts explicitly.
@@ -121,6 +122,8 @@ Freshness tests still run independently.
 The compatibility check uses oasdiff 1.37.0, an Apache-2.0 tool. It downloads the upstream release
 archive for Linux or Windows x64 and verifies a pinned SHA-256 before extraction.
 The test-only AJV and ajv-formats dependencies use MIT licences.
+Both documents pass standalone OpenAPI validation before comparison. External reference loading
+is disabled during validation and comparison, including for intended breaking changes.
 The complete breaking report stays in the CI log and `.helpos/api-breaking.json`, including
 when an exception permits the check to pass. Tool errors and invalid specs always fail.
 

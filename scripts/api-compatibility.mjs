@@ -21,9 +21,28 @@ export function intendedBreak(body) {
 }
 
 export function compareSpecs({ binary, base, current, justification, report }) {
-  const result = spawnSync(binary, ["breaking", "--format", "json", base, current], {
-    encoding: "utf8",
-  });
+  for (const [name, input] of [
+    ["base", base],
+    ["current", current],
+  ]) {
+    const validation = spawnSync(
+      binary,
+      ["validate", "--allow-external-refs=false", "--fail-on", "ERR", "--format", "json", input],
+      { encoding: "utf8" },
+    );
+    if (validation.error) throw validation.error;
+    if (validation.status !== 0)
+      throw new Error(
+        `oasdiff failed to validate ${name} spec: ${validation.stdout}${validation.stderr}`,
+      );
+  }
+  const result = spawnSync(
+    binary,
+    ["breaking", "--allow-external-refs=false", "--format", "json", base, current],
+    {
+      encoding: "utf8",
+    },
+  );
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`oasdiff failed: ${result.stderr}`);
   const findings = JSON.parse(result.stdout);

@@ -105,10 +105,13 @@ export function contractApp(app: OpenAPIHono): OpenAPIHono {
       const key =
         status in responses ? status : `${status[0]}XX` in responses ? `${status[0]}XX` : "default";
       let declared = responses[key];
-      if (declared && typeof declared === "object" && "$ref" in declared) {
+      const references = new Set<string>();
+      while (declared && typeof declared === "object" && "$ref" in declared) {
         const ref = z.string().parse(declared.$ref);
         if (!ref.startsWith("#/"))
           throw new Error(`${name}: external response refs are unsupported`);
+        if (references.has(ref)) throw new Error(`${name}: cyclic response ref ${ref}`);
+        references.add(ref);
         declared = ref
           .slice(2)
           .split("/")
