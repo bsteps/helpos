@@ -93,3 +93,17 @@ The one root-granted `EVAL_LIVE=0 pnpm verify` passed at clean committed `1f985e
 Biome, Knip, the dashboard build and its existing 200 KB budget, all 29 offline eval cases, and the locked-shadow demo configuration check passed. Only the two existing undeclared-environment-variable warnings and existing Vite chunk advisory remain. These offline eval results are not live-quality or injection-resistance proof.
 
 The command and runner exited 0. Head and tracked status remained unchanged throughout. All owned PG and Mailpit containers stopped; the transient reaper also exited after the runner, confirmed by an empty exact-ID running-container query. Both checkout and main `.env` hashes are unchanged, and no shared Docker resource was modified. Evidence is `.helpos/333/verify.log` and `verify-receipt.json`. No code, type or schema fix followed the verified code. The following commit adds this evidence only. Fresh independent integration review remains root-owned, and `pr:in-progress`, `needs-human` and `security` remain required.
+
+## Independent review fixes
+
+An independent review of `0023c69..17625d9` against base `4cbbdc13e31a4de6a743a53378eb2b2e2946a192` found five actionable problems. Each fix has a test that fails without it.
+
+- Write routes chose replay or refusal through a hand-kept list of three credential paths, so a new route returning a secret would have stored it for replay. `apiRoute()` now requires `idempotency: "replay" | { refuse }` on every write, `noCaller` routes can only refuse, only replay routes document `Idempotency-Key` and the idempotency 409/503, and `x-idempotency` is published. Runtime behavior of existing routes is unchanged.
+- The contract gate failed on every oasdiff finding, so adding one error code (162 `response-property-enum-value-added` warnings) required an `API-Break:` line. Additive response enum values are now reported but pass. Removed and retyped fields still fail. An empty PR body is no longer read from the event file path.
+- `/health` became liveness only, but the demo healthcheck and the CI `pnpm dev` smoke test still used it as a database check. Both use `/readyz`.
+- An unreadable 5xx body became `bad_request`; it is now `internal_error`.
+- `docs/quality-gates.md` and `docs/api-conventions.md` carried measurement history and issue references, and AGENTS.md said `pnpm verify` runs everything CI runs. They now state rules and reasons only, and AGENTS.md lists the new enforced rules.
+
+Reported, not changed: stored replay bodies have no retention job (the table revokes DELETE); only request-completion, unhandled-error and readiness logs carry the request ID; no list route uses the pagination helper yet. `/security-review` on the fixed head found no high-confidence vulnerability.
+
+The hosted failure-video gap is closed. Probe [PR340](https://github.com/bsteps/helpos/pull/340) (closed, never merged) ran this branch's unchanged Playwright config and upload step on `17625d9` with one deliberately failing test. [Run 43214261280](https://github.com/bsteps/helpos/actions/runs/43214261280) uploaded `playwright-traces` containing `test-results/…/video.webm` (25,667 bytes, valid WebM header), its screenshot and trace. The review fixes do not touch the Playwright config or the upload step.
