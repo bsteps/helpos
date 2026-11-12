@@ -53,7 +53,7 @@ export interface ApiTokenRecord {
 
 export interface MembershipSummary {
   tenantId: string;
-  role: "owner" | "member";
+  role: schema.WorkspaceRole;
 }
 
 export type PingResult = { ok: true } | { ok: false; error: unknown };

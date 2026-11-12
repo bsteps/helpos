@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { schema } from "@helpos/db";
+import { hashBody } from "../audit/details.ts";
 
 // Demo data for local dev, e2e tests and agent QA. Pure: no I/O, and the same output every time,
 // so tests and screenshots can rely on exact IDs, tokens and timestamps. Every company, person
@@ -93,7 +94,7 @@ type TenantSpec = {
   name: string;
   domain: string;
   mailbox: string;
-  members: { email: string; name: string; role: "owner" | "member" }[];
+  members: { email: string; name: string; role: schema.WorkspaceRole }[];
   customers: { email: string; name: string }[];
   tokens: { name: string; scopes: schema.ApiTokenScope[]; revoked?: boolean }[];
   sources: SourceSpec[];
@@ -592,6 +593,7 @@ export function buildDemoData() {
           targetType: "api_token",
           targetId: t.id,
           requestId: null,
+          details: {},
         });
         const created = event("api_token.created", t.createdAt);
         return t.revokedAt ? [created, event("api_token.revoked", t.revokedAt)] : [created];
@@ -692,6 +694,33 @@ export function buildDemoData() {
       const draftedAt = new Date(repliesTo.createdAt.getTime() + 2 * 60_000);
       const approvedAt = d.status === "sent" ? new Date(draftedAt.getTime() + 10 * 60_000) : null;
       const draftId = id(`draft:${ts.key}`, draftedAt);
+      const draftAudit = (
+        action: string,
+        when: Date,
+        details: typeof schema.auditEvents.$inferInsert.details = null,
+      ) => {
+        audit.push({
+          id: id(`audit:${action}:${ts.key}`, when),
+          tenantId,
+          createdAt: when,
+          actorType: "system",
+          actorId: "seed",
+          action,
+          targetType: "draft",
+          targetId: draftId,
+          requestId: null,
+          details,
+        });
+      };
+      draftAudit(
+        "draft.created",
+        draftedAt,
+        d.editedBy?.length
+          ? null
+          : { bodyHash: hashBody(d.text), messageId: repliesTo.id, kind: "reply" },
+      );
+      const editedAt = new Date(draftedAt.getTime() + (d.editedBy?.length ?? 0) * 60_000);
+      const discardedAt = d.status === "discarded" ? new Date(editedAt.getTime() + 60_000) : null;
       drafts.push({
         id: draftId,
         tenantId,
@@ -704,7 +733,7 @@ export function buildDemoData() {
         sentAt: sentReply?.sentAt ?? null,
         sentMessageId: sentReply?.id ?? null,
         createdAt: draftedAt,
-        updatedAt: approvedAt ?? draftedAt,
+        updatedAt: sentReply?.sentAt ?? discardedAt ?? editedAt,
       });
       (d.editedBy ?? []).forEach((name, i) => {
         const token = tokens.find((t) => t.name === name);
@@ -722,6 +751,18 @@ export function buildDemoData() {
           requestId: null,
         });
       });
+      if (approvedAt && sentReply) {
+        draftAudit("draft.approved", approvedAt, { reviewedBodyHash: hashBody(d.text) });
+        draftAudit("draft.sending", sentReply.createdAt, {
+          fromStatus: "approved",
+          toStatus: "send_uncertain",
+        });
+        draftAudit("draft.sent", sentReply.createdAt, {
+          fromStatus: "send_uncertain",
+          toStatus: "sent",
+        });
+      }
+      if (discardedAt) draftAudit("draft.discarded", discardedAt);
       d.sources.forEach((ref, rank) => {
         const source = sourceBySlug.get(ref.slug);
         if (!source) throw new Error(`demo conversation ${ts.key}: unknown source ${ref.slug}`);

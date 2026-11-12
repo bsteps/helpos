@@ -9,6 +9,7 @@ import drizzleConfig from "../drizzle.config.ts";
 import { installJobs } from "./jobs.ts";
 import { runMigrations } from "./migrate.ts";
 import { startTestDatabase, type TestDatabase } from "./testing.ts";
+import { uuidv7 } from "./uuid.ts";
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const migrationsDir = join(packageDir, "migrations");
@@ -141,6 +142,37 @@ describe("migrating a database that is already migrated", () => {
       order by line`;
     return [...catalog, ...pgboss].map((row) => row.line);
   }
+
+  it("adds audit details without changing legacy rows and rolls back its DDL and writes", async () => {
+    const tenantId = uuidv7();
+    const auditId = uuidv7();
+    const rollback = new Error("rollback audit-details migration proof");
+    const migration = await readFile(join(migrationsDir, "0024_audit-details.sql"), "utf8");
+    await expect(
+      owner.begin(async (tx) => {
+        await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+        await tx`alter table audit_events drop column details`;
+        await tx`insert into tenants (id, name) values (${tenantId}, 'Legacy audit fixture')`;
+        await tx`insert into audit_events (id, tenant_id, actor_type, actor_id, action, target_type, target_id)
+          values (${auditId}, ${tenantId}, 'system', 'legacy', 'draft.edited', 'draft', ${uuidv7()})`;
+        const before = await tx`select * from audit_events where id = ${auditId}`;
+        await tx.unsafe(migration);
+        const after = await tx`select audit_events.* from audit_events where id = ${auditId}`;
+        expect(after).toEqual(before.map((row) => ({ ...row, details: null })));
+        await tx`insert into audit_events (id, tenant_id, actor_type, actor_id, action, target_type, target_id, details)
+          values (${uuidv7()}, ${tenantId}, 'system', 'new', 'conversation.closed', 'conversation', ${uuidv7()}, '{}')`;
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+    const remaining = await owner.begin(async (tx) => {
+      await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+      return tx`select id from tenants where id = ${tenantId}`;
+    });
+    expect(remaining).toEqual([]);
+    const columns = await owner`select column_name from information_schema.columns
+      where table_schema = 'public' and table_name = 'audit_events' and column_name = 'details'`;
+    expect(columns).toHaveLength(1);
+  });
 
   it("changes nothing when runMigrations and installJobs run again", async () => {
     const before = await fingerprint();

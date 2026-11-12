@@ -3,6 +3,12 @@ import { builtInActors } from "@helpos/db/actor";
 import type { FileStore } from "@helpos/files";
 import type { Logger } from "pino";
 import { auditorFor } from "../audit/audit.ts";
+import {
+  addMessage,
+  markMessageSent,
+  recordActivity,
+  removeRejectedMessage,
+} from "../conversations/lifecycle.ts";
 import { composeEmail, noticeReplyTo, replySubject } from "../outbound-email/composer.ts";
 import { planDelivery } from "../outbound-email/shadow.ts";
 import { type EmailTransport, SendRejected } from "../outbound-email/transport.ts";
@@ -115,7 +121,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
       const rawFileKey = `${tenantId}/${uuidv7()}`;
       await deps.files.put(rawFileKey, raw);
       const sentMessageId = uuidv7();
-      await tx.insert(messages).values({
+      await addMessage(tx, {
         id: sentMessageId,
         tenantId,
         conversationId: draft.conversationId,
@@ -156,18 +162,23 @@ export function handleSendReply(deps: SendWorkerDeps) {
       } catch (error) {
         if (!(error instanceof SendRejected)) throw error;
         if (isUncertainDraft(draft)) {
-          await auditorFor(tenantId, sendWorkerActor)(tx, "draft.send_rejected", {
-            type: "draft",
-            id: draftId,
-          });
+          await auditorFor(tenantId, sendWorkerActor)(
+            tx,
+            "draft.send_rejected",
+            {
+              type: "draft",
+              id: draftId,
+            },
+            { fromStatus: "send_uncertain", toStatus: "send_uncertain" },
+          );
           return error;
         }
         await rejectSend(tx, { tenantId, actor: sendWorkerActor, requestId: null }, draftId);
-        await tx.delete(messages).where(eq(messages.id, sentMessageId));
+        await removeRejectedMessage(tx, sentMessageId);
         return error;
       }
       const now = new Date();
-      await tx.update(messages).set({ sentAt: now }).where(eq(messages.id, sentMessageId));
+      await markMessageSent(tx, sentMessageId, now);
       const sent = await markSent(
         tx,
         { tenantId, actor: sendWorkerActor, requestId: null },
@@ -178,10 +189,7 @@ export function handleSendReply(deps: SendWorkerDeps) {
         },
       );
       if (sent.outcome !== "changed") throw new Error("send-reply: draft changed while sending");
-      await tx
-        .update(conversations)
-        .set({ lastMessageAt: now })
-        .where(eq(conversations.id, draft.conversationId));
+      await recordActivity(tx, draft.conversationId, now);
       return "sent";
     });
     if (outcome instanceof SendRejected) throw outcome;

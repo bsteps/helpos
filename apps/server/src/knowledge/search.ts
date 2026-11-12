@@ -1,20 +1,14 @@
-import { type EmbeddingModel, embeddingModelId, embedTexts } from "@helpos/ai";
+import { type EmbeddingModel, embeddingModelId, embedTexts, type PaidModels } from "@helpos/ai";
 import {
-  and,
-  eq,
-  inArray,
+  hasSearchableKnowledge,
   type KnowledgeHit,
-  schema,
+  type KnowledgeQuery,
   searchKnowledge,
   type TenantTransaction,
 } from "@helpos/db";
 
-export interface SearchQuery {
-  tenantId: string;
+export interface SearchQuery extends Pick<KnowledgeQuery, "tenantId" | "limit" | "audience"> {
   text: string;
-  limit: number;
-  /** Only these visibilities, e.g. `["public"]` for anything a customer sees unreviewed. */
-  visibility?: schema.KnowledgeVisibility[] | undefined;
 }
 
 export interface SearchResult {
@@ -29,11 +23,10 @@ export interface SearchResult {
  * pgvector today; another engine can implement this later without touching the callers.
  */
 export interface SearchProvider {
-  /** `signal` aborts the embedding call (see AiBudget.spend). */
   search(
     transaction: TenantTransaction,
     query: SearchQuery,
-    signal?: AbortSignal,
+    models: PaidModels,
   ): Promise<SearchResult>;
 }
 
@@ -52,31 +45,18 @@ export class SearchError extends Error {
 export function createVectorSearch(model: EmbeddingModel): SearchProvider {
   const modelId = embeddingModelId(model);
   return {
-    async search(transaction, query, signal) {
-      // No visibility allowed means no knowledge, not an error.
-      if (query.visibility?.length === 0) return noKnowledge;
+    async search(transaction, query, models) {
       // Most workspaces start with no knowledge (or none of the wanted visibility): skip the
       // embedding call, its cost and latency.
-      const { knowledgeChunks, knowledgeSources } = schema;
-      const [any] = await transaction((tx) =>
-        tx
-          .select({ id: knowledgeChunks.id })
-          .from(knowledgeChunks)
-          .innerJoin(knowledgeSources, eq(knowledgeSources.id, knowledgeChunks.sourceId))
-          .where(
-            and(
-              eq(knowledgeChunks.embeddingModel, modelId),
-              query.visibility ? inArray(knowledgeSources.visibility, query.visibility) : undefined,
-            ),
-          )
-          .limit(1),
+      const any = await transaction((tx) =>
+        hasSearchableKnowledge(tx, {
+          tenantId: query.tenantId,
+          embeddingModel: modelId,
+          audience: query.audience,
+        }),
       );
       if (!any) return noKnowledge;
-      const { embeddings, tokens } = await embedTexts(
-        model,
-        [query.text],
-        signal ? { abortSignal: signal } : {},
-      );
+      const { embeddings, tokens } = await embedTexts(models(model), [query.text]);
       try {
         const [embedding] = embeddings;
         if (!embedding) throw new Error("search: the embedding model returned no vector");
@@ -86,7 +66,7 @@ export function createVectorSearch(model: EmbeddingModel): SearchProvider {
             embedding,
             embeddingModel: modelId,
             limit: query.limit,
-            visibility: query.visibility,
+            audience: query.audience,
           }),
         );
         return { hits, tokens };

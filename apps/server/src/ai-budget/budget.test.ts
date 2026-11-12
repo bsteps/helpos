@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveBudget, nextUtcDay, utcDay } from "./budget.ts";
+import { dailyBudgetRefusal, effectiveBudget, mapAiRefusal, nextUtcDay, utcDay } from "./budget.ts";
 
 describe("utcDay", () => {
   it("uses UTC, so the budget resets at UTC midnight whatever the server's time zone", () => {
@@ -26,4 +26,19 @@ describe("effectiveBudget", () => {
     // No value of its own: the ceiling.
     expect(effectiveBudget(null, 200)).toBe(200);
   });
+});
+
+it("maps the budget refusal without changing the caller's outcome", () => {
+  const refusal = dailyBudgetRefusal({ paused: true, day: "2026-12-31" });
+  expect(refusal).toEqual({ refused: "over_budget", retryAt: new Date("2027-01-01T00:00:00Z") });
+  expect(dailyBudgetRefusal({ paused: false, day: "2026-12-31" })).toBeNull();
+  if (!refusal) throw new Error("Expected refusal");
+  const handlers = {
+    busy: (at: Date) => `wait:${at.toISOString()}`,
+    over_budget: (at: Date) => `paused:${at.toISOString()}`,
+  };
+  expect(mapAiRefusal(refusal, handlers)).toBe("paused:2027-01-01T00:00:00.000Z");
+  expect(mapAiRefusal({ refused: "busy", retryAt: refusal.retryAt }, handlers)).toBe(
+    "wait:2027-01-01T00:00:00.000Z",
+  );
 });

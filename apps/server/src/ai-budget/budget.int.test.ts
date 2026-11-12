@@ -23,7 +23,7 @@ import { ensureJobQueues } from "../jobs.ts";
 import { composeServices, defaultConfig } from "../services.ts";
 import { setAiBudget } from "../workspaces/ai-budget.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { AiBusyError, aiBudget, type Reservation } from "./budget.ts";
+import { aiBudget, type Reservation } from "./budget.ts";
 import { seedReservation, seedUsage, usageOn } from "./testing.ts";
 
 // The hard daily AI cap, against real Postgres, with the mock model. Each call costs 120 tokens
@@ -205,10 +205,8 @@ describe("daily AI budget", () => {
     const mb = mockModel(callCost);
     const first = Promise.allSettled([draft(acme, a.messageId, ma)]);
     try {
-      // Keep the reservation live until the second job has checked the budget. An instant
-      // mock can settle first, making the second job pause successfully instead of retrying.
       await expect.poll(() => ma.doGenerateCalls.length).toBe(1);
-      await expect(draft(acme, b.messageId, mb)).rejects.toThrow(AiBusyError);
+      await expect(draft(acme, b.messageId, mb)).resolves.toBe(mb);
       expect(await usageOn(db, acme, clock)).toMatchObject({ totalTokens: 100, calls: 0 });
     } finally {
       released.resolve();
@@ -400,7 +398,7 @@ describe("reserve and spend", () => {
       logger,
     });
     const result = await db.withTenant(other, (tx) => budget.reserve(tx, other, 50));
-    expect(result).toEqual({ refused: "over_budget", resetsAt: new Date("2027-01-02T00:00:00Z") });
+    expect(result).toEqual({ refused: "over_budget", retryAt: new Date("2027-01-02T00:00:00Z") });
   });
 
   it("two reservations at the cap at once: the second waits for the first, then is refused", async () => {
@@ -444,7 +442,7 @@ describe("reserve and spend", () => {
     const [a, b] = await Promise.all([first, second]);
     expect(a).toMatchObject({ tenantId: other, day: "2026-11-25", tokens: 150 });
     // 100 spent is under 200, but the first's 150 holds the rest.
-    expect(b).toBe("busy");
+    expect(b).toMatchObject({ refused: "busy" });
     expect(await usageOn(db, other, day)).toMatchObject({ totalTokens: 100, reservedTokens: 150 });
 
     // Settled to what it cost, it lets the rest go.
@@ -461,7 +459,7 @@ describe("reserve and spend", () => {
     await seedUsage(db, other, "2026-11-25", 40);
     expect(await db.withTenant(other, reserve)).toMatchObject({
       refused: "over_budget",
-      resetsAt: new Date("2026-11-26T00:00:00Z"),
+      retryAt: new Date("2026-11-26T00:00:00Z"),
     });
   });
 
@@ -497,7 +495,7 @@ describe("reserve and spend", () => {
     // A call whose process died holds the rest of the budget (60 + 150 of 200): until its
     // reservation runs out, it blocks.
     await seedReservation(db, other, "2026-11-29", 150, 60);
-    expect(await reserve()).toBe("busy");
+    expect(await reserve()).toMatchObject({ refused: "busy" });
     // Expiry charges the unknown bill, so it is over_budget rather than permanently busy.
     await seedReservation(db, other, "2026-11-29", 150, -1);
     expect(await reserve()).toMatchObject({ refused: "over_budget" });
@@ -591,13 +589,13 @@ describe("per-workspace AI budget", () => {
   it("a workspace token can't change its own budget", async () => {
     await setAiBudget(db, { tenantId: other, budget: 50 });
     const app = usageFor(other, ["conversations:read", "workspace:admin", "drafts:write"]);
-    // The only workspace settings route rejects fields it doesn't know.
     const res = await app.request("/v1/workspace/shadow-mode", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ recipient: "x@other.test", aiDailyTokenBudget: 1_000_000 }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "session_required" });
     // And no API operation accepts a budget at all.
     const doc = await (await app.request("/openapi.json")).text();
     expect(doc).not.toMatch(/aiDailyTokenBudget|ai_daily_token_budget/);
@@ -636,4 +634,42 @@ describe("per-workspace AI budget", () => {
     ).toEqual({ ok: false, reason: "workspace_not_found" });
     await expect(setAiBudget(db, { tenantId: other, budget: -1 })).rejects.toThrow();
   });
+});
+
+it("regenerate still queues while live reservations hold the budget", async () => {
+  clock = new Date("2027-02-01T12:00:00Z");
+  const email = await receive(203);
+  await draft(acme, email.messageId);
+  await seedReservation(db, acme, "2027-02-01", budget, 600);
+  const app = createApp(
+    composeServices({
+      db,
+      files,
+      logger,
+      clock: { now },
+      config: { dailyTokenBudget: budget },
+    }),
+    {
+      authenticate: async () => ({
+        tenantId: acme,
+        actor: { type: "agent", id: "t" },
+        scopes: new Set(["conversations:read", "drafts:write"] as const),
+      }),
+    },
+  );
+  const response = await app.request(`/v1/conversations/${email.conversationId}/drafts`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ regenerate: true }),
+  });
+  expect(response.status).toBe(202);
+  const model = await draft(acme, email.messageId);
+  expect(model.doGenerateCalls).toHaveLength(0);
+  expect((await conversation(acme, email.conversationId))?.aiPausedReason).toBeNull();
+  const pending = await jobsDb.withTenant(acme, (tx) =>
+    tx.execute(
+      sql`select id from pgboss.job where name = 'draft-reply' and data->>'messageId' = ${email.messageId} and state = 'created'`,
+    ),
+  );
+  expect(pending.length).toBeGreaterThan(0);
 });
