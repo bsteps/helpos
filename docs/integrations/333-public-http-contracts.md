@@ -4,28 +4,28 @@
 
 Finish the six selected HTTP and quality cleanup issues before features. Branch `333-public-http-contracts` targets `329-auditable-operations`. PR332 is an additional normal-merged prerequisite. The root finalizes the base after both prerequisites land. Neither prerequisite is counted among the six originals.
 
-| Prerequisite | Exact head | Accounting |
-| --- | --- | --- |
-| [PR334](https://github.com/bsteps/helpos/pull/334) | `4cbbdc13e31a4de6a743a53378eb2b2e2946a192` | Published auditable operations head. Contains code pin `25d4de4c634f08a5ac97dda9d96b3a138a7320bd`; only evidence documentation follows it. |
+| Prerequisite                                       | Exact head                                 | Accounting                                                                                                                                                      |
+| -------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [PR334](https://github.com/bsteps/helpos/pull/334) | `4cbbdc13e31a4de6a743a53378eb2b2e2946a192` | Published auditable operations head. Contains code pin `25d4de4c634f08a5ac97dda9d96b3a138a7320bd`; only evidence documentation follows it.                      |
 | [PR332](https://github.com/bsteps/helpos/pull/332) | `76b245effcb4d048d553806370cf58fabacd2156` | Normal merge `0023c69771aafe4097e8ac3e8a81ef06184d6a31`. Preserves extracted panels, uncertainty choices, history, exhaustive maps and typed knowledge helpers. |
 
 Both contain PR315. Their merge base is `80d10689dc1fe917c8f6364d5015edee9b7ad90e`. Shared ancestors are present once. Parent branches and PRs are unchanged. See [auditable operations](329-auditable-operations.md) and [conversation UI safety](327-conversation-ui-safety.md) for inherited source assignments and proof.
 
 ## Six frozen originals
 
-| Issue and PR | Frozen head | Unique-delta parent | Merge base with PR334 | Inherited verdict |
-| --- | --- | --- | --- | --- |
-| #10, [PR305](https://github.com/bsteps/helpos/pull/305) | `6998b6e176a468e65cf12687b4ef4d3bc36034f4` | `c44af156505c9f018d175f8d1845ee0286aa5e23` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/305#issuecomment-6810891044) |
-| #209, [PR261](https://github.com/bsteps/helpos/pull/261) | `2046da675f94e07e60070181caddca2499778da7` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/261#issuecomment-6805635069) |
+| Issue and PR                                             | Frozen head                                | Unique-delta parent                        | Merge base with PR334                      | Inherited verdict                                                                    |
+| -------------------------------------------------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| #10, [PR305](https://github.com/bsteps/helpos/pull/305)  | `6998b6e176a468e65cf12687b4ef4d3bc36034f4` | `c44af156505c9f018d175f8d1845ee0286aa5e23` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/305#issuecomment-6810891044)      |
+| #209, [PR261](https://github.com/bsteps/helpos/pull/261) | `2046da675f94e07e60070181caddca2499778da7` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/261#issuecomment-6805635069)      |
 | #233, [PR306](https://github.com/bsteps/helpos/pull/306) | `a5473725b7da1b43bd41523887578613aa8dc3a2` | `6998b6e176a468e65cf12687b4ef4d3bc36034f4` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/306#pullrequestreview-5867333228) |
 | #211, [PR307](https://github.com/bsteps/helpos/pull/307) | `fd147826f8f2434b9e1ed6cb01cda09ad766481e` | `a5473725b7da1b43bd41523887578613aa8dc3a2` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/307#pullrequestreview-5867425200) |
-| #210, [PR308](https://github.com/bsteps/helpos/pull/308) | `67d758cbb099d31449a07297605cb679ac5d7779` | `fd147826f8f2434b9e1ed6cb01cda09ad766481e` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/308#issuecomment-6811957959) |
-| #22, [PR309](https://github.com/bsteps/helpos/pull/309) | `5577612b68a521c7b7125b415c258564bcba24f8` | `67d758cbb099d31449a07297605cb679ac5d7779` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/309#issuecomment-6812266546) |
+| #210, [PR308](https://github.com/bsteps/helpos/pull/308) | `67d758cbb099d31449a07297605cb679ac5d7779` | `fd147826f8f2434b9e1ed6cb01cda09ad766481e` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/308#issuecomment-6811957959)      |
+| #22, [PR309](https://github.com/bsteps/helpos/pull/309)  | `5577612b68a521c7b7125b415c258564bcba24f8` | `67d758cbb099d31449a07297605cb679ac5d7779` | `0ce9c751b75599d7bd694c59b3efba32547c1cb7` | [PASS+NOTES](https://github.com/bsteps/helpos/pull/309#issuecomment-6812266546)      |
 
 Only the nine unique source commits below were cherry-picked. Each retains its original author and authored date with `-x` provenance. Old parent chains were not replayed.
 
-| Original commit | Applied commit |
-| --- | --- |
+| Original commit                            | Applied commit                             |
+| ------------------------------------------ | ------------------------------------------ |
 | `bc07ca229de2ecee976180697ee6d2c8cbfa81bb` | `b457b1f94fbd7b7342ba40646d84ac0261ff65ec` |
 | `f21a1599248f19396e6be06034e7db55f2b9be16` | `c6e26c62d1f485da4b66a31deae05b427d0abcc6` |
 | `6998b6e176a468e65cf12687b4ef4d3bc36034f4` | `04f80d39c1f1402eeb3807d63ba33f662acc828c` |
