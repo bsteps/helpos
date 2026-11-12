@@ -560,6 +560,40 @@ describe("drafting in context", () => {
     expect(prompt).toMatch(/<untrusted_email>.*invoice for March.*wrong VAT.*<\/untrusted_email>/);
   });
 
+  it("leaves unconfirmed send attempts out of the history the model sees", async () => {
+    const first = await receiveEmail("Where is my parcel?");
+    await waitForDraft(first.conversationId, "pending");
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.messages).values(
+        [
+          { body: "Unconfirmed attempt about the parcel.", sentAt: null },
+          { body: "Delivered answer about the parcel.", sentAt: new Date() },
+        ].map(({ body, sentAt }, i) => ({
+          tenantId: acme,
+          conversationId: first.conversationId,
+          direction: "outbound" as const,
+          fromAddress: "support@acme.test",
+          toAddresses: ["jane@customer.test"],
+          subject: `Re: ${first.subject}`,
+          textBody: body,
+          messageIdHeader: `<history-${emailCount}-${i}@acme.test>`,
+          references: [first.header],
+          rawFileKey: `${acme}/history-${emailCount}-${i}`,
+          sentAt,
+        })),
+      ),
+    );
+    await receiveEmail("It still has not arrived.", { replyTo: first.header });
+    const prompt = await waitFor("the follow-up prompt", async () =>
+      JSON.stringify(
+        model.doGenerateCalls.find((c) => JSON.stringify(c.prompt).includes("still has not"))
+          ?.prompt,
+      ),
+    );
+    expect(prompt).toContain("Delivered answer about the parcel.");
+    expect(prompt).not.toContain("Unconfirmed attempt");
+  });
+
   it("a late job for an older message never discards the newer message's draft", async () => {
     const first = await receiveEmail("Question one.");
     await waitForDraft(first.conversationId, "pending");
