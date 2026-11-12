@@ -38,6 +38,7 @@ import {
   knowledgeEditBody,
   knowledgeProblem,
 } from "@/lib/knowledge-form.ts";
+import { webHref } from "@/lib/web-href.ts";
 
 type Visibility = KnowledgeSource["visibility"];
 
@@ -244,15 +245,6 @@ function AddSource({ onDone }: { onDone: () => void }) {
   );
 }
 
-function webLink(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
-  } catch {
-    return null;
-  }
-}
-
 const statusBadge = {
   pending: { status: "loading", label: "Reading" },
   waiting: { status: "loading", label: "Reading" },
@@ -283,7 +275,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
     resetRemove();
     setMode("view");
   }, [inGit, resetReingest, resetRemove]);
-  const link = source.url ? webLink(source.url) : null;
+  const link = source.url ? webHref(source.url) : null;
 
   return (
     <Card data-testid="knowledge-source">
