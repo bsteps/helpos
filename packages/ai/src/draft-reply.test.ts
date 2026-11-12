@@ -13,6 +13,7 @@ import {
   replyDraftTokenEstimate,
 } from "./draft-reply.ts";
 import { tokenBound } from "./estimate.ts";
+import { expectLinearGrowth } from "./growth.testing.ts";
 import { mockModel } from "./testing.ts";
 
 const email = { from: "jane@customer.test", subject: "Late order", body: "Where is my order?" };
@@ -301,11 +302,12 @@ describe("parseSources", () => {
     });
   });
 
-  it("stays fast on a reply crafted to make the marker search backtrack", () => {
-    const hostile = `[source:k9${"\t".repeat(50_000)}x\n${" ".repeat(50_000)}x`;
-    const started = performance.now();
-    parseSources(hostile, 2);
-    expect(performance.now() - started).toBeLessThan(200);
+  it("scales linearly on a reply crafted to make the marker search backtrack", () => {
+    expectLinearGrowth(
+      (n) => `[source:k9${"\t".repeat(n)}x\n${" ".repeat(n)}x`,
+      (text) => parseSources(text, 2),
+      (result, text) => expect(result).toEqual({ text, cited: [] }),
+    );
   });
 
   it("removes a list cut off at the end of the reply", () => {
@@ -344,12 +346,15 @@ describe("parseSources", () => {
     });
   });
 
-  it("stays fast on a reply full of markers on one line", () => {
-    const many = `Hi ${"**x**[sources: K1] ".repeat(5_000)}`;
-    const started = performance.now();
-    const { text } = parseSources(many, 2);
-    expect(performance.now() - started).toBeLessThan(200);
-    expect(text).not.toContain("sources");
+  it("scales linearly on a reply full of markers on one line", () => {
+    expectLinearGrowth(
+      (n) => `Hi ${"**x**[sources: K1] ".repeat(n)}`,
+      (text) => parseSources(text, 2),
+      (result) => {
+        expect(result.text).not.toContain("sources");
+        expect(result.cited).toEqual([0]);
+      },
+    );
   });
 
   it("finds the line before a sign-off, and never leaves one in the reply", () => {
