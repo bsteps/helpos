@@ -1,6 +1,6 @@
 # beUI components
 
-The files listed below are copied from [beUI](https://beui.dev) ([source](https://github.com/starc007/ui-components)), installed from its shadcn registry and lightly adapted: optional props passed only when set (this repo type-checks with `exactOptionalPropertyTypes`), formatting, and `loader.tsx` trimmed to its spinner. They stay under beUI's MIT licence, reproduced here as it requires. The rest of this folder is part of the project and is AGPL-3.0.
+The files listed below are copied from [beUI](https://beui.dev) ([source](https://github.com/starc007/ui-components)), installed from its shadcn registry and lightly adapted: optional props passed only when set (this repo type-checks with `exactOptionalPropertyTypes`), formatting, and `loader.tsx` trimmed to its spinner. Unused button links, button variants and effects, alert visibility controls, input slot classes, and motion tokens were removed to keep the copied APIs limited to their callers. They stay under beUI's MIT licence, reproduced here as it requires. The rest of this folder is part of the project and is AGPL-3.0.
 
 - `src/components/ui/alert.tsx`, `animated-badge.tsx`, `button.tsx`, `card.tsx`, `input.tsx`, `loader.tsx`
 - `src/lib/ease.ts`, `src/lib/utils.ts`, `src/lib/presence-gate.tsx`, `src/lib/hooks/use-hover-capable.ts`
