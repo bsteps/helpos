@@ -93,3 +93,11 @@ The probe now resolves `main.ts` relative to the test module and explicitly runs
 The forced-root probe fails both original startup cases before the entrypoint fix. After the fix, all 14 environment tests pass from the repository root and all 14 pass from the server package. Server typechecking also passes. Receipts are `.helpos/337-startup-before.log`, `337-startup-root-after.log`, `337-startup-package-after.log` and `337-startup-typecheck.log`.
 
 The earlier production, Postgres, CLI and offline prompt evidence remains inherited for unchanged source. Current-head CI and a fresh focused independent recheck are still required for this test-only correction. No new database, browser, live-provider or model campaign was run.
+
+## Reviewed parent reconciliation
+
+The startup correction passed its fresh independent recheck at `a4db10d`. GitHub could not create its pull-request merge because the updated parent conflicted with an inherited Markdown table. The parent's reviewed head `d5b1e290cfcdabeeb2667932bf9d6d68f00919e5` is now normal-merged. A normalized comparison confirmed this child had changed only table alignment and separator widths in the parent's integration record; the reviewed parent text is retained in full.
+
+The merge inherits the parent's growth-clock regression correction and its qualified AI-history description. Public reply history excludes unconfirmed outbound messages; the AI history query still lacks that filter. No runtime history fix is claimed. The startup probes and all other child production and test files remain unchanged from `a4db10d`. Existing whole-integration and Postgres evidence is inherited for those unchanged files. Focused affected checks, a fresh integration-delta recheck and current-head CI cover this reconciliation.
+
+Fresh reconciliation checks passed all 150 AI unit tests, all 14 startup environment tests invoked from the repository root, AI typechecking and scoped Biome. The merge changes only the two parent proof documents, the parent growth helper and its test, and this record; all other child files are byte-preserved. Receipts are `.helpos/337-parent-ai.log`, `337-parent-startup.log` and `337-parent-ai-typecheck.log`. Current-head CI and the independent reconciliation verdict remain pending.

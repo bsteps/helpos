@@ -1,17 +1,25 @@
 import { expect } from "vitest";
 
+function growthClockMilliseconds(): number {
+  // Windows process CPU accounting is too coarse for these millisecond samples.
+  if (process.platform === "win32") return performance.now();
+  const { user, system } = process.cpuUsage();
+  return (user + system) / 1_000;
+}
+
 export function expectLinearGrowth<T>(
   input: (size: number) => string,
   run: (text: string) => T,
   check: (result: T, text: string) => void,
+  nowMilliseconds: () => number = growthClockMilliseconds,
 ): void {
   const small = input(2_000);
   const large = input(16_000);
   const measure = (text: string, count: number) => {
-    const started = performance.now();
+    const started = nowMilliseconds();
     let result = run(text);
     for (let i = 1; i < count; i++) result = run(text);
-    const elapsed = performance.now() - started;
+    const elapsed = nowMilliseconds() - started;
     check(result, text);
     return elapsed;
   };
@@ -27,14 +35,20 @@ export function expectLinearGrowth<T>(
     count *= 2;
   }
 
-  const pairs = Array.from({ length: 7 }, (_, i) => {
-    if (i % 2 === 0) {
-      const n = measure(small, count);
-      return { n, eightN: measure(large, count) };
-    }
-    const eightN = measure(large, count);
-    return { n: measure(small, count), eightN };
-  });
+  const sample = () =>
+    Array.from({ length: 7 }, (_, i) => {
+      if (i % 2 === 0) {
+        const n = measure(small, count);
+        return { n, eightN: measure(large, count) };
+      }
+      const eightN = measure(large, count);
+      return { n: measure(small, count), eightN };
+    });
+  let pairs = sample();
+  while (count < 1_024 && pairs.some(({ n }) => n <= 1)) {
+    count *= 2;
+    pairs = sample();
+  }
   const ratios = pairs.map(({ n, eightN }) => eightN / n).sort((a, b) => a - b);
   const evidence = JSON.stringify({ count, pairs, ratios });
   expect(Math.min(...pairs.map(({ n }) => n)), evidence).toBeGreaterThan(1);
