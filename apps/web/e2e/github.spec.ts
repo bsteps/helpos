@@ -22,6 +22,8 @@ test("conversation → GitHub issue → closed on GitHub → approve the fix not
 
   // An owner connects the repo. The token is checked with GitHub and never shown again.
   await signIn(page);
+  // Connecting the same repo again keeps its webhook secret, so start disconnected to get one
+  // to sign with.
   const reset = await page.request.delete("/v1/integrations/github");
   expect(reset.status()).toBe(204);
   await page.getByRole("link", { name: "Settings" }).click();

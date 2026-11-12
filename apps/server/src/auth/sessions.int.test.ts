@@ -205,9 +205,10 @@ describe("sign-in", () => {
 });
 
 describe("a session cookie", () => {
+  const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000;
   it.each([
-    { age: 7 * 24 * 60 * 60 * 1000 - 1000, status: 200 },
-    { age: 7 * 24 * 60 * 60 * 1000 + 1000, status: 401 },
+    { age: sessionLifetimeMs - 1000, status: 200 },
+    { age: sessionLifetimeMs + 1000, status: 401 },
   ])("returns $status from /v1/me after $age ms without activity", async ({ age, status }) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {

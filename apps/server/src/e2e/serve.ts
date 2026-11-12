@@ -210,6 +210,8 @@ const workspace = await initWorkspace(
 if (!workspace.ok) throw new Error("e2e: workspace setup failed");
 const setup = await auth.issueSetupToken(workspace.ownerId);
 
+// The demo workspaces too, for tests that need history (drafts sent weeks ago). The seed gives
+// nobody a password, so its owner and a member get one here.
 const seeded = await seedDemoData({ db, auth, jobs: runner, config: helpos.services.config });
 if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
 const seedOwner = "maya.okafor@northwind-cycles.test";

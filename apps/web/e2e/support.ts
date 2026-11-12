@@ -24,6 +24,7 @@ export interface E2eState {
   modelDownMarker: string;
   /** Like `modelDownMarker`, but asking the AI again fails too: only the next ask works. */
   modelStillDownMarker: string;
+  /** The owner and a member of the seeded Northwind Cycles workspace (demo data), and their password. */
   seedOwner: string;
   seedMember: string;
   seedPassword: string;

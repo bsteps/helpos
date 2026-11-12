@@ -44,7 +44,7 @@ The actual `241-rename-map.tsv` and `200-test-path-mapping.tsv` in `E:/Projects/
 - The GitHub conflict combines `jobsForLink` with main's `waitFor` and `waitForTenantJobs` imports. Main's settlement waits and assertions remain. The reviewed recheck test uses persisted jobs for the disconnected interval; it does not restore the old local polling helper.
 - The E2E setup keeps main's conversation terminology. E2E support keeps the `conversationId` response mapping. The knowledge E2E file keeps main's typed source state, retry assertion, and git-managed source case.
 - `packages/db/src/testing.ts` keeps main's shared setup, settlement helper, and diagnostics, and adds only the reviewed tenant-and-link-scoped job read helper.
-- The sole Comment Sicko pass removed the two added lines that narrated demo password setup. No application code, suppressions, or additional cleanup changed in that pass.
+- The Comment Sicko pass removed existing why-comments in `serve.ts`, `support.ts` and `github.spec.ts`. The independent review restored them, reworded for the seeded member. No application code or suppressions changed.
 
 Seven of the 13 selected file blobs remain identical to their source heads. The six adapted files are the session suite, E2E server, knowledge browser suite, E2E support, GitHub integration suite, and DB testing helper. Each difference is covered by the overlaps above. The local blob accounting is `.helpos/integration318/blob-accounting.tsv`.
 
@@ -87,10 +87,26 @@ The exclusive heavy slot was released immediately after subprocess exit and reso
 
 Focused real proof, restored negatives, and the stable final full gate are complete. Local security-baseline, tenant-isolation, and test-signal checks found no new blocking rule violation. The sole native Comment Sicko pass is complete. These are owner checks, not the required fresh independent integration review.
 
-The single new replacement PR targets actual current main only after local readiness. Keep `pr:in-progress`, `needs-human`, and `security`. A fresh independent integration review and human security approval remain mandatory. This group has no merge approval.
+The single new replacement PR targets actual current main. It keeps `needs-human` and `security`; `pr:ready` follows the passing gate. A fresh independent integration review and human security approval remain mandatory. This group has no merge approval.
 
 The existing source review notes a remaining tenant-filtered warning count in the unreadable webhook-secret test. It is not a warning-text match and is not strengthened by this integration. Later route sweeps #197, typed audit #85, API conventions #10 and #233, and the separate #315, #316, and #317 work stay excluded. The only test fixture addition here is the real seeded member's password and identity, plus the reviewed recheck job reader.
 
 No live AI journey or provider credentials are needed. #205 remains deferred. Offline providers prove app mechanics, not model quality or prompt-injection resistance. Shared Docker and environment files stay untouched; tests may clean up only resources they own. Original PRs, branches, and discussions remain frozen. Tracking #318 is excluded from original issue counts.
 
 The append-only decision trail is `E:/Projects/helpdesk/.helpos/autopilot/318-integration.tsv`.
+
+## Independent review
+
+Base `58451595845f67aef0fb35e0ba584bac71ad1045`, reviewed head `b51023c2132bd481370d4b417afeb1b8ee3ea666`. Fresh standards and spec reviews read the code against #221, #244, #231 and #201.
+
+Fixed in review:
+
+- The budget test reads its starting usage after the email's background draft has settled, as the earlier budget test does, so a draft in flight can't sit in the baseline.
+- Restored the why-comments listed under the overlaps, named the session lifetime once, and renamed the member settings test to say what it proves.
+
+Checked and kept:
+
+- A probe that ran the background draft between the two usage reads still passed: the offline model costs nothing, so the old ordering is not a live flake today.
+- Changing `set_config(..., true)` to `false` in `client.ts` fails the pooled-connection test: the reused backend still reports the tenant. An eight-day session lifetime fails the after-seven-days case with 200 instead of 401. Both sources were restored.
+- The member settings check is real on the phone layout: the nav isn't collapsed and sign-in waits for the inbox.
+- Spec gaps a test change can't close: the orphan issue's number now appears only in the 502 response and the log, since nothing stores it; and the seeded workspace has no GitHub connection, so the member's hidden Rotate and Disconnect controls aren't exercised (the API's 403 is).

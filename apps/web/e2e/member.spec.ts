@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
   expect(me.scopes).not.toContain("workspace:admin");
 });
 
-test("a member sees owner-only settings and the API refuses administration", async ({ page }) => {
+test("a member can't change owner-only settings, in the dashboard or the API", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();

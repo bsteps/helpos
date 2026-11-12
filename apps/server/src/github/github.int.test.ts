@@ -787,6 +787,7 @@ describe("drafting an issue with the AI", () => {
 
   it("still answers ai_unavailable when the failed call's cost can't be written back", async () => {
     const email = await receiveEmail();
+    await waitForTenantJobs(testDb, acme, { queues: ["draft-reply"] });
     const before = await usageOn(db, acme);
     // Fails every transaction after the one that reserves the budget: the settle, here.
     let calls = 0;
