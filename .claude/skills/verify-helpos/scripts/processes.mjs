@@ -11,12 +11,12 @@ const sameCase = windows ? (s) => s.toLowerCase() : (s) => s;
 // The file `pnpm dev` runs for the API, read from apps/server's own dev script, so a change
 // there is followed here instead of making the real server look like a stranger.
 function serverDevScript() {
-  try {
-    const dev = JSON.parse(readFileSync(join(webDir, "..", "server", "package.json"), "utf8"))
-      .scripts?.dev;
-    if (typeof dev === "string") return dev;
-  } catch {}
-  return "node --watch --env-file-if-exists=../../.env src/main.ts";
+  const dev = JSON.parse(readFileSync(join(webDir, "..", "server", "package.json"), "utf8")).scripts
+    ?.dev;
+  if (typeof dev !== "string" || !dev.trim()) {
+    throw new Error("apps/server/package.json must define scripts.dev to identify its processes");
+  }
+  return dev;
 }
 const serverDev = serverDevScript();
 const pathPattern = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\//g, "[\\\\/]");
@@ -76,10 +76,7 @@ function processTable() {
       "-Command",
       "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress",
     ]);
-    let rows = [];
-    try {
-      rows = [JSON.parse(out || "[]")].flat();
-    } catch {}
+    const rows = [JSON.parse(out || "[]")].flat();
     for (const p of rows) add(p.ProcessId, p.ParentProcessId, p.CommandLine);
   } else {
     for (const line of sh("ps", ["-A", "-o", "pid=,ppid=,command="]).split("\n")) {
@@ -173,11 +170,16 @@ export function stopTree(top) {
     for (const p of all) if (p.parent === tree[i]) tree.push(p.pid);
   }
   let stopped = false;
+  let failed = false;
   for (const pid of tree) {
     try {
       process.kill(pid, "SIGTERM");
       stopped = true;
-    } catch {}
+    } catch (error) {
+      if (error.code === "ESRCH") continue;
+      failed = true;
+      process.stderr.write(`Could not stop process ${pid}: ${error.code ?? error.name}\n`);
+    }
   }
-  return stopped;
+  return stopped && !failed;
 }
