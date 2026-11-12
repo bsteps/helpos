@@ -99,3 +99,20 @@ Fresh selected execution passes 69 tests across `growth.test.ts`, `draft-reply.t
 The root granted the single plain `EVAL_LIVE=0 pnpm verify` after the bounded process exited and the other resource holders released their containers. It runs on the next stable committed head with valid cache, without `TURBO_FORCE`, source edits, TLC, a browser, or repeated `test:scripts`. Final SHA, outcome, fresh/cache split, and resource release belong in the PR and local runtime trail without changing the tested commit. A live app journey would require Docker and real AI under `verify-helpos`, so it is not run under this offline scope. Source role/API proof remains inherited. Offline checks do not prove live model quality or injection resistance. #205 remains deferred.
 
 Publication waits for local readiness. The own-branch PR must retain `needs-human`, `security`, and `pr:in-progress`, target `329-auditable-operations`, and name PR336 explicitly. Link it immediately after creation. The root owns fresh independent integration review and final base choice. No source refresh, parent push, merge, approval, closure, deletion, settings change, or watch is authorized. The append-only [335-integration.tsv](335-integration.tsv) records decisions and outcomes.
+
+## Independent review and security review
+
+A fresh Claude Opus 5.5 review covered `4cbbdc1...cc9c062`, scoped to the three selected source commits, the conflict resolutions in `031a435`, and the integration risks of the inherited prerequisite. Standards and spec reviewers ran in separate contexts, and a third reviewer checked the fix. The conflict resolutions and both original contracts hold. Four gaps were fixed in one commit:
+
+- A malformed payload logged only `job runner error` with error name `Error`, which looks like any pg-boss background error. It now throws `InvalidJobPayloadError`, so the log entry names the failure and still carries no message, payload or tenant ID.
+- The composed-server regression passed on the first log line, so it would also pass if every attempt logged. It now waits for the job's `failed` state after its retry and requires exactly one entry.
+- `ServerInput.onJobError` was typed without the queue and job ID context, so a caller's hook silently lost it. It now uses the runner's own `onError` type.
+- The enum CHECK test compared only the 13 rows in its table. A new list CHECK left out of the table passed unnoticed. A guard now lists every public CHECK whose stored definition is an allowed-value list, including a one-value list such as `integrations_provider`, and requires each one in the table. A negative run that removed `integrations_provider` from the table failed as intended.
+
+The `createJobRunner.consume` fingerprint moves from `23141a4a4b69` to `13c7c8ab11d4`. The last-attempt condition is computed once before validation, and the valid-payload order is unchanged. No other coverage row changes.
+
+Not changed: the `knowledge_sources_state` JSON CHECK still types out its code and HTTP-status lists by hand, and public API Zod schemas restate some enum lists. Neither is in the scope of #196. A payload that is always invalid still uses every retry before its single log entry, as #228 asks.
+
+`/security-review` ran on `4cbbdc1...2d28db6` and found no vulnerability at or above its reporting bar. It covered the `sql.raw` enum builder, role-derived scopes, malformed-payload tenant selection and content-safe output, busy-deferral re-enqueue, regenerate audit atomicity, knowledge search audience and the merged lint rules.
+
+The coordinator's bounded grant ran `schema.int.test.ts`, `jobs.int.test.ts` and `invalid-job.int.test.ts` on one owned PostgreSQL with one worker and no file parallelism. Result: 3 files and 46 tests pass, exit 0. Light checks pass: DB and server typechecks, 495 server and 7 DB unit tests, and Biome with the three inherited warnings. Docker returned to its three baseline containers.
