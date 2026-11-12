@@ -4,7 +4,8 @@ This integration finishes the existing cleanup chain for #198, #241, and #200 be
 
 ## Base and frozen sources
 
-The branch `312-test-isolation` starts at actual `origin/main`, `8af8f1f3f598b2d4ecfb4a1dcae0222b45f52551`. That main commit already contains [PR310](https://github.com/bsteps/helpos/pull/310). Its sources are not replayed. The selected chain shares base `0cb5ba823f010b8fb0ec7ac6061faeb673d31658` with main.
+The initial `312-test-isolation` assembly started at `origin/main`, `8af8f1f3f598b2d4ecfb4a1dcae0222b45f52551`, which contains [PR310](https://github.com/bsteps/helpos/pull/310). Its sources are not replayed. The selected chain shares base `0cb5ba823f010b8fb0ec7ac6061faeb673d31658` with that main commit.
+The refreshed PR base is `c401a765a80f8e32a16bbdaf03629f20841171dc`, the approved [PR311](https://github.com/bsteps/helpos/pull/311) knowledge integration. Merge commit `106888764e1702f9985093ffbb4e8f95b4d77975` preserves its typed state and migration while retaining all seven selected source commits.
 
 | Source                                                   | Exact head                                 | Exact source base                          | Inherited independent verdict                                                                                                        |
 | -------------------------------------------------------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -32,50 +33,53 @@ No unselected ancestor is introduced after the shared base. No cherry-pick dupli
 
 ## Rename mapping and content proof
 
-Each of #241's 13 renames is byte-identical between its original parent and its source head. Every destination in this integration equals the corresponding PR297 blob. Thus later #200 edits to the draft, knowledge, and job tests survive intact rather than reverting to the earlier rename snapshot.
+Each of #241's 13 renames is byte-identical between its original parent and its source head. At initial publication every destination equaled the corresponding PR297 blob. The current-main refresh applies the landed knowledge changes to the renamed server knowledge suite and retains its shared `waitFor` helper. It preserves all new state, retry, passage, scope and audit assertions rather than restoring the older snapshot.
 
-| Original path                                             | Integration path                                           |
-| --------------------------------------------------------- | ---------------------------------------------------------- |
-| `apps/server/src/app.test.ts`                             | `apps/server/src/app.int.test.ts`                          |
-| `apps/server/src/inbound-email/route.test.ts`             | `apps/server/src/inbound-email/route.int.test.ts`          |
-| `apps/server/src/workspaces/init-workspace.test.ts`       | `apps/server/src/workspaces/init-workspace.int.test.ts`    |
-| `packages/db/src/auth.test.ts`                            | `packages/db/src/auth.int.test.ts`                         |
-| `packages/db/src/client.test.ts`                          | `packages/db/src/client.int.test.ts`                       |
-| `packages/db/src/jobs.test.ts`                            | `packages/db/src/jobs.int.test.ts`                         |
-| `packages/db/src/leak.test.ts`                            | `packages/db/src/leak.int.test.ts`                         |
-| `packages/db/src/migrate-conversation-scopes.test.ts`     | `packages/db/src/migrate-conversation-scopes.int.test.ts`  |
-| `packages/db/src/migrate-unique-knowledge-url.test.ts`    | `packages/db/src/migrate-unique-knowledge-url.int.test.ts` |
-| `packages/db/src/schema.test.ts`                          | `packages/db/src/schema.int.test.ts`                       |
-| `apps/server/src/knowledge/knowledge.test.ts`             | `apps/server/src/knowledge/knowledge.int.test.ts`          |
-| `packages/db/src/knowledge.test.ts`                       | `packages/db/src/knowledge.int.test.ts`                    |
-| `apps/server/src/drafts/drafts.test.ts`                   | `apps/server/src/drafts/drafts.int.test.ts`                |
-| `packages/db/src/migrations.test.ts`, inherited from main | `packages/db/src/migrations.int.test.ts`                   |
+| Original path                                                                  | Integration path                                           |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `apps/server/src/app.test.ts`                                                  | `apps/server/src/app.int.test.ts`                          |
+| `apps/server/src/inbound-email/route.test.ts`                                  | `apps/server/src/inbound-email/route.int.test.ts`          |
+| `apps/server/src/workspaces/init-workspace.test.ts`                            | `apps/server/src/workspaces/init-workspace.int.test.ts`    |
+| `packages/db/src/auth.test.ts`                                                 | `packages/db/src/auth.int.test.ts`                         |
+| `packages/db/src/client.test.ts`                                               | `packages/db/src/client.int.test.ts`                       |
+| `packages/db/src/jobs.test.ts`                                                 | `packages/db/src/jobs.int.test.ts`                         |
+| `packages/db/src/leak.test.ts`                                                 | `packages/db/src/leak.int.test.ts`                         |
+| `packages/db/src/migrate-conversation-scopes.test.ts`                          | `packages/db/src/migrate-conversation-scopes.int.test.ts`  |
+| `packages/db/src/migrate-unique-knowledge-url.test.ts`                         | `packages/db/src/migrate-unique-knowledge-url.int.test.ts` |
+| `packages/db/src/schema.test.ts`                                               | `packages/db/src/schema.int.test.ts`                       |
+| `apps/server/src/knowledge/knowledge.test.ts`                                  | `apps/server/src/knowledge/knowledge.int.test.ts`          |
+| `packages/db/src/knowledge.test.ts`                                            | `packages/db/src/knowledge.int.test.ts`                    |
+| `apps/server/src/drafts/drafts.test.ts`                                        | `apps/server/src/drafts/drafts.int.test.ts`                |
+| `packages/db/src/migrations.test.ts`, inherited from main                      | `packages/db/src/migrations.int.test.ts`                   |
+| `packages/db/src/migrate-knowledge-state.test.ts`, inherited from current main | `packages/db/src/migrate-knowledge-state.int.test.ts`      |
 
-The last row is the only additional integration rename. Its bytes match main exactly, preserving both schema consistency and repeat-setup assertions. The filename guard rejects its original name because it imports the real database helper. The inherited [migration proof manifest](278-verification-foundation.md) and [source review](https://github.com/bsteps/helpos/pull/250#issuecomment-6806701982) remain applicable to its unchanged assertions. Fresh execution covers its new project selection.
+The last two rows are the additional integration renames. Both files match current main byte for byte, preserving schema consistency, repeat-setup, legacy-data preservation and atomic migration-failure assertions. The filename guard requires the integration suffix because both import the real database helper. The inherited [migration proof manifest](278-verification-foundation.md) and [source review](https://github.com/bsteps/helpos/pull/250#issuecomment-6806701982) remain applicable to their unchanged assertions. Fresh execution covers their integration-project selection.
 
 The reusable local maps remain at `E:/Projects/helpdesk/.helpos/autopilot/241-rename-map.tsv` and `E:/Projects/helpdesk/.helpos/autopilot/200-test-path-mapping.tsv`. Later source groups must apply their original-path edits to these destinations. Existing `notice-worker.int.test.ts`, `send-failed.int.test.ts`, `send-invariants.int.test.ts`, `send-path-replay.int.test.ts`, and `github.int.test.ts` retain their paths.
 
 ## Integration edits and conflicts
 
 - The only merge conflict is the AGENTS enforcement table. All 21 main rules survive exactly once, including migration consistency and proof requirements. The added test-filename rule occurs once. Renamed database test pointers use their integration filenames.
-- Main's migration test is renamed without content changes. All non-AGENTS files changed by the source chain match the selected source tip byte for byte. No production integration edit is required.
+- Both inherited migration tests are renamed without content changes. At initial publication all non-AGENTS source-chain files matched the selected source tip byte for byte. The subsequent main merge carries the reviewed knowledge changes into the renamed test paths. No production integration edit is required.
 - The merge retains the source budget-race repair and deferred-work rejection. It retains the XSS frame-load and two-render-frame barrier, the malicious fixture assertions, and the existing send-model coverage record.
 
 The structure remains the source design. `unit` excludes `*.int.test.ts` and has no Postgres setup. `int` selects those files and owns database setup. `waitForTenantJobs` observes tenant-filtered pg-boss rows, keeps queued, active, and retry work pending, and returns future created work separately. Application outcome assertions remain necessary after settlement.
 
 ## Inherited proof and separate groups
 
-The [PR296 hosted run](https://github.com/bsteps/helpos/actions/runs/43114634471/job/130839317561) actually stopped both Docker service and socket on a disposable hosted runner. It executed 599 unit tests across 49 files successfully before restoring Docker and running uncached integration checks. The final independent verdict checked its merge-tree equality and log provenance. This is reused source evidence, not a new stopped-daemon run of this integration. Shared Docker is never stopped here. Unit source files and unit configuration are unchanged from that source.
+The [PR296 hosted run](https://github.com/bsteps/helpos/actions/runs/43114634471/job/130839317561) actually stopped both Docker service and socket on a disposable hosted runner. It executed 599 unit tests across 49 files successfully before restoring Docker and running uncached integration checks. The final independent verdict checked its merge-tree equality and log provenance. This is reused source evidence, not a new stopped-daemon run of this integration. Shared Docker is never stopped here. At initial publication, unit source files and configuration were unchanged from that source.
+
+The Docker-stopped result covers the unchanged project setup and original unit inputs. The refresh also selects the newly landed page-fetch unit suite and updated dashboard knowledge tests under the same database-free setup. Their current results belong to the refreshed-head receipts; no new daemon-stopped run is claimed.
 
 The PR276 verdict covers the removed unused system-job branch, tenant transaction and last-failure semantics, targeted source mutations, and the send model. The PR297 verdict covers worker controls, caller outcomes, the budget race, and fresh laptop and phone XSS checks against the composed API with deterministic AI adapters. These unaffected results are reused with their stated limits. Existing model findings are preserved. No new formal verification or blanket fingerprint confirmation is claimed.
 
 | Separate group                                                                                               | Concrete overlap and later reconciliation                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [PR311](https://github.com/bsteps/helpos/pull/311), reviewed head `cada3c578a45695697f573ee7a5ef07db573ab83` | Excluded. If it lands, map its new `packages/db/src/migrate-knowledge-state.test.ts` to `packages/db/src/migrate-knowledge-state.int.test.ts`. Map edits to both original `knowledge.test.ts` paths using the table above. Do not create a future stub. Reconcile only a real main change.                                                                                                                                                                                            |
+| [PR311](https://github.com/bsteps/helpos/pull/311), reviewed head `cada3c578a45695697f573ee7a5ef07db573ab83` | Landed in current main as `c401a765a80f8e32a16bbdaf03629f20841171dc`. It is inherited once, not replayed as a source. Its new migration test uses the integration suffix, and its server knowledge edits are retained in `knowledge.int.test.ts` with the shared wait helper. Its migration 0022, schema, source operations, API and dashboard behavior are unchanged.                                                                                                                |
 | [PR309](https://github.com/bsteps/helpos/pull/309)                                                           | Quality and coverage gates belong to the later group. This integration makes no combined-coverage claim.                                                                                                                                                                                                                                                                                                                                                                              |
 | [PR269](https://github.com/bsteps/helpos/pull/269), head `e130503f7c97ce5edefd3ed8add7592bf8406a39`          | Both remove `brand.npmScope`, `brand.tagline`, the npm-scope assertion, and DB re-exports `defineSystemJob`, `SystemJob`, and `SystemJobHandler`. #198 removes the unused system-job implementation entirely. Later #269 must not restore its private system types or overloads. Keep #198's removed app export ignores and `ignoreBinaries: ["java"]` while adding #269's package `includeEntryExports`. Its other package export edits and `scripts/knip.test.mjs` remain excluded. |
 
-## Fresh combined proof
+## Initial combined proof
 
 Focused checks completed before full verification, with fixture and mutation runs serialized:
 
@@ -90,6 +94,12 @@ Focused checks completed before full verification, with fixture and mutation run
 Local rerunnable comparison and probe artifacts are in this checkout's `.helpos/`. `prove-312.mjs` checks all rename bytes, selected source files, AGENTS rules, all package collections, and the restored filename negative proof. `312-equivalence.json` records the results. Queue mutations retain their individual assertion logs under `job-wait-mutations/`. `312-race-probe.mjs`, `297-race-without-drain.log`, and `297-race-fixed-barrier.log` retain the reproduced race and fixed control. A Windows escaped-path assumption in the comparison script was corrected after its output assertion failed. The guard itself rejected both intended filenames and restored them correctly.
 
 The initial verification attempt stopped at Markdown table formatting before Knip or package tasks ran. Formatting the two integration documents fixes that failure without source changes. The required publication gate is one completed `pnpm verify` run on the stable committed combined head after all transient fixtures are restored. The replacement PR and append-only decision log record its exact SHA, result, cache use, and any limitation. Fresh independent integration review and required hosted CI remain separate gates.
+
+## Current-main refresh
+
+The actual knowledge merge required one additional byte-identical migration-test rename. Git merged the source operations, job tests and renamed server knowledge suite without textual conflicts. Relative to current main, the knowledge-suite changes are its integration filename and replacement of the copied polling loop with the already reviewed shared `waitFor`. The new typed-state and tenant assertions remain intact.
+
+Root collection now selects 81 files exactly once, split into 50 unit and 31 integration files. Both migration files match current-main blobs, and the filename guard passes. Refreshed focused tests and the final stable-head full gate are recorded separately from the initial proof above. The fresh independent recheck covers this actual combination; previous reviews do not establish the correctness of these new integration boundaries.
 
 ## Risks, limits, and human review
 
