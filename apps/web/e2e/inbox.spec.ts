@@ -130,6 +130,7 @@ test("an HTML email's frame shrinks back when the window gets wider", async ({
   await signIn(page);
   await page.getByRole("link", { name: subject }).click();
   const frame = page.locator('iframe[title="Email from jane@customer.test"]');
+  await page.getByText("Formatted email", { exact: true }).click();
   const height = async () => (await frame.boundingBox())?.height ?? 0;
 
   await page.setViewportSize({ width: 360, height: 800 });
