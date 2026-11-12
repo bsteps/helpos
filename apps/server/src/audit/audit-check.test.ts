@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { type Audit, apiRoute } from "../auth/access.ts";
 import { openApiDocument } from "../openapi.ts";
 import { type AuditAction, nothingToAudit, recordAudit } from "./audit.ts";
+import { hashBody } from "./details.ts";
 
 const doc = (await openApiDocument()) as {
   paths: Record<string, Record<string, { "x-audit"?: Audit }>>;
@@ -14,17 +15,68 @@ const writes = Object.entries(doc.paths).flatMap(([path, ops]) =>
     .map(([method, op]) => ({ method: method.toUpperCase(), path, audit: op["x-audit"] })),
 );
 
+const auditExceptions: Record<string, string> = {
+  "POST /v1/auth/sign-in":
+    "Signing in changes no workspace data, and users live outside workspaces.",
+  "POST /v1/auth/sign-out": "Ends the caller's own session; it changes no workspace data.",
+  "POST /v1/auth/password":
+    "Users live outside workspaces, and the audit log belongs to one workspace.",
+  "POST /v1/inbound/email":
+    "A customer's email, not an action by a member or agent: the stored message is its record.",
+  "POST /v1/integrations/github/webhook":
+    "Each change a delivery applies is audited where it's applied, with GitHub as the actor.",
+};
+
+function checkAudit(op: (typeof writes)[number]): string[] {
+  const key = `${op.method} ${op.path}`;
+  if (!op.audit) return [`${key}: missing audit`];
+  if ("none" in op.audit && auditExceptions[key] !== op.audit.none) {
+    return [`${key}: unreviewed audit:none`];
+  }
+  return [];
+}
+
 describe("every write operation declares what it audits", () => {
   it("found them", () => {
     expect(writes.length).toBeGreaterThan(15);
   });
 
-  it.each(writes)("$method $path has x-audit", ({ audit }) => {
-    expect(audit, "define the route with apiRoute() and give it `audit`").toBeDefined();
-    if (audit && "none" in audit) {
-      expect(audit.none.length, "say why the route has nothing to audit").toBeGreaterThan(10);
+  it.each(writes)("$method $path has a reviewed audit declaration", (op) => {
+    expect(checkAudit(op)).toEqual([]);
+  });
+
+  it("keeps every audit exception tied to its exact operation and reason", () => {
+    for (const [key, none] of Object.entries(auditExceptions)) {
+      expect(writes.find((op) => `${op.method} ${op.path}` === key)?.audit, key).toEqual({ none });
     }
   });
+
+  it.each([
+    ["POST", "/v1/future", undefined, "missing audit"],
+    [
+      "POST",
+      "/v1/future",
+      { none: "A plausible reason longer than ten characters." },
+      "unreviewed audit:none",
+    ],
+    [
+      "POST",
+      "/v1/auth/sign-in",
+      { none: "An altered reason must receive another review." },
+      "unreviewed audit:none",
+    ],
+    [
+      "DELETE",
+      "/v1/auth/sign-in",
+      { none: auditExceptions["POST /v1/auth/sign-in"] ?? "" },
+      "unreviewed audit:none",
+    ],
+  ] satisfies [string, string, Audit | undefined, string][])(
+    "rejects a broken %s %s audit fixture",
+    (method, path, audit, error) => {
+      expect(checkAudit({ method, path, audit })).toEqual([`${method} ${path}: ${error}`]);
+    },
+  );
 });
 
 // Only the insert is used: recordAudit() writes one row.
@@ -36,6 +88,15 @@ const record = (action: AuditAction) =>
     action,
     target: { type: "conversation", id: "0190d6a4-0000-7000-8000-000000000002" },
     requestId: null,
+    ...(action === "draft.created"
+      ? {
+          details: {
+            bodyHash: hashBody("fixture draft"),
+            messageId: "0190d6a4-0000-7000-8000-000000000003",
+            kind: "reply" as const,
+          },
+        }
+      : {}),
   });
 
 /** One write route that records `conversation.closed`, whose handler does `handle` then answers. */

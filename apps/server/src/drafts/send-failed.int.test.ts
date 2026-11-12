@@ -22,7 +22,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
-import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
+import {
+  createSmtpTransport,
+  type EmailTransport,
+  SendRejected,
+} from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { sendReplyJob } from "./jobs.ts";
@@ -159,7 +163,7 @@ beforeAll(async () => {
     transport: {
       send: async (message) => {
         sendAttempts++;
-        if (smtpDown) throw new Error("SMTP down");
+        if (smtpDown) throw new SendRejected("SMTP down");
         await smtp.send(message);
       },
       close: () => {},
@@ -218,6 +222,10 @@ describe("a send that fails for good", () => {
     expect(await auditOf(draft.id)).toEqual([
       ["draft.created", "system"],
       ["draft.approved", "agent"],
+      ["draft.sending", "system"],
+      ["draft.send_rejected", "system"],
+      ["draft.sending", "system"],
+      ["draft.send_rejected", "system"],
       ["draft.send_failed", "system"],
     ]);
 
@@ -278,9 +286,14 @@ describe("a send that fails for good", () => {
     expect(await auditOf(draft.id)).toEqual([
       ["draft.created", "system"],
       ["draft.approved", "agent"],
+      ["draft.sending", "system"],
+      ["draft.send_rejected", "system"],
+      ["draft.sending", "system"],
+      ["draft.send_rejected", "system"],
       ["draft.send_failed", "system"],
       ["draft.send_retried", "agent"],
       ["draft.send_retried", "agent"],
+      ["draft.sending", "system"],
       ["draft.sent", "system"],
     ]);
   });
@@ -318,6 +331,10 @@ describe("a send that fails for good", () => {
     expect(await auditOf(draft.id)).toEqual([
       ["draft.created", "system"],
       ["draft.approved", "agent"],
+      ["draft.sending", "system"],
+      ["draft.send_rejected", "system"],
+      ["draft.sending", "system"],
+      ["draft.send_rejected", "system"],
       ["draft.send_failed", "system"],
       ["draft.discarded", "agent"],
     ]);

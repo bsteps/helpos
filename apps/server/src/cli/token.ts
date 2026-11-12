@@ -3,6 +3,7 @@
 // operator: until human sessions exist (#46), nobody can call `POST /v1/tokens`.
 import { parseArgs } from "node:util";
 import { createDatabase, schema } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import { z } from "zod";
 import { createApiToken } from "../tokens/create-token.ts";
 
@@ -48,7 +49,7 @@ try {
         name: input.data.name,
         scopes: input.data.scopes,
         // Whoever can run this already holds the database credentials.
-        actor: { type: "system", id: "cli" },
+        actor: builtInActors.tokenCli,
         requestId: null,
       }),
     );

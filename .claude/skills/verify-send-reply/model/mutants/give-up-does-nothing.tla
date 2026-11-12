@@ -7,4 +7,4 @@ GiveUpMarksFailed(w) ==
     /\ lockHolder = 0
     /\ worker' = [worker EXCEPT ![w].pc = "settling_fail"]
     /\ job' = job
-    /\ UNCHANGED <<status, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, status, lockHolder, delivered, personRetries, sentUnapproved, faults>>

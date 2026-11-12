@@ -1,11 +1,26 @@
-import { eq, schema, type TenantTx, uuidv7 } from "@helpos/db";
+import { eq, schema, type TenantTransaction, type TenantTx, uuidv7 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { FileStore } from "@helpos/files";
 import type { Logger } from "pino";
 import { auditorFor } from "../audit/audit.ts";
+import {
+  addMessage,
+  markMessageSent,
+  recordActivity,
+  removeRejectedMessage,
+} from "../conversations/lifecycle.ts";
+import { composeEmail, noticeReplyTo, replySubject } from "../outbound-email/composer.ts";
 import { planDelivery } from "../outbound-email/shadow.ts";
-import { buildReply, type EmailTransport, replySubject } from "../outbound-email/transport.ts";
-import { markSendFailed, markSent } from "./lifecycle.ts";
-import { noticeReplyTo } from "./notice-worker.ts";
+import { type EmailTransport, SendRejected } from "../outbound-email/transport.ts";
+import {
+  isApprovedDraft,
+  isSentDraft,
+  isUncertainDraft,
+  markSendFailed,
+  markSending,
+  markSent,
+  rejectSend,
+} from "./lifecycle.ts";
 
 const { customers, drafts, mailboxes, messages, tenants, conversations } = schema;
 
@@ -15,7 +30,7 @@ export interface SendWorkerDeps {
   logger: Pick<Logger, "info" | "warn">;
 }
 
-const sendWorkerActor = { type: "system", id: "send-reply" } as const;
+export const sendWorkerActor = builtInActors.sendWorker;
 
 /**
  * Runs once every send attempt has failed: the draft is marked `send_failed`, so it shows up
@@ -26,7 +41,11 @@ export async function handleSendGaveUp(
   payload: { tenantId: string; draftId: string },
   tx: TenantTx,
 ): Promise<void> {
-  await markSendFailed(tx, auditorFor(payload.tenantId, sendWorkerActor), payload.draftId);
+  await markSendFailed(
+    tx,
+    { tenantId: payload.tenantId, actor: sendWorkerActor, requestId: null },
+    payload.draftId,
+  );
 }
 
 /**
@@ -35,99 +54,146 @@ export async function handleSendGaveUp(
  * that isn't `approved` is never sent.
  */
 export function handleSendReply(deps: SendWorkerDeps) {
-  return async (payload: { tenantId: string; draftId: string }, tx: TenantTx): Promise<void> => {
+  return async (
+    payload: { tenantId: string; draftId: string },
+    transaction: TenantTransaction,
+  ): Promise<void> => {
     const { tenantId, draftId } = payload;
-    const [row] = await tx
-      .select({
-        draft: drafts,
-        inbound: {
-          messageIdHeader: messages.messageIdHeader,
-          references: messages.references,
-          subject: messages.subject,
-        },
-        mailbox: mailboxes.address,
-        customer: customers.email,
-        shadow: { shadowMode: tenants.shadowMode, shadowRecipient: tenants.shadowRecipient },
-      })
-      .from(drafts)
-      .innerJoin(messages, eq(messages.id, drafts.messageId))
-      .innerJoin(conversations, eq(conversations.id, drafts.conversationId))
-      .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
-      .innerJoin(customers, eq(customers.id, conversations.customerId))
-      .innerJoin(tenants, eq(tenants.id, drafts.tenantId))
-      .where(eq(drafts.id, draftId))
-      // Locks the draft, so two workers can't both send it.
-      .for("update", { of: drafts });
-    if (!row) {
-      deps.logger.warn({ draftId }, "send-reply: draft not found");
-      return;
-    }
-    const { draft, inbound } = row;
-    if (draft.status === "sent") return; // a retry after a send that committed
-    if (draft.status !== "approved" || !draft.outboundMessageIdHeader) {
-      deps.logger.warn({ draftId, status: draft.status }, "send-reply: draft is not approved");
-      return;
-    }
+    const prepared = await transaction(async (tx) => {
+      const [row] = await tx
+        .select({
+          draft: drafts,
+          inbound: {
+            messageIdHeader: messages.messageIdHeader,
+            references: messages.references,
+            subject: messages.subject,
+          },
+          mailbox: mailboxes.address,
+          customer: customers.email,
+          shadow: { shadowMode: tenants.shadowMode, shadowRecipient: tenants.shadowRecipient },
+        })
+        .from(drafts)
+        .innerJoin(messages, eq(messages.id, drafts.messageId))
+        .innerJoin(conversations, eq(conversations.id, drafts.conversationId))
+        .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
+        .innerJoin(customers, eq(customers.id, conversations.customerId))
+        .innerJoin(tenants, eq(tenants.id, drafts.tenantId))
+        .where(eq(drafts.id, draftId))
+        .for("update", { of: drafts });
+      if (!row) {
+        deps.logger.warn({ draftId }, "send-reply: draft not found");
+        return;
+      }
+      const { draft, inbound } = row;
+      if (isSentDraft(draft)) return;
+      if (
+        (!isApprovedDraft(draft) && !(isUncertainDraft(draft) && draft.resendRequested)) ||
+        !draft.outboundMessageIdHeader
+      ) {
+        deps.logger.warn({ draftId, status: draft.status }, "send-reply: draft is not approved");
+        return;
+      }
 
-    const now = new Date();
-    const subject = replySubject(inbound.subject);
-    const references = inbound.messageIdHeader
-      ? [...inbound.references, inbound.messageIdHeader]
-      : inbound.references;
-    const delivery = planDelivery(
-      {
-        from: row.mailbox,
-        to: row.customer,
+      const now = new Date();
+      const subject = replySubject(inbound.subject);
+      const references = inbound.messageIdHeader
+        ? [...inbound.references, inbound.messageIdHeader]
+        : inbound.references;
+      const delivery = planDelivery(
+        {
+          from: row.mailbox,
+          to: row.customer,
+          subject,
+          text: draft.body,
+          messageId: draft.outboundMessageIdHeader,
+          inReplyTo: inbound.messageIdHeader,
+          references,
+          date: now,
+        },
+        { ...row.shadow, shadowReplyTo: noticeReplyTo(row.mailbox) },
+      );
+      if (delivery.kind === "no_recipient") {
+        throw new Error("send-reply: shadow mode is on but no shadow recipient is set");
+      }
+      const { email } = delivery;
+      const raw = await composeEmail({ kind: "reply", ...email });
+
+      const rawFileKey = `${tenantId}/${uuidv7()}`;
+      await deps.files.put(rawFileKey, raw);
+      const sentMessageId = uuidv7();
+      await addMessage(tx, {
+        id: sentMessageId,
+        tenantId,
+        conversationId: draft.conversationId,
+        direction: "outbound",
+        fromAddress: row.mailbox,
+        toAddresses: [email.to],
         subject,
-        text: draft.body,
-        messageId: draft.outboundMessageIdHeader,
+        textBody: email.text,
+        messageIdHeader: draft.outboundMessageIdHeader,
         inReplyTo: inbound.messageIdHeader,
         references,
-        date: now,
-      },
-      { ...row.shadow, shadowReplyTo: noticeReplyTo(row.mailbox) },
-    );
-    if (delivery.kind === "no_recipient") {
-      // Thrown, not skipped: the draft stays approved and pg-boss retries, so it goes out once
-      // a shadow recipient is set (or it ends up `send_failed`, to retry once one is). It must
-      // never fall through to the customer.
-      throw new Error("send-reply: shadow mode is on but no shadow recipient is set");
-    }
-    const { email } = delivery;
-    const raw = await buildReply(email);
-
-    // Database writes first and the send last: if the send fails, the transaction rolls back,
-    // the draft stays `approved` and pg-boss retries.
-    const rawFileKey = `${tenantId}/${uuidv7()}`;
-    await deps.files.put(rawFileKey, raw);
-    const sentMessageId = uuidv7();
-    await tx.insert(messages).values({
-      id: sentMessageId,
-      tenantId,
-      conversationId: draft.conversationId,
-      direction: "outbound",
-      fromAddress: row.mailbox,
-      // Who really got it: in shadow mode, the shadow recipient, never the customer.
-      toAddresses: [email.to],
-      subject,
-      textBody: email.text,
-      messageIdHeader: draft.outboundMessageIdHeader,
-      inReplyTo: inbound.messageIdHeader,
-      references,
-      rawFileKey,
-      sentAt: now,
+        rawFileKey,
+        sentAt: null,
+      });
+      const marked = await markSending(
+        tx,
+        { tenantId, actor: sendWorkerActor, requestId: null },
+        draftId,
+        sentMessageId,
+      );
+      if (marked.outcome !== "changed") throw new Error("send-reply: draft changed before sending");
+      return { row, raw, email, sentMessageId, delivery };
     });
-    const sent = await markSent(tx, auditorFor(tenantId, sendWorkerActor), draftId, {
-      sentAt: now,
-      sentMessageId,
+    if (!prepared) return;
+    const { row, raw, email, sentMessageId, delivery } = prepared;
+    const { draft } = row;
+    const outcome = await transaction(async (tx) => {
+      const [current] = await tx.select().from(drafts).where(eq(drafts.id, draftId)).for("update");
+      if (
+        current?.status !== "send_uncertain" ||
+        current.sentMessageId !== sentMessageId ||
+        current.resendRequested ||
+        current.outboundMessageIdHeader !== draft.outboundMessageIdHeader
+      )
+        return;
+      try {
+        await deps.transport.send({ from: row.mailbox, to: [email.to], raw });
+      } catch (error) {
+        if (!(error instanceof SendRejected)) throw error;
+        if (isUncertainDraft(draft)) {
+          await auditorFor(tenantId, sendWorkerActor)(
+            tx,
+            "draft.send_rejected",
+            {
+              type: "draft",
+              id: draftId,
+            },
+            { fromStatus: "send_uncertain", toStatus: "send_uncertain" },
+          );
+          return error;
+        }
+        await rejectSend(tx, { tenantId, actor: sendWorkerActor, requestId: null }, draftId);
+        await removeRejectedMessage(tx, sentMessageId);
+        return error;
+      }
+      const now = new Date();
+      await markMessageSent(tx, sentMessageId, now);
+      const sent = await markSent(
+        tx,
+        { tenantId, actor: sendWorkerActor, requestId: null },
+        draftId,
+        {
+          sentAt: now,
+          sentMessageId,
+        },
+      );
+      if (sent.outcome !== "changed") throw new Error("send-reply: draft changed while sending");
+      await recordActivity(tx, draft.conversationId, now);
+      return "sent";
     });
-    if (sent.outcome !== "changed") throw new Error("send-reply: draft changed while sending");
-    await tx
-      .update(conversations)
-      .set({ lastMessageAt: now })
-      .where(eq(conversations.id, draft.conversationId));
-
-    await deps.transport.send({ from: row.mailbox, to: [email.to], raw });
+    if (outcome instanceof SendRejected) throw outcome;
+    if (outcome !== "sent") return;
     deps.logger.info(
       { draftId, conversationId: draft.conversationId, shadow: delivery.kind === "shadow" },
       "reply sent",

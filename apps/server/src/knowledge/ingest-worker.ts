@@ -6,9 +6,10 @@ import {
   isTemporaryAiFailure,
   tokenBound,
 } from "@helpos/ai";
-import { eq, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { eq, type JobDeferral, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
-import { AiBusyError, aiBudget, nextUtcDay } from "../ai-budget/budget.ts";
+import { aiBudget, mapAiRefusal, nextUtcDay } from "../ai-budget/budget.ts";
 import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
@@ -27,7 +28,7 @@ export interface IngestWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-const ingestActor = { type: "system", id: "ingest-source" } as const;
+const ingestActor = builtInActors.ingestWorker;
 
 function isTemporary(
   reason: schema.KnowledgeFailureReason,
@@ -97,7 +98,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
   return async (
     payload: { tenantId: string; sourceId: string },
     transaction: TenantTransaction,
-  ): Promise<void> => {
+  ) => {
     const { tenantId, sourceId } = payload;
     const now = () => deps.clock.now();
     const [source] = await transaction((tx) =>
@@ -208,16 +209,24 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     const reservation = await transaction((tx) =>
       budget.reserve(tx, tenantId, tokenBound(...chunks)),
     );
-    // Other calls in flight hold the rest of today's budget: pg-boss tries again shortly.
-    if (reservation === "busy") throw new AiBusyError();
-    if ("refused" in reservation) return waitForBudget(reservation.resetsAt);
+    if ("refused" in reservation) {
+      return mapAiRefusal<Promise<JobDeferral | undefined>>(reservation, {
+        busy: async (deferUntil) => {
+          const current = await transaction(lockIfCurrent);
+          if (current) return { deferUntil };
+        },
+        over_budget: async (retryAt) => {
+          await waitForBudget(retryAt);
+        },
+      });
+    }
 
     let embedded: Awaited<ReturnType<typeof embedTexts>>;
     try {
       embedded = await budget.spend(
         transaction,
         reservation,
-        (signal) => embedTexts(deps.embeddingModel, chunks, { abortSignal: signal }),
+        (_signal, models) => embedTexts(models(deps.embeddingModel), chunks),
         {
           of: (result) => ({ inputTokens: result.tokens, outputTokens: 0 }),
           // Includes earlier spend and the failed batch bound: its bill may be unknown.

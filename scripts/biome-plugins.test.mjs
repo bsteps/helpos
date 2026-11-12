@@ -249,3 +249,68 @@ test("empty catches are checked in verification scripts too", () => {
     rmSync(new URL(`../${directory}/${name}`, import.meta.url), { force: true });
   }
 });
+
+for (const source of [
+  'import { generateText } from "ai"; export { generateText };',
+  'import type { LanguageModel } from "ai"; export type { LanguageModel };',
+  'export * from "ai";',
+  'export * as sdk from "ai";',
+  'export type * as sdk from "ai";',
+  'export { generateText } from "ai";',
+  'export const sdk = import("ai");',
+  'export const sdk = require("ai");',
+  'import { MockLanguageModelV4 } from "ai/test"; export { MockLanguageModelV4 };',
+  'import { createOpenAI } from "@ai-sdk/openai"; export { createOpenAI };',
+  'import { withPaidModels } from "@helpos/ai/budget"; export { withPaidModels };',
+  'export * as budgetAccess from "@helpos/ai/budget";',
+  'export type * as budgetAccess from "@helpos/ai/budget";',
+]) {
+  test(`paid AI boundary rejects ${source}`, () => {
+    assert.ok(pluginMessages(source).some((m) => m.includes("AI SDK imports belong")));
+  });
+}
+
+test("paid AI boundary allows the public helpers", () => {
+  assert.deepEqual(
+    pluginMessages('import { draftReply } from "@helpos/ai"; export { draftReply };'),
+    [],
+  );
+});
+
+const conversationWriteMessage = /conversations\/lifecycle\.ts/;
+for (const table of ["conversations", "messages", "schema.conversations", "schema.messages"]) {
+  for (const operation of ["insert", "update", "delete"]) {
+    test(`conversation-writes.grit rejects ${operation}(${table}) in every caller`, () => {
+      const source = `export const f = (tx) => tx.${operation}(${table});\n`;
+      for (const file of [
+        "routes.ts",
+        "inbound-email/ingest.ts",
+        "drafts/send-worker.ts",
+        "seed/seed.ts",
+        "conversations/other.ts",
+        "workspaces/lifecycle.ts",
+      ]) {
+        assert.ok(
+          pluginMessages(source, file).some((m) => conversationWriteMessage.test(m)),
+          file,
+        );
+      }
+      assert.deepEqual(pluginMessages(source, "conversations/lifecycle.ts"), []);
+      assert.deepEqual(pluginMessages(source, "conversations/lifecycle.int.test.ts"), []);
+    });
+  }
+}
+
+test("conversation-writes.grit allows reads and unrelated table writes", () => {
+  assert.deepEqual(
+    pluginMessages(
+      "export const f = (tx) => tx.select().from(conversations);\n",
+      "inbound-email/ingest.ts",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    pluginMessages("export const f = (tx) => tx.update(customers);\n", "inbound-email/ingest.ts"),
+    [],
+  );
+});
