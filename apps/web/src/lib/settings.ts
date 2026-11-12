@@ -20,6 +20,7 @@ export function connectProblem(error: unknown): string {
     case "encryption_not_configured":
       return "This server can't store tokens yet: whoever runs it needs to set HELPOS_ENCRYPTION_KEY.";
     default:
+      // The token's shape is checked before sending, so a 400 here is about the repo name.
       return error.status === 400
         ? "Enter the repo as owner/name, e.g. acme/app."
         : "That didn't work. Try again.";
