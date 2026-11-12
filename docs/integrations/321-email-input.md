@@ -96,11 +96,22 @@ Local manual review against the security-baseline and tenant-isolation checks fo
 
 All heavy commands exited and no checkout-owned Node process remained before the slot was released to the coordinator. Testcontainers cleaned up their resources. Shared Docker containers and `.env` were preserved. The pre-existing unrelated Mailpit container was left alone.
 
+## Independent review
+
+A separate Claude Opus review covered `80d10689dc1fe917c8f6364d5015edee9b7ad90e...5ccc43adf0ce1bc601c40671186d6a9349ee0bf8`, with the parent unchanged at that base. It found one gap. The comment cleanup removed the only explanation for stripping the private `<pre>` line marker from page text, and no test pinned that strip. A knowledge extraction test now fails with `Spaced  out.` when the strip is removed and passes with it. A one-line reason is restored. Parser behavior is unchanged.
+
+Offline probes confirmed that `&#x0;`, `&#0`, and surrogate references decode to U+FFFD. Raw NUL is removed by `clean()` before the overflow note is built, so the stored text can't carry NUL.
+
+`/security-review` on the PR's own diff found no exploitable issue. Overflow text renders as a React text child. The sanitizer is unchanged. Filenames are metadata only, and file keys are generated. The tests use `withTenant()`.
+
+After the fix, the light checks passed: 671 unit tests, Biome, AI and server typechecks, and 107 tooling tests. No new Postgres or full-gate run was made for this test-and-comment change. Current-head CI is the fresh full run.
+
 ## Limits and remaining gates
 
 - Missing Message-ID deliveries remain separate conversations. Content equality is not a delivery identity.
 - Storage retains the first 20 attachments and truncates decoded filenames to 255 Unicode code points after NUL removal. An overflow note replaces HTML presentation with visible plain text. Raw MIME retains all parts.
 - The attachment cap applies after PostalMime parses the message. It does not cap initial parser memory.
+- When an email has both parts, the model reads the text part and the dashboard renders the HTML part. A sender can make them differ. This split comes from the parent and needs its own issue.
 - The HTML filter handles tested attributes and inline styles. It does not evaluate stylesheets or classes and does not prove model injection resistance.
 - Offline captured input proves deterministic filtering, quoting, transport, and assertions. No live Claude or Anthropic provider, credentials, account setup, or billable call is used. Issue 205 stays deferred.
 - The parent's known lost-retry and failed give-up findings remain open. This integration does not claim to fix them or prove eventual delivery.
