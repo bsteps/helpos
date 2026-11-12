@@ -8,7 +8,7 @@ The existing `error` code and safe extensions such as `sourceId` remain availabl
 Framework validation errors become `bad_request` without input values or internal error messages.
 The server's `errorCodes` list defines the public codes and the OpenAPI `Error.error` enum.
 Route handlers and middleware emit codes through the typed `errorResponse()` builder.
-Unknown framework or provider error bodies become `bad_request` with their HTTP status retained.
+Unknown framework or provider error bodies keep their HTTP status and become `bad_request`, or `internal_error` for a 5xx.
 Known codes retain their safe extensions. Knowledge-source ingestion failure reasons are a separate field, not HTTP error codes.
 The dashboard derives `ErrorCode` from its generated client and checks an exhaustive common message map plus contextual overrides.
 Successful JSON responses keep `application/json`.
@@ -27,8 +27,9 @@ Readiness checks queue availability, not worker progress, SMTP delivery or model
 
 ## Idempotent writes
 
-Authenticated POST, PUT, PATCH and DELETE routes accept an optional `Idempotency-Key` header.
-Requests without it retain their existing behavior.
+Every POST, PUT, PATCH and DELETE route declares `idempotency` in `apiRoute()`: `"replay"`, or `{ refuse: "<why>" }`.
+The OpenAPI document publishes it as `x-idempotency`. Only replay routes document the optional `Idempotency-Key` header.
+Requests without the header retain their existing behavior.
 A key is 1 to 200 visible ASCII characters without spaces.
 The server stores its SHA-256 hash, scoped by tenant, actor type and actor ID.
 Each agent token is a separate actor. Human sessions for the same user share that user's keys within a workspace.
@@ -59,15 +60,16 @@ Unknown send outcomes still require the existing human resolution flow.
 
 After 24 hours, the key returns `409 idempotency_expired` and never executes again.
 The next access clears its response body but keeps the reservation as a tombstone.
-There is no automatic tombstone deletion or background response purge in this issue.
-Unaccessed response bodies remain stored under tenant RLS until operational retention work removes them.
+Nothing deletes tombstones or purges unaccessed response bodies yet.
+They remain stored under tenant RLS until retention work removes them.
 When an outcome is unknown, reconcile the resource through the API before deciding on a new action.
 A new key is a new request and can repeat an effect.
 
-Credential-producing routes refuse keyed requests with `400 idempotency_not_supported` before validation or side effects.
-These are `POST /v1/tokens`, `PUT /v1/integrations/github`, and `POST /v1/integrations/github/webhook-secret`.
-Authentication and provider routes without a tenant principal also refuse the header.
-Their existing credential or signature checks can refuse the request first.
+Refusing routes answer a keyed request with `400 idempotency_not_supported` before validation or side effects.
+A route whose request or response carries a credential refuses, so the credential is never stored:
+`POST /v1/tokens`, `PUT /v1/integrations/github` and `POST /v1/integrations/github/webhook-secret`.
+Authentication and provider routes have no tenant principal to scope a key to, so the type system makes them refuse.
+A provider route's signature or shared-secret check can refuse the request first.
 No token, session cookie, webhook secret or request body is stored for replay.
 Response headers are not cached. Replay reconstructs the JSON content type and replay indicator.
 
@@ -79,7 +81,7 @@ The cursor contains a timestamp and UUID, both validated before use.
 A follow-up query selects timestamps older than the cursor, or smaller IDs at the same timestamp.
 The tenant and any resource filters still apply to every query. A cursor grants no access.
 The helper does not promise a snapshot across concurrent edits.
-Existing list response fields and ordering remain unchanged. Their consumer migration belongs to #233.
+No list route uses the helper yet; existing list response fields and ordering are unchanged.
 
 ## OpenAPI contract
 
@@ -126,6 +128,8 @@ Both documents pass standalone OpenAPI validation before comparison. External re
 is disabled during validation and comparison, including for intended breaking changes.
 The complete breaking report stays in the CI log and `.helpos/api-breaking.json`, including
 when an exception permits the check to pass. Tool errors and invalid specs always fail.
+A new value in a response enum, such as a new error code, is reported but needs no marker:
+clients must already handle an unknown value.
 
 An intended breaking PR must contain exactly one line in its body in this form:
 
@@ -138,7 +142,6 @@ inside a paragraph does not mark a break. This marker covers the PR's reported c
 every finding against the justification. Body edits rerun CI. The marker grants no merge authority
 and does not remove `needs-human` for a public contract decision.
 
-The response checks exposed a declaration bug in the shared `json()` helper. A knowledge source's
-nullable ingestion `error` is resource data, not a typed API problem. Creation, editing and re-ingest
-already return `application/json`; their declarations now describe that behavior without problem
-fields. Conversation-list query validation now also declares its existing 400 problem response.
+`json()` declares `application/problem+json` only for the shared `Error` schema. A resource field
+named `error`, such as a knowledge source's nullable ingestion error, is data, so its response stays
+`application/json`.
