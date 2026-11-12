@@ -1565,7 +1565,9 @@
           }
         ],
         "x-access": {
-          "anyCaller": "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler"
+          "selfOrAdmin": {
+            "tokenIdParam": "id"
+          }
         },
         "x-audit": {
           "records": [
@@ -3232,7 +3234,7 @@
       },
       "patch": {
         "summary": "Change the workspace's shadow mode",
-        "description": "Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) unless the server allows it. Needs `workspace:admin`.",
+        "description": "Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) unless the server allows it. Needs a human session with `workspace:admin`.",
         "security": [
           {
             "apiAuth": []
@@ -3241,7 +3243,8 @@
         "x-access": {
           "allScopes": [
             "workspace:admin"
-          ]
+          ],
+          "humansOnly": true
         },
         "x-audit": {
           "records": [

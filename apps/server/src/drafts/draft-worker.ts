@@ -25,8 +25,8 @@ import {
 import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { type AiBudget, aiBudget, mapAiRefusal, type Spent } from "../ai-budget/budget.ts";
-import { recordAudit } from "../audit/audit.ts";
 import { inHistory } from "../conversations/history.ts";
+import { pauseAi } from "../conversations/lifecycle.ts";
 import {
   noKnowledge,
   SearchError,
@@ -138,17 +138,12 @@ export async function handleDraftGaveUp(payload: Payload, tx: TenantTx): Promise
   // The customer wrote again: that message's own job drafts for it.
   if (lock?.answering !== payload.messageId) return;
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
-  await tx
-    .update(conversations)
-    .set({ aiPausedReason: "draft_failed" })
-    .where(eq(conversations.id, row.conversationId));
-  await recordAudit(tx, {
-    tenantId: payload.tenantId,
-    actor: draftWorkerActor,
-    action: "ai.draft_failed",
-    target: { type: "conversation", id: row.conversationId },
-    requestId: null,
-  });
+  await pauseAi(
+    tx,
+    { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
+    row.conversationId,
+    "draft_failed",
+  );
 }
 
 /**
@@ -341,17 +336,12 @@ async function pause(
   tx: TenantTx,
   conversationId: string,
 ): Promise<void> {
-  await tx
-    .update(conversations)
-    .set({ aiPausedReason: "daily_budget" })
-    .where(eq(conversations.id, conversationId));
-  await recordAudit(tx, {
-    tenantId: payload.tenantId,
-    actor: draftWorkerActor,
-    action: "ai.paused",
-    target: { type: "conversation", id: conversationId },
-    requestId: null,
-  });
+  await pauseAi(
+    tx,
+    { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
+    conversationId,
+    "daily_budget",
+  );
   await enqueue(tx, draftReplyJob, payload, {
     singletonKey: `${payload.messageId}:after:${resetsAt.toISOString()}`,
     // The queue starts it by the database's clock, the budget's day comes from this server's.

@@ -589,13 +589,13 @@ describe("per-workspace AI budget", () => {
   it("a workspace token can't change its own budget", async () => {
     await setAiBudget(db, { tenantId: other, budget: 50 });
     const app = usageFor(other, ["conversations:read", "workspace:admin", "drafts:write"]);
-    // The only workspace settings route rejects fields it doesn't know.
     const res = await app.request("/v1/workspace/shadow-mode", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ recipient: "x@other.test", aiDailyTokenBudget: 1_000_000 }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "session_required" });
     // And no API operation accepts a budget at all.
     const doc = await (await app.request("/openapi.json")).text();
     expect(doc).not.toMatch(/aiDailyTokenBudget|ai_daily_token_budget/);

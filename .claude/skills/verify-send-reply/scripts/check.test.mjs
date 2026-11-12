@@ -127,6 +127,7 @@ test("a new stall cannot hide behind the accepted lost-retry finding", {
   try {
     cpSync(join(root, skill), join(scratch, skill), { recursive: true });
     for (const file of [
+      "apps/server/src/conversations/lifecycle.ts",
       "apps/server/src/drafts/send-worker.ts",
       "apps/server/src/drafts/lifecycle.ts",
       "apps/server/src/outbound-email/composer.ts",
