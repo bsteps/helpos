@@ -301,7 +301,7 @@ describe("ingest-source gives up", () => {
             kind: "markdown",
             title: "R",
             content: "r",
-            status: "ready",
+            state: { status: "ready" },
           },
         ])
         .returning({ id: schema.knowledgeSources.id }),
@@ -316,10 +316,9 @@ describe("ingest-source gives up", () => {
       tx.select().from(schema.knowledgeSources).where(eq(schema.knowledgeSources.tenantId, acme)),
     );
     expect(rows.find((r) => r.id === pending.id)).toMatchObject({
-      status: "failed",
-      error: "ingest_error",
+      state: { status: "failed", reason: { code: "ingest_error" } },
     });
-    expect(rows.find((r) => r.id === ready.id)).toMatchObject({ status: "ready", error: null });
+    expect(rows.find((r) => r.id === ready.id)).toMatchObject({ state: { status: "ready" } });
     expect(await auditActions(pending.id)).toEqual(["knowledge_source.failed"]);
     expect(await auditActions(ready.id)).toEqual([]);
   });
@@ -351,11 +350,11 @@ describe("ingest-source gives up", () => {
       .poll(async () => {
         const [row] = await db.withTenant(acme, (tx) =>
           tx
-            .select({ status: schema.knowledgeSources.status })
+            .select({ state: schema.knowledgeSources.state })
             .from(schema.knowledgeSources)
             .where(eq(schema.knowledgeSources.id, edited.id)),
         );
-        return row?.status;
+        return row?.state.status;
       }, eventually)
       .toBe("ready");
   });
@@ -452,7 +451,7 @@ describe("give-up handlers stay in their tenant", () => {
     const [row] = await db.withTenant(acme, (tx) =>
       tx.select().from(schema.knowledgeSources).where(eq(schema.knowledgeSources.id, source.id)),
     );
-    expect(row?.status).toBe("pending");
+    expect(row?.state.status).toBe("pending");
     expect(await auditActions(source.id)).toEqual([]);
     const otherActions = (
       await db.withTenant(other, (tx) => tx.select().from(schema.auditEvents))

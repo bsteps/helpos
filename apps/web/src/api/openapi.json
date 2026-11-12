@@ -581,18 +581,215 @@
               "internal"
             ]
           },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "ready",
-              "failed"
-            ]
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
+          "state": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ready"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "failed"
+                    ]
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_url",
+                              "blocked_address",
+                              "blocked_port",
+                              "insecure_redirect",
+                              "dns_failed",
+                              "timeout",
+                              "aborted",
+                              "too_large",
+                              "too_many_redirects",
+                              "network",
+                              "no_url",
+                              "no_text",
+                              "too_long",
+                              "unsupported_content_type",
+                              "embedding_unavailable",
+                              "embedding_failed",
+                              "ingest_error"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "http_error"
+                            ]
+                          },
+                          "status": {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 999
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "waiting"
+                    ]
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "timeout",
+                              "network",
+                              "embedding_unavailable",
+                              "daily_budget_reached"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "http_error"
+                            ]
+                          },
+                          "status": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "enum": [
+                                  408
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  425
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  429
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  500
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  502
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  503
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  504
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "retryAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "retryAt"
+                ],
+                "additionalProperties": false
+              }
             ]
           },
           "chunkCount": {
@@ -640,8 +837,7 @@
           "title",
           "url",
           "visibility",
-          "status",
-          "error",
+          "state",
           "chunkCount",
           "managedBy",
           "sourcePath",
@@ -2521,7 +2717,7 @@
     "/v1/knowledge/sources/{id}/reingest": {
       "post": {
         "summary": "Ingest a knowledge source again",
-        "description": "Sets the source back to `pending` and queues it, e.g. after a `failed` ingest, after the page changed, or after the embedding model changed. Until the new ingest is done, drafts keep using the current passages. If it fails on a temporary problem (the site is down, the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable (no text, too long, not a page), they're removed. Asking again while it's pending queues nothing new, but a request made during a fetch gets a fetch of its own. Needs `knowledge:write`.",
+        "description": "Sets the source back to `pending` (or preserves a budget wait) and queues it, e.g. after a `failed` ingest, after the page changed, or after the embedding model changed. Until the new ingest is done, drafts keep using the current passages. If it fails on a temporary problem (the site is down, the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable (no text, too long, not a page), they're removed. Asking again while it's pending queues nothing new, but a request made during a fetch gets a fetch of its own. Needs `knowledge:write`.",
         "security": [
           {
             "apiAuth": []
@@ -2550,7 +2746,7 @@
         ],
         "responses": {
           "202": {
-            "description": "The source, status `pending`",
+            "description": "The source, pending or waiting for the daily budget",
             "content": {
               "application/json": {
                 "schema": {

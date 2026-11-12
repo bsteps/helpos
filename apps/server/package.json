@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --project unit --project int",
     "openapi": "node src/cli/openapi.ts",
-    "e2e-server": "node src/e2e/serve.ts"
+    "e2e-server": "node src/e2e/serve.ts",
+    "test:page-fetch": "vitest run --config vitest.page-fetch.config.ts"
   },
   "dependencies": {
     "@helpos/ai": "workspace:*",

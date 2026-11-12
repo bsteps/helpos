@@ -5,7 +5,7 @@ import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { type GithubApiFactory, octokitGithub } from "./github/github-api.ts";
-import type { Fetcher } from "./knowledge/ingest-worker.ts";
+import type { Fetcher } from "./knowledge/page-fetch.ts";
 import type { EmailTransport } from "./outbound-email/transport.ts";
 import type { SecretBox } from "./secrets/secret-box.ts";
 

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { KnowledgeSource } from "../src/api/client.ts";
 import { signIn, uniqueSubject } from "./support.ts";
 
 test("an owner adds a Markdown source, sees it become ready, edits it and deletes it", async ({
@@ -20,6 +21,10 @@ test("an owner adds a Markdown source, sees it become ready, edits it and delete
   await expect(card.getByText("Ready", { exact: true })).toBeVisible();
   await expect(card).toContainText("Internal");
   await expect(card).toContainText("1 passage");
+  await test.info().attach("knowledge-ready", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
 
   await card.getByRole("button", { name: "Edit" }).click();
   await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -55,7 +60,7 @@ test("a web page that can't be read says why, and can be read again", async ({ p
   const stored = async () => {
     const res = await page.request.get("/v1/knowledge/sources");
     const { sources } = (await res.json()) as {
-      sources: { title: string; status: string; updatedAt: string }[];
+      sources: KnowledgeSource[];
     };
     const found = sources.find((s) => s.title === title);
     if (!found) throw new Error(`no source titled ${title}`);
@@ -67,7 +72,7 @@ test("a web page that can't be read says why, and can be read again", async ({ p
   await expect
     .poll(async () => {
       const now = await stored();
-      return now.updatedAt !== before.updatedAt && now.status === "failed";
+      return now.updatedAt !== before.updatedAt && now.state.status === "failed";
     })
     .toBe(true);
   await expect(card.getByText("Failed", { exact: true })).toBeVisible();
@@ -172,8 +177,7 @@ test("a source managed in git is read-only and says where to change it", async (
       title,
       url: null,
       visibility: "public",
-      status: "ready",
-      error: null,
+      state: { status: "ready" },
       chunkCount: 1,
       managedBy: "git",
       sourcePath: "knowledge/git-note.md",
@@ -236,4 +240,41 @@ test("while a source is being added, its kind can't be switched", async ({ page 
   await expect(page.getByRole("button", { name: "Markdown" })).toBeDisabled();
   release();
   await expect(page.getByRole("button", { name: "Add a source" })).toBeVisible();
+});
+
+test("typed waiting reasons remain visible and disable Read again", async ({ page }) => {
+  await signIn(page);
+  const title = uniqueSubject("Waiting source");
+  const added = await page.request.post("/v1/knowledge/sources", {
+    data: { kind: "url", title, url: `http://127.0.0.1/${crypto.randomUUID()}` },
+  });
+  expect(added.status(), await added.text()).toBe(201);
+  const source = (await added.json()) as KnowledgeSource;
+  let state: KnowledgeSource["state"] = {
+    status: "waiting",
+    reason: { code: "daily_budget_reached" },
+    retryAt: "2099-01-01T00:00:00.000Z",
+  };
+  await page.route("**/v1/knowledge/sources", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ json: { sources: [{ ...source, state }] } })
+      : route.fallback(),
+  );
+  await page.getByRole("link", { name: "Knowledge" }).click();
+  const card = page.getByTestId("knowledge-source").filter({ hasText: title });
+  await expect(card).toContainText("Waiting for today's AI budget to reset at midnight UTC.");
+  await expect(card.getByRole("button", { name: "Read again" })).toBeDisabled();
+  state = {
+    status: "waiting",
+    reason: { code: "http_error", status: 503 },
+    retryAt: "2099-01-01T00:00:00.000Z",
+  };
+  await page.reload();
+  await expect(card).toContainText("The site answered with an error (HTTP 503).");
+  await expect(card.getByRole("button", { name: "Read again" })).toBeDisabled();
+  state = { status: "failed", reason: { code: "http_error", status: 404 } };
+  await page.reload();
+  await expect(card.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(card).toContainText("The page wasn't found (HTTP 404).");
+  await expect(card.getByRole("button", { name: "Read again" })).toBeEnabled();
 });

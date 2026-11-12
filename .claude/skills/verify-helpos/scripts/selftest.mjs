@@ -328,7 +328,7 @@ const steps = [
   [
     "knowledge list",
     () => api("northwind:triage-bot", "GET", "v1/knowledge/sources"),
-    (r) => status(r) === 200 && json(r).sources.every((s) => s.status === "ready"),
+    (r) => status(r) === 200 && json(r).sources.every((s) => s.state.status === "ready"),
   ],
   [
     "mint a knowledge token",

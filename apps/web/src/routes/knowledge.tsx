@@ -274,6 +274,7 @@ function webLink(url: string): string | null {
 
 const statusBadge = {
   pending: { status: "loading", label: "Reading" },
+  waiting: { status: "loading", label: "Reading" },
   ready: { status: "success", label: "Ready" },
   failed: { status: "danger", label: "Failed" },
 } as const;
@@ -284,7 +285,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
   const remove = useDeleteKnowledgeSource();
   const inGit = source.managedBy === "git";
   const canChange = canWrite && !inGit;
-  const badge = statusBadge[source.status];
+  const badge = statusBadge[source.state.status];
   const busy = reingest.isPending || remove.isPending;
   const switchMode = (next: typeof mode) => {
     reingest.reset();
@@ -329,11 +330,11 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             <span className="break-all text-sm">{source.url}</span>
           )
         ) : null}
-        {source.error ? (
-          <Alert variant={source.status === "failed" ? "destructive" : "default"}>
+        {source.state.status === "failed" || source.state.status === "waiting" ? (
+          <Alert variant={source.state.status === "failed" ? "destructive" : "default"}>
             <AlertIcon />
             <AlertContent>
-              <AlertDescription>{knowledgeErrorMessage(source.error)}</AlertDescription>
+              <AlertDescription>{knowledgeErrorMessage(source.state.reason)}</AlertDescription>
             </AlertContent>
           </Alert>
         ) : null}
@@ -394,7 +395,9 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           <Button
             variant="ghost"
             size="sm"
-            disabled={busy || source.status === "pending"}
+            disabled={
+              busy || source.state.status === "pending" || source.state.status === "waiting"
+            }
             onClick={() => {
               remove.reset();
               reingest.mutate(source.id);
@@ -445,7 +448,8 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
     (edit.isIdle || edit.isError) &&
     (source.title !== opened.title ||
       source.visibility !== opened.visibility ||
-      (source.status === "pending" && source.updatedAt !== opened.updatedAt));
+      ((source.state.status === "pending" || source.state.status === "waiting") &&
+        source.updatedAt !== opened.updatedAt));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

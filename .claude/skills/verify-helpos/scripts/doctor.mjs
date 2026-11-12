@@ -154,7 +154,11 @@ const checks = [
       });
       const sources = body.sources ?? [];
       if (sources.length === 0) return { ok: true, detail: "no knowledge sources yet" };
-      const count = (status) => sources.filter((s) => s.status === status).length;
+      const count = (status) =>
+        sources.filter(
+          (s) =>
+            s.state.status === status || (status === "pending" && s.state.status === "waiting"),
+        ).length;
       const ready = count("ready");
       const failed = count("failed");
       return {
