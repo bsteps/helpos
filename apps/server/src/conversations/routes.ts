@@ -89,6 +89,7 @@ const conversationDetailSchema = conversationSchema
 const maxLimit = 100;
 
 const listConversationsRoute = apiRoute({
+  operationId: "conversations.list",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/conversations",
@@ -111,6 +112,7 @@ const listConversationsRoute = apiRoute({
 });
 
 const getConversationRoute = apiRoute({
+  operationId: "conversations.get",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/v1/conversations/{id}",
@@ -124,6 +126,7 @@ const getConversationRoute = apiRoute({
 });
 
 const closeConversationRoute = apiRoute({
+  operationId: "conversations.close",
   // conversations:read too: the answer is the conversation, with its customer.
   access: { allScopes: ["conversations:write", "conversations:read"] },
   audit: { records: ["conversation.closed"] },

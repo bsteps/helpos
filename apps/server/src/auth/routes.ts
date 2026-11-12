@@ -37,6 +37,7 @@ const meSchema = z
   .openapi("Me");
 
 const signInRoute = apiRoute({
+  operationId: "auth.signIn",
   access: { noCaller: "The caller proves who they are with an email and password in the body." },
   audit: { none: "Signing in changes no workspace data, and users live outside workspaces." },
   method: "post",
@@ -60,6 +61,7 @@ const signInRoute = apiRoute({
 });
 
 const signOutRoute = apiRoute({
+  operationId: "auth.signOut",
   access: {
     noCaller:
       "The session cookie, if any, is the only credential, and signing out without one is harmless.",
@@ -73,6 +75,7 @@ const signOutRoute = apiRoute({
 });
 
 const setPasswordRoute = apiRoute({
+  operationId: "auth.setPassword",
   access: {
     noCaller: "The one-time token in the body proves the caller holds the password setup link.",
   },
@@ -96,6 +99,7 @@ const setPasswordRoute = apiRoute({
 });
 
 const meRoute = apiRoute({
+  operationId: "auth.getIdentity",
   access: {
     anyCaller: "Every caller may ask who it is; the answer is its own identity and scopes.",
   },

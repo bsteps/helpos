@@ -4,6 +4,7 @@ import { apiRoute } from "../auth/access.ts";
 import { errorResponse, errorSchema, json } from "./route-kit.ts";
 
 const healthRoute = apiRoute({
+  operationId: "health.checkLiveness",
   method: "get",
   path: "/health",
   access: { noCaller: "Liveness reveals only that the HTTP process can answer a request." },
@@ -11,6 +12,7 @@ const healthRoute = apiRoute({
   responses: { 200: json(z.object({ status: z.literal("ok") }), "The HTTP process is live") },
 });
 const readyRoute = apiRoute({
+  operationId: "health.checkReadiness",
   method: "get",
   path: "/readyz",
   access: { noCaller: "Readiness reveals only whether the database and job queues are available." },

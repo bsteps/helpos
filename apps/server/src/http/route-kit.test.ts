@@ -22,6 +22,7 @@ function fakeTx() {
 }
 
 const readRoute = apiRoute({
+  operationId: "test.routeKit.readThing",
   access: { allScopes: ["conversations:read"] },
   method: "get",
   path: "/thing",
@@ -34,6 +35,39 @@ function appWith(resolve: ((r: Request) => Promise<Principal | null>) | null) {
   if (resolve) app.use("*", callerResolver(resolve));
   return app;
 }
+
+describe("apiRoute operation names", () => {
+  it.each(["", " ", "\t\n"])("refuses a blank operationId %j", (operationId) => {
+    expect(() =>
+      apiRoute({
+        operationId,
+        access: { noCaller: "Only tests operation naming." },
+        method: "get",
+        path: "/name-probe",
+        responses: { 200: { description: "ok" } },
+      }),
+    ).toThrow("apiRoute requires a nonempty operationId");
+  });
+
+  it("keeps the declared semantic name when a path changes", () => {
+    for (const path of ["/before", "/after"]) {
+      const app = new OpenAPIHono();
+      const route = apiRoute({
+        operationId: "test.routeKit.stableName",
+        access: { noCaller: "Only tests operation naming." },
+        method: "get",
+        path,
+        responses: { 200: { description: "ok" } },
+      });
+      app.openapi(route, (c) => c.body(null, 200));
+      const doc = app.getOpenAPI31Document({
+        openapi: "3.1.0",
+        info: { title: "Test", version: "0" },
+      });
+      expect(doc.paths?.[path]?.get?.operationId).toBe("test.routeKit.stableName");
+    }
+  });
+});
 
 describe("apiRoute resolves the caller itself", () => {
   it("lets a caller with the scope in, with no path middleware registered", async () => {
@@ -75,6 +109,7 @@ describe("apiRoute resolves the caller itself", () => {
 describe("apiRoute documents what its access implies", () => {
   const spec = (access: Parameters<typeof apiRoute>[0]["access"]) => {
     const route = apiRoute({
+      operationId: "test.routeKit.accessDocumentation",
       access,
       method: "get",
       path: "/x",
@@ -102,6 +137,7 @@ describe("apiRoute documents what its access implies", () => {
 
   it("lets a route say something more specific than the default", () => {
     const route = apiRoute({
+      operationId: "test.routeKit.overrideResponse",
       access: { allScopes: ["workspace:admin"], humansOnly: true },
       method: "get",
       path: "/x",

@@ -106,6 +106,7 @@ const notConfigured = json(
 );
 
 const getRoute = apiRoute({
+  operationId: "github.getConnection",
   // An admin may read it too: they connect and disconnect, so they must see what is there.
   access: { anyScope: ["github:write", "workspace:admin"] },
   method: "get",
@@ -118,6 +119,7 @@ const getRoute = apiRoute({
 });
 
 const connectRoute = apiRoute({
+  operationId: "github.connect",
   // A token is a credential to the customer's code host: only a human admin stores one.
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.connected"] },
@@ -162,6 +164,7 @@ const connectRoute = apiRoute({
 });
 
 const disconnectRoute = apiRoute({
+  operationId: "github.disconnect",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.disconnected"] },
   method: "delete",
@@ -175,6 +178,7 @@ const disconnectRoute = apiRoute({
 
 const rotatePath = `${integrationPath}/webhook-secret`;
 const rotateRoute = apiRoute({
+  operationId: "github.rotateWebhookSecret",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.webhook_secret_rotated"] },
   method: "post",
@@ -196,6 +200,7 @@ const rotateRoute = apiRoute({
 });
 
 const draftIssueRoute = apiRoute({
+  operationId: "github.draftIssue",
   access: { allScopes: ["github:write", "conversations:read"] },
   audit: { records: ["github_issue.drafted"] },
   method: "post",
@@ -225,6 +230,7 @@ const draftIssueRoute = apiRoute({
 });
 
 const createIssueRoute = apiRoute({
+  operationId: "github.createIssue",
   // conversations:read too: the issue is made from the conversation, and the conversation's customer is who is
   // told when it is fixed, so a caller that cannot read the conversation cannot pick it either.
   access: { allScopes: ["github:write", "conversations:read"] },

@@ -93,6 +93,7 @@ const record = (action: AuditAction) =>
 function appWith(handle: () => Promise<void> | void, status: 200 | 409 = 200) {
   const app = new OpenAPIHono();
   const route = apiRoute({
+    operationId: "test.audit.closeConversation",
     access: { noCaller: "a test route, called without any principal" },
     audit: { records: ["conversation.closed"] },
     method: "post",

@@ -48,6 +48,7 @@ const query = z.object({
 });
 
 const draftStatsRoute = apiRoute({
+  operationId: "stats.getDraftOutcomes",
   access: { allScopes: ["stats:read"] },
   method: "get",
   path: "/v1/stats/drafts",

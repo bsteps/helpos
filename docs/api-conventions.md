@@ -83,7 +83,15 @@ Existing list response fields and ordering remain unchanged. Their consumer migr
 
 ## OpenAPI contract
 
+Every documented operation has an explicit, nonempty `operationId`, required by `apiRoute()`.
+These IDs are public contract names for clients and future agent tools.
+They name capabilities in `area.action` form, such as `knowledge.createSource`, `drafts.approve`, and `auth.signIn`.
+Liveness and readiness use `health.checkLiveness` and `health.checkReadiness`.
+An operation keeps its ID when its method or path changes without changing its capability.
+IDs are not derived from HTTP methods or paths. Renaming an ID is a breaking contract change.
+
 The checked-in contract is `apps/web/src/api/openapi.json`.
 `pnpm --filter @helpos/web gen:api` regenerates it and the dashboard types.
 `apps/server/src/openapi.test.ts` compares it with the served document during the server tests in `pnpm verify`.
-A stale contract fails verification.
+It also checks every operation in both documents for nonempty, unique IDs, including health, readiness, and authentication.
+A stale contract or a missing, empty, or duplicate ID fails verification.

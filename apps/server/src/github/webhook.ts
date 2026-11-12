@@ -58,6 +58,7 @@ const webhookPayload = z
   .openapi("GithubWebhookPayload");
 
 const webhookRoute = apiRoute({
+  operationId: "github.receiveWebhook",
   access: {
     noCaller:
       "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret.",
