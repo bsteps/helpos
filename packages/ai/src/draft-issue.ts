@@ -5,6 +5,7 @@ import {
   NoObjectGeneratedError,
   Output,
   RetryError,
+  zodSchema,
 } from "ai";
 import { z } from "zod";
 import { type DraftInput, type DraftUsage, fenceEmail } from "./draft-reply.ts";
@@ -41,6 +42,8 @@ const issueSchema = z.object({
   actual: z.string(),
 });
 export type IssueFields = z.infer<typeof issueSchema>;
+const issueOutputSchema = zodSchema(issueSchema);
+const issueSchemaTokenBound = tokenBound(JSON.stringify(await issueOutputSchema.jsonSchema));
 
 export type IssueDraft = { title: string; body: string; usage: DraftUsage };
 
@@ -232,9 +235,14 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
 /** Room for the model's answer: a title and a few short sections. */
 const maxIssueOutputTokens = 2_000;
 
-/** An upper bound on the tokens one draft costs: its prompt (see tokenBound) and the output cap. */
+/**
+ * An upper bound on the tokens one draft costs (see tokenBound): its prompt, the output schema
+ * sent with it, and the output cap.
+ */
 export function issueDraftTokenEstimate(input: DraftInput): number {
-  return tokenBound(issueInstructions, fenceEmail(input)) + maxIssueOutputTokens;
+  return (
+    tokenBound(issueInstructions, fenceEmail(input)) + issueSchemaTokenBound + maxIssueOutputTokens
+  );
 }
 
 /**
@@ -269,7 +277,7 @@ export async function draftGithubIssue(
     model,
     instructions: issueInstructions,
     prompt: fenceEmail(input),
-    output: Output.object({ schema: issueSchema }),
+    output: Output.object({ schema: issueOutputSchema }),
     // The budget reservation counts on this bound.
     maxOutputTokens: maxIssueOutputTokens,
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
