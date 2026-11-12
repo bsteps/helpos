@@ -1,7 +1,9 @@
 // `pnpm test:scripts`: the import restrictions in biome.json stay in sync.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -68,8 +70,19 @@ for (const file of [
     const biome = fileURLToPath(
       new URL("../node_modules/@biomejs/biome/bin/biome", import.meta.url),
     );
-    const path = new URL(`../${file}`, import.meta.url);
-    mkdirSync(new URL(".", path), { recursive: true });
+    const fixture = mkdtempSync(join(tmpdir(), "helpos-biome-"));
+    const path = join(fixture, file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      join(fixture, "biome.json"),
+      JSON.stringify({
+        ...config,
+        vcs: { enabled: false },
+        plugins: config.plugins.map((plugin) =>
+          fileURLToPath(new URL(`../${plugin}`, import.meta.url)),
+        ),
+      }),
+    );
     try {
       for (const [lines, expected] of [
         [600, 0],
@@ -83,7 +96,7 @@ for (const file of [
           process.execPath,
           [biome, "lint", file, "--only=style/noExcessiveLinesPerFile", "--reporter=json"],
           {
-            cwd: fileURLToPath(new URL("..", import.meta.url)),
+            cwd: fixture,
             encoding: "utf8",
           },
         );
@@ -96,8 +109,7 @@ for (const file of [
         );
       }
     } finally {
-      rmSync(path, { force: true });
-      if (file.startsWith("apps/server/")) rmdirSync(new URL(".", path));
+      rmSync(fixture, { recursive: true, force: true });
     }
   });
 }
