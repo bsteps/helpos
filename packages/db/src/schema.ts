@@ -18,6 +18,7 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
+import { type Actor, actorTypes } from "./actor.ts";
 import type { KnowledgeSourceState } from "./knowledge-state.ts";
 
 export * from "./knowledge-state.ts";
@@ -371,7 +372,14 @@ export const attachments = pgTable(
   ],
 );
 
-export const draftStatuses = ["pending", "approved", "sent", "send_failed", "discarded"] as const;
+export const draftStatuses = [
+  "pending",
+  "approved",
+  "sent",
+  "send_failed",
+  "send_uncertain",
+  "discarded",
+] as const;
 export type DraftStatus = (typeof draftStatuses)[number];
 /**
  * `reply` answers the customer's message. `fixed` tells them the GitHub issue made from their
@@ -380,13 +388,6 @@ export type DraftStatus = (typeof draftStatuses)[number];
 export const draftKinds = ["reply", "fixed"] as const;
 export type DraftKind = (typeof draftKinds)[number];
 
-/**
- * An AI-written reply to one inbound message: `pending → approved → sent`, or `discarded`.
- * Written only by apps/server/src/drafts/lifecycle.ts, whose table lists every allowed status
- * change. Only approval moves it to `approved`, and only the send worker sends it. When
- * every send attempt fails it becomes `send_failed`: retried (back to `approved`, same
- * Message-ID) or discarded by a person or agent, never left stuck.
- */
 export const drafts = pgTable(
   "drafts",
   {
@@ -401,14 +402,12 @@ export const drafts = pgTable(
     kind: text("kind", { enum: draftKinds }).notNull().default("reply"),
     status: text("status", { enum: draftStatuses }).notNull().default("pending"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
-    /**
-     * The Message-ID the reply is sent with, fixed at approval. A retried send reuses it, so a
-     * mail server that already got the first attempt can drop the duplicate.
-     */
+    /** Fixed per attempt. A human-requested resend gets a fresh Message-ID. */
     outboundMessageIdHeader: text("outbound_message_id_header"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
-    /** The outbound message row written when the reply was sent. */
+    /** The prepared outbound message. Its sentAt stays null until delivery is confirmed. */
     sentMessageId: uuid("sent_message_id"),
+    resendRequested: boolean("resend_requested").notNull().default(false),
   },
   (t) => [
     unique("drafts_tenant_id_id").on(t.tenantId, t.id),
@@ -419,7 +418,7 @@ export const drafts = pgTable(
       .where(sql`status <> 'discarded' and not (kind = 'fixed' and status = 'sent')`),
     check(
       "drafts_status",
-      sql`${t.status} in ('pending', 'approved', 'sent', 'send_failed', 'discarded')`,
+      sql`${t.status} in ('pending', 'approved', 'sent', 'send_failed', 'send_uncertain', 'discarded')`,
     ),
     check("drafts_kind", sql`${t.kind} in ('reply', 'fixed')`),
     foreignKey({
@@ -442,8 +441,8 @@ export const drafts = pgTable(
   ],
 );
 
-export const actorTypes = ["user", "agent", "system"] as const;
-export type ActorType = (typeof actorTypes)[number];
+export { actorTypes };
+export type ActorType = Actor["type"];
 
 /**
  * Append-only log of every human, agent and system action, written in the same transaction as

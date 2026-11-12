@@ -20,9 +20,11 @@ import {
   type TenantTransaction,
   type TenantTx,
 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { type AiBudget, AiBusyError, aiBudget, type Spent } from "../ai-budget/budget.ts";
-import { auditorFor, recordAudit } from "../audit/audit.ts";
+import { recordAudit } from "../audit/audit.ts";
+import { inHistory } from "../conversations/history.ts";
 import {
   noKnowledge,
   SearchError,
@@ -83,7 +85,7 @@ export interface DraftWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
+export const draftWorkerActor = builtInActors.draftWorker;
 
 /**
  * The workspace's best-matching knowledge, or none when search fails (embedding provider down,
@@ -283,6 +285,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
         eq(messages.conversationId, row.conversationId),
         ne(messages.id, payload.messageId),
         lt(messages.createdAt, row.createdAt),
+        inHistory(),
       ),
     )
     // Newest first, so the limit keeps the most recent; reversed below to oldest first.
@@ -369,13 +372,17 @@ async function save(
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
 
   // This is the latest message, so createReply discards pending replies to earlier ones.
-  const saved = await createReply(tx, auditorFor(payload.tenantId, draftWorkerActor), {
-    tenantId: payload.tenantId,
-    conversationId,
-    messageId: payload.messageId,
-    body,
-    noticeDelaySeconds: deps.config.noticeDelaySeconds,
-  });
+  const saved = await createReply(
+    tx,
+    { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
+    {
+      tenantId: payload.tenantId,
+      conversationId,
+      messageId: payload.messageId,
+      body,
+      noticeDelaySeconds: deps.config.noticeDelaySeconds,
+    },
+  );
   // Every passage the model saw, so the approver can check the draft against its sources.
   if (hits.length > 0) {
     await tx.insert(draftCitations).values(

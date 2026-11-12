@@ -1,4 +1,5 @@
 import { and, asc, type Database, eq, isNull, schema } from "@helpos/db";
+import { isHuman } from "@helpos/db/actor";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
@@ -116,7 +117,7 @@ function serialize(t: ApiTokenRow): TokenJson {
 /** Why `principal` may not manage tokens, or null when it may. */
 function adminRefusal(principal: Principal): "session_required" | "forbidden" | null {
   // Tokens never mint tokens: a leaked token must not be able to make itself a spare.
-  if (principal.actor.type !== "user") return "session_required";
+  if (!isHuman(principal.actor)) return "session_required";
   return principal.scopes.has("workspace:admin") ? null : "forbidden";
 }
 
@@ -154,7 +155,7 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const audit = auditor(c);
-    const isSelf = principal.actor.type === "agent" && principal.actor.id === id;
+    const isSelf = !isHuman(principal.actor) && principal.actor.id === id;
     // Checked before any lookup, so an agent learns nothing about other tokens' IDs.
     if (!isSelf && adminRefusal(principal)) return c.json({ error: "forbidden" }, 403);
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {

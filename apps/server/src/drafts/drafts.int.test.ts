@@ -302,6 +302,7 @@ describe("draft → approve → send", () => {
       ["draft.created", "system", "draft-reply"],
       ["draft.edited", "agent", "test-agent"],
       ["draft.approved", "agent", "test-agent"],
+      ["draft.sending", "system", "send-reply"],
       ["draft.sent", "system", "send-reply"],
     ]);
     expect(audit[2]?.requestId).toBe(requestId);
@@ -483,17 +484,15 @@ describe("nothing is sent without approval", () => {
     const email = await receiveEmail();
     const pending = await waitForDraft(email.conversationId, "pending");
     const send = vi.fn<EmailTransport["send"]>();
-    await db.withTenant(acme, (tx) =>
-      handleSendReply({ transport: { send, close: () => {} }, files, logger })(
-        { tenantId: acme, draftId: pending.id },
-        tx,
-      ),
+    await handleSendReply({ transport: { send, close: () => {} }, files, logger })(
+      { tenantId: acme, draftId: pending.id },
+      (fn) => db.withTenant(acme, fn),
     );
     expect(send).not.toHaveBeenCalled();
     expect((await draftsOf(email.conversationId))[0]?.status).toBe("pending");
   });
 
-  it("a failed send keeps the draft approved and writes nothing, so a retry can send it", async () => {
+  it("an unknown send outcome leaves a durable decision instead of permitting retry", async () => {
     const email = await receiveEmail();
     const pending = await waitForDraft(email.conversationId, "pending");
     // Approve directly, so the running worker doesn't race this test for the job.
@@ -510,23 +509,25 @@ describe("nothing is sent without approval", () => {
       close: () => {},
     };
     await expect(
-      db.withTenant(acme, (tx) =>
-        handleSendReply({ transport: failing, files, logger })(
-          { tenantId: acme, draftId: pending.id },
-          tx,
-        ),
+      handleSendReply({ transport: failing, files, logger })(
+        { tenantId: acme, draftId: pending.id },
+        (fn) => db.withTenant(acme, fn),
       ),
     ).rejects.toThrow("SMTP down");
 
-    expect((await draftsOf(email.conversationId))[0]?.status).toBe("approved");
-    expect((await auditOf(pending.id)).map((e) => e.action)).toEqual(["draft.created"]);
+    expect((await draftsOf(email.conversationId))[0]?.status).toBe("send_uncertain");
+    expect((await auditOf(pending.id)).map((e) => e.action)).toEqual([
+      "draft.created",
+      "draft.sending",
+    ]);
     const outbound = await db.withTenant(acme, (tx) =>
       tx
         .select()
         .from(schema.messages)
         .where(eq(schema.messages.messageIdHeader, "<retry@acme.test>")),
     );
-    expect(outbound).toEqual([]);
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]?.sentAt).toBeNull();
   });
 });
 
@@ -557,6 +558,40 @@ describe("drafting in context", () => {
     );
     // Both messages, inside the one fence, earlier one first.
     expect(prompt).toMatch(/<untrusted_email>.*invoice for March.*wrong VAT.*<\/untrusted_email>/);
+  });
+
+  it("leaves unconfirmed send attempts out of the history the model sees", async () => {
+    const first = await receiveEmail("Where is my parcel?");
+    await waitForDraft(first.conversationId, "pending");
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.messages).values(
+        [
+          { body: "Unconfirmed attempt about the parcel.", sentAt: null },
+          { body: "Delivered answer about the parcel.", sentAt: new Date() },
+        ].map(({ body, sentAt }, i) => ({
+          tenantId: acme,
+          conversationId: first.conversationId,
+          direction: "outbound" as const,
+          fromAddress: "support@acme.test",
+          toAddresses: ["jane@customer.test"],
+          subject: `Re: ${first.subject}`,
+          textBody: body,
+          messageIdHeader: `<history-${emailCount}-${i}@acme.test>`,
+          references: [first.header],
+          rawFileKey: `${acme}/history-${emailCount}-${i}`,
+          sentAt,
+        })),
+      ),
+    );
+    await receiveEmail("It still has not arrived.", { replyTo: first.header });
+    const prompt = await waitFor("the follow-up prompt", async () =>
+      JSON.stringify(
+        model.doGenerateCalls.find((c) => JSON.stringify(c.prompt).includes("still has not"))
+          ?.prompt,
+      ),
+    );
+    expect(prompt).toContain("Delivered answer about the parcel.");
+    expect(prompt).not.toContain("Unconfirmed attempt");
   });
 
   it("a late job for an older message never discards the newer message's draft", async () => {

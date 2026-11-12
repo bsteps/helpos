@@ -20,13 +20,14 @@ export type Ask = { replacing: string | null; queued?: boolean };
 /** What happened to the reply while a person was writing their own. */
 export type Meanwhile = "drafted" | "answered" | "send_failed";
 
-const meanwhileByStatus: Record<Draft["status"], Meanwhile | undefined> = {
+const meanwhileByStatus = {
   pending: "drafted",
   approved: "answered",
   sent: "answered",
   send_failed: "send_failed",
+  send_uncertain: "answered",
   discarded: undefined,
-};
+} satisfies Record<Draft["status"], Meanwhile | undefined>;
 
 export type DraftView =
   | { kind: "none" }
@@ -77,7 +78,7 @@ export function draftView(
 export function waitingOn(conversation: ConversationDetail | undefined, ask: Ask | undefined) {
   return (drafts: Draft[]): boolean =>
     // An approved draft still goes out after the conversation is closed: keep watching until it's sent.
-    drafts.some((d) => d.status === "approved") ||
+    drafts.some((d) => d.status === "approved" || d.status === "send_uncertain") ||
     draftView(conversation, drafts, ask, false).kind === "writing";
 }
 
