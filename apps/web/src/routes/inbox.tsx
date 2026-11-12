@@ -77,7 +77,7 @@ export function InboxPage() {
                     </time>
                     {conversation.replyNotSent ? (
                       <AnimatedBadge status="danger" size="sm">
-                        Reply not sent
+                        Reply needs attention
                       </AnimatedBadge>
                     ) : null}
                     {conversation.status === "closed" ? (

@@ -137,13 +137,12 @@ export async function embedTexts(
     } catch (cause) {
       throw new EmbedError(tokens + tokenBound(...batch), { cause });
     }
-    // Some OpenAI-compatible servers report no usage. Estimate (about 4 characters a token)
-    // rather than count nothing, so the daily budget still sees the spend.
+    // Some OpenAI-compatible servers omit usage; keep the reserved bound as spend.
     const reported = result.usage?.tokens;
     tokens +=
       typeof reported === "number" && Number.isFinite(reported) && reported > 0
         ? reported
-        : Math.ceil(batch.reduce((sum, v) => sum + v.length, 0) / 4);
+        : tokenBound(...batch);
     for (const e of result.embeddings) {
       if (e.length !== embeddingDimensions) {
         throw new EmbedError(tokens, {

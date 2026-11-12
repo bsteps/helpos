@@ -1,26 +1,11 @@
 import { brand } from "@helpos/brand";
-import MailComposer from "nodemailer/lib/mail-composer";
+import type { DraftNotice } from "./composer.ts";
 
 /** How much of the customer's message a notice quotes. Enough to recognise it, no more. */
 export const noticeSnippetLength = 160;
 
 /** At most one notice per conversation in this window, however many drafts it gets. */
 export const noticeWindowMinutes = 15;
-
-export interface DraftNotice {
-  from: string;
-  /**
-   * Not a helpdesk mailbox, so an owner who answers the notice doesn't open a conversation that the
-   * AI then drafts a reply to.
-   */
-  replyTo: string;
-  to: string;
-  conversationUrl: string;
-  /** The customer's message. Quoted as a short plain-text snippet, never in the subject. */
-  customerText: string;
-  messageId: string;
-  date: Date;
-}
 
 /**
  * The subject is fixed: customer text never goes there, because subjects show up in
@@ -69,25 +54,4 @@ export function noticeText(notice: Pick<DraftNotice, "conversationUrl" | "custom
     "Replies to this email are not read.",
     `You get at most one of these per conversation every ${noticeWindowMinutes} minutes. Sent by ${brand.name}.`,
   ].join("\n");
-}
-
-/** Raw MIME, plain text only. */
-export function buildDraftNotice(notice: DraftNotice): Promise<Uint8Array> {
-  const composer = new MailComposer({
-    from: notice.from,
-    replyTo: notice.replyTo,
-    to: notice.to,
-    subject: noticeSubject,
-    text: noticeText(notice),
-    messageId: notice.messageId,
-    date: notice.date,
-    // Tells well-behaved auto-responders not to answer a machine notice.
-    headers: { "Auto-Submitted": "auto-generated" },
-  });
-  return new Promise((resolve, reject) => {
-    composer.compile().build((error, message) => {
-      if (error) reject(error);
-      else resolve(new Uint8Array(message));
-    });
-  });
 }

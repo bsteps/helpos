@@ -1,5 +1,6 @@
 import { and, eq, isNull, lt, lte, or, schema, sql, type TenantTx } from "@helpos/db";
-import { type AuditActor, auditorFor, recordAudit } from "../audit/audit.ts";
+import type { Actor } from "@helpos/db/actor";
+import { recordAudit } from "../audit/audit.ts";
 import { discardStale } from "../drafts/lifecycle.ts";
 import { addFixedDraft } from "./fixed-notice.ts";
 
@@ -15,7 +16,7 @@ export interface IssueChange {
   /** Lowercase `owner/name`. */
   repo: string;
   number: number;
-  actor: AuditActor;
+  actor: Actor;
   requestId: string | null;
   noticeDelaySeconds: number;
   /**
@@ -153,9 +154,13 @@ export async function markIssueReopened(tx: TenantTx, change: IssueChange): Prom
       requestId: change.requestId,
     });
   }
-  await discardStale(tx, auditorFor(change.tenantId, change.actor, change.requestId), {
-    conversationIds: reopened.map((r) => r.conversationId),
-    kind: "fixed",
-  });
+  await discardStale(
+    tx,
+    { tenantId: change.tenantId, actor: change.actor, requestId: change.requestId },
+    {
+      conversationIds: reopened.map((r) => r.conversationId),
+      kind: "fixed",
+    },
+  );
   return reopened.length;
 }

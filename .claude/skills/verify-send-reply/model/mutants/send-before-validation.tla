@@ -12,7 +12,7 @@ WorkerLocksAndChecks(w) ==
        ELSE /\ worker' = [worker EXCEPT ![w].pc = "settling_complete"]
             /\ job' = job
             /\ UNCHANGED lockHolder
-    /\ UNCHANGED <<status, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, status, delivered, personRetries, sentUnapproved, faults>>
 
 TransactionCommits(w) ==
     /\ worker[w].pc = "committing"
@@ -23,4 +23,4 @@ TransactionCommits(w) ==
             /\ job' = job
        ELSE /\ Fail(w)
             /\ UNCHANGED status
-    /\ UNCHANGED <<delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, delivered, personRetries, sentUnapproved, faults>>

@@ -3,16 +3,19 @@ import {
   desc,
   enqueue,
   eq,
+  gt,
   inArray,
   isNull,
   ne,
+  or,
   type SQL,
   schema,
   sql,
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
-import type { AuditAction, Auditor } from "../audit/audit.ts";
+import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
+import { mailboxDomain, outboundMessageId } from "../outbound-email/composer.ts";
 import { sendReplyJob } from "./jobs.ts";
 import { queueDraftNotice } from "./notice-worker.ts";
 
@@ -50,8 +53,15 @@ export const draftTransitions = {
    * about was reopened. Only a pending one: a failed send waits for a person to decide.
    */
   discardStale: { from: ["pending"], to: "discarded", audit: "draft.discarded" },
-  /** The send worker handed it to the mail server. */
-  markSent: { from: ["approved"], to: "sent", audit: "draft.sent" },
+  rejectSend: { from: ["send_uncertain"], to: "approved", audit: "draft.send_rejected" },
+  markSending: {
+    from: ["approved", "send_uncertain"],
+    to: "send_uncertain",
+    audit: "draft.sending",
+  },
+  confirmSent: { from: ["send_uncertain"], to: "sent", audit: "draft.send_confirmed" },
+  resend: { from: ["send_uncertain"], to: "send_uncertain", audit: "draft.send_retried" },
+  markSent: { from: ["send_uncertain"], to: "sent", audit: "draft.sent" },
   /** Every send attempt failed, so it waits for a person to retry or discard it. */
   markSendFailed: { from: ["approved"], to: "send_failed", audit: "draft.send_failed" },
   /** Queued to send again, with the Message-ID fixed at approval. */
@@ -67,6 +77,35 @@ type DraftOperation = keyof typeof draftTransitions;
 export const openStatuses: readonly DraftStatus[] = schema.draftStatuses.filter((status) =>
   Object.values(draftTransitions).some((t) => (t.from as readonly DraftStatus[]).includes(status)),
 );
+
+export function isPendingDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "pending";
+}
+
+export function isApprovedDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "approved";
+}
+
+export function isSentDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "sent";
+}
+
+export function isUncertainDraft(draft: Pick<DraftRow, "status">): boolean {
+  return draft.status === "send_uncertain";
+}
+
+export const draftWhere = {
+  pending: () => eq(drafts.status, "pending"),
+  open: () => inArray(drafts.status, [...openStatuses]),
+  live: (kind: DraftKind) =>
+    and(ne(drafts.status, "discarded"), kind === "fixed" ? ne(drafts.status, "sent") : undefined),
+  wasApproved: (after?: Date) =>
+    after
+      ? sql<boolean>`${gt(drafts.approvedAt, after)}`
+      : sql<boolean>`${drafts.approvedAt} is not null`,
+  sendFailed: () => eq(drafts.status, "send_failed"),
+  sendUncertain: () => eq(drafts.status, "send_uncertain"),
+};
 
 /** What a change to one draft did. `conflict` carries the draft as it is now. */
 export type DraftChange =
@@ -85,7 +124,7 @@ type DraftSet = { [K in Exclude<keyof DraftValues, "status">]?: DraftValues[K] |
  */
 async function change(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   operation: DraftOperation,
   id: string,
   set: DraftSet = {},
@@ -101,7 +140,7 @@ async function change(
     const [current] = await tx.select().from(drafts).where(eq(drafts.id, id));
     return current ? { outcome: "conflict", draft: current } : { outcome: "not_found" };
   }
-  await audit(tx, action, { type: "draft", id });
+  await recordAudit(tx, { ...context, action, target: { type: "draft", id } });
   return { outcome: "changed", draft: changed };
 }
 
@@ -117,11 +156,11 @@ async function queueSend(tx: TenantTx, draft: DraftRow): Promise<void> {
 
 export function editDraft(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   id: string,
   body: string,
 ): Promise<DraftChange> {
-  return change(tx, audit, "edit", id, { body });
+  return change(tx, context, "edit", id, { body });
 }
 
 /**
@@ -131,7 +170,7 @@ export function editDraft(
  */
 export async function approveDraft(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   id: string,
   reviewedBody: string,
 ): Promise<DraftChange> {
@@ -142,16 +181,16 @@ export async function approveDraft(
     .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))
     .where(eq(drafts.id, id));
   if (!found) return { outcome: "not_found" };
-  const domain = found.mailbox.split("@").pop() ?? "localhost";
+  const domain = mailboxDomain(found.mailbox);
   const approved = await change(
     tx,
-    audit,
+    context,
     "approve",
     id,
     {
       // The database clock, like the audit events the notice window compares it with.
       approvedAt: sql`now()`,
-      outboundMessageIdHeader: `<${uuidv7()}@${domain}>`,
+      outboundMessageIdHeader: outboundMessageId({ kind: "reply", domain, id: uuidv7() }),
     },
     eq(drafts.body, reviewedBody),
   );
@@ -159,8 +198,12 @@ export async function approveDraft(
   return approved;
 }
 
-export function discardDraft(tx: TenantTx, audit: Auditor, id: string): Promise<DraftChange> {
-  return change(tx, audit, "discard", id);
+export function discardDraft(
+  tx: TenantTx,
+  context: AuditContext,
+  id: string,
+): Promise<DraftChange> {
+  return change(tx, context, "discard", id);
 }
 
 /**
@@ -172,10 +215,10 @@ export function discardDraft(tx: TenantTx, audit: Auditor, id: string): Promise<
  */
 export async function retrySend(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   id: string,
 ): Promise<DraftChange | { outcome: "already_sent"; draft: DraftRow }> {
-  const retried = await change(tx, audit, "retry", id);
+  const retried = await change(tx, context, "retry", id);
   if (retried.outcome === "changed") {
     await queueSend(tx, retried.draft);
     return retried;
@@ -184,7 +227,11 @@ export async function retrySend(
   const current = retried.draft;
   if (current.status === "sent") return { outcome: "already_sent", draft: current };
   if (current.status !== "approved") return retried;
-  await audit(tx, draftTransitions.retry.audit, { type: "draft", id });
+  await recordAudit(tx, {
+    ...context,
+    action: draftTransitions.retry.audit,
+    target: { type: "draft", id },
+  });
   await queueSend(tx, current);
   return { outcome: "changed", draft: current };
 }
@@ -192,16 +239,78 @@ export async function retrySend(
 /** The send worker sent it. Call it with the transaction that stores the outbound message. */
 export function markSent(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   id: string,
   sent: { sentAt: Date; sentMessageId: string },
 ): Promise<DraftChange> {
-  return change(tx, audit, "markSent", id, sent);
+  return change(tx, context, "markSent", id, sent);
+}
+
+export function markSending(
+  tx: TenantTx,
+  context: AuditContext,
+  id: string,
+  sentMessageId: string,
+): Promise<DraftChange> {
+  return change(
+    tx,
+    context,
+    "markSending",
+    id,
+    { sentMessageId, resendRequested: false },
+    or(eq(drafts.status, "approved"), eq(drafts.resendRequested, true)),
+  );
+}
+
+export async function resolveUncertainSend(
+  tx: TenantTx,
+  context: AuditContext,
+  id: string,
+  input: { messageId: string; decision: "mark_sent" | "send_again" },
+): Promise<DraftChange> {
+  const [draft] = await tx.select().from(drafts).where(eq(drafts.id, id)).for("update");
+  if (!draft) return { outcome: "not_found" };
+  if (
+    draft.status !== "send_uncertain" ||
+    draft.outboundMessageIdHeader !== input.messageId ||
+    !draft.sentMessageId
+  ) {
+    return { outcome: "conflict", draft };
+  }
+  if (input.decision === "mark_sent") {
+    const sentAt = new Date();
+    await tx.update(messages).set({ sentAt }).where(eq(messages.id, draft.sentMessageId));
+    await tx
+      .update(conversations)
+      .set({ lastMessageAt: sentAt })
+      .where(eq(conversations.id, draft.conversationId));
+    return change(tx, context, "confirmSent", id, { sentAt, resendRequested: false });
+  }
+  const domain = input.messageId.slice(input.messageId.lastIndexOf("@") + 1, -1);
+  const changed = await change(tx, context, "resend", id, {
+    outboundMessageIdHeader: outboundMessageId({ kind: "reply", domain, id: uuidv7() }),
+    resendRequested: true,
+  });
+  if (changed.outcome === "changed") {
+    await enqueue(
+      tx,
+      sendReplyJob,
+      { tenantId: draft.tenantId, draftId: id },
+      {
+        singletonKey: `${id}:${changed.draft.outboundMessageIdHeader}`,
+      },
+    );
+  }
+  return changed;
 }
 
 /** Every send attempt failed. A draft sent or changed meanwhile is left alone (a conflict). */
-export function markSendFailed(tx: TenantTx, audit: Auditor, id: string): Promise<DraftChange> {
-  return change(tx, audit, "markSendFailed", id);
+export function markSendFailed(
+  tx: TenantTx,
+  context: AuditContext,
+  id: string,
+): Promise<DraftChange> {
+  return change(tx, context, "markSendFailed", id);
 }
 
 /**
@@ -212,7 +321,7 @@ export function markSendFailed(tx: TenantTx, audit: Auditor, id: string): Promis
  */
 export async function discardStale(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   where: { conversationIds: string[]; kind: DraftKind },
 ): Promise<string[]> {
   if (where.conversationIds.length === 0) return [];
@@ -228,7 +337,8 @@ export async function discardStale(
       ),
     )
     .returning({ id: drafts.id });
-  for (const { id } of stale) await audit(tx, action, { type: "draft", id });
+  for (const { id } of stale)
+    await recordAudit(tx, { ...context, action, target: { type: "draft", id } });
   return stale.map((d) => d.id);
 }
 
@@ -277,14 +387,7 @@ export async function liveDraftFor(
   const [live] = await tx
     .select({ id: drafts.id, status: drafts.status })
     .from(drafts)
-    .where(
-      and(
-        eq(drafts.messageId, messageId),
-        eq(drafts.kind, kind),
-        ne(drafts.status, "discarded"),
-        kind === "fixed" ? ne(drafts.status, "sent") : undefined,
-      ),
-    )
+    .where(and(eq(drafts.messageId, messageId), eq(drafts.kind, kind), draftWhere.live(kind)))
     .limit(1);
   return live;
 }
@@ -292,7 +395,7 @@ export async function liveDraftFor(
 /** Saves a new pending draft, queues the owners' notice, and records it. */
 async function insertPending(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   values: {
     tenantId: string;
     conversationId: string;
@@ -306,7 +409,11 @@ async function insertPending(
   const [draft] = await tx.insert(drafts).values(row).returning();
   if (!draft) throw new Error("create draft: insert returned no row");
   await queueDraftNotice(tx, draft, noticeDelaySeconds);
-  await audit(tx, "draft.created", { type: "draft", id: draft.id });
+  await recordAudit(tx, {
+    ...context,
+    action: "draft.created",
+    target: { type: "draft", id: draft.id },
+  });
   return draft;
 }
 
@@ -318,7 +425,7 @@ async function insertPending(
  */
 export async function createReply(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   input: {
     tenantId: string;
     conversationId: string;
@@ -327,8 +434,8 @@ export async function createReply(
     noticeDelaySeconds: number;
   },
 ): Promise<DraftRow> {
-  await discardStale(tx, audit, { conversationIds: [input.conversationId], kind: "reply" });
-  const draft = await insertPending(tx, audit, { ...input, kind: "reply" });
+  await discardStale(tx, context, { conversationIds: [input.conversationId], kind: "reply" });
+  const draft = await insertPending(tx, context, { ...input, kind: "reply" });
   await tx
     .update(conversations)
     .set({ aiPausedReason: null })
@@ -346,7 +453,7 @@ export async function createReply(
  */
 export async function createFixedNotice(
   tx: TenantTx,
-  audit: Auditor,
+  context: AuditContext,
   input: { tenantId: string; conversationId: string; body: string; noticeDelaySeconds: number },
 ): Promise<DraftRow | null> {
   const lock = await lockConversationForDrafting(tx, input.conversationId);
@@ -358,10 +465,15 @@ export async function createFixedNotice(
       and(
         eq(drafts.conversationId, input.conversationId),
         eq(drafts.kind, "fixed"),
-        inArray(drafts.status, [...openStatuses]),
+        draftWhere.open(),
       ),
     )
     .limit(1);
   if (open) return null;
-  return insertPending(tx, audit, { ...input, messageId: lock.answering, kind: "fixed" });
+  return insertPending(tx, context, { ...input, messageId: lock.answering, kind: "fixed" });
+}
+
+export async function rejectSend(tx: TenantTx, context: AuditContext, id: string): Promise<void> {
+  const changed = await change(tx, context, "rejectSend", id, { sentMessageId: null });
+  if (changed.outcome !== "changed") throw new Error("send-reply: draft changed after rejection");
 }

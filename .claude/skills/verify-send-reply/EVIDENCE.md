@@ -1,4 +1,85 @@
-# Verification evidence
+# Issue 130 verification
+
+## Issue 193 actor boundary
+
+Lifecycle mutations now receive an `AuditContext` containing the actor, tenant and
+request ID. They record their audit events from that context in the same transaction.
+The shared actor definition and built-in actor registry preserve stored identities.
+
+Semantic review compared `change`, approval, retry, discard, uncertainty resolution,
+the send worker and give-up with their mapped model actions. The context replaces
+the bound audit closure. Status predicates, conditional updates, row locks, Message-ID
+generation, queue keys and enqueue order are unchanged. Preparation still commits
+the uncertainty marker before SMTP. The second transaction rechecks its message
+identity before sending. SMTP acceptance, the final database commit and pg-boss
+settlement remain separate. The model does not include audit identity, so no action,
+guard, promise or known finding changes.
+
+The first focused replay run exposed an observation race in the existing
+`NoHiddenDelivery` test. It observed the committed uncertainty marker and immediately
+read zero Mailpit copies, although SMTP had not yet accepted the reply. The repair
+uses the existing bounded polling helper to wait for one actual copy before the
+unchanged exact-count assertion. It adds no retries or longer deadline. The original
+COMMIT-failure, rejection, physical-crash and settlement checks remain intact.
+
+New integration cases exercise nested lifecycle audit attribution for user, agent
+and built-in actors, and prove a mismatched audit tenant rolls back the draft write.
+The send mutation runner targets the new give-up call signature. The separate
+lost-retry and give-up failures remain known `NoSilentStall` findings.
+
+The earlier coverage selector recursively chose the first matching declaration or
+property. For `markSending`, `rejectSend`, `markSent` and `markSendFailed`, that was
+the same-named `draftTransitions` entry, not the function. Earlier hashes therefore
+did not protect those four function bodies. This limits the earlier fingerprint
+evidence; it does not invalidate the runtime assertions or source mutation results.
+The selector now prefers a function declaration in the current lexical scope before
+searching nested properties. A regression mutates every covered function body in a
+scratch copy, requires its fingerprint to change, then restores and checks the hash.
+It also covers nested `createJobRunner.consume` and `createJobRunner.work`.
+The original selector fails this regression. All four previously missed functions
+were inspected against their mapped model actions before reconfirmation.
+
+## Issue 213 composer extraction
+
+The outbound composer now owns MIME construction, reply headers, notice headers and
+Message-ID formatting. Approval and explicit resend still allocate a UUID in their
+original transaction. The composer only formats that value with the original domain
+and prefix. Automatic retries still reuse the stored Message-ID.
+
+Semantic review compared `PersonApproves`, `PersonResolvesResend`,
+`WorkerLocksAndChecks`, `PreparationFails` and `WorkerRechecksMarker` with the
+extraction. MIME compilation still completes before the marker commit. SMTP, its
+second transaction, the attempt identity check, status guards and settlement have
+not moved. No model action or promise changes. Fingerprints also cover the extracted
+formatter and compiler. The real-code send-before-validation mutant now targets
+the renamed compiler call and must still fail both safety assertions.
+
+Five exact-byte fixtures in `fixtures/email/outbound/composer.json` were captured
+from the original builders at the pinned #195 base before moving code. JSON escapes
+preserve the original mixture of CRLF and LF bytes. The existing shadow reply and
+draft notice fixtures remain unchanged. The fixture test has no update mode.
+
+The separate lost-retry and give-up failures remain known `NoSilentStall` findings.
+An expected model-runner exit does not mean every promise holds.
+
+## Existing send protocol
+
+The send worker commits an outbound message and `send_uncertain` before SMTP. Its second transaction locks the draft and checks the message identity again. Only the worker that still owns that marker can send. A retry leaves uncertainty visible without calling SMTP. A human decision must match the current Message-ID and pass the session, scope and tenant checks.
+
+The model maps the first committed transaction to `WorkerLocksAndChecks`, and the second lock and identity check to `WorkerRechecksMarker`. SMTP acceptance, final commit and queue settlement remain separate actions. `PreparationFails` leaves the previous committed state unchanged. A rejected explicit resend keeps the original uncertainty visible. The model represents a new Message-ID as a new person-retry generation.
+
+Fresh focused verification passes 53 tests against Postgres, pg-boss and Mailpit, including a physical child-process kill after SMTP acceptance and a database COMMIT failure. Recovery never adds an automatic second copy. The laptop and phone Playwright suites pass 11 tests, including both human recovery choices and normal failed-send recovery.
+
+The six model scenarios preserve `NoResendWithoutPerson`, `NoHiddenDelivery` and `SentOnlyWhenApproved`. `NoSilentStall` still has the separate lost-retry and give-up findings. All six unchanged-model controls hold, and all six mutant/property pairs break their intended promise. Fingerprints were confirmed only after comparing the covered lifecycle, worker and registration code with those actions.
+
+The preserved statechart receipts are under `E:/Projects/helpdesk/.helpos/autopilot/130-statechart-review/`. The current model has the same operators as those receipts. The lost-retry path is approval, failed preparation, retry, failed preparation, give-up, person retry, then old-job settlement. Worker death before preparation on the last attempt can still strand approval. A failed give-up can do the same. The real integration tests retain the lost-retry and give-up reproductions.
+
+Limits remain one draft, two workers, one automatic retry and one person retry. The model abstracts preparation and does not model HTTP permissions, tenant isolation, shadow routing or arbitrary job generations. Integration and browser tests cover those separately. An expected model-runner exit is not a claim that every invariant holds.
+
+## Historical evidence before issue 130
+
+The following records preserve the earlier findings and proofs. They describe the old send protocol, not the current implementation.
+
 
 Reconfirmed against 38c9ab9fc2b4 on 2026-11-12 after the #184 conversation rename. No product source changes are retained.
 

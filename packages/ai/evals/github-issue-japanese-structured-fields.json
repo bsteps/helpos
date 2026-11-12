@@ -1,0 +1,17 @@
+{
+  "name": "GitHub issue: a Japanese report keeps its structured fields",
+  "description": "A Japanese password-reset report parses into the schema-backed issue fields. The cost reservation is checked by unit tests, not here.",
+  "task": "github-issue",
+  "input": {
+    "from": "sender@example.test",
+    "subject": "パスワードのリセット",
+    "body": "パスワードをリセットしてください。確認メールが届きません。"
+  },
+  "mock": {
+    "text": "{\"title\": \"Password reset confirmation does not arrive\", \"summary\": \"The reset confirmation email does not arrive.\", \"stepsToReproduce\": [\"Request a password reset\"], \"expected\": \"A confirmation email arrives.\", \"actual\": \"No confirmation email arrives.\"}"
+  },
+  "assert": {
+    "mustContain": ["### Steps to reproduce", "### Expected", "### Actual"],
+    "mustNotContain": ["sender@example.test", "untrusted_email"]
+  }
+}

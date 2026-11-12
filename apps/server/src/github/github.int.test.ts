@@ -849,6 +849,43 @@ describe("drafting an issue with the AI", () => {
     }
   });
 
+  it("leaves unconfirmed send attempts out of the conversation it describes", async () => {
+    const email = await receiveEmail();
+    const start = Date.now();
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.messages).values(
+        [
+          { direction: "outbound", body: "Unconfirmed attempt about exports.", sentAt: null },
+          { direction: "outbound", body: "Delivered answer about exports.", sentAt: new Date() },
+          { direction: "inbound", body: "Exports still fail.", sentAt: null },
+        ].map(({ direction, body, sentAt }, i) => ({
+          tenantId: acme,
+          conversationId: email.conversationId,
+          direction: direction as "inbound" | "outbound",
+          fromAddress: direction === "inbound" ? "jane@customer.test" : "support@acme.test",
+          toAddresses: [direction === "inbound" ? "support@acme.test" : "jane@customer.test"],
+          subject: `Re: ${email.subject}`,
+          textBody: body,
+          messageIdHeader: `<issue-history-${emailCount}-${i}@acme.test>`,
+          references: [],
+          rawFileKey: `${acme}/issue-history-${emailCount}-${i}`,
+          sentAt,
+          createdAt: new Date(start + (i + 1) * 1000),
+        })),
+      ),
+    );
+    const res = await call(
+      "POST",
+      `/v1/conversations/${email.conversationId}/github-issue/draft`,
+      "githubAgent",
+    );
+    expect(res.status).toBe(200);
+    const prompt = JSON.stringify(issueModel.doGenerateCalls.at(-1)?.prompt);
+    expect(prompt).toContain("Exports still fail.");
+    expect(prompt).toContain("Delivered answer about exports.");
+    expect(prompt).not.toContain("Unconfirmed attempt");
+  });
+
   it("needs github:write, a model, budget left, and a conversation in this workspace", async () => {
     const email = await receiveEmail();
     const path = `/v1/conversations/${email.conversationId}/github-issue/draft`;

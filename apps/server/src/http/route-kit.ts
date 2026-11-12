@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi";
 import type { Context } from "hono";
-import { type Auditor, auditorFor } from "../audit/audit.ts";
+import { type AuditContext, type Auditor, auditorFor } from "../audit/audit.ts";
 
 // What every route file needs, in one place. A route file never defines its own copy: the
 // route-*.grit Biome plugins fail when one does (scripts/biome-plugins.test.mjs proves they fire).
@@ -36,13 +36,18 @@ export function notFound(c: Context) {
 
 export type { Auditor };
 
+export function auditContext(c: Context): AuditContext {
+  const { tenantId, actor } = c.get("principal");
+  const requestId = c.get("requestId");
+  return { tenantId, actor, requestId };
+}
+
 /**
  * Audit recording bound to the request: the caller's workspace and identity and the request ID
  * come from the request itself, so a handler can't record them wrong, or for someone else.
  * Call it with the transaction that makes the change, so both commit together.
  */
 export function auditor(c: Context): Auditor {
-  const { tenantId, actor } = c.get("principal");
-  const requestId = c.get("requestId");
+  const { tenantId, actor, requestId } = auditContext(c);
   return auditorFor(tenantId, actor, requestId);
 }

@@ -410,7 +410,14 @@
               "approved",
               "sent",
               "send_failed",
+              "send_uncertain",
               "discarded"
+            ]
+          },
+          "outboundMessageId": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "body": {
@@ -457,6 +464,7 @@
           "messageId",
           "kind",
           "status",
+          "outboundMessageId",
           "body",
           "createdAt",
           "updatedAt",
@@ -2274,6 +2282,120 @@
           },
           "409": {
             "description": "The draft is no longer pending, or was edited since it was reviewed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/drafts/{id}/resolve-send": {
+      "post": {
+        "summary": "Resolve an uncertain send",
+        "description": "Human decision for a reply that may already have gone out. Mark it sent or explicitly send again. The Message-ID binds the decision to the attempt reviewed.",
+        "security": [
+          {
+            "apiAuth": []
+          }
+        ],
+        "x-access": {
+          "allScopes": [
+            "drafts:approve"
+          ],
+          "humansOnly": true
+        },
+        "x-audit": {
+          "records": [
+            "draft.send_confirmed",
+            "draft.send_retried"
+          ]
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "mark_sent",
+                      "send_again"
+                    ]
+                  }
+                },
+                "required": [
+                  "messageId",
+                  "decision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The resolved draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The credentials lack the required scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This uncertain attempt is no longer current",
             "content": {
               "application/json": {
                 "schema": {
