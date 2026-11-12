@@ -1,0 +1,21 @@
+language js
+
+or {
+  `$db.update(conversations)`,
+  `$db.update(schema.conversations)`,
+  `$db.insert(conversations)`,
+  `$db.insert(schema.conversations)`,
+  `$db.delete(conversations)`,
+  `$db.delete(schema.conversations)`,
+  `$db.update(messages)`,
+  `$db.update(schema.messages)`,
+  `$db.insert(messages)`,
+  `$db.insert(schema.messages)`,
+  `$db.delete(messages)`,
+  `$db.delete(schema.messages)`
+} as $write where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*.conversations.lifecycle\.ts",
+  $filename <: not r".*\.test\.ts",
+  register_diagnostic(span=$write, message="Write conversations and messages only through apps/server/src/conversations/lifecycle.ts (addMessage, closeConversation, reopenConversation, pauseAi, ...).", severity="error")
+}

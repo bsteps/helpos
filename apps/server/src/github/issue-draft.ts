@@ -6,7 +6,8 @@ import {
 } from "@helpos/ai";
 import { and, asc, type Database, eq, isNull, schema, tenantTransactions } from "@helpos/db";
 import type { Logger } from "pino";
-import { aiBudget } from "../ai-budget/budget.ts";
+import { aiBudget, mapAiRefusal } from "../ai-budget/budget.ts";
+import { inHistory } from "../conversations/history.ts";
 import { messageText } from "../drafts/html-text.ts";
 import type { Auditor } from "../http/route-kit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
@@ -41,15 +42,18 @@ export async function draftIssue(
   const budget = aiBudget(deps);
   const prepared = await readAndReserve(deps, budget, input);
   if (prepared === "not_found") return { kind: "not_found" };
-  if (prepared === "busy") return { kind: "ai_busy" };
-  if (prepared === "over_budget") return { kind: "refused", error: "daily_budget_reached" };
   if (prepared === "nothing_to_report") return { kind: "refused", error: prepared };
+  if ("refused" in prepared)
+    return mapAiRefusal<DraftIssueOutcome>(prepared, {
+      busy: () => ({ kind: "ai_busy" }),
+      over_budget: () => ({ kind: "refused", error: "daily_budget_reached" }),
+    });
 
   try {
     const draft = await budget.spend(
       tenantTransactions(deps.db, input.tenantId),
       prepared.reservation,
-      (signal) => draftGithubIssue(deps.model, prepared.input, { abortSignal: signal }),
+      (_signal, models) => draftGithubIssue(models(deps.model), prepared.input),
       { of: (d) => d.usage, ofFailure: failedDraftCost },
     );
     return { kind: "drafted", title: draft.title, body: draft.body };
@@ -81,7 +85,13 @@ async function readAndReserve(
       })
       .from(messages)
       // Machine mail (bounces, out-of-office) says nothing about the bug.
-      .where(and(eq(messages.conversationId, conversationId), isNull(messages.automatedReason)))
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          isNull(messages.automatedReason),
+          inHistory(),
+        ),
+      )
       .orderBy(asc(messages.createdAt), asc(messages.id));
     const lastInbound = rows.findLastIndex((m) => m.direction === "inbound");
     const latest = rows[lastInbound];
@@ -97,8 +107,7 @@ async function readAndReserve(
       })),
     };
     const reservation = await budget.reserve(tx, tenantId, issueDraftTokenEstimate(modelInput));
-    if (reservation === "busy") return reservation;
-    if ("refused" in reservation) return reservation.refused;
+    if ("refused" in reservation) return reservation;
     // Logged with the reservation, in its transaction: from here on the call is paid for.
     await input.audit(tx, "github_issue.drafted", { type: "conversation", id: conversationId });
     return { input: modelInput, reservation };

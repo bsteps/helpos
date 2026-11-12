@@ -6,6 +6,8 @@ test("every screen is accessible and fits a phone with long content", async ({
   page,
   request,
 }, testInfo) => {
+  // One test walks every screen, waiting for animations and taking a full-page screenshot at
+  // each of its 14 stops, which takes longer than the default one-screen budget.
   test.setTimeout(180_000);
   const audit = async (screen: string) => {
     await test.step(screen, async () => {
@@ -94,6 +96,8 @@ test("every screen is accessible and fits a phone with long content", async ({
   await card.getByRole("button", { name: "Keep", exact: true }).click();
 
   await page.getByRole("link", { name: "Settings", exact: true }).click();
+  // The webhook secret shows only right after connecting, and the other screen size's run or
+  // the GitHub spec may have connected already, so start from scratch.
   await expect(page.getByText(/^(Connected|Not connected)$/)).toBeVisible();
   if (await page.getByRole("button", { name: "Disconnect", exact: true }).isVisible()) {
     await page.getByRole("button", { name: "Disconnect", exact: true }).click();

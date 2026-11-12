@@ -5,10 +5,12 @@ import {
   NoObjectGeneratedError,
   Output,
   RetryError,
+  zodSchema,
 } from "ai";
 import { z } from "zod";
 import { type DraftInput, type DraftUsage, fenceEmail } from "./draft-reply.ts";
 import { tokenBound } from "./estimate.ts";
+import { type PaidModel, paidModelOptions } from "./paid-model.ts";
 
 /**
  * Turns a support conversation into a GitHub issue draft: a title and a body with steps to reproduce,
@@ -41,6 +43,8 @@ const issueSchema = z.object({
   actual: z.string(),
 });
 export type IssueFields = z.infer<typeof issueSchema>;
+const issueOutputSchema = zodSchema(issueSchema);
+const issueSchemaTokenBound = tokenBound(JSON.stringify(await issueOutputSchema.jsonSchema));
 
 export type IssueDraft = { title: string; body: string; usage: DraftUsage };
 
@@ -232,9 +236,14 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
 /** Room for the model's answer: a title and a few short sections. */
 const maxIssueOutputTokens = 2_000;
 
-/** An upper bound on the tokens one draft costs: its prompt (see tokenBound) and the output cap. */
+/**
+ * An upper bound on the tokens one draft costs (see tokenBound): its prompt, the output schema
+ * sent with it, and the output cap.
+ */
 export function issueDraftTokenEstimate(input: DraftInput): number {
-  return tokenBound(issueInstructions, fenceEmail(input)) + maxIssueOutputTokens;
+  return (
+    tokenBound(issueInstructions, fenceEmail(input)) + issueSchemaTokenBound + maxIssueOutputTokens
+  );
 }
 
 /**
@@ -259,20 +268,16 @@ export function failedDraftCost(error: unknown): DraftUsage | "none" | "unknown"
 
 /** Drafts the issue. The conversation goes in the prompt, quoted; the rules go in the system slot. */
 export async function draftGithubIssue(
-  model: LanguageModel,
+  model: PaidModel<LanguageModel>,
   input: DraftInput,
-  options: { abortSignal?: AbortSignal } = {},
 ): Promise<IssueDraft> {
   const result = await generateText({
-    // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
-    maxRetries: 0,
-    model,
+    ...paidModelOptions(model),
     instructions: issueInstructions,
     prompt: fenceEmail(input),
-    output: Output.object({ schema: issueSchema }),
+    output: Output.object({ schema: issueOutputSchema }),
     // The budget reservation counts on this bound.
     maxOutputTokens: maxIssueOutputTokens,
-    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
   });
   return {
     ...formatIssue(result.output),

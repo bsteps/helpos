@@ -63,7 +63,11 @@ const principals: Record<string, () => Principal> = {
   outsider: () => principal(other, ["conversations:read", "drafts:write", "drafts:approve"]),
   shadowApprover: () =>
     principal(shadowed, ["conversations:read", "drafts:write", "drafts:approve"]),
-  shadowAdmin: () => principal(shadowed, ["conversations:read", "workspace:admin"]),
+  shadowAdmin: () => ({
+    tenantId: shadowed,
+    actor: { type: "user", id: "test-shadow-admin" },
+    scopes: new Set(["conversations:read", "workspace:admin"] as const),
+  }),
 };
 function principal(tenantId: string, scopes: Scope[]): Principal {
   return { tenantId, actor: { type: "agent", id: "test-agent" }, scopes: new Set(scopes) };
@@ -403,7 +407,7 @@ describe("shadow mode", () => {
       expect(await res.json()).toEqual({ enabled: false, recipient: "owner@shadowed.test" });
       const audit = await shadowAudit();
       expect(audit.map((e) => [e.action, e.actorType, e.actorId, e.targetId])).toEqual([
-        ["workspace.shadow_mode_disabled", "agent", "test-agent", shadowed],
+        ["workspace.shadow_mode_disabled", "user", "test-shadow-admin", shadowed],
       ]);
       expect(audit[0]?.requestId).toBe(res.headers.get("x-request-id"));
     } finally {
@@ -558,6 +562,40 @@ describe("drafting in context", () => {
     );
     // Both messages, inside the one fence, earlier one first.
     expect(prompt).toMatch(/<untrusted_email>.*invoice for March.*wrong VAT.*<\/untrusted_email>/);
+  });
+
+  it("leaves unconfirmed send attempts out of the history the model sees", async () => {
+    const first = await receiveEmail("Where is my parcel?");
+    await waitForDraft(first.conversationId, "pending");
+    await db.withTenant(acme, (tx) =>
+      tx.insert(schema.messages).values(
+        [
+          { body: "Unconfirmed attempt about the parcel.", sentAt: null },
+          { body: "Delivered answer about the parcel.", sentAt: new Date() },
+        ].map(({ body, sentAt }, i) => ({
+          tenantId: acme,
+          conversationId: first.conversationId,
+          direction: "outbound" as const,
+          fromAddress: "support@acme.test",
+          toAddresses: ["jane@customer.test"],
+          subject: `Re: ${first.subject}`,
+          textBody: body,
+          messageIdHeader: `<history-${emailCount}-${i}@acme.test>`,
+          references: [first.header],
+          rawFileKey: `${acme}/history-${emailCount}-${i}`,
+          sentAt,
+        })),
+      ),
+    );
+    await receiveEmail("It still has not arrived.", { replyTo: first.header });
+    const prompt = await waitFor("the follow-up prompt", async () =>
+      JSON.stringify(
+        model.doGenerateCalls.find((c) => JSON.stringify(c.prompt).includes("still has not"))
+          ?.prompt,
+      ),
+    );
+    expect(prompt).toContain("Delivered answer about the parcel.");
+    expect(prompt).not.toContain("Unconfirmed attempt");
   });
 
   it("a late job for an older message never discards the newer message's draft", async () => {

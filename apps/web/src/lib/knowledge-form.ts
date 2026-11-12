@@ -1,5 +1,6 @@
 import { ApiError, type KnowledgeSource, type KnowledgeSourceUpdate } from "../api/client.ts";
 
+/** Why a change didn't happen, in words that say whether trying again can help. */
 export function knowledgeProblem(
   error: unknown,
   failed: string,
@@ -24,6 +25,7 @@ export function knowledgeProblem(
   return `${failed} Try again.`;
 }
 
+/** `required` accepts a title of only spaces, which the API refuses, so it's named here. */
 export const blankTitle = (title: string) =>
   title !== "" && title.trim() === "" ? "Add a title." : false;
 
@@ -53,6 +55,11 @@ export function knowledgeEditBody({
 
 type SourceRevision = Pick<KnowledgeSource, "title" | "visibility" | "state" | "updatedAt">;
 
+/**
+ * Someone changed what the edit form edits, or its text is being read again. Not after this
+ * person's own save, which changes it too before the form closes. A source that only finished
+ * reading meanwhile doesn't count.
+ */
 export function knowledgeChangedMeanwhile({
   source,
   opened,

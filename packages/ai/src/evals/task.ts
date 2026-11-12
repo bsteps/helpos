@@ -3,6 +3,7 @@ import { z } from "zod";
 import { draftGithubIssue } from "../draft-issue.ts";
 import { draftReply } from "../draft-reply.ts";
 import { quotesInternalPassage } from "../internal-quote.ts";
+import { withPaidModels } from "../paid-model.ts";
 import type { EvalInput } from "./case.ts";
 
 // The answer every eval tool gives. Nothing runs: the call is only recorded. Then the model
@@ -29,13 +30,15 @@ export type TaskOutput = {
   toolCalls: string[];
   /** Titles of the knowledge passages the draft cited. */
   cited: string[];
-  /** What the draft-reply job records: the draft repeats an internal passage word for word. */
+  /** The quote warning computed when the API reads a draft, also checked by evals. */
   quotesInternal: boolean;
 };
 
 /** The task evals run: the same draftReply() and prompt the draft-reply job uses. */
 export async function draftReplyTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
-  const { text, toolCalls, cited } = await draftReply(model, input, { tools: evalTools });
+  const { text, toolCalls, cited } = await withPaidModels(new AbortController().signal, (models) =>
+    draftReply(models(model), input, { tools: evalTools }),
+  );
   const titles = cited.map((i) => input.knowledge?.[i]?.title ?? `K${i + 1}`);
   const internal = (input.knowledge ?? []).filter((k) => k.internal).map((k) => k.content);
   return {
@@ -51,6 +54,8 @@ export async function draftReplyTask(model: LanguageModel, input: EvalInput): Pr
  * drafts are never given the knowledge base, so there is no internal note they could quote.
  */
 export async function draftIssueTask(model: LanguageModel, input: EvalInput): Promise<TaskOutput> {
-  const { title, body } = await draftGithubIssue(model, input);
+  const { title, body } = await withPaidModels(new AbortController().signal, (models) =>
+    draftGithubIssue(models(model), input),
+  );
   return { text: `${title}\n\n${body}`, toolCalls: [], cited: [], quotesInternal: false };
 }

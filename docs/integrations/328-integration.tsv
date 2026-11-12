@@ -1,0 +1,17 @@
+time_utc	action	reason	evidence	result
+2026-11-12T09:54:44.246052+00:00	setup	supplied worktree required	pnpm setup:worktree; .helpos/setup-done	pass; no shared env writes
+2026-11-12T09:54:44.246052+00:00	parents	preserve accepted groups	319 a598901 + 315 80d1068; common base 5845159	normal merge 6461d48; no conflicts
+2026-11-12T09:54:44.246052+00:00	sources	unique actual deltas once	nine -x cherry-picks in manifest	all applied; no original pushes
+2026-11-12T09:54:44.246052+00:00	reviews	carry exact unchanged verdicts	PR290#issuecomment-6808049529; PR293#issuecomment-6808959835; PR295#issuecomment-6808834506	PASS supersedes namespace and allowance FAIL; no integration approval
+2026-11-12T09:54:44.246052+00:00	offline	pin actual boundaries	130 baseline AI; 133 assembled AI;29 compiler/rule;416 server unit;7 DB unit;6 audience rejections	pass; no runtime or live-provider claim
+2026-11-12T09:54:44.246052+00:00	formal	retain two-phase send mapping	three targeted fingerprints; model/checker identical to 315; two fingerprint tests	pass; reuse unchanged evidence; known stalls open
+2026-11-12T09:56:40.784560+00:00	scripts	offline rule coverage	node --test scripts/**/*.test.mjs; .helpos/328-script-checks.log	107 passed; zero skips; no formal execution
+2026-11-12T09:56:40.784577+00:00	comment-sicko	required single native same-model xhigh pass	6461d48 through assembled working tree	zero required changes; no suppressions/open constraints
+2026-11-12T09:56:40.784582+00:00	deslop	keep only assembly changes	manual diff inspection against combined prerequisite parent; pnpm knip; biome ci	pass; inherited void-union/env advisories; no optional refactor
+2026-11-12T10:04:57.942108+00:00	runtime-grant	coordinator released other focused resources	one ownPG; serial --project int --maxWorkers1	no TLC/full/browser/optional mutation campaign
+2026-11-12T10:04:57.942123+00:00	server-focused	integrated allowance/audience/draft context	91620760480544cd7d3a851d5fcfca37c7a549f9; .helpos/328-server-focused.log	exit0;6files130tests;75.06s;owned resources released
+2026-11-12T10:04:57.942127+00:00	db-focused	public preflight/index/tenant/job proof	91620760480544cd7d3a851d5fcfca37c7a549f9; .helpos/328-db-focused.log	exit0;3files56tests;12.57s;focused slot released
+2026-11-12T10:04:57.942130+00:00	contract-identity	preserve dependent331 checkpoint	9af ancestor;916 offline runtime checkpoint;OpenAPI/client regeneration no diff	no later production/type changes;protected315/319 paths unchanged
+2026-11-12T10:04:57.942132+00:00	publication-gate	one stable full gate after concrete grant	EVAL_LIVE=0 pnpm verify at next committed evidence head;result in PR/local runtime trail	not yet started;no mutation or source edits planned
+2026-11-12T10:12:15.130685+00:00	gate-preflight-fix	new manifest failed formatter beforeTurbo	574a4fde3586debd0cd8d62271b32928acf9248f; .helpos/328-full-verify.log	Biome table/line-ending formatting only; no test orPG task started; standaloneBiome now passes
+2026-11-12T16:18:28+00:00	parent-reconcile	final reviewed parents	319 492a187 + 315 5e8b520 into d5b1e29; merges 84bd7c8 92d88d8; import-only conflict in github/issue-draft.ts	fresh review CLEAR; tsc, biome, 552 unit tests; ownPG drafts/github/busy-retries/busy-queue 4 files 93 tests; history filter and paid-AI paths both kept

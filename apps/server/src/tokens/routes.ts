@@ -1,9 +1,7 @@
 import { and, asc, type Database, eq, isNull, schema } from "@helpos/db";
-import { isHuman } from "@helpos/db/actor";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
-import type { Principal } from "../auth/principal.ts";
 import {
   auditor,
   errorSchema,
@@ -83,10 +81,7 @@ const listTokensRoute = apiRoute({
 });
 
 const revokeTokenRoute = apiRoute({
-  access: {
-    anyCaller:
-      "an agent may revoke its own token; anyone else needs workspace:admin in a human session, checked in the handler",
-  },
+  access: { selfOrAdmin: { tokenIdParam: "id" } },
   audit: { records: ["api_token.revoked"] },
   method: "delete",
   path: "/v1/tokens/{id}",
@@ -112,13 +107,6 @@ function serialize(t: ApiTokenRow): TokenJson {
     createdAt: t.createdAt.toISOString(),
     revokedAt: t.revokedAt?.toISOString() ?? null,
   };
-}
-
-/** Why `principal` may not manage tokens, or null when it may. */
-function adminRefusal(principal: Principal): "session_required" | "forbidden" | null {
-  // Tokens never mint tokens: a leaked token must not be able to make itself a spare.
-  if (!isHuman(principal.actor)) return "session_required";
-  return principal.scopes.has("workspace:admin") ? null : "forbidden";
 }
 
 export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): void {
@@ -155,9 +143,6 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const audit = auditor(c);
-    const isSelf = !isHuman(principal.actor) && principal.actor.id === id;
-    // Checked before any lookup, so an agent learns nothing about other tokens' IDs.
-    if (!isSelf && adminRefusal(principal)) return c.json({ error: "forbidden" }, 403);
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [revoked] = await tx
         .update(apiTokens)
