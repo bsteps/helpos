@@ -3,6 +3,7 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
 import {
   auditor,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -73,7 +74,7 @@ const updateBody = z
 
 const conflictSchema = z
   .object({
-    error: z.string(),
+    ...errorSchema.shape,
     /** With `url_taken`: the source that already has this URL, e.g. to re-ingest it. */
     sourceId: z.uuid().optional(),
   })
@@ -264,12 +265,12 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     );
     if (result.kind === "created") return c.json(serialize(result.source), 201);
     if (result.kind === "url_taken") {
-      return c.json(
+      return errorResponse(c,
         { error: result.kind, ...(result.sourceId ? { sourceId: result.sourceId } : {}) },
         409,
       );
     }
-    return c.json({ error: result.kind }, 409);
+    return errorResponse(c, { error: result.kind }, 409);
   });
 
   app.openapi(reingestRoute, async (c) => {
@@ -280,7 +281,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       requestIngest(tx, audit, { tenantId, id }),
     );
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: result }, 409);
+    if (result === "managed_in_git") return errorResponse(c, { error: result }, 409);
     return c.json(serialize(result), 202);
   });
 
@@ -293,8 +294,8 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       updateSource(tx, audit, { tenantId, id, ...input }),
     );
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: result }, 409);
-    if (result === "content_not_editable") return c.json({ error: result }, 400);
+    if (result === "managed_in_git") return errorResponse(c, { error: result }, 409);
+    if (result === "content_not_editable") return errorResponse(c, { error: result }, 400);
     return c.json(serialize(result), 200);
   });
 
@@ -304,7 +305,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     const audit = auditor(c);
     const result = await deps.db.withTenant(tenantId, (tx) => deleteSource(tx, audit, { id }));
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: result }, 409);
+    if (result === "managed_in_git") return errorResponse(c, { error: result }, 409);
     return c.body(null, 204);
   });
 }

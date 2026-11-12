@@ -3,7 +3,7 @@ import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import type { Logger } from "pino";
 import { apiRoute } from "../auth/access.ts";
-import { errorSchema, json } from "../http/route-kit.ts";
+import { errorResponse, errorSchema, json } from "../http/route-kit.ts";
 import { type IngestDeps, ingestEmail } from "./ingest.ts";
 
 /** Larger messages are rejected (and logged) before they are parsed or stored. */
@@ -62,7 +62,7 @@ export function registerInboundEmail(app: OpenAPIHono, deps: InboundEmailDeps): 
   // Checked before the body is read, so an unauthenticated caller can't make us buffer 10 MB.
   app.use(inboundEmailRoute.path, async (c, next) => {
     if (!secretMatches(deps.inboundSecret, c.req.header("authorization"))) {
-      return c.json({ error: "unauthorized" }, 401);
+      return errorResponse(c, { error: "unauthorized" }, 401);
     }
     return next();
   });
@@ -72,7 +72,7 @@ export function registerInboundEmail(app: OpenAPIHono, deps: InboundEmailDeps): 
       maxSize: maxEmailBytes,
       onError: (c) => {
         deps.logger.warn({ limitBytes: maxEmailBytes }, "inbound email rejected: too large");
-        return c.json({ error: "too_large" }, 413);
+        return errorResponse(c, { error: "too_large" }, 413);
       },
     }),
   );
@@ -83,9 +83,9 @@ export function registerInboundEmail(app: OpenAPIHono, deps: InboundEmailDeps): 
     switch (result.kind) {
       case "unroutable":
         // The same answer as any unknown address: it says nothing about other workspaces.
-        return c.json({ error: "unknown_mailbox" }, 404);
+        return errorResponse(c, { error: "unknown_mailbox" }, 404);
       case "invalid":
-        return c.json({ error: result.reason }, 422);
+        return errorResponse(c, { error: result.reason }, 422);
       case "duplicate":
         return c.json(
           {

@@ -17,6 +17,7 @@ export type KnowledgeSource = components["schemas"]["KnowledgeSource"];
 export type KnowledgeSourceUpdate = components["schemas"]["KnowledgeSourceUpdate"];
 export type NewKnowledgeSource =
   paths["/v1/knowledge/sources"]["post"]["requestBody"]["content"]["application/json"];
+export type ErrorCode = components["schemas"]["Error"]["error"];
 
 /** A failed API call: the HTTP status and the API's error code, e.g. `not_pending`. */
 export class ApiError extends Error {

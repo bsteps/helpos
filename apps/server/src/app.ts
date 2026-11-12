@@ -14,10 +14,11 @@ import { humanSessions } from "./auth/session.ts";
 import { registerConversationRoutes } from "./conversations/routes.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
 import { registerGithubRoutes } from "./github/routes.ts";
+import type { ErrorCode } from "./http/error-codes.ts";
 import { registerHealthRoutes } from "./http/health.ts";
 import { idempotency } from "./http/idempotency.ts";
 import { httpConventions } from "./http/problem.ts";
-import { notFound } from "./http/route-kit.ts";
+import { errorResponse, notFound } from "./http/route-kit.ts";
 import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import type { Services } from "./services.ts";
@@ -118,10 +119,10 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   // caller's to fix, not a server fault.
   app.onError((err, c) => {
     if (err instanceof HTTPException && err.status >= 400 && err.status < 500) {
-      return c.json({ error: clientErrorCodes[err.status] ?? "bad_request" }, err.status);
+      return errorResponse(c, { error: clientErrorCodes[err.status] ?? "bad_request" }, err.status);
     }
     logger.error({ err, requestId: c.get("requestId"), path: c.req.path }, "unhandled error");
-    return c.json({ error: "internal_error" }, 500);
+    return errorResponse(c, { error: "internal_error" }, 500);
   });
 
   // The public API contract. The dashboard, SDK and MCP tools are generated from it.
@@ -134,7 +135,7 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
 }
 
 /** The framework's own refusals, as the API's error codes. Never its message. */
-const clientErrorCodes: Partial<Record<number, string>> = {
+const clientErrorCodes: Partial<Record<number, ErrorCode>> = {
   400: "bad_request",
   401: "unauthorized",
   403: "forbidden",

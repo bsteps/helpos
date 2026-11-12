@@ -2,7 +2,7 @@ import { and, type Database, eq, gte, inArray, lt, schema, type TenantTx } from 
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
 import { draftWhere } from "../drafts/lifecycle.ts";
-import { errorSchema, json } from "../http/route-kit.ts";
+import { errorResponse, errorSchema, json } from "../http/route-kit.ts";
 import type { Clock } from "../services.ts";
 import { countDraftOutcomes, type DraftOutcomes } from "./draft-outcomes.ts";
 
@@ -97,9 +97,9 @@ export function registerStatsRoutes(app: OpenAPIHono, deps: StatsRoutesDeps): vo
     const params = c.req.valid("query");
     const to = params.to ? new Date(params.to) : deps.clock.now();
     const from = params.from ? new Date(params.from) : new Date(to.getTime() - 14 * day);
-    if (from >= to) return c.json({ error: "empty_range" }, 400);
+    if (from >= to) return errorResponse(c, { error: "empty_range" }, 400);
     if (to.getTime() - from.getTime() > maxRangeDays * day) {
-      return c.json({ error: "range_too_long" }, 400);
+      return errorResponse(c, { error: "range_too_long" }, 400);
     }
     const outcomes = await deps.db.withTenant(principal.tenantId, (tx) =>
       draftOutcomes(tx, from, to),

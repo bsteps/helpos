@@ -3,6 +3,7 @@ import { and, eq, schema } from "@helpos/db";
 import type { Context, MiddlewareHandler } from "hono";
 import { z } from "zod";
 import type { Services } from "../services.ts";
+import { errorResponse } from "./route-kit.ts";
 
 const keySchema = z.string().regex(/^[\x21-\x7e]{1,200}$/);
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
@@ -26,10 +27,10 @@ export function idempotency(deps: Pick<Services, "db" | "clock">): MiddlewareHan
     const rawKey = c.req.header("Idempotency-Key");
     if (rawKey === undefined) return next();
     const key = keySchema.safeParse(rawKey);
-    if (!key.success) return c.json({ error: "invalid_idempotency_key" }, 400);
+    if (!key.success) return errorResponse(c, { error: "invalid_idempotency_key" }, 400);
     const principal = c.get("principal");
     if (!principal || credentialWrites.has(`${c.req.method} ${c.req.routePath}`)) {
-      return c.json({ error: "idempotency_not_supported" }, 400);
+      return errorResponse(c, { error: "idempotency_not_supported" }, 400);
     }
     const url = new URL(c.req.url);
     const fingerprint = hash(
@@ -67,15 +68,16 @@ export function idempotency(deps: Pick<Services, "db" | "clock">): MiddlewareHan
     });
     if (claim.kind === "existing") {
       const row = claim.row;
-      if (row.fingerprint !== fingerprint) return c.json({ error: "idempotency_conflict" }, 409);
+      if (row.fingerprint !== fingerprint)
+        return errorResponse(c, { error: "idempotency_conflict" }, 409);
       if (row.expiresAt <= now) {
         await deps.db.withTenant(principal.tenantId, (tx) =>
           tx.update(table).set({ responseBody: null }).where(identity),
         );
-        return c.json({ error: "idempotency_expired" }, 409);
+        return errorResponse(c, { error: "idempotency_expired" }, 409);
       }
       if (row.responseStatus === null || row.responseBody === null) {
-        return c.json({ error: "idempotency_pending" }, 409);
+        return errorResponse(c, { error: "idempotency_pending" }, 409);
       }
       return new Response(row.responseStatus === 204 ? null : row.responseBody, {
         status: row.responseStatus,
@@ -101,7 +103,7 @@ export function keyedWrite(c: Context, next: () => Promise<void>) {
   const middleware: MiddlewareHandler | undefined = c.get("idempotency");
   if (middleware) return middleware(c, next);
   if (c.req.header("Idempotency-Key") !== undefined) {
-    return c.json({ error: "idempotency_unavailable" }, 503);
+    return errorResponse(c, { error: "idempotency_unavailable" }, 503);
   }
   return next();
 }

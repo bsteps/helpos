@@ -8,6 +8,7 @@ import { apiRoute, Grant } from "../auth/access.ts";
 import type { Principal } from "../auth/principal.ts";
 import {
   auditContext,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -344,7 +345,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
       return presentOne(tx, principal, edited.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 
@@ -359,7 +360,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
       return presentOne(tx, principal, approved.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 
@@ -410,7 +411,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       result === "daily_budget_reached" ||
       result === "conversation_closed"
     ) {
-      return c.json({ error: result }, 409);
+      return errorResponse(c, { error: result }, 409);
     }
     if (result === "queued") return c.json({ status: "queued" as const }, 202);
     return c.json(result, 201);
@@ -428,7 +429,7 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return presentOne(tx, principal, discarded.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_pending" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_pending" }, 409);
     return c.json(result, 200);
   });
 }
@@ -447,7 +448,7 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return presentOne(tx, principal, retried.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
+    if (result === "conflict") return errorResponse(c, { error: "not_send_failed" }, 409);
     return c.json(result, 200);
   });
 }
@@ -488,7 +489,8 @@ function registerResolveRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       return presentOne(tx, principal, resolved.draft);
     });
     if (result === "not_found") return notFound(c);
-    if (result === "conflict") return c.json({ error: "not_current_uncertain_send" }, 409);
+    if (result === "conflict")
+      return errorResponse(c, { error: "not_current_uncertain_send" }, 409);
     return c.json(result, 200);
   });
 }

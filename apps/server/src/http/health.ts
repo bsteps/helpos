@@ -1,7 +1,7 @@
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppServices } from "../app.ts";
 import { apiRoute } from "../auth/access.ts";
-import { errorSchema, json } from "./route-kit.ts";
+import { errorResponse, errorSchema, json } from "./route-kit.ts";
 
 const healthRoute = apiRoute({
   method: "get",
@@ -37,6 +37,6 @@ export function registerHealthRoutes(app: OpenAPIHono, services: AppServices) {
         );
       }
     }
-    return c.json({ error: "not_ready" }, 503);
+    return errorResponse(c, { error: "not_ready" }, 503);
   });
 }
