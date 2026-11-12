@@ -3,31 +3,14 @@
 
 import { AlertCircle, CheckCircle2, Info, TriangleAlert } from "lucide-react";
 import { AnimatePresence, type HTMLMotionProps, motion, useReducedMotion } from "motion/react";
-import {
-  type ComponentProps,
-  createContext,
-  type RefObject,
-  useCallback,
-  useContext,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ComponentProps, createContext, useContext, useMemo } from "react";
 import { EASE_OUT, EASE_OUT_CSS, SPRING_LAYOUT } from "@/lib/ease";
 import { PresenceGate } from "@/lib/presence-gate";
 import { cn } from "@/lib/utils";
 
 type AlertVariant = "default" | "info" | "success" | "warning" | "destructive";
 
-type AlertState = {
-  open: boolean;
-  variant: AlertVariant;
-  setOpen: (open: boolean) => void;
-  dismiss: () => void;
-};
-
-const AlertContext = createContext<(AlertState & { reduce: boolean }) | null>(null);
+const AlertContext = createContext<{ variant: AlertVariant; reduce: boolean } | null>(null);
 
 function useAlertContext(component: string) {
   const context = useContext(AlertContext);
@@ -57,24 +40,12 @@ export interface AlertProps
     "initial" | "animate" | "exit" | "layout" | "transition" | "role"
   > {
   variant?: AlertVariant;
-  open?: boolean;
-  defaultOpen?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  /** Focus this element when closing hides the currently focused alert control. */
-  returnFocusRef?: RefObject<HTMLElement | null>;
-  /** Layout classes for the inner row, separate from the animated surface. */
-  contentClassName?: string;
   /** Defaults to alert for warning/destructive, and status for other variants. */
   role?: "alert" | "status";
 }
 
 export function Alert({
   variant = "default",
-  open: controlledOpen,
-  defaultOpen = true,
-  onOpenChange,
-  returnFocusRef,
-  contentClassName,
   className,
   children,
   role = variant === "warning" || variant === "destructive" ? "alert" : "status",
@@ -82,105 +53,59 @@ export function Alert({
   ref,
   ...props
 }: AlertProps) {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
-  const open = controlledOpen ?? internalOpen;
   const reduce = useReducedMotion() ?? false;
-  const surfaceRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef({ open, controlled: controlledOpen !== undefined, onOpenChange });
-
-  useLayoutEffect(() => {
-    stateRef.current = { open, controlled: controlledOpen !== undefined, onOpenChange };
-  }, [controlledOpen, onOpenChange, open]);
-
-  const setOpen = useCallback((next: boolean) => {
-    const state = stateRef.current;
-    if (next === state.open) return;
-    if (!state.controlled) {
-      stateRef.current = { ...state, open: next };
-      setInternalOpen(next);
-    }
-    state.onOpenChange?.(next);
-  }, []);
-  const dismiss = useCallback(() => setOpen(false), [setOpen]);
-  const context = useMemo(
-    () => ({ open, variant, reduce, setOpen, dismiss }),
-    [open, variant, reduce, setOpen, dismiss],
-  );
-
-  const setRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      surfaceRef.current = node;
-      const cleanup = typeof ref === "function" ? ref(node) : undefined;
-      if (ref && typeof ref !== "function") ref.current = node;
-      if (!node) return;
-      return () => {
-        surfaceRef.current = null;
-        if (typeof cleanup === "function") cleanup();
-        else if (typeof ref === "function") ref(null);
-        else if (ref) ref.current = null;
-      };
-    },
-    [ref],
-  );
-
-  useLayoutEffect(() => {
-    if (!open && surfaceRef.current?.contains(document.activeElement)) {
-      returnFocusRef?.current?.focus({ preventScroll: true });
-    }
-  }, [open, returnFocusRef]);
+  const context = useMemo(() => ({ variant, reduce }), [variant, reduce]);
 
   return (
     <AlertContext.Provider value={context}>
       <AnimatePresence initial={false}>
-        {open && (
-          <PresenceGate key="alert">
-            {({ gate, isPresent }) => (
+        <PresenceGate key="alert">
+          {({ gate, isPresent }) => (
+            <motion.div
+              {...props}
+              {...gate}
+              ref={ref}
+              role={role}
+              aria-hidden={!isPresent || props["aria-hidden"]}
+              data-slot="alert"
+              data-variant={variant}
+              data-state={isPresent ? "open" : "closed"}
+              initial={{ opacity: 0, transform: reduce ? "none" : "translateY(-6px)" }}
+              animate={{ opacity: 1, transform: "none" }}
+              exit={{
+                opacity: 0,
+                transform: reduce ? "none" : "translateY(-6px)",
+                transition: { duration: 0.12, ease: EASE_OUT },
+              }}
+              layout={!reduce}
+              transition={{
+                opacity: { duration: 0.18, ease: EASE_OUT },
+                transform: { duration: 0.2, ease: EASE_OUT },
+                layout: SPRING_LAYOUT,
+              }}
+              style={{
+                ...style,
+                ...gate.style,
+                originY: 0,
+                transitionTimingFunction: EASE_OUT_CSS,
+              }}
+              className={cn(
+                "relative w-full rounded-xl p-4 text-sm transition-colors duration-200",
+                VARIANT_CLASS[variant],
+                className,
+              )}
+            >
               <motion.div
-                {...props}
-                {...gate}
-                ref={setRef}
-                role={role}
-                aria-hidden={!isPresent || props["aria-hidden"]}
-                data-slot="alert"
-                data-variant={variant}
-                data-state={isPresent ? "open" : "closed"}
-                initial={{ opacity: 0, transform: reduce ? "none" : "translateY(-6px)" }}
-                animate={{ opacity: 1, transform: "none" }}
-                exit={{
-                  opacity: 0,
-                  transform: reduce ? "none" : "translateY(-6px)",
-                  transition: { duration: 0.12, ease: EASE_OUT },
-                }}
-                layout={!reduce}
-                transition={{
-                  opacity: { duration: 0.18, ease: EASE_OUT },
-                  transform: { duration: 0.2, ease: EASE_OUT },
-                  layout: SPRING_LAYOUT,
-                }}
-                style={{
-                  ...style,
-                  ...gate.style,
-                  originY: 0,
-                  transitionTimingFunction: EASE_OUT_CSS,
-                }}
-                className={cn(
-                  "relative w-full rounded-xl p-4 text-sm transition-colors duration-200",
-                  VARIANT_CLASS[variant],
-                  className,
-                )}
+                layout={reduce ? false : "position"}
+                transition={{ layout: SPRING_LAYOUT }}
+                style={{ originY: 0 }}
+                className="flex min-w-0 items-start gap-3"
               >
-                <motion.div
-                  layout={reduce ? false : "position"}
-                  transition={{ layout: SPRING_LAYOUT }}
-                  style={{ originY: 0 }}
-                  className={cn("flex min-w-0 items-start gap-3", contentClassName)}
-                >
-                  {children}
-                </motion.div>
+                {children}
               </motion.div>
-            )}
-          </PresenceGate>
-        )}
+            </motion.div>
+          )}
+        </PresenceGate>
       </AnimatePresence>
     </AlertContext.Provider>
   );

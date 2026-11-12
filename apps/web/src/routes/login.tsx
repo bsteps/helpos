@@ -1,7 +1,6 @@
 import { brand } from "@helpos/brand";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { ApiError } from "@/api/client.ts";
 import { useSignIn } from "@/api/queries.ts";
 import { Alert, AlertContent, AlertDescription, AlertIcon } from "@/components/ui/alert.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -14,14 +13,7 @@ import {
 } from "@/components/ui/card.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
-
-function message(error: unknown): string {
-  if (error instanceof ApiError && error.status === 401) return "Wrong email or password.";
-  if (error instanceof ApiError && error.status === 503) {
-    return "Sign-in isn't set up on this server yet. Ask whoever runs it.";
-  }
-  return "Couldn't sign in. Try again.";
-}
+import { signInProblem } from "@/lib/auth.ts";
 
 export function LoginPage() {
   const search = useSearch({ from: "/login" });
@@ -79,7 +71,7 @@ export function LoginPage() {
               <Alert variant="destructive">
                 <AlertIcon />
                 <AlertContent>
-                  <AlertDescription>{message(signIn.error)}</AlertDescription>
+                  <AlertDescription>{signInProblem(signIn.error)}</AlertDescription>
                 </AlertContent>
               </Alert>
             ) : null}
