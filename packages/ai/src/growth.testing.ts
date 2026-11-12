@@ -27,14 +27,20 @@ export function expectLinearGrowth<T>(
     count *= 2;
   }
 
-  const pairs = Array.from({ length: 7 }, (_, i) => {
-    if (i % 2 === 0) {
-      const n = measure(small, count);
-      return { n, eightN: measure(large, count) };
-    }
-    const eightN = measure(large, count);
-    return { n: measure(small, count), eightN };
-  });
+  const sample = () =>
+    Array.from({ length: 7 }, (_, i) => {
+      if (i % 2 === 0) {
+        const n = measure(small, count);
+        return { n, eightN: measure(large, count) };
+      }
+      const eightN = measure(large, count);
+      return { n: measure(small, count), eightN };
+    });
+  let pairs = sample();
+  while (count < 1_024 && pairs.some(({ n }) => n <= 1)) {
+    count *= 2;
+    pairs = sample();
+  }
   const ratios = pairs.map(({ n, eightN }) => eightN / n).sort((a, b) => a - b);
   const evidence = JSON.stringify({ count, pairs, ratios });
   expect(Math.min(...pairs.map(({ n }) => n)), evidence).toBeGreaterThan(1);
