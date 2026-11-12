@@ -52,7 +52,20 @@ jobs:
             exit 1
           fi
           pnpm exec vitest run --project unit
-      - run: pnpm exec turbo run typecheck test build
+      - run: pnpm exec turbo run typecheck build
+      - run: pnpm test:coverage
+      - run: pnpm check:widget
+      - run: pnpm test:performance
+      - name: Upload coverage and read latency evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quality-gate-evidence
+          path: |
+            coverage/
+            .helpos/read-budget.json
+          include-hidden-files: true
+          retention-days: 7
       - run: pnpm test:scripts
       # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).
       - run: pnpm eval
@@ -86,7 +99,7 @@ jobs:
       # Builds the dashboard, then runs every flow at laptop and phone size against a real
       # server with throwaway Postgres and Mailpit containers (apps/server/src/e2e/serve.ts).
       - run: pnpm test:e2e
-      - name: Upload traces and screenshots
+      - name: Upload failure traces, screenshots and videos
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

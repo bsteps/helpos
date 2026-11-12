@@ -12,6 +12,9 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:coverage": "vitest run --config vitest.coverage.config.mts",
+    "test:performance": "pnpm --filter @helpos/server exec node scripts/read-budget.ts",
+    "check:widget": "node scripts/check-widget-budget.mjs",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "check:changed": "node scripts/check-changed/index.mjs",
@@ -46,6 +49,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
     "@types/node": "24.19.2",
+    "@vitest/coverage-v8": "5.1.0",
     "knip": "6.44.1",
     "turbo": "2.11.10",
     "typescript": "6.0.3",
