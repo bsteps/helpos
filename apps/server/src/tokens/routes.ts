@@ -4,6 +4,7 @@ import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import {
   auditor,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -116,7 +117,7 @@ export function registerTokenRoutes(app: OpenAPIHono, deps: TokenRoutesDeps): vo
     const { name, scopes } = c.req.valid("json");
     // No one can hand an agent more than they hold themselves.
     if (scopes.some((s) => !principal.scopes.has(s))) {
-      return c.json({ error: "scope_not_held" }, 403);
+      return errorResponse(c, { error: "scope_not_held" }, 403);
     }
     const { row, token } = await deps.db.withTenant(principal.tenantId, (tx) =>
       createApiToken(tx, {

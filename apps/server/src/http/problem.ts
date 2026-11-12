@@ -1,11 +1,12 @@
 import { STATUS_CODES } from "node:http";
 import type { MiddlewareHandler } from "hono";
-import { z } from "zod";
+import type { z } from "zod";
 import type { Services } from "../services.ts";
+import { errorSchema } from "./route-kit.ts";
 
-const errorBody = z.object({ error: z.string() }).passthrough();
+const errorBody = errorSchema.passthrough();
 
-function problemBody(status: number, body: { error: string }, requestId: string) {
+function problemBody(status: number, body: z.infer<typeof errorBody>, requestId: string) {
   return {
     ...body,
     type: "about:blank",
@@ -26,7 +27,9 @@ export function httpConventions(logger: Services["logger"]): MiddlewareHandler {
           .json()
           .catch(() => null),
       );
-      const body = parsed.success ? parsed.data : { error: "bad_request" };
+      const body: z.infer<typeof errorBody> = parsed.success
+        ? parsed.data
+        : { error: "bad_request" };
       c.res = new Response(JSON.stringify(problemBody(c.res.status, body, requestId)), {
         status: c.res.status,
         headers: c.res.headers,

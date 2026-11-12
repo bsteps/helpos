@@ -16,6 +16,7 @@ import { type AuditAction, nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import {
   auditor,
+  errorResponse,
   errorSchema,
   idParams,
   json,
@@ -86,7 +87,7 @@ const updateBody = z
 
 const conflictSchema = z
   .object({
-    error: z.string(),
+    ...errorSchema.shape,
     /** With `url_taken`: the source that already has this URL, e.g. to re-ingest it. */
     sourceId: z.uuid().optional(),
   })
@@ -323,12 +324,12 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       if (!url || !isKnowledgeUrlTaken(error)) throw error;
       const sourceId = await sourceWithUrl(url);
       // Deleted between the failed insert and this read: rare, and a retry would succeed.
-      return c.json({ error: "url_taken", ...(sourceId ? { sourceId } : {}) }, 409);
+      return errorResponse(c, { error: "url_taken", ...(sourceId ? { sourceId } : {}) }, 409);
     }
     // Postgres may report the slug before the URL, so a repeat with the same slug lands here.
     const sourceId = url ? await sourceWithUrl(url) : undefined;
-    if (sourceId) return c.json({ error: "url_taken", sourceId }, 409);
-    return c.json({ error: "slug_taken" }, 409);
+    if (sourceId) return errorResponse(c, { error: "url_taken", sourceId }, 409);
+    return errorResponse(c, { error: "slug_taken" }, 409);
 
     /** Read in this workspace only, so it can only ever name the caller's own source. */
     async function sourceWithUrl(url: string): Promise<string | undefined> {
@@ -425,7 +426,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       return row;
     });
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
+    if (result === "managed_in_git") return errorResponse(c, { error: "managed_in_git" }, 409);
     return c.json(serialize(result), 202);
   });
 
@@ -499,8 +500,9 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       return row;
     });
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
-    if (result === "content_not_editable") return c.json({ error: "content_not_editable" }, 400);
+    if (result === "managed_in_git") return errorResponse(c, { error: "managed_in_git" }, 409);
+    if (result === "content_not_editable")
+      return errorResponse(c, { error: "content_not_editable" }, 400);
     return c.json(serialize(result), 200);
   });
 
@@ -524,7 +526,7 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
       return "deleted" as const;
     });
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
+    if (result === "managed_in_git") return errorResponse(c, { error: "managed_in_git" }, 409);
     return c.body(null, 204);
   });
 }

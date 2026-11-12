@@ -1,4 +1,5 @@
 import { createMemoryFileStore } from "@helpos/files";
+import { HTTPException } from "hono/http-exception";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { composeServices } from "../services.ts";
@@ -102,6 +103,47 @@ describe("HTTP problem details and request IDs", () => {
       sourceId: "safe-id",
       retryAfter: 10,
       status: 409,
+    });
+  });
+
+  it.each([400, 401, 403, 404, 413, 415, 422] as const)(
+    "maps framework refusal %s without exposing its message",
+    async (status) => {
+      const { app } = fixture();
+      app.get("/framework", () => {
+        throw new HTTPException(status, { message: "private provider details" });
+      });
+      const res = await app.request("/framework");
+      expect(res.status).toBe(status);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        error: {
+          400: "bad_request",
+          401: "unauthorized",
+          403: "forbidden",
+          404: "not_found",
+          413: "too_large",
+          415: "unsupported_media_type",
+          422: "bad_request",
+        }[status],
+      });
+      expect(JSON.stringify(body)).not.toContain("private provider details");
+    },
+  );
+
+  it("does not trust arbitrary boundary strings or their extensions as public API errors", async () => {
+    const { app } = fixture();
+    app.get("/external", (c) =>
+      c.json({ error: "private provider details", secret: "hidden" }, 422),
+    );
+    const res = await app.request("/external", { headers: { "x-request-id": "external-123" } });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: "bad_request",
+      type: "about:blank",
+      title: "Unprocessable Entity",
+      status: 422,
+      instance: "urn:request:external-123",
     });
   });
 });

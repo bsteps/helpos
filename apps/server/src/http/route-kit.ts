@@ -1,12 +1,22 @@
 import { z } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { type AuditContext, type Auditor, auditorFor } from "../audit/audit.ts";
+import { type ErrorCode, errorCodeSchema } from "./error-codes.ts";
 
 // What every route file needs, in one place. A route file never defines its own copy: the
 // route-*.grit Biome plugins fail when one does (scripts/biome-plugins.test.mjs proves they fire).
 
 /** The one error body of the API. Registered once, as the `Error` component. */
-export const errorSchema = z.object({ error: z.string() }).openapi("Error");
+export const errorSchema = z.object({ error: errorCodeSchema }).openapi("Error");
+
+export function errorResponse<const T extends { error: ErrorCode }, S extends ContentfulStatusCode>(
+  c: Context,
+  body: T,
+  status: S,
+) {
+  return c.json(body, status);
+}
 
 const problemDetails = {
   type: "object" as const,
@@ -49,7 +59,7 @@ export const notFoundResponse = json(errorSchema, "Not found in this workspace")
 
 /** Answers a missing (or other workspace's) row. Pair it with `404: notFoundResponse`. */
 export function notFound(c: Context) {
-  return c.json({ error: "not_found" }, 404);
+  return errorResponse(c, { error: "not_found" }, 404);
 }
 
 export type { Auditor };

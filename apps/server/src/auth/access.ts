@@ -3,7 +3,7 @@ import { createRoute, type RouteConfig } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { type AuditAction, auditTrail } from "../audit/audit.ts";
 import { keyedWrite } from "../http/idempotency.ts";
-import { errorSchema, json } from "../http/route-kit.ts";
+import { errorResponse, errorSchema, json } from "../http/route-kit.ts";
 import type { Authenticate, Principal, Scope } from "./principal.ts";
 
 /**
@@ -104,8 +104,8 @@ function enforce(
     const tokenId =
       "selfOrAdmin" in access ? c.req.param(access.selfOrAdmin.tokenIdParam) : undefined;
     const refusal = accessRefusal(access, principal, tokenId);
-    if (refusal === "unauthorized") return c.json({ error: refusal }, 401);
-    if (refusal) return c.json({ error: refusal }, 403);
+    if (refusal === "unauthorized") return errorResponse(c, { error: refusal }, 401);
+    if (refusal) return errorResponse(c, { error: refusal }, 403);
     const run = () => enforceAudit(name, audit, c, next);
     return write ? keyedWrite(c, run) : run();
   };

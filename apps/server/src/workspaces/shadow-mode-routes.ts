@@ -2,7 +2,7 @@ import { type Database, eq, schema } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
-import { auditor, errorSchema, json, jsonBody } from "../http/route-kit.ts";
+import { auditor, errorResponse, errorSchema, json, jsonBody } from "../http/route-kit.ts";
 
 const { tenants } = schema;
 
@@ -84,7 +84,7 @@ export function registerShadowModeRoutes(app: OpenAPIHono, deps: ShadowModeRoute
     const input = c.req.valid("json");
     const audit = auditor(c);
     if (input.enabled === false && !deps.allowShadowModeOff) {
-      return c.json({ error: "shadow_mode_locked" }, 409);
+      return errorResponse(c, { error: "shadow_mode_locked" }, 409);
     }
     const row = await deps.db.withTenant(principal.tenantId, async (tx) => {
       const [updated] = await tx

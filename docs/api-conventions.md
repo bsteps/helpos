@@ -6,6 +6,11 @@ Errors use `application/problem+json`, following [RFC 9457](https://www.rfc-edit
 Every error includes `type: "about:blank"`, the HTTP status title, `status`, and an `instance` URI tied to the request ID.
 The existing `error` code and safe extensions such as `sourceId` remain available.
 Framework validation errors become `bad_request` without input values or internal error messages.
+The server's `errorCodes` list defines the public codes and the OpenAPI `Error.error` enum.
+Route handlers and middleware emit codes through the typed `errorResponse()` builder.
+Unknown framework or provider error bodies become `bad_request` with their HTTP status retained.
+Known codes retain their safe extensions. Knowledge-source ingestion failure reasons are a separate field, not HTTP error codes.
+The dashboard derives `ErrorCode` from its generated client and checks an exhaustive common message map plus contextual overrides.
 Successful JSON responses keep `application/json`.
 
 Every response returns `X-Request-Id`. Completion logs and unexpected-error logs carry that same ID.
