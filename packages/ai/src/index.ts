@@ -31,3 +31,5 @@ export {
 export { tokenBound } from "./estimate.ts";
 export { quotesInternalPassage } from "./internal-quote.ts";
 export { createModel } from "./model.ts";
+
+export type { PaidModels } from "./paid-model.ts";

@@ -34,19 +34,17 @@ const runs = [
   {
     name: "commit_fails",
     faults: ["commit_fails"],
-    known: { NoResendWithoutPerson: "#130", NoHiddenDelivery: "#130", NoSilentStall: "lost retry" },
+    known: { NoSilentStall: "lost retry" },
   },
   {
     name: "smtp_reply_lost",
     faults: ["smtp_reply_lost"],
-    known: { NoResendWithoutPerson: "#130", NoHiddenDelivery: "#130", NoSilentStall: "lost retry" },
+    known: { NoSilentStall: "lost retry" },
   },
   {
     name: "worker_dies",
     faults: ["worker_dies"],
     known: {
-      NoResendWithoutPerson: "#130",
-      NoHiddenDelivery: "#130",
       NoSilentStall: "give-up failure / lost retry",
     },
   },
@@ -169,6 +167,13 @@ function isDeclaration(node) {
 }
 
 function findNamed(root, name) {
+  const statements = ts.isSourceFile(root) ? root.statements : root.body?.statements;
+  if (statements) {
+    const declaration = statements.find(
+      (node) => ts.isFunctionDeclaration(node) && node.name?.text === name,
+    );
+    if (declaration) return declaration;
+  }
   let found;
   const visit = (node) => {
     if (found) return;

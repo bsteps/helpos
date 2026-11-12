@@ -1,0 +1,46 @@
+{
+  "source": "https://github.com/openai/tiktoken/tree/0.12.0",
+  "version": "0.12.0",
+  "cases": [
+    {
+      "name": "english",
+      "text": "Please reset my password. The confirmation email never arrived.",
+      "counts": {
+        "cl100k_base": 11,
+        "o200k_base": 11
+      }
+    },
+    {
+      "name": "chinese",
+      "text": "请重置我的密码。我没有收到确认邮件。",
+      "counts": {
+        "cl100k_base": 14,
+        "o200k_base": 11
+      }
+    },
+    {
+      "name": "japanese",
+      "text": "パスワードをリセットしてください。確認メールが届きません。",
+      "counts": {
+        "cl100k_base": 26,
+        "o200k_base": 16
+      }
+    },
+    {
+      "name": "emoji",
+      "text": "👩🏽‍💻🔐🚀🏳️‍🌈🙂",
+      "counts": {
+        "cl100k_base": 27,
+        "o200k_base": 18
+      }
+    },
+    {
+      "name": "code",
+      "text": "const reset = async (id: string) => {\n  return await db.users.find({ id });\n};",
+      "counts": {
+        "cl100k_base": 21,
+        "o200k_base": 21
+      }
+    }
+  ]
+}

@@ -20,12 +20,13 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
+import { noticeReplyTo } from "../outbound-email/composer.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import { defaultConfig, systemClock } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
 import { draftNoticeJob } from "./jobs.ts";
-import { handleDraftNotice, handleNoticeGaveUp, noticeReplyTo } from "./notice-worker.ts";
+import { handleDraftNotice, handleNoticeGaveUp } from "./notice-worker.ts";
 
 // The notice handler on its own, with nothing working the queue, so each case runs exactly the
 // jobs it names. The end-to-end Mailpit case is in drafts.test.ts.

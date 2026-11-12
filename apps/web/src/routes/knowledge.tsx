@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { ApiError, type KnowledgeSource } from "@/api/client.ts";
+import type { KnowledgeSource } from "@/api/client.ts";
 import {
   knowledgeSourcesQuery,
   useAddKnowledgeSource,
@@ -32,6 +32,12 @@ import {
 import { Input } from "@/components/ui/input.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { knowledgeErrorMessage } from "@/lib/knowledge.ts";
+import {
+  blankTitle,
+  knowledgeChangedMeanwhile,
+  knowledgeEditBody,
+  knowledgeProblem,
+} from "@/lib/knowledge-form.ts";
 
 type Visibility = KnowledgeSource["visibility"];
 
@@ -111,27 +117,6 @@ const visibilityOptions = [
   { value: "public", label: "Public: may be shown to customers" },
 ] as const;
 
-/** Why a change didn't happen, in words that say whether trying again can help. */
-function problem(error: unknown, failed: string, invalid = `${failed} Try again.`): string {
-  if (!(error instanceof ApiError)) {
-    return `${failed} Something went wrong. Check your connection, then try again or reload the page.`;
-  }
-  switch (error.code) {
-    case "url_taken":
-      return `${failed} There's already a source for this URL.`;
-    case "slug_taken":
-      return `${failed} There's already a source with this title.`;
-    case "managed_in_git":
-      return `${failed} It's managed in the workspace's git repo now.`;
-  }
-  if (error.status === 404) return `${failed} It's no longer in this workspace.`;
-  if (error.status === 401) return `${failed} You've been signed out. Sign in again, then retry.`;
-  if (error.code === "forbidden") return `${failed} Your account can't change knowledge sources.`;
-  if (error.status === 403) return `${failed} Reload the page, then try again.`;
-  if (error.status === 400) return invalid;
-  return `${failed} Try again.`;
-}
-
 /** A form's error is about what was sent, so it goes once any field changes. */
 function afterReset<T>(reset: () => void, set: (value: T) => void) {
   return (value: T) => {
@@ -139,10 +124,6 @@ function afterReset<T>(reset: () => void, set: (value: T) => void) {
     set(value);
   };
 }
-
-/** `required` accepts a title of only spaces, which the API refuses, so it's named here. */
-const blankTitle = (title: string) =>
-  title !== "" && title.trim() === "" ? "Add a title." : false;
 
 function AddSource({ onDone }: { onDone: () => void }) {
   const add = useAddKnowledgeSource();
@@ -237,7 +218,7 @@ function AddSource({ onDone }: { onDone: () => void }) {
               <AlertIcon />
               <AlertContent>
                 <AlertDescription>
-                  {problem(
+                  {knowledgeProblem(
                     add.error,
                     "Couldn't add it.",
                     kind === "url"
@@ -343,7 +324,7 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
             <AlertIcon />
             <AlertContent>
               <AlertDescription>
-                {problem(reingest.error, "Couldn't read it again.")}
+                {knowledgeProblem(reingest.error, "Couldn't read it again.")}
               </AlertDescription>
             </AlertContent>
           </Alert>
@@ -352,7 +333,9 @@ function SourceCard({ source, canWrite }: { source: KnowledgeSource; canWrite: b
           <Alert variant="destructive">
             <AlertIcon />
             <AlertContent>
-              <AlertDescription>{problem(remove.error, "Couldn't delete it.")}</AlertDescription>
+              <AlertDescription>
+                {knowledgeProblem(remove.error, "Couldn't delete it.")}
+              </AlertDescription>
             </AlertContent>
           </Alert>
         ) : null}
@@ -430,26 +413,14 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
   const title = newTitle ?? source.title;
   const visibility = newVisibility ?? source.visibility;
 
-  const body = {
-    ...(newTitle !== undefined && newTitle.trim() !== source.title.trim()
-      ? { title: newTitle.trim() }
-      : {}),
-    ...(newVisibility !== undefined && newVisibility !== source.visibility
-      ? { visibility: newVisibility }
-      : {}),
-    ...(source.kind === "markdown" && content.trim() !== "" ? { content } : {}),
-  };
+  const body = knowledgeEditBody({ source, newTitle, newVisibility, content });
   const changed = Object.keys(body).length > 0;
   const onlySpaces = content !== "" && content.trim() === "";
-  // Not after this person's own save, which changes it too before the form closes.
-  // Someone changed what this form edits, or its text is being read again. A source that only
-  // finished reading meanwhile doesn't count.
-  const changedMeanwhile =
-    (edit.isIdle || edit.isError) &&
-    (source.title !== opened.title ||
-      source.visibility !== opened.visibility ||
-      ((source.state.status === "pending" || source.state.status === "waiting") &&
-        source.updatedAt !== opened.updatedAt));
+  const changedMeanwhile = knowledgeChangedMeanwhile({
+    source,
+    opened,
+    mutationStatus: edit.status,
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -507,7 +478,7 @@ function EditSource({ source, onDone }: { source: KnowledgeSource; onDone: () =>
           <AlertIcon />
           <AlertContent>
             <AlertDescription>
-              {problem(
+              {knowledgeProblem(
                 edit.error,
                 "Couldn't save. Nothing changed.",
                 source.kind === "url"

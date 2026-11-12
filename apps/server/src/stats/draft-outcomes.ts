@@ -1,4 +1,5 @@
 import type { schema } from "@helpos/db";
+import { isPendingDraft } from "../drafts/lifecycle.ts";
 
 /** What the counting needs to know about one draft. */
 export interface DraftFact {
@@ -42,7 +43,7 @@ export function countDraftOutcomes(
     if (d.approved) {
       if (edited.has(d.id)) counts.approvedEdited++;
       else counts.approvedUnchanged++;
-    } else if (d.status === "pending") counts.pending++;
+    } else if (isPendingDraft(d)) counts.pending++;
     else counts.discarded++;
   }
   const approved = counts.approvedUnchanged + counts.approvedEdited;

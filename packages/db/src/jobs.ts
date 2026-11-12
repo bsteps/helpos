@@ -81,12 +81,20 @@ export type TenantJobHandler<P> = (payload: P, tx: TenantTx) => Promise<void>;
 
 /** Opens one transaction as the job's tenant: every query in it goes through withTenant(). */
 export type TenantTransaction = <T>(fn: (tx: TenantTx) => Promise<T>) => Promise<T>;
+export interface JobDeferral {
+  deferUntil: Date;
+}
+
 /**
  * For a job that waits on the network, such as a page fetch or a model call. It opens short
  * transactions around the wait instead of holding one (and its pooled connection and row
  * locks) for the whole job. It still only ever sees its own tenant's data.
+ * Returning a deferral schedules a successor with only the current job's remaining retries.
  */
-export type TenantStepsHandler<P> = (payload: P, transaction: TenantTransaction) => Promise<void>;
+export type TenantStepsHandler<P> = (
+  payload: P,
+  transaction: TenantTransaction,
+) => Promise<void | JobDeferral>;
 
 /** One tenant's transactions, as a steps handler gets them. Exported for tests. */
 export function tenantTransactions(
@@ -143,9 +151,20 @@ export interface JobRunnerOptions {
   jobsUrl: string;
   /** App-role database. Tenant handlers reach data only through its withTenant(). */
   db: Database;
-  /** pg-boss reports background errors here. Without a listener they would crash the process. */
-  onError: (error: unknown) => void;
+  /**
+   * pg-boss reports background errors here; without a listener they would crash the process.
+   * A stored payload that fails validation is reported here too, once, on its last attempt.
+   */
+  onError: (error: unknown, context?: { queue: string; jobId: string }) => void;
   pollingIntervalSeconds?: number;
+}
+
+/** Named so a log entry says what failed: logs carry an error's name, never its message. */
+class InvalidJobPayloadError extends Error {
+  override name = "InvalidJobPayloadError";
+  constructor() {
+    super("Invalid stored job payload");
+  }
 }
 
 export function createJobRunner(options: JobRunnerOptions): JobRunner {
@@ -177,20 +196,27 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   async function consume<P extends { tenantId: string }>(
     job: TenantJob<P>,
-    run: (payload: P) => Promise<void>,
+    run: (payload: P, remainingRetries: number) => Promise<void>,
     onLastFailure?: (payload: P) => Promise<void>,
   ): Promise<void> {
     await boss.createQueue(job.queue);
     // With metadata, to tell the last attempt from one that will be retried.
     const workOptions = { batchSize: 1, pollingIntervalSeconds, includeMetadata: true } as const;
     await boss.work<unknown, unknown, typeof workOptions>(job.queue, workOptions, async (jobs) => {
-      for (const { data, retryCount, retryLimit } of jobs) {
+      for (const { id, data, retryCount, retryLimit } of jobs) {
+        const lastAttempt = retryCount >= retryLimit;
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
-        const payload = job.payload.parse(data);
+        const parsed = job.payload.safeParse(data);
+        if (!parsed.success) {
+          const error = new InvalidJobPayloadError();
+          if (lastAttempt) options.onError(error, { queue: job.queue, jobId: id });
+          throw error;
+        }
+        const payload = parsed.data;
         try {
-          await run(payload);
+          await run(payload, retryLimit - retryCount);
         } catch (error) {
-          if (onLastFailure && retryCount >= retryLimit) {
+          if (onLastFailure && lastAttempt) {
             // Reported, not thrown: the job's own error is the one pg-boss should record.
             await onLastFailure(payload).catch(options.onError);
           }
@@ -207,10 +233,26 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     const { onGiveUp } = tenantWorker;
     await consume(
       job,
-      (payload) =>
-        tenantWorker.steps
-          ? tenantWorker.steps(payload, tenantTransactions(options.db, payload.tenantId))
-          : options.db.withTenant(payload.tenantId, (tx) => tenantWorker.transaction(payload, tx)),
+      async (payload, remainingRetries) => {
+        if (tenantWorker.steps) {
+          const result = await tenantWorker.steps(
+            payload,
+            tenantTransactions(options.db, payload.tenantId),
+          );
+          if (result) {
+            await options.db.withTenant(payload.tenantId, (tx) =>
+              enqueue(tx, job, payload, {
+                startAfter: result.deferUntil,
+                retryLimit: remainingRetries,
+              }),
+            );
+          }
+        } else {
+          await options.db.withTenant(payload.tenantId, (tx) =>
+            tenantWorker.transaction(payload, tx),
+          );
+        }
+      },
       (payload) => options.db.withTenant(payload.tenantId, (tx) => onGiveUp(payload, tx)),
     );
   }

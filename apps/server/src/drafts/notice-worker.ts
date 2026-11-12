@@ -12,17 +12,25 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
-import { buildDraftNotice, noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
+import {
+  composeEmail,
+  mailboxDomain,
+  noticeReplyTo,
+  outboundMessageId,
+} from "../outbound-email/composer.ts";
+import { noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import type { ServerConfig } from "../services.ts";
 import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
+import { draftWhere } from "./lifecycle.ts";
 
 const { auditEvents, drafts, mailboxes, memberships, messages, conversations } = schema;
 
-const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
+export const noticeWorkerActor = builtInActors.noticeWorker;
 
 /**
  * Queues the "a draft is waiting" notice, `delaySeconds` from now (`noticeDelaySeconds`): a
@@ -42,20 +50,6 @@ export async function queueDraftNotice(
     { tenantId: draft.tenantId, draftId: draft.id },
     { startAfter: new Date(Date.now() + delaySeconds * 1000) },
   );
-}
-
-function mailboxDomain(mailbox: string): string {
-  return mailbox.split("@").pop() ?? "localhost";
-}
-
-/**
- * A no-reply address on the mailbox's domain that is never the mailbox itself, so answering a
- * notice can't land in the helpdesk and open a conversation.
- */
-export function noticeReplyTo(mailbox: string): string {
-  const domain = mailboxDomain(mailbox).toLowerCase();
-  const address = `no-reply@${domain}`;
-  return address === mailbox.toLowerCase() ? `no-reply-notices@${domain}` : address;
 }
 
 /** Keeps any path in the public URL (e.g. `https://acme.test/helpdesk`), which `/conversations/…` would drop. */
@@ -90,12 +84,13 @@ export async function handleNoticeGaveUp(
   const [draft] = await tx
     .select({ conversationId: drafts.conversationId })
     .from(drafts)
-    .where(and(eq(drafts.id, payload.draftId), eq(drafts.status, "pending")));
+    .where(and(eq(drafts.id, payload.draftId), draftWhere.pending()));
   if (!draft) return;
   await recordAudit(tx, {
     tenantId: payload.tenantId,
     actor: noticeWorkerActor,
     action: "draft.notice_failed",
+    details: { draftId: payload.draftId },
     target: { type: "conversation", id: draft.conversationId },
     requestId: null,
   });
@@ -127,6 +122,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     // window taken and sends nothing.
     const [row] = await tx
       .select({
+        id: drafts.id,
         conversationId: drafts.conversationId,
         kind: drafts.kind,
         createdAt: drafts.createdAt,
@@ -141,7 +137,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       .where(
         and(
           eq(drafts.conversationId, queued.conversationId),
-          eq(drafts.status, "pending"),
+          draftWhere.pending(),
           // A draft that hasn't waited the full delay yet may still be approved in time. Its own
           // job, queued with it, runs once it has.
           sql`${drafts.createdAt} <= now() - make_interval(secs => ${delaySeconds})`,
@@ -161,7 +157,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
           ),
         })
         .from(drafts)
-        .where(and(eq(drafts.conversationId, queued.conversationId), eq(drafts.status, "pending")))
+        .where(and(eq(drafts.conversationId, queued.conversationId), draftWhere.pending()))
         .orderBy(asc(drafts.createdAt))
         .limit(1);
       if (young) {
@@ -196,7 +192,9 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       const [actedOn] = await tx
         .select({ id: drafts.id })
         .from(drafts)
-        .where(and(eq(drafts.conversationId, row.conversationId), gt(drafts.approvedAt, recent.at)))
+        .where(
+          and(eq(drafts.conversationId, row.conversationId), draftWhere.wasApproved(recent.at)),
+        )
         .limit(1);
       // A kind of draft the conversation didn't have at that notice is other news: "it's fixed"
       // waiting is not the reply the owners were already told about (nor the other way round).
@@ -232,13 +230,14 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
     const notices = await Promise.all(
       to.map(async (owner) => ({
         to: owner,
-        raw: await buildDraftNotice({
+        raw: await composeEmail({
+          kind: "draft_notice",
           from: row.mailbox,
           replyTo: noticeReplyTo(row.mailbox),
           to: owner,
           conversationUrl: conversationUrl(deps.config.publicUrl, row.conversationId),
           customerText: messageText(row),
-          messageId: `<notice-${uuidv7()}@${domain}>`,
+          messageId: outboundMessageId({ kind: "draft_notice", domain, id: uuidv7() }),
           date,
         }),
       })),
@@ -250,6 +249,7 @@ export function handleDraftNotice(deps: NoticeWorkerDeps) {
       tenantId,
       actor: noticeWorkerActor,
       action: "draft.notice_sent",
+      details: { draftId: row.id },
       target: { type: "conversation", id: row.conversationId },
       requestId: null,
     });

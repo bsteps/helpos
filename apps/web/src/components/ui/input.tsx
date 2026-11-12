@@ -13,17 +13,6 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 
-type InputClassNames = {
-  root?: string;
-  label?: string;
-  field?: string;
-  input?: string;
-  leftIcon?: string;
-  rightIcon?: string;
-  successIcon?: string;
-  errorMessage?: string;
-};
-
 export interface InputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "defaultValue" | "onChange"> {
   label?: string;
@@ -38,7 +27,6 @@ export interface InputProps
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
   className?: string;
-  classNames?: InputClassNames;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
@@ -55,7 +43,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     leftIcon,
     rightIcon,
     className,
-    classNames,
     disabled,
     id: idProp,
     type,
@@ -93,12 +80,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   };
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className, classNames?.root)}>
+    <div className={cn("flex flex-col gap-1.5", className)}>
       {label ? (
-        <label
-          htmlFor={id}
-          className={cn("px-1 text-sm font-medium text-foreground", classNames?.label)}
-        >
+        <label htmlFor={id} className="px-1 text-sm font-medium text-foreground">
           {label}
         </label>
       ) : null}
@@ -112,16 +96,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           focused && !hasError && "border-foreground/40 ring-2 ring-ring/40",
           hasError && "border-destructive ring-2 ring-destructive/25",
           disabled && "opacity-60",
-          classNames?.field,
         )}
       >
         {leftIcon ? (
-          <span
-            className={cn(
-              "pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center text-muted-foreground [&_svg]:h-4 [&_svg]:w-4",
-              classNames?.leftIcon,
-            )}
-          >
+          <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center text-muted-foreground [&_svg]:h-4 [&_svg]:w-4">
             {leftIcon}
           </span>
         ) : null}
@@ -150,7 +128,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             leftIcon ? "pl-10" : "pl-3.5",
             rightSlot || success ? "pr-10" : "pr-3.5",
             disabled && "cursor-not-allowed",
-            classNames?.input,
           )}
         />
 
@@ -158,10 +135,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           <motion.svg
             viewBox="0 0 24 24"
             fill="none"
-            className={cn(
-              "absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-(--color-success)",
-              classNames?.successIcon,
-            )}
+            className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-(--color-success)"
           >
             <motion.path
               d="M5 12.5l4.5 4.5L19 7.5"
@@ -175,12 +149,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             />
           </motion.svg>
         ) : rightSlot ? (
-          <span
-            className={cn(
-              "absolute right-0 top-0 flex h-full items-center text-muted-foreground [&_button]:grid [&_button]:size-11 [&_button]:place-items-center [&_svg]:h-4 [&_svg]:w-4",
-              classNames?.rightIcon,
-            )}
-          >
+          <span className="absolute right-0 top-0 flex h-full items-center text-muted-foreground [&_button]:grid [&_button]:size-11 [&_button]:place-items-center [&_svg]:h-4 [&_svg]:w-4">
             {rightSlot}
           </span>
         ) : null}
@@ -196,7 +165,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4, filter: "blur(4px)" }}
               transition={{ duration: 0.2 }}
-              className={cn("px-1 text-xs text-destructive", classNames?.errorMessage)}
+              className="px-1 text-xs text-destructive"
             >
               {errorMessage}
             </motion.p>

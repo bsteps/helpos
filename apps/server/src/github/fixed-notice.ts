@@ -1,5 +1,5 @@
 import type { TenantTx } from "@helpos/db";
-import { type AuditActor, auditorFor } from "../audit/audit.ts";
+import { type Actor, builtInActors } from "@helpos/db/actor";
 import { createFixedNotice } from "../drafts/lifecycle.ts";
 
 /**
@@ -15,7 +15,7 @@ export const fixedNoticeBody = [
   "Thank you for letting us know, and sorry for the trouble. If you still see it, just reply to this email and we'll take another look.",
 ].join("\n");
 
-export const githubWebhookActor = { type: "system", id: "github-webhook" } as const;
+export const githubWebhookActor = builtInActors.githubWebhook;
 
 /**
  * Adds a pending "fixed" draft to the conversation, as a reply to the customer's latest message, and
@@ -28,14 +28,14 @@ export async function addFixedDraft(
   input: {
     tenantId: string;
     conversationId: string;
-    actor: AuditActor;
+    actor: Actor;
     requestId: string | null;
     noticeDelaySeconds: number;
   },
 ): Promise<{ draftId: string } | null> {
   const draft = await createFixedNotice(
     tx,
-    auditorFor(input.tenantId, input.actor, input.requestId),
+    { tenantId: input.tenantId, actor: input.actor, requestId: input.requestId },
     {
       tenantId: input.tenantId,
       conversationId: input.conversationId,

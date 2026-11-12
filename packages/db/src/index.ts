@@ -19,7 +19,9 @@ export {
   createJobRunner,
   defineTenantJob,
   enqueue,
+  type JobDeferral,
   type JobRunner,
+  type JobRunnerOptions,
   type RetryPolicy,
   type TenantJob,
   type TenantJobHandler,
@@ -28,8 +30,10 @@ export {
   tenantTransactions,
 } from "./jobs.ts";
 export {
+  hasSearchableKnowledge,
   isKnowledgeUrlTaken,
   type KnowledgeHit,
+  type KnowledgeQuery,
   normalizeKnowledgeUrl,
   searchKnowledge,
 } from "./knowledge.ts";

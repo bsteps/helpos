@@ -1,5 +1,6 @@
 import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
 import { tokenBound } from "./estimate.ts";
+import { type PaidModel, paidModelOptions } from "./paid-model.ts";
 
 /** An earlier message on the same conversation, oldest first. */
 type HistoryMessage = { direction: "inbound" | "outbound"; from: string; body: string };
@@ -279,21 +280,18 @@ export function replyDraftTokenEstimate(input: DraftInput, unretrieved = 0): num
  * With tools there is a second step, so a model that calls one still writes the reply.
  */
 export async function draftReply(
-  model: LanguageModel,
+  model: PaidModel<LanguageModel>,
   input: DraftInput,
-  options: { tools?: ToolSet; abortSignal?: AbortSignal } = {},
+  options: { tools?: ToolSet } = {},
 ): Promise<DraftResult> {
   const knowledge = (input.knowledge ?? []).slice(0, maxKnowledgeArticles);
   const result = await generateText({
-    // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
-    maxRetries: 0,
-    model,
+    ...paidModelOptions(model),
     instructions:
       knowledge.length > 0 ? `${draftInstructions}\n${knowledgeInstructions}` : draftInstructions,
     prompt: [fenceKnowledge(knowledge), fenceEmail(input)].filter(Boolean).join("\n\n"),
     // The budget reservation counts on this bound.
     maxOutputTokens: maxReplyOutputTokens,
-    ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     ...(options.tools ? { tools: options.tools, stopWhen: stepCountIs(2) } : {}),
   });
   // Everything the model wrote, in order: with one step (the real drafting) that's its text,

@@ -65,10 +65,10 @@ function defineJob<P extends { tenantId: string }>(spec: JobSpec<P>): Job {
       };
       /** A failed attempt is logged, then rethrown so pg-boss retries it (or gives up). */
       const logged =
-        <C>(handler: (payload: P, context: C) => Promise<void>) =>
+        <C, R>(handler: (payload: P, context: C) => Promise<R>) =>
         async (payload: P, context: C) => {
           try {
-            await handler(payload, context);
+            return await handler(payload, context);
           } catch (error) {
             logger.error({ err: error, queue }, "job attempt failed");
             throw error;
@@ -120,7 +120,7 @@ export const jobs: readonly Job[] = [
     retry: sendReplyRetry,
     run: (s) =>
       s.transport
-        ? { transaction: handleSendReply({ ...s, transport: s.transport }) }
+        ? { steps: handleSendReply({ ...s, transport: s.transport }) }
         : { waits: "HELPOS_SMTP_URL is not set: approved replies will wait in the queue" },
     onGiveUp: handleSendGaveUp,
   }),

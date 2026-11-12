@@ -6,6 +6,7 @@ import {
   type LanguageModel,
   maxHistoryMessages,
   maxKnowledgeArticles,
+  type PaidModels,
   replyDraftTokenEstimate,
   tokenBound,
 } from "@helpos/ai";
@@ -14,15 +15,18 @@ import {
   desc,
   enqueue,
   eq,
+  type JobDeferral,
   lt,
   ne,
   schema,
   type TenantTransaction,
   type TenantTx,
 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
-import { type AiBudget, AiBusyError, aiBudget, type Spent } from "../ai-budget/budget.ts";
-import { auditorFor, recordAudit } from "../audit/audit.ts";
+import { type AiBudget, aiBudget, mapAiRefusal, type Spent } from "../ai-budget/budget.ts";
+import { inHistory } from "../conversations/history.ts";
+import { pauseAi } from "../conversations/lifecycle.ts";
 import {
   noKnowledge,
   SearchError,
@@ -83,7 +87,7 @@ export interface DraftWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-const draftWorkerActor = { type: "system", id: "draft-reply" } as const;
+export const draftWorkerActor = builtInActors.draftWorker;
 
 /**
  * The workspace's best-matching knowledge, or none when search fails (embedding provider down,
@@ -96,11 +100,12 @@ async function searchOrNothing(
   transaction: TenantTransaction,
   query: SearchQuery,
   signal: AbortSignal,
+  models: PaidModels,
 ): Promise<SearchResult> {
   const { search } = deps;
   if (!search) return noKnowledge;
   try {
-    return await search.search(transaction, query, signal);
+    return await search.search(transaction, query, models);
   } catch (error) {
     // Stopped (a shutdown, or out of time): drafting on without knowledge would be wrong too.
     if (signal.aborted) throw error;
@@ -133,17 +138,12 @@ export async function handleDraftGaveUp(payload: Payload, tx: TenantTx): Promise
   // The customer wrote again: that message's own job drafts for it.
   if (lock?.answering !== payload.messageId) return;
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
-  await tx
-    .update(conversations)
-    .set({ aiPausedReason: "draft_failed" })
-    .where(eq(conversations.id, row.conversationId));
-  await recordAudit(tx, {
-    tenantId: payload.tenantId,
-    actor: draftWorkerActor,
-    action: "ai.draft_failed",
-    target: { type: "conversation", id: row.conversationId },
-    requestId: null,
-  });
+  await pauseAi(
+    tx,
+    { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
+    row.conversationId,
+    "draft_failed",
+  );
 }
 
 /**
@@ -157,9 +157,10 @@ export async function handleDraftGaveUp(payload: Payload, tx: TenantTx): Promise
  */
 export function handleDraftReply(deps: DraftWorkerDeps) {
   const budget = aiBudget(deps);
-  return async (payload: Payload, transaction: TenantTransaction): Promise<void> => {
+  return async (payload: Payload, transaction: TenantTransaction) => {
     const job = await transaction((tx) => prepare(deps, budget, payload, tx));
     if (!job) return;
+    if ("deferUntil" in job) return job;
 
     // What the search cost, kept apart: if the model then fails, the search still counts.
     let searchTokens = 0;
@@ -169,8 +170,8 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
     const answer = await budget.spend(
       transaction,
       job.reservation,
-      async (signal) => {
-        const knowledge = await searchOrNothing(deps, transaction, job.query, signal);
+      async (signal, models) => {
+        const knowledge = await searchOrNothing(deps, transaction, job.query, signal, models);
         searchTokens = knowledge.tokens;
         const found = await transaction(async (tx) => {
           // Another job for this message (a retry overlapping a slow attempt) may have drafted
@@ -191,7 +192,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           })),
         };
         callBound = replyDraftTokenEstimate(input);
-        return { hits, result: await draftReply(deps.model, input, { abortSignal: signal }) };
+        return { hits, result: await draftReply(models(deps.model), input) };
       },
       {
         of: ({ result }) => ({
@@ -283,6 +284,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
         eq(messages.conversationId, row.conversationId),
         ne(messages.id, payload.messageId),
         lt(messages.createdAt, row.createdAt),
+        inHistory(),
       ),
     )
     // Newest first, so the limit keeps the most recent; reversed below to oldest first.
@@ -299,21 +301,25 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
       .filter((m) => m.automatedReason === null)
       .map((m) => ({ direction: m.direction, from: m.from, body: messageText(m) })),
   };
-  const query = {
+  const query: SearchQuery = {
     tenantId: payload.tenantId,
     text: retrievalQuery(row.subject, emailBody),
     limit: knowledgeLimit,
+    audience: "approver",
   };
   // The search's embedding of the email, and the reply with as many passages as it may find.
   const estimate =
     (deps.search ? tokenBound(query.text) : 0) +
     replyDraftTokenEstimate(input, deps.search ? knowledgeLimit : 0);
   const reservation = await budget.reserve(tx, payload.tenantId, estimate);
-  // Other drafts in flight hold the rest of today's budget: pg-boss tries again shortly.
-  if (reservation === "busy") throw new AiBusyError();
   if ("refused" in reservation) {
-    await pause(deps, reservation.resetsAt, payload, tx, row.conversationId);
-    return null;
+    return mapAiRefusal<Promise<JobDeferral | null>>(reservation, {
+      busy: async (deferUntil) => ({ deferUntil }),
+      over_budget: async (retryAt) => {
+        await pause(deps, retryAt, payload, tx, row.conversationId);
+        return null;
+      },
+    });
   }
   return { conversationId: row.conversationId, input, query, reservation };
 }
@@ -330,17 +336,12 @@ async function pause(
   tx: TenantTx,
   conversationId: string,
 ): Promise<void> {
-  await tx
-    .update(conversations)
-    .set({ aiPausedReason: "daily_budget" })
-    .where(eq(conversations.id, conversationId));
-  await recordAudit(tx, {
-    tenantId: payload.tenantId,
-    actor: draftWorkerActor,
-    action: "ai.paused",
-    target: { type: "conversation", id: conversationId },
-    requestId: null,
-  });
+  await pauseAi(
+    tx,
+    { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
+    conversationId,
+    "daily_budget",
+  );
   await enqueue(tx, draftReplyJob, payload, {
     singletonKey: `${payload.messageId}:after:${resetsAt.toISOString()}`,
     // The queue starts it by the database's clock, the budget's day comes from this server's.
@@ -369,13 +370,17 @@ async function save(
   if (await liveDraftFor(tx, payload.messageId, "reply")) return;
 
   // This is the latest message, so createReply discards pending replies to earlier ones.
-  const saved = await createReply(tx, auditorFor(payload.tenantId, draftWorkerActor), {
-    tenantId: payload.tenantId,
-    conversationId,
-    messageId: payload.messageId,
-    body,
-    noticeDelaySeconds: deps.config.noticeDelaySeconds,
-  });
+  const saved = await createReply(
+    tx,
+    { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
+    {
+      tenantId: payload.tenantId,
+      conversationId,
+      messageId: payload.messageId,
+      body,
+      noticeDelaySeconds: deps.config.noticeDelaySeconds,
+    },
+  );
   // Every passage the model saw, so the approver can check the draft against its sources.
   if (hits.length > 0) {
     await tx.insert(draftCitations).values(

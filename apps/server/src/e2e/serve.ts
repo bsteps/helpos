@@ -15,7 +15,11 @@ import { GenericContainer } from "testcontainers";
 import { z } from "zod";
 import { octokitGithub } from "../github/github-api.ts";
 import { createLogger } from "../logger.ts";
-import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
+import {
+  createSmtpTransport,
+  type EmailTransport,
+  SendRejected,
+} from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
 import { seedDemoData } from "../seed/seed.ts";
 import { composeServer } from "../server.ts";
@@ -57,10 +61,14 @@ function flakySmtp(smtp: EmailTransport): EmailTransport {
         const failures = failedSends.get(subject) ?? 0;
         if (failures < 2) {
           failedSends.set(subject, failures + 1);
-          throw new Error("e2e: SMTP is down");
+          throw new SendRejected("e2e: SMTP is down");
         }
       }
       await smtp.send(message);
+      if (subject.includes("smtp-reply-lost") && !failedSends.has(subject)) {
+        failedSends.set(subject, 1);
+        throw new Error("e2e: SMTP accepted but its reply was lost");
+      }
     },
     close: () => smtp.close(),
   };

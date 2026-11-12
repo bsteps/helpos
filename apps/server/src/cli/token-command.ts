@@ -1,4 +1,5 @@
 import { createDatabase, schema } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import { z } from "zod";
 import { createApiToken } from "../tokens/create-token.ts";
 
@@ -50,7 +51,7 @@ export async function run(
           tenantId,
           name: input.data.name,
           scopes: input.data.scopes,
-          actor: { type: "system", id: "cli" },
+          actor: builtInActors.tokenCli,
           requestId: null,
         }),
       );

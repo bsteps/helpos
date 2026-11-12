@@ -33,7 +33,7 @@ const getRoute = apiRoute({
 });
 
 const patchRoute = apiRoute({
-  access: { allScopes: ["workspace:admin"] },
+  access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: {
     records: [
       "workspace.shadow_mode_enabled",
@@ -47,7 +47,7 @@ const patchRoute = apiRoute({
   description:
     "Sets the shadow recipient, or turns shadow mode on or off. Every change is audit-logged. " +
     "Turning it off lets replies reach real customers, so it is refused (`shadow_mode_locked`) " +
-    "unless the server allows it. Needs `workspace:admin`.",
+    "unless the server allows it. Needs a human session with `workspace:admin`.",
   request: {
     body: jsonBody(
       z

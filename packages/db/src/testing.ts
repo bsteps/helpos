@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as pollDelay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import type { AuthStore } from "./auth.ts";
 import type { Database } from "./client.ts";
@@ -482,4 +483,22 @@ export function uncoveredTables(snapshot: Record<string, unknown[]>): string[] {
   return Object.entries(snapshot)
     .filter(([, rows]) => rows.length === 0)
     .map(([table]) => table);
+}
+
+export async function expireTestSendJob(jobsUrl: string, draftId: string): Promise<void> {
+  const db = postgres(jobsUrl);
+  const boss = new PgBoss({
+    connectionString: jobsUrl,
+    createSchema: false,
+    migrate: false,
+    schedule: false,
+  });
+  try {
+    await db`update pgboss.job set started_on = now() - interval '1 hour', expire_seconds = 1 where name = 'send-reply' and data->>'draftId' = ${draftId} and state = 'active'`;
+    await boss.start();
+    await boss.supervise("send-reply");
+  } finally {
+    await boss.stop();
+    await db.end();
+  }
 }

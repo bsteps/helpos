@@ -34,14 +34,24 @@ const common = new Set(
   ).split(" "),
 );
 
+// The word rules split languages written without spaces (Chinese, Japanese, Thai) by dictionary,
+// whatever the locale, so one segmenter serves every language.
+const wordSegmenter = new Intl.Segmenter("en", { granularity: "word" });
+
 /** Lowercase words, punctuation and spacing ignored, so reflowed or re-punctuated text matches. */
 export function quoteWords(text: string): string[] {
   return (
-    text
-      .toLowerCase()
-      // Curly apostrophes, as a model or a mail client may write them.
-      .replace(/[‘’]/g, "'")
-      .match(/[\p{L}\p{N}]+(?:'[\p{L}\p{N}]+)*/gu) ?? []
+    (
+      text
+        .toLowerCase()
+        // Curly apostrophes, as a model or a mail client may write them.
+        .replace(/[‘’]/g, "'")
+        .match(/[\p{L}\p{N}]+(?:'[\p{L}\p{N}]+)*/gu) ?? []
+    ).flatMap((word) =>
+      Array.from(wordSegmenter.segment(word))
+        .filter((part) => part.isWordLike)
+        .map((part) => part.segment),
+    )
   );
 }
 
