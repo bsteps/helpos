@@ -8,14 +8,11 @@ import type { components, paths } from "./schema.gen.ts";
  */
 export const api = createClient<paths>({ baseUrl: window.location.origin });
 
-export type Conversation = components["schemas"]["Conversation"];
 export type ConversationDetail = components["schemas"]["ConversationDetail"];
 export type Message = components["schemas"]["Message"];
 export type Draft = components["schemas"]["Draft"];
 export type Me = components["schemas"]["Me"];
-export type GithubIntegration = components["schemas"]["GithubIntegration"];
 export type GithubConnected = components["schemas"]["GithubConnected"];
-export type GithubIssueDraft = components["schemas"]["GithubIssueDraft"];
 export type KnowledgeSource = components["schemas"]["KnowledgeSource"];
 export type KnowledgeSourceUpdate = components["schemas"]["KnowledgeSourceUpdate"];
 export type NewKnowledgeSource =

@@ -9,7 +9,13 @@ import {
   type JobRunner,
   schema,
 } from "@helpos/db";
-import { containerHost, startTestDatabase, type TestDatabase } from "@helpos/db/testing";
+import {
+  containerHost,
+  startTestDatabase,
+  type TestDatabase,
+  waitFor,
+  waitForTenantJobs,
+} from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -19,6 +25,7 @@ import { ingestEmail } from "../inbound-email/ingest.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
+import { sendReplyJob } from "./jobs.ts";
 
 // A send that fails for good: every attempt fails, the draft becomes `send_failed` with an
 // audit event, and a person or agent retries it (same Message-ID, sent once, shadow mode as it
@@ -87,16 +94,6 @@ async function receiveEmail() {
   return { conversationId: result.conversationId, subject };
 }
 
-async function waitFor<T>(what: string, fn: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const value = await fn();
-    if (value !== undefined) return value;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`timed out waiting for ${what}`);
-}
-
 const draftsOf = (conversationId: string) =>
   db.withTenant(acme, (tx) =>
     tx.select().from(schema.drafts).where(eq(schema.drafts.conversationId, conversationId)),
@@ -133,6 +130,9 @@ async function failedDraft() {
   });
   expect(approve.status).toBe(200);
   const failed = await waitForDraft(email.conversationId, "send_failed");
+  expect(
+    (await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] })).deferred,
+  ).toEqual([]);
   smtpDown = false;
   return { ...email, draft: failed };
 }
@@ -261,8 +261,9 @@ describe("a send that fails for good", () => {
     expect(sent.outboundMessageIdHeader).toBe(draft.outboundMessageIdHeader);
 
     const mail = await waitFor("the reply in Mailpit", async () => (await mailFor(subject))[0]);
-    // Give a duplicate the time to arrive, if one were coming.
-    await new Promise((r) => setTimeout(r, 2_000));
+    expect(
+      (await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] })).deferred,
+    ).toEqual([]);
     expect(await mailFor(subject)).toHaveLength(1);
     expect(mail.To.map((t) => t.Address)).toEqual(["jane@customer.test"]);
     const headers = (await (
@@ -359,7 +360,9 @@ describe("a send that fails for good", () => {
     expect(retries.map((r) => r.status)).toEqual([200, 200]);
     await waitForDraft(conversationId, "sent");
     await waitFor("the reply in Mailpit", async () => (await mailFor(subject))[0]);
-    await new Promise((r) => setTimeout(r, 2_000));
+    expect(
+      (await waitForTenantJobs(testDb, acme, { queues: [sendReplyJob.queue] })).deferred,
+    ).toEqual([]);
     expect(await mailFor(subject)).toHaveLength(1);
     // Each recovery request is on the audit log, with who asked.
     const retried = (await auditOf(pending.id)).filter(([a]) => a === "draft.send_retried");

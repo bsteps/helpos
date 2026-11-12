@@ -1,7 +1,7 @@
 // From beUI (https://beui.dev), MIT licence: see src/components/ui/BEUI-LICENSE.md.
 // beui.dev/components/motion/alert
 
-import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Info, TriangleAlert } from "lucide-react";
 import { AnimatePresence, type HTMLMotionProps, motion, useReducedMotion } from "motion/react";
 import {
   type ComponentProps,
@@ -14,13 +14,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { EASE_OUT, EASE_OUT_CSS, SPRING_LAYOUT, SPRING_PRESS } from "@/lib/ease";
+import { EASE_OUT, EASE_OUT_CSS, SPRING_LAYOUT } from "@/lib/ease";
 import { PresenceGate } from "@/lib/presence-gate";
 import { cn } from "@/lib/utils";
 
-export type AlertVariant = "default" | "info" | "success" | "warning" | "destructive";
+type AlertVariant = "default" | "info" | "success" | "warning" | "destructive";
 
-export type AlertState = {
+type AlertState = {
   open: boolean;
   variant: AlertVariant;
   setOpen: (open: boolean) => void;
@@ -33,11 +33,6 @@ function useAlertContext(component: string) {
   const context = useContext(AlertContext);
   if (!context) throw new Error(`${component} must be used within <Alert>`);
   return context;
-}
-
-/** Shared visibility and variant for custom alert children. */
-export function useAlert(): AlertState {
-  return useAlertContext("useAlert");
 }
 
 const VARIANT_CLASS: Record<AlertVariant, string> = {
@@ -275,33 +270,5 @@ export function AlertAction({ className, ...props }: AlertActionProps) {
       data-slot="alert-action"
       className={cn("flex flex-wrap items-center gap-2 pt-2", className)}
     />
-  );
-}
-
-export interface AlertCloseProps extends Omit<HTMLMotionProps<"button">, "layout"> {}
-
-export function AlertClose({ className, children, onClick, ...props }: AlertCloseProps) {
-  const { dismiss, reduce } = useAlertContext("AlertClose");
-  return (
-    <motion.button
-      type="button"
-      aria-label="Dismiss alert"
-      {...props}
-      tabIndex={props.tabIndex ?? 0}
-      data-slot="alert-close"
-      layout={reduce ? false : "position"}
-      transition={SPRING_PRESS}
-      {...(reduce ? {} : { whileTap: { scale: 0.94 } })}
-      className={cn(
-        "-m-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-        className,
-      )}
-      onClick={(event) => {
-        onClick?.(event);
-        if (!event.defaultPrevented) dismiss();
-      }}
-    >
-      {children ?? <X aria-hidden="true" className="size-4" />}
-    </motion.button>
   );
 }

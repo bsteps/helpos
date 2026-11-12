@@ -33,6 +33,20 @@ jobs:
       - run: pnpm exec biome ci .
       # Unused files, exports and dependencies (knip.jsonc).
       - run: pnpm knip
+      - name: Unit tests with Docker stopped
+        run: |
+          sudo systemctl stop docker.socket docker.service
+          trap 'sudo systemctl start docker.socket docker.service' EXIT
+          for unit in docker.service docker.socket; do
+            state=$(systemctl show "$unit" --property=ActiveState --value)
+            echo "$unit: $state"
+            test "$state" = inactive
+          done
+          if docker info >/dev/null 2>&1; then
+            echo "Docker is still reachable"
+            exit 1
+          fi
+          pnpm exec vitest run --project unit
       - run: pnpm exec turbo run typecheck test build
       - run: pnpm test:scripts
       # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).

@@ -22,7 +22,7 @@ import { draftNoticeJob } from "./jobs.ts";
 
 const { auditEvents, drafts, mailboxes, memberships, messages, conversations } = schema;
 
-export const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
+const noticeWorkerActor = { type: "system", id: "draft-notice" } as const;
 
 /**
  * Queues the "a draft is waiting" notice, `delaySeconds` from now (`noticeDelaySeconds`): a

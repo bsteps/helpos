@@ -1,8 +1,4 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { schema } from "@helpos/db";
-
-/** What a token can be granted. `scopes` is built from this list, so each one is a scope the API checks. */
-export const tokenScopes = schema.apiTokenScopes;
 
 /** Recognisable in logs and by secret scanners, so a leaked token is easy to spot. */
 const tokenPrefix = "hos_";

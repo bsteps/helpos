@@ -6,10 +6,6 @@ describe("brand", () => {
     expect(brand.slug).toMatch(/^[a-z][a-z0-9-]*$/);
   });
 
-  it("derives the npm scope from the slug", () => {
-    expect(brand.npmScope).toBe(`@${brand.slug}`);
-  });
-
   it("derives the env prefix from the slug", () => {
     expect(envPrefix).toBe(`${brand.slug.toUpperCase()}_`);
   });

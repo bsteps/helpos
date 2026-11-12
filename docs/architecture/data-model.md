@@ -61,8 +61,8 @@ Uniqueness of tenant data is per tenant (`UNIQUE (tenant_id, ...)`): customer em
 
 ## Adding a table
 
-1. **Migration.** Give the table a `tenant_id` and `ENABLE` and `FORCE ROW LEVEL SECURITY` with a `tenant_isolation` policy (see `packages/db/migrations/0001_tenants-rls.sql`). A table with no `tenant_id` needs a reason in `schema.test.ts` and a change to `tenantSnapshot()`.
+1. **Migration.** Give the table a `tenant_id` and `ENABLE` and `FORCE ROW LEVEL SECURITY` with a `tenant_isolation` policy (see `packages/db/migrations/0001_tenants-rls.sql`). A table with no `tenant_id` needs a reason in `schema.int.test.ts` and a change to `tenantSnapshot()`.
 2. **A row in `seedLeakTenant`** (`packages/db/src/testing.ts`), so the leak tests have something to look for. Put the workspace's `tag` in every text value.
 3. **A line on this page**, with its name in backticks, its owner column and what it holds.
 
-Until all three exist, the leak tests fail: `packages/db/src/leak.test.ts` (read, update and delete as another workspace, over every table) and `apps/server/src/leak.int.test.ts` (every API operation as another workspace).
+Until all three exist, the leak tests fail: `packages/db/src/leak.int.test.ts` (read, update and delete as another workspace, over every table) and `apps/server/src/leak.int.test.ts` (every API operation as another workspace).

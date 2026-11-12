@@ -11,7 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --project unit --project int",
     "migrate": "node --env-file-if-exists=../../.env src/migrate-cli.ts",
     "generate": "drizzle-kit generate"
   },

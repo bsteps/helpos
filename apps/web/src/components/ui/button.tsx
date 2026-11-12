@@ -14,8 +14,8 @@ import { EASE_OUT, SPRING_PRESS } from "@/lib/ease";
 import { useHoverCapable } from "@/lib/hooks/use-hover-capable";
 import { cn } from "@/lib/utils";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "outline";
-export type ButtonSize = "sm" | "md" | "lg" | "icon";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "outline";
+type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 export interface ButtonProps extends Omit<HTMLMotionProps<"button">, "children"> {
   variant?: ButtonVariant;
@@ -23,13 +23,6 @@ export interface ButtonProps extends Omit<HTMLMotionProps<"button">, "children">
   pressScale?: number;
   /** Spawn a Material-style ripple from the press point. Off by default. */
   ripple?: boolean;
-  children?: ReactNode;
-}
-
-export interface ButtonLinkProps extends Omit<HTMLMotionProps<"a">, "children"> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  pressScale?: number;
   children?: ReactNode;
 }
 
@@ -134,32 +127,5 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ) : null}
       {children}
     </motion.button>
-  );
-});
-
-export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(function ButtonLink(
-  { variant = "primary", size = "md", pressScale = 0.93, className, children, ...rest },
-  ref,
-) {
-  const reduce = useReducedMotion();
-  const canHover = useHoverCapable();
-
-  return (
-    <motion.a
-      ref={ref}
-      {...(reduce ? {} : { whileTap: { scale: pressScale } })}
-      {...(reduce || !canHover ? {} : { whileHover: { scale: 1.02 } })}
-      transition={SPRING_PRESS}
-      className={cn(
-        "inline-flex items-center justify-center font-medium select-none",
-        "transition-colors",
-        VARIANT_CLASS[variant],
-        SIZE_CLASS[size],
-        className,
-      )}
-      {...rest}
-    >
-      {children}
-    </motion.a>
   );
 });

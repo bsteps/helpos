@@ -13,8 +13,8 @@ import { type ComponentPropsWithRef, createContext, useContext, useEffect, useRe
 import { SPRING_PRESS } from "@/lib/ease";
 import { cn } from "@/lib/utils";
 
-export type CardVariant = "outlined" | "muted";
-export type CardSize = "default" | "compact";
+type CardVariant = "outlined" | "muted";
+type CardSize = "default" | "compact";
 
 const CardSizeContext = createContext<CardSize>("default");
 

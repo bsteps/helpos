@@ -65,11 +65,15 @@ test("a malicious HTML email is shown as harmless text", async ({ page, request 
   );
   expect(handlers).toEqual([]);
 
+  await frame.waitForLoadState("load");
+
   // Clicking what used to be a javascript: link does nothing.
   await email.getByText("click me").click();
 
-  // Give anything delayed (a meta refresh, a lazy image) a moment to try.
-  await page.waitForTimeout(1_000);
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+  );
   expect(await page.evaluate(() => Reflect.get(window, "__xss"))).toBeUndefined();
   expect(leaks).toEqual([]);
   await expect(page.getByRole("heading", { name: subject })).toBeVisible();
