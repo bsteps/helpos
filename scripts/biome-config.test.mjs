@@ -108,16 +108,18 @@ const rawRequests = [
   'var { fetch: send, location } = globalThis; send("https://example.com");',
   'let send; ({ fetch: send } = globalThis); send("https://example.com");',
   'const { "fetch": send } = globalThis; send("https://example.com");',
-  ...["undici", "node:http", "node:https", "http", "https"].flatMap((module) => [
-    `import transport from "${module}"; export { transport };`,
-    `import { request as send } from '${module}'; export { send };`,
-    `import * as transport from "${module}"; export { transport };`,
-    `import "${module}";`,
-    `export { request } from "${module}";`,
-    `export * from "${module}";`,
-    `export const transport = import("${module}");`,
-    `export const transport = require("${module}");`,
-  ]),
+  ...["undici", "node:http", "node:https", "node:http2", "http", "https", "http2"].flatMap(
+    (module) => [
+      `import transport from "${module}"; export { transport };`,
+      `import { request as send } from '${module}'; export { send };`,
+      `import * as transport from "${module}"; export { transport };`,
+      `import "${module}";`,
+      `export { request } from "${module}";`,
+      `export * from "${module}";`,
+      `export const transport = import("${module}");`,
+      `export const transport = require("${module}");`,
+    ],
+  ),
 ];
 
 for (const file of [
