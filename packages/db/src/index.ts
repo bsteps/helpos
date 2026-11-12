@@ -6,26 +6,20 @@ export {
   type AuthStore,
   createAuthStore,
   passwordSchema,
-  passwordSetupTtlMs,
   type SessionAuth,
-  type SessionOptions,
 } from "./auth.ts";
 export {
   type ApiTokenRecord,
   createDatabase,
   type Database,
-  type MailboxRoute,
-  type MembershipSummary,
-  type PingResult,
   type TenantTx,
 } from "./client.ts";
 export { isUniqueViolation } from "./errors.ts";
 export {
   createJobRunner,
   defineTenantJob,
-  type EnqueueOptions,
   enqueue,
-  installJobs,
+  type JobDeferral,
   type JobRunner,
   type JobRunnerOptions,
   type RetryPolicy,
@@ -33,16 +27,15 @@ export {
   type TenantJobHandler,
   type TenantStepsHandler,
   type TenantTransaction,
-  type TenantWorker,
   tenantTransactions,
 } from "./jobs.ts";
 export {
+  hasSearchableKnowledge,
   isKnowledgeUrlTaken,
   type KnowledgeHit,
   type KnowledgeQuery,
   normalizeKnowledgeUrl,
   searchKnowledge,
 } from "./knowledge.ts";
-export { runMigrations } from "./migrate.ts";
 export * as schema from "./schema.ts";
 export { uuidv7 } from "./uuid.ts";

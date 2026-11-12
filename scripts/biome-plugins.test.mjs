@@ -13,8 +13,8 @@ const dir = `apps/server/src/lint-fixture-${process.pid}`;
 mkdirSync(new URL(`../${dir}`, import.meta.url), { recursive: true });
 after(() => rmSync(new URL(`../${dir}`, import.meta.url), { recursive: true, force: true }));
 
-function lint(source, name) {
-  const file = `${dir}/${name}`;
+function lint(source, name, directory = dir) {
+  const file = `${directory}/${name}`;
   mkdirSync(new URL(`../${file}/..`, import.meta.url), { recursive: true });
   writeFileSync(new URL(`../${file}`, import.meta.url), source);
   let out;
@@ -22,7 +22,7 @@ function lint(source, name) {
     out = execFileSync(process.execPath, [biome, "lint", file, "--reporter=json"], {
       cwd: root,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["pipe", "pipe", "ignore"],
     });
   } catch (error) {
     out = error.stdout;
@@ -31,9 +31,12 @@ function lint(source, name) {
 }
 
 function pluginMessages(source, name = "routes.ts") {
-  return lint(source, name)
-    .filter((d) => d.category === "plugin")
-    .map((d) => String(d.message));
+  const diagnostics = lint(source, name);
+  assert.ok(
+    !diagnostics.some((d) => String(d.message).includes("errored:")),
+    JSON.stringify(diagnostics),
+  );
+  return diagnostics.filter((d) => d.category === "plugin").map((d) => String(d.message));
 }
 
 const samples = {
@@ -68,6 +71,49 @@ const samples = {
     /aiBudget\(\)/,
   ],
 };
+
+test("domain modules cannot import HTTP values or types", () => {
+  for (const source of [
+    'import type { Auditor } from "../http/route-kit.ts";\n',
+    'import { json } from "../http/route-kit.ts";\n',
+    'export { json } from "../http/route-kit.ts";\n',
+    'export type { Auditor } from "../http/route-kit.ts";\n',
+    'export * from "../http/route-kit.ts";\n',
+    'export * as kit from "../http/route-kit.ts";\n',
+    'import "../http/route-kit.ts";\n',
+    'export const kit = await import("../http/route-kit.ts");\n',
+  ]) {
+    for (const name of [
+      "github/issues.ts",
+      "github/issue-draft.ts",
+      "ai-budget/set-budget.ts",
+      "github/app.ts",
+    ]) {
+      assert.ok(pluginMessages(source, name).some((m) => m.includes("Domain modules")));
+    }
+  }
+});
+
+test("HTTP adapters can import HTTP helpers and domain modules can import audit types", () => {
+  const source = 'import { json } from "../http/route-kit.ts";\n';
+  for (const name of [
+    "routes.ts",
+    "route.ts",
+    "shadow-mode-routes.ts",
+    "http/helpers.ts",
+    "auth/access.ts",
+    "apps/server/src/app.ts",
+    "github/webhook.ts",
+    "domain.test.ts",
+  ]) {
+    assert.ok(!pluginMessages(source, name).some((m) => m.includes("Domain modules")), name);
+  }
+  assert.ok(
+    !pluginMessages('import type { Auditor } from "../audit/audit.ts";\n', "github/issues.ts").some(
+      (m) => m.includes("Domain modules"),
+    ),
+  );
+});
 
 const githubLookup = 'export const f = (tx) => tx.where(eq(integrations.provider, "github"));\n';
 const githubOpen = "export const f = (box, sealed) => box.open(sealed, { tenantId, purpose });\n";
@@ -125,6 +171,156 @@ test("a route file past 600 lines is reported", () => {
   assert.ok(ids.includes("lint/style/noExcessiveLinesPerFile"), JSON.stringify(ids));
   // Other files are not held to the limit.
   assert.ok(!lint(long, "helpers.ts").some((d) => d.category.endsWith("noExcessiveLinesPerFile")));
+});
+for (const source of [
+  "export function f() { try { work(); } catch {} }",
+  "export function f() { try { work(); } catch (error) {} }",
+  "export function f() { try { work(); } catch { /* ignored */ } }",
+]) {
+  test(`empty catch is rejected: ${source}`, () => {
+    assert.ok(pluginMessages(source, "helper.mjs").some((m) => /empty catch/.test(m)));
+  });
+}
+test("intentional no-op callbacks and handled errors are allowed", () => {
+  assert.deepEqual(
+    pluginMessages(
+      "export const f = () => {}; export function g() { try { work(); } catch { return false; } }",
+      "helper.mjs",
+    ),
+    [],
+  );
+});
+for (const read of [
+  ...["json", "text", "parseBody", "formData", "arrayBuffer", "blob"].map((m) => `req.${m}`),
+  ...["json", "text", "formData", "arrayBuffer", "blob"].map((m) => `req.raw.${m}`),
+]) {
+  test(`raw request ${read} is rejected outside the raw routes`, () => {
+    assert.ok(
+      pluginMessages(`export const f = (ctx) => ctx.${read}();`, "handler.ts").some((m) =>
+        /req.valid/.test(m),
+      ),
+    );
+  });
+}
+test("validated request and response body reads are allowed", () => {
+  assert.deepEqual(
+    pluginMessages(
+      'export const f = (c, response) => [c.req.valid("json"), c.req.raw.headers, response.json()];',
+    ),
+    [],
+  );
+});
+test("hardcoded display name is rejected", () => {
+  assert.ok(
+    pluginMessages('export const title = "HelpOS";').some((m) => /product display name/.test(m)),
+  );
+});
+test("brand imports and test display strings are allowed", () => {
+  assert.deepEqual(
+    pluginMessages('import { brand } from "@helpos/brand"; export const title = brand.name;'),
+    [],
+  );
+  assert.deepEqual(pluginMessages('export const title = "HelpOS";', "brand.test.ts"), []);
+});
+test("filenames must be kebab case", () => {
+  assert.ok(
+    lint("export const a = 1;", "BadName.ts").some(
+      (d) => d.category === "lint/style/useFilenamingConvention",
+    ),
+  );
+  assert.ok(
+    !lint("export const a = 1;", "good-name.test.ts").some(
+      (d) => d.category === "lint/style/useFilenamingConvention",
+    ),
+  );
+});
+
+for (const path of [
+  "apps/server/src/inbound-email/route.ts",
+  "apps/server/src/github/webhook.ts",
+]) {
+  test(`raw body owner is allowed: ${path}`, () => {
+    const diagnostics = lint("export const f = (c) => c.req.arrayBuffer();", path);
+    assert.deepEqual(
+      diagnostics.filter((d) => d.category === "plugin"),
+      [],
+    );
+  });
+}
+for (const path of [
+  "apps/server/src/copy/inbound-email/route.ts",
+  "apps/server/src/github/webhook-copy.ts",
+  "apps/server/src/handler.test.ts",
+]) {
+  test(`raw body lookalike is rejected: ${path}`, () => {
+    assert.ok(
+      lint("export const f = (c) => c.req.json();", path).some((d) => /req.valid/.test(d.message)),
+    );
+  });
+}
+for (const source of [
+  'export const title = "Welcome to HelpOS";',
+  "export const title = 'HelpOS';",
+  "export const title = `HelpOS ${" + "version}`;",
+  'export const title = <h1 title="HelpOS">HelpOS</h1>;',
+]) {
+  test(`brand text is rejected: ${source}`, () => {
+    assert.ok(pluginMessages(source, "title.tsx").some((m) => /product display name/.test(m)));
+  });
+}
+test("only the brand package defines the display name", () => {
+  assert.deepEqual(
+    lint('export const name = "HelpOS";', "packages/brand/src/index.ts").filter(
+      (d) => d.category === "plugin",
+    ),
+    [],
+  );
+  assert.ok(
+    lint('export const name = "HelpOS";', "packages/files/src/brand/index.ts").some((d) =>
+      /product display name/.test(d.message),
+    ),
+  );
+});
+test("comments and package identifiers are not display strings", () => {
+  assert.deepEqual(pluginMessages('// HelpOS\nexport const name = "@helpos/brand";'), []);
+});
+test("empty catches are checked in verification scripts too", () => {
+  const directory = ".claude/skills/verify-helpos/scripts";
+  const name = `lint-fixture-${process.pid}.mjs`;
+  try {
+    assert.ok(
+      lint("try { work(); } catch {}", name, directory).some((d) => /empty catch/.test(d.message)),
+    );
+  } finally {
+    rmSync(new URL(`../${directory}/${name}`, import.meta.url), { force: true });
+  }
+});
+
+for (const source of [
+  'import { generateText } from "ai"; export { generateText };',
+  'import type { LanguageModel } from "ai"; export type { LanguageModel };',
+  'export * from "ai";',
+  'export * as sdk from "ai";',
+  'export type * as sdk from "ai";',
+  'export { generateText } from "ai";',
+  'export const sdk = import("ai");',
+  'export const sdk = require("ai");',
+  'import { MockLanguageModelV4 } from "ai/test"; export { MockLanguageModelV4 };',
+  'import { createOpenAI } from "@ai-sdk/openai"; export { createOpenAI };',
+  'import { withPaidModels } from "@helpos/ai/budget"; export { withPaidModels };',
+  'export * as budgetAccess from "@helpos/ai/budget";',
+  'export type * as budgetAccess from "@helpos/ai/budget";',
+]) {
+  test(`paid AI boundary rejects ${source}`, () => {
+    assert.ok(pluginMessages(source).some((m) => m.includes("AI SDK imports belong")));
+  });
+}
+
+test("paid AI boundary allows the public helpers", () => {
+  assert.deepEqual(
+    pluginMessages('import { draftReply } from "@helpos/ai"; export { draftReply };'),
+    [],
+  );
 });
 
 const conversationWriteMessage = /conversations\/lifecycle\.ts/;

@@ -1,0 +1,31 @@
+{
+  "name": "A nonexistent passage citation is discarded through drafting",
+  "description": "The provider returns K9 alongside valid K1 with only three passages offered. The drafting task must strip the marker, keep K1 and discard K9.",
+  "input": {
+    "from": "a@example.test",
+    "subject": "Refund timing",
+    "body": "How long does a refund take?",
+    "knowledge": [
+      {
+        "title": "Refund policy",
+        "content": "Refunds arrive within 5 business days."
+      },
+      {
+        "title": "Shipping",
+        "content": "Shipping takes 7 days."
+      },
+      {
+        "title": "Passwords",
+        "content": "Use Forgot password."
+      }
+    ]
+  },
+  "mock": {
+    "text": "Refunds arrive within 5 business days.\n[sources: K1, K9]"
+  },
+  "assert": {
+    "mustContain": ["5 business days"],
+    "mustNotContain": ["[sources", "K9"],
+    "exactCitations": ["Refund policy"]
+  }
+}

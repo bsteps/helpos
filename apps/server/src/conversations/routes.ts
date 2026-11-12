@@ -1,8 +1,8 @@
+import { messageText } from "@helpos/ai/html-text";
 import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
-import { messageText } from "../drafts/html-text.ts";
 import { draftWhere } from "../drafts/lifecycle.ts";
 import {
   auditContext,

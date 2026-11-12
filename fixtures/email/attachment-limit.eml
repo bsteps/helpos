@@ -1,0 +1,117 @@
+From: Attachments <attachments@customer.test>
+To: support@acme.test
+Message-ID: <attachment-limit@customer.test>
+Subject: Attachment limit fixture
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="attachment-limit"
+
+--attachment-limit
+Content-Type: text/plain; charset=utf-8
+
+Please check these logs.
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt"
+
+log 0
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-1.txt"
+
+log 1
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-2.txt"
+
+log 2
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-3.txt"
+
+log 3
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-4.txt"
+
+log 4
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-5.txt"
+
+log 5
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-6.txt"
+
+log 6
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-7.txt"
+
+log 7
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-8.txt"
+
+log 8
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-9.txt"
+
+log 9
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-10.txt"
+
+log 10
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-11.txt"
+
+log 11
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-12.txt"
+
+log 12
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-13.txt"
+
+log 13
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-14.txt"
+
+log 14
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-15.txt"
+
+log 15
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-16.txt"
+
+log 16
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-17.txt"
+
+log 17
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-18.txt"
+
+log 18
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-19.txt"
+
+log 19
+--attachment-limit
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="log-20.txt"
+
+log 20
+--attachment-limit--

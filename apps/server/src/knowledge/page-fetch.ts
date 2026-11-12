@@ -1,7 +1,8 @@
+import { extractHtml } from "@helpos/ai/html-text";
 import type { schema } from "@helpos/db";
 import { SafeFetchError, type SafeFetchLogger, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
-import { extractHtml, tidyAuthored } from "./extract.ts";
+import { tidyAuthored } from "./extract.ts";
 
 /** The SSRF-safe fetch. A parameter only so tests can reach a local test server. */
 export type Fetcher = typeof safeFetch;
@@ -105,9 +106,13 @@ export function decode(bytes: Uint8Array, declared: string | undefined): string 
     try {
       return new TextDecoder(charset).decode(bytes);
     } catch {
-      // An unknown label: guess as if none was given.
+      return decodeUndeclared(bytes);
     }
   }
+  return decodeUndeclared(bytes);
+}
+
+function decodeUndeclared(bytes: Uint8Array): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {

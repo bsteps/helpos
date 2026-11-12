@@ -3,6 +3,7 @@ import { APICallError, type EmbeddingModel, embedMany, RetryError } from "ai";
 import { z } from "zod";
 import { AiConfigError } from "./config.ts";
 import { tokenBound } from "./estimate.ts";
+import { type PaidModel, paidModelOptions } from "./paid-model.ts";
 
 /**
  * The vector size every stored embedding has. Fixed, because the database column and its index
@@ -12,8 +13,8 @@ import { tokenBound } from "./estimate.ts";
  */
 export const embeddingDimensions = 1024;
 
-export const embeddingProviders = ["openai"] as const;
-export type EmbeddingProvider = (typeof embeddingProviders)[number];
+const embeddingProviders = ["openai"] as const;
+type EmbeddingProvider = (typeof embeddingProviders)[number];
 export type EmbeddingConfig = {
   provider: EmbeddingProvider;
   model: string;
@@ -116,9 +117,8 @@ export class EmbedError extends Error {
  * later. A failure carries earlier usage plus the failed batch bound, since it may be billed.
  */
 export async function embedTexts(
-  model: EmbeddingModel,
+  model: PaidModel<EmbeddingModel>,
   values: string[],
-  options: { abortSignal?: AbortSignal } = {},
 ): Promise<EmbedResult> {
   const embeddings: number[][] = [];
   let tokens = 0;
@@ -127,23 +127,19 @@ export async function embedTexts(
     let result: Awaited<ReturnType<typeof embedMany>>;
     try {
       result = await embedMany({
-        // Queue retries reserve a fresh budget; hidden SDK retries could spend twice.
-        maxRetries: 0,
-        model,
+        ...paidModelOptions(model),
         values: batch,
         dimensions: embeddingDimensions,
-        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });
     } catch (cause) {
       throw new EmbedError(tokens + tokenBound(...batch), { cause });
     }
-    // Some OpenAI-compatible servers report no usage. Estimate (about 4 characters a token)
-    // rather than count nothing, so the daily budget still sees the spend.
+    // Some OpenAI-compatible servers omit usage; keep the reserved bound as spend.
     const reported = result.usage?.tokens;
     tokens +=
       typeof reported === "number" && Number.isFinite(reported) && reported > 0
         ? reported
-        : Math.ceil(batch.reduce((sum, v) => sum + v.length, 0) / 4);
+        : tokenBound(...batch);
     for (const e of result.embeddings) {
       if (e.length !== embeddingDimensions) {
         throw new EmbedError(tokens, {

@@ -12,6 +12,7 @@ import { errorSchema, json } from "./route-kit.ts";
 const unused = (): never => {
   throw new Error("private failure details");
 };
+const errorStatuses = Object.entries(STATUS_CODES).filter(([code]) => Number(code) >= 400);
 function fixture(logger: AppServices["logger"] = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }) {
   const app = createApp(
     composeServices({
@@ -38,10 +39,7 @@ function fixture(logger: AppServices["logger"] = { info: vi.fn(), warn: vi.fn(),
           200: json(z.object({}), "Raw JSON response"),
           204: { description: "Empty response" },
           ...Object.fromEntries(
-            [400, 401, 403, 404, 409, 413, 415, 422, 500].map((status) => [
-              status,
-              json(errorSchema, "Normalized problem"),
-            ]),
+            errorStatuses.map(([status]) => [status, json(errorSchema, "Normalized problem")]),
           ),
         },
       }),
@@ -51,6 +49,21 @@ function fixture(logger: AppServices["logger"] = { info: vi.fn(), warn: vi.fn(),
 }
 
 describe("HTTP problem details and request IDs", () => {
+  it.each(errorStatuses)("keeps the standard title for HTTP status %s", async (code, title) => {
+    const { app } = fixture();
+    app.get(
+      "/raw-response",
+      () =>
+        new Response(JSON.stringify({ error: "bad_request" }), {
+          status: Number(code),
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const response = await app.request("/raw-response");
+    expect(response.status).toBe(Number(code));
+    expect(await response.json()).toMatchObject({ title, status: Number(code) });
+  });
+
   it("correlates the inbound email handler's own warning with its error response", async () => {
     const lines: string[] = [];
     const logger = createLogger({ level: "info" }, { write: (line) => lines.push(line) });
@@ -277,3 +290,5 @@ describe("HTTP problem details and request IDs", () => {
     });
   });
 });
+
+import { STATUS_CODES } from "node:http";

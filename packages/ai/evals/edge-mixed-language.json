@@ -1,0 +1,31 @@
+{
+  "name": "Mixed Spanish and English email preserves both questions",
+  "description": "Both languages must reach the provider. The reply must answer the refund and shipping questions from the two relevant passages. Offline checks prove transport and output assertions, not model language quality.",
+  "input": {
+    "from": "a@example.test",
+    "subject": "Reembolso and shipping",
+    "body": "Hola, ¿cuánto tarda el reembolso? Also, how long does shipping take?",
+    "knowledge": [
+      {
+        "title": "Refund policy",
+        "content": "Refunds arrive within 5 business days."
+      },
+      {
+        "title": "Shipping",
+        "content": "Shipping takes 7 days."
+      },
+      {
+        "title": "Passwords",
+        "content": "Use Forgot password."
+      }
+    ]
+  },
+  "mock": {
+    "text": "El reembolso tarda 5 días hábiles. Shipping takes 7 days.\n[sources: K1, K2]"
+  },
+  "assert": {
+    "promptMustContain": ["¿cuánto tarda el reembolso?", "how long does shipping take?"],
+    "mustMatch": ["5 (business days|días hábiles)", "7 (days|días)"],
+    "exactCitations": ["Refund policy", "Shipping"]
+  }
+}

@@ -16,7 +16,9 @@ Successful JSON responses keep `application/json`.
 Every response returns `X-Request-Id`. All server logs emitted while handling that request carry the same ID,
 including nested service calls, failures and idempotent replays, so one ID finds the request's full log history.
 The logger inherits it through async request context, which stays isolated between concurrent requests.
-Startup and independent background work have no HTTP request ID.
+Independent jobs do not persist the originating HTTP request ID. Process-owned job-runner error callbacks
+clear HTTP context so a long-lived connection cannot attach an old request ID to a later background error.
+Startup logs have no HTTP request ID. Avoid binding a static `requestId` to a base or child logger.
 An accepted incoming request ID is retained. Otherwise the server generates one.
 Request logs contain the method, path and status, without query strings, credentials or bodies.
 

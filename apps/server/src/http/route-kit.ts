@@ -62,8 +62,6 @@ export function notFound(c: Context) {
   return errorResponse(c, { error: "not_found" }, 404);
 }
 
-export type { Auditor };
-
 export function auditContext(c: Context): AuditContext {
   const { tenantId, actor } = c.get("principal");
   const requestId = c.get("requestId");

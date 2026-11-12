@@ -12,9 +12,14 @@ const unused = (): never => {
 
 afterEach(() => vi.restoreAllMocks());
 
-it.each(["default", "custom"] as const)(
-  "%s job error callback drops a completed request's context on a real socket error",
-  async (handler) => {
+it.each([
+  { handler: "default", metadata: false },
+  { handler: "custom", metadata: false },
+  { handler: "default", metadata: true },
+  { handler: "custom", metadata: true },
+])(
+  "$handler job error callback detaches request context and preserves job metadata=$metadata",
+  async ({ handler, metadata }) => {
     const lines: string[] = [];
     const logger = createLogger({ level: "info" }, { write: (line) => lines.push(line) });
     const accepted = Promise.withResolvers<Socket>();
@@ -25,7 +30,14 @@ it.each(["default", "custom"] as const)(
       socket.on("error", () => {});
       accepted.resolve(socket);
     });
-    let reportRunnerError: (error: unknown) => void = unused;
+    let reportRunnerError: database.JobRunnerOptions["onError"] = unused;
+    const context = { queue: "draft-reply", jobId: "reset-socket-job" };
+    const customError = vi.fn<database.JobRunnerOptions["onError"]>((error, jobContext) =>
+      logger.error(
+        { err: error, ...jobContext, token: "private-token" },
+        "custom job runner error",
+      ),
+    );
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
       loopback.listen(0, "127.0.0.1");
@@ -44,7 +56,8 @@ it.each(["default", "custom"] as const)(
             const client = connect({ host: "127.0.0.1", port: address.port });
             sockets.add(client);
             client.on("error", (error) => {
-              reportRunnerError(error);
+              if (metadata) reportRunnerError(error, context);
+              else reportRunnerError(error);
               reported.resolve(error);
             });
             await once(client, "connect", { signal: AbortSignal.timeout(5000) });
@@ -69,8 +82,7 @@ it.each(["default", "custom"] as const)(
         jobsUrl: "postgres://unused.invalid/test",
         ...(handler === "custom"
           ? {
-              onJobError: (error: unknown) =>
-                logger.error({ err: error, token: "private-token" }, "custom job runner error"),
+              onJobError: customError,
             }
           : {}),
       });
@@ -120,6 +132,18 @@ it.each(["default", "custom"] as const)(
         }),
       ]);
       expect(entries.at(-1)).not.toHaveProperty("requestId");
+      if (metadata) expect(entries.at(-1)).toMatchObject(context);
+      else {
+        expect(entries.at(-1)).not.toHaveProperty("queue");
+        expect(entries.at(-1)).not.toHaveProperty("jobId");
+      }
+      if (handler === "custom") {
+        expect(customError.mock.calls).toEqual([
+          metadata
+            ? [expect.objectContaining({ code: "ECONNRESET" }), context]
+            : [expect.objectContaining({ code: "ECONNRESET" })],
+        ]);
+      }
       expect(lines.join("")).not.toContain("private-token");
       expect(lines.join("")).not.toContain("read ECONNRESET");
     } finally {

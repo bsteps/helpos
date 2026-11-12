@@ -116,4 +116,24 @@ Four regression tests cover interleaved requests, generated IDs and context rest
 
 The follow-up starts at `1eef3830605ab360fbb16bf758afc22dedc939c7`. The PR now targets `main`, observed at `9890b531627d68bbfb7110ca7090fbfcef6f8f7c`, with merge base `58451595845f67aef0fb35e0ba584bac71ad1045`. This change does not refresh parent branches or assume that their squash-merged history has been reconciled.
 
-A fresh `claude-work` Opus 5.5 high recheck was attempted for this change, including the actual `/security-review` and comments review. It failed before executing with `Claude API rate limit reached. Try again later.` The prior clear reviews cover `1eef383`, not this follow-up. Fresh independent code/security review is blocked, and hosted CI for the new commit remains pending. No merge is authorized.
+A fresh `claude-work` Opus 5.5 high recheck was initially rate-limited. The user authorized Codex reviews. Root's fresh review of `1731f58` passed code and security checks, including mutation proof of all four new regressions. The delayed Claude review later identified stale request context on long-lived sockets, which withdrew the code verdict for that case. Its scoped native security review reported no findings; this is distinct from the subsequent Codex reviews.
+
+The local fix `06dde177ec1b00a5cbcfbad6a297d642a3076428` adds `withoutRequestId()` and detaches only the process-owned job-runner error callback. Root's fresh Codex code/security recheck passed, including actual TCP failing-before proof, callback return/throw controls and redaction. Normal readiness logs retain their HTTP ID. Neither review covers future integration changes automatically.
+
+## Final stable reconciliation
+
+The final incoming parent is landed `main` at `a5a369b054f468a9c038d8de07deda0f6c776992`, after all integration prerequisites merged. A normal merge preserves the source history and uses that exact main commit as its second parent. Content reconciliation uses the already-integrated, independently reviewed parent `c91c0495e80a2318e9b33fb8904dd6e497793399` to distinguish shared squash history from actual upstream changes. The saved unpublished `747cab3` trial and `1731f58`/`06dde177` proofs remain separate historical evidence.
+
+The current canonical conversation message text and optional formatted HTML, extracted draft panel, safe web links, AI runtime/startup/evals/normalization/decoder behavior, package exports, budget and audit lifecycles are preserved from main. The HTTP delta keeps typed dashboard error maps in the extracted helpers. Migration files are byte-identical to the earlier branch; generating the combined schema writes nothing.
+
+Actual composition changes and proof:
+
+- The job-runner error hook now accepts optional queue/job metadata. The detached wrapper forwards its complete argument tuple and retains the main default logger's metadata. Four real-loopback cases cover default/custom callbacks with/without metadata. Replacing it with the old error-only wrapper fails exactly the two metadata cases; restoring it passes all four. The logger and detachment helpers themselves remain unchanged from the reviewed fix.
+- Readiness derives its result type from `Database["ping"]`, preserving the package export cleanup rather than restoring `PingResult` exports.
+- The domain/HTTP lint permits only the actual HTTP composition root, `apps/server/src/app.ts`, in addition to existing adapters. New proof admits that root while rejecting a domain `github/app.ts`. All other domain and outbound-request restrictions remain. Standard error titles are local data, tested against all 41 Node error-status titles, so production imports no HTTP transport merely for constants.
+- Knip retains explicit CLI entry points and checks package entry exports; only the actual new `scripts/read-budget.ts` entry is added.
+- The merged GitHub budget test retains main's reservation/spend assertions with the HTTP problem-envelope assertion. All 24 current writes declare keyed-retry behavior: 16 replay and eight refuse. Credential/provider/auth refusals remain explicit.
+
+Local combined proof passes 643 server unit tests, 136 web unit tests, all seven workspace typechecks, Biome and Knip. The 306 focused HTTP/access/OpenAPI/logger/server tests are part of that server count, not extra tests. Two domain/HTTP lint tests and 13 compatibility/quality/Knip tests pass. Real API comparison against `a5a369b` reports no breaks without an exception, and schema generation is a no-op. Canonical UI, AI/startup source and package exports compare byte-identical to main. No local Postgres, Docker, browser, performance or live-model campaign ran during this reconciliation.
+
+Fresh bounded integration/security review and exact-head hosted CI remain pending. Earlier review receipts apply only to unchanged bytes. Stored replay bodies still have no retention job, and independent job processing has no persisted HTTP request correlation. Mock/offline evidence does not establish live-model safety; #205 and the known send stalls remain open. No merge is authorized.

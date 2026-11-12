@@ -1,0 +1,5 @@
+language js
+
+JsCatchClause(body=`{}`) as $catch where {
+  register_diagnostic(span=$catch, message="Handle the error explicitly; an empty catch silently hides failures.", severity="error")
+}

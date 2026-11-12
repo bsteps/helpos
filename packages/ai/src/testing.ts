@@ -2,7 +2,7 @@ import { APICallError, RetryError } from "ai";
 import { MockEmbeddingModelV4, MockLanguageModelV4 } from "ai/test";
 import { embeddingDimensions } from "./embed.ts";
 
-export type MockToolCall = { toolName: string; input: Record<string, unknown> };
+type MockToolCall = { toolName: string; input: Record<string, unknown> };
 export type MockResponse = {
   text?: string | undefined;
   toolCalls?: MockToolCall[] | undefined;

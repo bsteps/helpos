@@ -17,6 +17,7 @@ describe("knowledgeProblem", () => {
     [404, "forbidden", "It's no longer in this workspace."],
     [401, "forbidden", "You've been signed out. Sign in again, then retry."],
     [400, "forbidden", "Your account can't change knowledge sources."],
+    [403, "forbidden", "Your account can't change knowledge sources."],
     [403, "unknown", "Reload the page, then try again."],
     [400, "unknown", "Try again."],
     [500, "unknown", "Try again."],
