@@ -29,7 +29,7 @@ export type TaskOutput = {
   toolCalls: string[];
   /** Titles of the knowledge passages the draft cited. */
   cited: string[];
-  /** What the draft-reply job records: the draft repeats an internal passage word for word. */
+  /** The quote warning computed when the API reads a draft, also checked by evals. */
   quotesInternal: boolean;
 };
 
