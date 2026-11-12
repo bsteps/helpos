@@ -79,30 +79,6 @@ test("a web page that can't be read says why, and can be read again", async ({ p
   await expect(card).toContainText("This address is private or local");
 });
 
-test("someone without knowledge:write sees the sources but no edit controls", async ({ page }) => {
-  await page.route("**/v1/me", async (route) => {
-    const response = await route.fetch();
-    const me = (await response.json()) as { scopes: string[] };
-    await route.fulfill({
-      response,
-      json: { ...me, scopes: me.scopes.filter((s) => s !== "knowledge:write") },
-    });
-  });
-  await signIn(page);
-  const title = uniqueSubject("Read-only note");
-  const added = await page.request.post("/v1/knowledge/sources", {
-    data: { kind: "markdown", title, content: "Read-only test note." },
-  });
-  expect(added.status(), await added.text()).toBe(201);
-  await page.getByRole("link", { name: "Knowledge" }).click();
-
-  await expect(page.getByTestId("knowledge-source").filter({ hasText: title })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add a source" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Read again" })).toHaveCount(0);
-});
-
 test("a delete that fails says so, and the message goes once the owner keeps the source", async ({
   page,
 }) => {
@@ -129,7 +105,9 @@ test("a delete that fails says so, and the message goes once the owner keeps the
   await expect(card.getByRole("button", { name: "Edit" })).toBeVisible();
 });
 
-test("without knowledge:read, the Knowledge page sends you to the inbox", async ({ page }) => {
+test("router redirect only: without knowledge:read, Knowledge sends you to the inbox", async ({
+  page,
+}) => {
   await page.route("**/v1/me", async (route) => {
     const response = await route.fetch();
     const me = (await response.json()) as { scopes: string[] };

@@ -22,15 +22,12 @@ test("conversation → GitHub issue → closed on GitHub → approve the fix not
 
   // An owner connects the repo. The token is checked with GitHub and never shown again.
   await signIn(page);
+  // Connecting the same repo again keeps its webhook secret, so start disconnected to get one
+  // to sign with.
+  const reset = await page.request.delete("/v1/integrations/github");
+  expect(reset.status()).toBe(204);
   await page.getByRole("link", { name: "Settings" }).click();
-  // Connecting the same repo again keeps its webhook secret, so start from scratch to get one
-  // to sign with (the other screen size's run may have connected already).
-  await expect(page.getByText(/^(Connected|Not connected)$/)).toBeVisible();
-  const disconnect = page.getByRole("button", { name: "Disconnect" });
-  if (await disconnect.isVisible()) {
-    await disconnect.click();
-    await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
-  }
+  await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
   await page.getByLabel("Repository").fill(githubRepo);
   await page.getByLabel("Personal access token").fill(githubToken);
   // Exact: once connected, a "Disconnect" button is on the page too.
@@ -117,4 +114,11 @@ test("conversation → GitHub issue → closed on GitHub → approve the fix not
   expect(mail.text).toContain("has been fixed");
   expect(mail.text).toContain("NOT sent to the customer");
   expect(mail.text).toContain("jane@customer.test");
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
+  const disconnected = await page.request.get("/v1/integrations/github");
+  expect(disconnected.status()).toBe(200);
+  expect(await disconnected.json()).toMatchObject({ connected: false });
 });

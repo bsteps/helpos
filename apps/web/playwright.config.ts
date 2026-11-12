@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 // `pnpm test:e2e` (from the repo root: builds the dashboard first). Needs Docker: the server it
 // starts runs a throwaway Postgres and Mailpit (apps/server/src/e2e/serve.ts).
-const port = 4173;
+const port = Number(process.env.E2E_PORT ?? 4173);
 export const stateFile = fileURLToPath(new URL("./.e2e/state.json", import.meta.url));
 const ci = Boolean(process.env.CI);
 
