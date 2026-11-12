@@ -32,6 +32,7 @@ export {
   hasSearchableKnowledge,
   isKnowledgeUrlTaken,
   type KnowledgeHit,
+  type KnowledgeQuery,
   normalizeKnowledgeUrl,
   searchKnowledge,
 } from "./knowledge.ts";

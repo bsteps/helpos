@@ -1,4 +1,10 @@
-import { AiConfigError, parseAiConfig, parseEmbeddingConfig } from "@helpos/ai";
+import {
+  type AiConfig,
+  AiConfigError,
+  type EmbeddingConfig,
+  parseAiConfig,
+  parseEmbeddingConfig,
+} from "@helpos/ai";
 import { z } from "zod";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { defaultPublicUrl } from "./defaults.ts";
@@ -69,12 +75,12 @@ export const envSchema = z
   })
   .transform((env, ctx) => ({
     ...env,
-    ai: optionalAiConfig(
+    ai: optionalAiConfig<AiConfig>(
       { AI_PROVIDER: env.AI_PROVIDER, AI_MODEL: env.AI_MODEL, AI_API_KEY: env.AI_API_KEY },
       parseAiConfig,
       ctx,
     ),
-    embedding: optionalAiConfig(
+    embedding: optionalAiConfig<EmbeddingConfig>(
       {
         AI_EMBEDDING_PROVIDER: env.AI_EMBEDDING_PROVIDER,
         AI_EMBEDDING_MODEL: env.AI_EMBEDDING_MODEL,

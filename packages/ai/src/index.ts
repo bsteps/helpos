@@ -1,5 +1,6 @@
 export type { EmbeddingModel, LanguageModel } from "ai";
 export {
+  type AiConfig,
   AiConfigError,
   parseAiConfig,
 } from "./config.ts";
@@ -20,6 +21,7 @@ export {
 } from "./draft-reply.ts";
 export {
   createEmbeddingModel,
+  type EmbeddingConfig,
   EmbedError,
   embedBatchSize,
   embeddingDimensions,
@@ -32,4 +34,4 @@ export { tokenBound } from "./estimate.ts";
 export { quotesInternalPassage } from "./internal-quote.ts";
 export { createModel } from "./model.ts";
 
-export type { PaidModel, PaidModels } from "./paid-model.ts";
+export type { PaidModels } from "./paid-model.ts";

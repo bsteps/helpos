@@ -1,0 +1,82 @@
+# AI startup configuration and offline eval integration
+
+This assembly finishes #215, #229, and #206 before feature work, tracked by [#331](https://github.com/bsteps/helpos/issues/331). It validates configured AI groups before opening services and carries edge inputs and conversation history through the existing drafting evals.
+
+## Pinned prerequisites
+
+The branch `331-ai-config-evals` starts at exact local `328-ai-consumer-boundaries` checkpoint `91620760480544cd7d3a851d5fcfca37c7a549f9`. That checkpoint includes `9af285259969c0a28df4cfeb2235e0237e7fb7de` and the pinned PR315 and PR319 dependencies recorded in [328-ai-consumer-boundaries.md](328-ai-consumer-boundaries.md). The checkpoint's additional tests, pointers, documentation, and selective fingerprints are preserved.
+
+Merge `82bdc547ee63720e07ce8cfeed05cbf2ed3da1c7` combines that first parent with [PR330](https://github.com/bsteps/helpos/pull/330), branch `326-package-command-boundaries`, pinned at `6ccd1232a70f74aabbad7b1e6745468138b5b262`. PR330 includes PR320. Prerequisite ownership and source assignments remain with #328 and #326. Neither prerequisite branch is pushed or rewritten here. The dependent PR must target `328-ai-consumer-boundaries` once its owner publishes it.
+
+## Frozen sources and applied commits
+
+Only the following selected originals are newly covered. Merge-base deltas exclude their historical parents. PR268 is stacked on PR264, whose commit is applied once.
+
+| Original                                                 | Frozen head                                | Unique delta base                          |
+| -------------------------------------------------------- | ------------------------------------------ | ------------------------------------------ |
+| [PR263, #215](https://github.com/bsteps/helpos/pull/263) | `598583268c371ac4687e5a55cbb4f605e4da7e6e` | `19c68cfaef774a0d7afdfb75700a56892c6e06a7` |
+| [PR264, #229](https://github.com/bsteps/helpos/pull/264) | `737a2842ea48045050d897b4302b76679b3efa99` | `ec2dceb6537b08d679295ff1573a77ef2dd75f4d` |
+| [PR268, #206](https://github.com/bsteps/helpos/pull/268) | `7b4d45578462a13fcfad22a5c1e2f181a0c4e611` | `737a2842ea48045050d897b4302b76679b3efa99` |
+
+All six commits retain original Git author Nishant Tadvi <nishant.tadvi@yahoo.com>, author timestamps, and `cherry picked from commit` trailers. Source discussions identify an Astra high author and Sol xhigh independent verifiers. Git metadata alone does not prove model provenance. This assembly uses GPT-6.1-sol xhigh.
+
+| Source commit                              | Applied commit                             | Purpose                                                        |
+| ------------------------------------------ | ------------------------------------------ | -------------------------------------------------------------- |
+| `90f2d2d3d8ea304df440534bf34081501f3a99a8` | `6ea78c58fc3e144cf3744a16faf6fdcff0b0a5e7` | Reproduce invalid startup configuration.                       |
+| `9aa293f76673f6caa0f3096153905136f4aca3d0` | `daf6d263398b62f8cc18d8d7ac3bc18112346f5b` | Parse optional AI groups before opening services.              |
+| `e508609f694f52cfb510d0330d60315ffc3c1c74` | `68c75cc457c26d5967ece64d6df56b84912839a6` | Use synthetic credentials in the demo configuration fixture.   |
+| `598583268c371ac4687e5a55cbb4f605e4da7e6e` | `5397d779a0c1a1e740cc0df299af6b7a157dcf2c` | Keep the no-key development example valid and cache-sensitive. |
+| `737a2842ea48045050d897b4302b76679b3efa99` | `fde5ab454351b6457eec351d96f18776dc01024a` | Add edge cases and captured-prompt assertions.                 |
+| `7b4d45578462a13fcfad22a5c1e2f181a0c4e611` | `e13574b9f857f549f3754e35bd16c844ac59245a` | Add the three history cases and their transport tests.         |
+
+## Inherited reviews and limits
+
+- [PR263 PASS+NOTES](https://github.com/bsteps/helpos/pull/263#issuecomment-6805898275) covers the pinned head and supersedes the earlier missing-key example failure. It includes actual no-key startup and a fresh full-suite run. The source doctor reported AI unavailable in that deliberately disabled configuration. No live drafting proof is inherited for that case.
+- [PR264 PASS+NOTES](https://github.com/bsteps/helpos/pull/264#issuecomment-6805824229) covers the four edge cases, independent transport and citation mutations, fresh AI units, and an earlier reply journey. Scripted offline answers prove transport and assertions, not live model judgment.
+- [PR268 PASS+NOTES](https://github.com/bsteps/helpos/pull/268#issuecomment-6806057868) covers its six-file delta against PR264. It preserves the owner's disclosure of accidentally running historic live cases with configured Claude Haiku. This assembly does not repeat that call. Its prior full gate was cache-backed.
+
+All three source advisory security, tenant-isolation, and test-signal jobs reported incomplete analyses. Green workflow conclusions and zero inline findings are not completed reviews. These source verdicts do not approve the integration edits. Root owns fresh independent final integration review. Human approval remains required for startup defaults and security changes.
+
+## Actual integration changes
+
+The retained data shapes are parsed optional `AiConfig` and `EmbeddingConfig`, `PaidModels`, `JobDeferral`, explicit knowledge audiences, and ordered inbound or outbound history. No new dependency, schema migration, endpoint, or model policy is introduced.
+
+| Area                                         | Integration mapping                                                                                                                                                                                                                                |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prerequisite merge                           | Preserve both sets of Biome rules and their regression fixtures. Preserve paid AI enforcement and the whole Drizzle re-export and schema namespace.                                                                                                |
+| `cli/token.ts`, `cli/token-command.ts`       | Keep the extracted executable wrapper. Move the existing `builtInActors.tokenCli` identity into the extracted command instead of restoring the old inline command or the legacy system actor literal.                                              |
+| `http/route-kit.ts`, `github/issue-draft.ts` | Keep the current `auditContext` function used by prerequisite routes. Drop the unused `Auditor` re-export. Domain code imports `Auditor` from the audit module and retains `mapAiRefusal`.                                                         |
+| `ai-budget/budget.int.test.ts`               | Combine the moved `setAiBudget` import and CLI proof with 328's busy-regenerate test. Do not restore the obsolete `AiBusyError` import.                                                                                                            |
+| `packages/db/src/index.ts`                   | Retain the used `JobDeferral`, `hasSearchableKnowledge`, and `KnowledgeQuery` contracts. Keep `installJobs` internal because its consumers are internal. Keep the other 330 export removals.                                                       |
+| `packages/ai/src/draft-issue.ts`             | Retain the module export of `issueInstructions` used by the existing captured-schema cost test. The root barrel still omits it. Keep exact schema costs, paid options, output cap, and zero retries.                                               |
+| `packages/ai/src/index.ts`, `env.ts`         | Export and explicitly consume `AiConfig` and `EmbeddingConfig` so the transformed schema has portable named types. Remove the unused root `PaidModel` re-export while keeping paid handles in helper signatures and the restricted budget subpath. |
+| `cli/init-command.ts`                        | Apply PR263's shared `defaultPublicUrl` in the actual extracted command. `cli/init.ts` remains the three-line executable wrapper.                                                                                                                  |
+| `turbo.json`                                 | Keep both `.env.example` and `vitest.config.mts` as global cache inputs.                                                                                                                                                                           |
+| `evals/case.ts`, `evals/task.ts`             | Keep the prerequisite's strict history schema with `default([])`, which already supplies omitted history to both tasks. Keep both isolated paid contexts. Do not restore raw-model drafting or duplicate history fallback adapters.                |
+| Edge runner and fixtures                     | Keep source264's capture of actual provider prompts, model-object typing, exact boundary checks, mixed language, empty input, and unknown citation handling.                                                                                       |
+| History fixtures                             | Keep all three source268 cases and their order, omission, output, tool, and schema tests. The pre-existing normalized history path makes its schema and task edits redundant.                                                                      |
+| Prerequisite manifest                        | Format the inherited 328 tables for the current Biome gate without changing their content.                                                                                                                                                         |
+
+Token and schema bounds, conservative embedding usage charges, CJK quote detection, cumulative busy failure allowance, explicit knowledge audiences, typed source state, visible HTML extraction, and email/send boundaries remain intact. The inherited send-model findings stay unresolved and no new eventual-delivery claim is made.
+
+## Proof and execution limits
+
+The bounded units are prerequisite merge, source263, source264, source268, current export contracts, and final proof. Existing source tests pin behavior. No new architecture exploration, source refresh, optional mutation campaign, or feature work is included.
+
+| Check                                 | Observed result                                                                                                                                                                                                                                                            |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Combined-prerequisite AI behavior pin | 133 tests passed after retaining the used instruction export. The initial run failed its exact schema-cost assertion because that export was missing.                                                                                                                      |
+| Final assembled AI unit suite         | 147 tests in 11 files passed fresh. `.helpos/331-ai-unit.log`.                                                                                                                                                                                                             |
+| Server unit suite                     | 447 tests in 37 files passed fresh, including startup subprocess probes and CLI argument fixtures. `.helpos/331-server-unit.log`.                                                                                                                                          |
+| Offline evals                         | 38 passed with `EVAL_LIVE=0`. `.helpos/331-eval.log`.                                                                                                                                                                                                                      |
+| Workspace compiler                    | All seven tasks passed after the current export mappings. `.helpos/331-typecheck.log`. Initial compiler failures identified the used audience and portable config types.                                                                                                   |
+| Knip                                  | Passed with all package entry-export checks enabled and no suppressions. `.helpos/331-knip.log`.                                                                                                                                                                           |
+| Repository script suite               | 180 tests passed. `.helpos/331-scripts.log`. This command unexpectedly included a Java-dependent TLC regression. It finished before discovery and was disclosed to root. It is a resource-restriction breach, not an authorized fresh model proof. No repeat is permitted. |
+
+The standalone offline receipt passed the actual development example, all four executable CLI usage exits, all three ordered history prompt captures, and the huge-body retained boundary with its excluded tail. The script and receipts are `.helpos/331-offline.mjs`, `.helpos/331-offline.log`, and `.helpos/331-offline-receipts.json`. Its first attempt imported the environment parser from the wrong module and failed before execution; the corrected script uses Node's `parseEnv`. Original-to-assembly range comparisons are `.helpos/331-range-263.log`, `.helpos/331-range-264.log`, and `.helpos/331-range-268.log`. The paid-model compiler fixture passed independently in `.helpos/331-paid-types.log`.
+
+Biome passes with the three inherited warnings, the void union and two sync-labels environment dependencies. The first lint attempt overlapped temporary script fixtures. A later lint attempt found only inherited 328 Markdown table formatting, which was formatted. These failed attempts are not passing evidence.
+
+The coordinator owns the focused real Postgres grant and the single stable final `pnpm verify` grant. No Docker, browser, or full gate has started at this checkpoint. Deslop found no required cleanup. The one native GPT-6.1-sol xhigh Comment Sicko reported zero deletions, restores, workaround flags, suppressions, or open constraints. Final resource-gated proof results will be appended before publication. The append-only [331-integration.tsv](331-integration.tsv) records decisions, grants, and observed outcomes.
+
+Issue #205 is deferred. No live key request, provisioning, billable eval, Claude call, or provider request is authorized. Offline models prove prompt transport, assertion wiring, citation parsing, and deterministic boundary behavior. They do not prove live quality or injection resistance. Do not run the live verify-helpos journey. Publication retains `pr:in-progress`, `needs-human`, and `security`. Source PRs and branches remain open and unchanged. No merge, approval, closure, deletion, settings change, or watch is part of this task.
