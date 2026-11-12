@@ -2158,6 +2158,16 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid conversation filters",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {

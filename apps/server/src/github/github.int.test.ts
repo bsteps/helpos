@@ -21,16 +21,19 @@ import {
 } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { requestId } from "hono/request-id";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiBudget } from "../ai-budget/budget.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
+import { httpConventions } from "../http/problem.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { intendedToHeader } from "../outbound-email/shadow.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import { createSecretBox } from "../secrets/secret-box.ts";
 import { composeServer, type Server } from "../server.ts";
 import { defaultConfig, systemClock } from "../services.ts";
+import { contractApp } from "../testing/contract.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { addFixedDraft, fixedNoticeBody, githubWebhookActor } from "./fixed-notice.ts";
 import { octokitGithub } from "./github-api.ts";
@@ -2113,7 +2116,8 @@ describe("the webhook", () => {
         return db.withTenant(tenantId, fn);
       },
     };
-    const small = new OpenAPIHono();
+    const small = contractApp(new OpenAPIHono());
+    small.use("*", requestId(), httpConventions(logger));
     registerGithubWebhook(small, {
       db: slowDb,
       logger,
@@ -2144,7 +2148,8 @@ describe("the webhook", () => {
         return db.withTenant(tenantId, fn);
       },
     };
-    const small = new OpenAPIHono();
+    const small = contractApp(new OpenAPIHono());
+    small.use("*", requestId(), httpConventions(logger));
     small.use(async (c, next) => {
       c.set("requestId", "test");
       await next();

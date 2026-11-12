@@ -1471,6 +1471,15 @@ export interface operations {
                     };
                 };
             };
+            /** @description Invalid conversation filters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Error"];
+                };
+            };
             /** @description No valid credentials */
             401: {
                 headers: {

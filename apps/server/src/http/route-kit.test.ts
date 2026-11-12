@@ -1,5 +1,5 @@
 import type { TenantTx } from "@helpos/db";
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { requestId } from "hono/request-id";
 import { describe, expect, it } from "vitest";
 import { apiRoute } from "../auth/access.ts";
@@ -11,6 +11,18 @@ const principal: Principal = {
   actor: { type: "agent", id: "0190d6a4-0000-7000-8000-000000000002" },
   scopes: new Set(["conversations:read"]),
 };
+
+describe("JSON response media", () => {
+  it("distinguishes a resource's nullable error field from a typed API error", () => {
+    expect(
+      Object.keys(json(z.object({ error: z.string().nullable() }), "Resource").content),
+    ).toEqual(["application/json"]);
+    expect(Object.keys(json(errorSchema, "Problem").content)).toEqual(["application/problem+json"]);
+    expect(
+      Object.keys(json(errorSchema.extend({ sourceId: z.uuid() }), "Extended problem").content),
+    ).toEqual(["application/problem+json"]);
+  });
+});
 
 /** What `recordAudit` inserts, so a test can read what the helper filled in. */
 function fakeTx() {

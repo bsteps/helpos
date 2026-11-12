@@ -1,8 +1,11 @@
 import { createMemoryFileStore } from "@helpos/files";
+import { z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
+import { apiRoute } from "../auth/access.ts";
 import { composeServices } from "../services.ts";
+import { errorSchema, json } from "./route-kit.ts";
 
 const unused = (): never => {
   throw new Error("private failure details");
@@ -22,6 +25,26 @@ function fixture() {
       files: createMemoryFileStore(),
     }),
   );
+  for (const path of ["/raw-response", "/failure", "/conflict", "/framework", "/external"]) {
+    app.openAPIRegistry.registerPath(
+      apiRoute({
+        operationId: `test.problem.${path.slice(1)}`,
+        path,
+        method: "get",
+        access: { noCaller: "Exercises framework response normalization." },
+        responses: {
+          200: json(z.object({}), "Raw JSON response"),
+          204: { description: "Empty response" },
+          ...Object.fromEntries(
+            [400, 401, 403, 404, 409, 413, 415, 422, 500].map((status) => [
+              status,
+              json(errorSchema, "Normalized problem"),
+            ]),
+          ),
+        },
+      }),
+    );
+  }
   return { app, logger };
 }
 
@@ -35,7 +58,10 @@ describe("HTTP problem details and request IDs", () => {
         () =>
           new Response(status === 204 ? null : "{}", {
             status,
-            headers: { "x-response-probe": "preserved" },
+            headers: {
+              "x-response-probe": "preserved",
+              ...(status === 200 ? { "content-type": "application/json" } : {}),
+            },
           }),
       );
       const requestId = `raw-response-${status}`;

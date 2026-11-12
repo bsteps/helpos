@@ -16,7 +16,7 @@ import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { messageText } from "../drafts/html-text.ts";
 import { draftWhere } from "../drafts/lifecycle.ts";
-import { auditContext, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
+import { auditContext, errorSchema, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
 import { closeConversation } from "./lifecycle.ts";
 
@@ -109,6 +109,7 @@ const listConversationsRoute = apiRoute({
   },
   responses: {
     200: json(z.object({ conversations: z.array(conversationSchema) }), "The conversations"),
+    400: json(errorSchema, "Invalid conversation filters"),
   },
 });
 
