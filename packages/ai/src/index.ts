@@ -1,5 +1,6 @@
 export type { EmbeddingModel, LanguageModel } from "ai";
 export {
+  type AiConfig,
   AiConfigError,
   parseAiConfig,
 } from "./config.ts";
@@ -20,6 +21,7 @@ export {
 } from "./draft-reply.ts";
 export {
   createEmbeddingModel,
+  type EmbeddingConfig,
   EmbedError,
   embedBatchSize,
   embeddingDimensions,

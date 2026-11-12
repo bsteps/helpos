@@ -11,7 +11,10 @@ const dir = mkdtempSync(join(tmpdir(), "demo-compose-"));
 const envFile = join(dir, ".env");
 const example = readFileSync("deploy/demo/.env.example", "utf8");
 // A hostile or mistaken operator .env that tries to turn shadow mode off.
-writeFileSync(envFile, `${example}\nHELPOS_ALLOW_SHADOW_MODE_OFF=true\n`);
+writeFileSync(
+  envFile,
+  `${example}\nAI_API_KEY=synthetic-compose-check-key\nHELPOS_ALLOW_SHADOW_MODE_OFF=true\n`,
+);
 
 const result = spawnSync(
   "docker",

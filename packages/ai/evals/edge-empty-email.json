@@ -1,0 +1,18 @@
+{
+  "name": "Empty subject and body still produce a clarification",
+  "description": "Preserve both empty fields in the provider request and require a nonempty clarification without invented order facts.",
+  "input": {
+    "from": "a@example.test",
+    "subject": "",
+    "body": ""
+  },
+  "mock": {
+    "text": "Could you tell us what you need help with?"
+  },
+  "assert": {
+    "promptMustContain": ["\"subject\": \"\"", "\"body\": \"\""],
+    "mustMatch": ["what.*help|more (details|information)|clarify"],
+    "mustNotMatch": ["refund|order|password"],
+    "exactCitations": []
+  }
+}
