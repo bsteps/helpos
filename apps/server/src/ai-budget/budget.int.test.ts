@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
@@ -645,7 +646,13 @@ describe("per-workspace AI budget", () => {
     ] as const) {
       const result = spawnSync(
         process.execPath,
-        ["src/cli/ai-budget.ts", "--workspace", other, "--tokens", tokens],
+        [
+          fileURLToPath(new URL("../cli/ai-budget.ts", import.meta.url)),
+          "--workspace",
+          other,
+          "--tokens",
+          tokens,
+        ],
         {
           env: { ...process.env, HELPOS_DATABASE_URL: testDb.appUrl },
           encoding: "utf8",

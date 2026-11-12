@@ -1,6 +1,14 @@
 language js
 
-`import $clause from $source` as $statement where {
+or {
+  `import $clause from $source`,
+  `import $source`,
+  `export { $exports } from $source`,
+  `export type { $exports } from $source`,
+  `export * from $source`,
+  `export * as $namespace from $source`,
+  `import($source)`
+} as $statement where {
   $source <: r".*[/]http[/].*",
   $filename <: r".*apps.server.src..*",
   $filename <: not r".*[/\\]http[/\\].*",

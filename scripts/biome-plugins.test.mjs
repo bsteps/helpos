@@ -76,6 +76,12 @@ test("domain modules cannot import HTTP values or types", () => {
   for (const source of [
     'import type { Auditor } from "../http/route-kit.ts";\n',
     'import { json } from "../http/route-kit.ts";\n',
+    'export { json } from "../http/route-kit.ts";\n',
+    'export type { Auditor } from "../http/route-kit.ts";\n',
+    'export * from "../http/route-kit.ts";\n',
+    'export * as kit from "../http/route-kit.ts";\n',
+    'import "../http/route-kit.ts";\n',
+    'export const kit = await import("../http/route-kit.ts");\n',
   ]) {
     for (const name of ["github/issues.ts", "github/issue-draft.ts", "ai-budget/set-budget.ts"]) {
       assert.ok(pluginMessages(source, name).some((m) => m.includes("Domain modules")));
