@@ -116,6 +116,39 @@ afterAll(async () => {
 });
 
 describe("sign-in", () => {
+  it("sets Secure, HttpOnly and SameSite=Lax on the HTTPS session cookie", async () => {
+    const publicUrl = "https://helpdesk.example.test";
+    const httpsAuth = createAuthStore(testDb.authUrl, {
+      sessions: {
+        secret: "test-secret-that-is-at-least-32-characters-long",
+        baseUrl: publicUrl,
+        cookiePrefix: "helpos-https-test",
+      },
+    });
+    try {
+      const httpsApp = createApp(
+        composeServices({ db, files, logger, auth: httpsAuth, config: { publicUrl } }),
+      );
+      const res = await httpsApp.request(`${publicUrl}/v1/auth/sign-in`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: publicUrl },
+        body: JSON.stringify({ email: "owner@acme.test", password }),
+      });
+      expect(res.status).toBe(204);
+      const cookie = res.headers
+        .getSetCookie()
+        .find((value) => value.startsWith("__Secure-helpos-https-test.session_token="));
+      expect(cookie).toBeDefined();
+      const attributes = cookie
+        ?.split(";")
+        .slice(1)
+        .map((value) => value.trim().toLowerCase());
+      expect(attributes).toEqual(expect.arrayContaining(["secure", "httponly", "samesite=lax"]));
+    } finally {
+      await httpsAuth.close();
+    }
+  });
+
   it("sets an HttpOnly session cookie that identifies the owner and their workspace", async () => {
     const res = await call("/v1/auth/sign-in", {
       method: "POST",
@@ -172,6 +205,23 @@ describe("sign-in", () => {
 });
 
 describe("a session cookie", () => {
+  const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000;
+  it.each([
+    { age: sessionLifetimeMs - 1000, status: 200 },
+    { age: sessionLifetimeMs + 1000, status: 401 },
+  ])("returns $status from /v1/me after $age ms without activity", async ({ age, status }) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const signedInAt = Date.now();
+      const cookie = await signIn("owner@acme.test");
+      expect((await call("/v1/me", { cookie })).status).toBe(200);
+      vi.setSystemTime(signedInAt + age);
+      expect((await call("/v1/me", { cookie })).status).toBe(status);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("can close a conversation, audit-logged as the user", async () => {
     const id = await receiveEmail(1);
     const res = await call(`/v1/conversations/${id}/close`, {
