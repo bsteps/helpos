@@ -6,6 +6,8 @@ This assembly finishes #207, #203, and #204 before feature work. Paid AI consume
 
 The first parent is [PR319](https://github.com/bsteps/helpos/pull/319), branch `316-ai-text-bounds`, pinned at `a598901ef0aca629d8579071356566cd856836c8`. The second prerequisite is [PR315](https://github.com/bsteps/helpos/pull/315), branch `314-reply-safety`, pinned at `80d10689dc1fe917c8f6364d5015edee9b7ad90e`. Both descend from actual main `58451595845f67aef0fb35e0ba584bac71ad1045`, their merge base. Local merge `6461d484c8600d4aada51a6589b40de4c5fe68a3` has those exact parents in that order and needs no conflict resolution. Neither prerequisite is a newly assigned source.
 
+Both prerequisites later reached final reviewed heads: PR319 `492a1877c1063f76b930fb2bbe2833bec5ff388d` and PR315 `5e8b5208cd8e7e588feef933bf99b994cdbf150a`. Normal merges `84bd7c8` and `92d88d8` bring them in. The only conflict was the import block in `github/issue-draft.ts`; both `mapAiRefusal` and PR315's `inHistory` are kept, so the draft worker and issue draft use paid models and leave unconfirmed send attempts out of AI history.
+
 The dependent PR initially targets `316-ai-text-bounds`. Its diff also contains the second prerequisite until the coordinator updates the base after approved prerequisite landing. It does not claim parity with main. Neither prerequisite nor any original branch is refreshed, rewritten, or pushed by this task. Source changes for #326, #327, and #329 are excluded.
 
 | Original                                                 | Frozen head                                | Unique delta base                          |
