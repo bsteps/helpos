@@ -376,7 +376,7 @@ export async function discardStale(
       target: { type: "draft", id },
       details:
         where.details.reason === "superseded" && where.details.newerMessageId === messageId
-          ? { reason: "manual", operation: "regenerate" }
+          ? { reason: "manual", operation: "replace" }
           : where.details,
     });
   return stale.map((d) => d.id);

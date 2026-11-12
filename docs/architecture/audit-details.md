@@ -16,7 +16,8 @@ low-entropy body cannot be guessed. PII masking and retention remain #52 and #78
 
 ## Discard reasons
 
-- `manual` records the requested operation, `discard` or `regenerate`.
+- `manual` records the requested operation: `discard`, `regenerate`, or `replace` when
+  a person or agent writes a new draft for the same message.
 - `superseded` records the newer incoming `newerMessageId`.
 - `issue_reopened` records automatic withdrawal of a pending fixed notice.
 
@@ -31,8 +32,8 @@ uncertain delivery. Notice events identify the pending draft. A notice-sent even
 records the attempt under the existing notice transaction, not a receipt from
 every owner.
 
-Actions outside drafts accept an empty details object. Recording their inputs is
-outside #85. Strict schemas reject extra fields, including body text.
+Actions outside drafts accept an empty details object. Strict schemas reject extra
+fields, including body text.
 
 Migration `0024_audit-details.sql` adds a nullable column without a backfill or
 default. `NULL` means legacy details are unavailable. It does not mean an empty
