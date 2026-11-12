@@ -11,6 +11,7 @@ CONSTANTS
 AllFaults == {"commit_fails", "smtp_reply_lost", "worker_dies", "lease_expires", "give_up_fails"}
 
 VARIABLES
+    requested,
     status,         \* drafts.status, as committed
     job,            \* the send-reply pg-boss job, one per draft (singletonKey = draft id)
     worker,         \* the send attempt each worker is running
@@ -20,20 +21,20 @@ VARIABLES
     sentUnapproved, \* TRUE once SMTP accepted the reply while the draft was not approved
     faults          \* fault events so far
 
-vars == <<status, job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+vars == <<requested, status, job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
-Statuses == {"pending", "approved", "sent", "send_failed", "discarded"}
+Statuses == {"pending", "approved", "sent", "send_failed", "send_uncertain", "discarded"}
 JobStates == {"none", "queued", "active", "completed", "failed"}
-Pcs == {"idle", "claimed", "sending", "committing", "giving_up", "settling_complete", "settling_fail"}
+Pcs == {"idle", "claimed", "prepared", "sending", "committing", "giving_up", "settling_complete", "settling_fail"}
 
 MarkSendFailedFrom == {"approved"}
 
-ToldItWent == {"sent"}
+ToldItWent == {"sent", "send_uncertain"}
 
 TypeOK ==
     /\ status \in Statuses
     /\ job.state \in JobStates /\ job.tries \in 0..RetryLimit /\ job.claimed \in BOOLEAN
-    /\ worker \in [Workers -> [pc : Pcs, tries : 0..RetryLimit, gen : Nat]]
+    /\ worker \in [Workers -> [pc : Pcs, tries : 0..RetryLimit, gen : Nat, marker : Nat, resend : BOOLEAN]]
     /\ lockHolder \in Workers \cup {0}
     /\ delivered \in Nat /\ personRetries \in 0..MaxPersonRetries /\ faults \in 0..MaxFaults
 
@@ -60,9 +61,10 @@ Settle(w, outcome) ==
 Release(w) == IF lockHolder = w THEN 0 ELSE lockHolder
 
 Init ==
+    /\ requested = FALSE
     /\ status = "pending"
     /\ job = [state |-> "none", tries |-> 0, claimed |-> FALSE, gen |-> 0]
-    /\ worker = [w \in Workers |-> [pc |-> "idle", tries |-> 0, gen |-> 0]]
+    /\ worker = [w \in Workers |-> [pc |-> "idle", tries |-> 0, gen |-> 0, marker |-> 0, resend |-> FALSE]]
     /\ lockHolder = 0
     /\ delivered = 0
     /\ personRetries = 0
@@ -75,7 +77,7 @@ PersonApproves ==
     /\ lockHolder = 0
     /\ status' = "approved"
     /\ job' = Enqueue
-    /\ UNCHANGED <<worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
 PersonRetriesSend ==
     /\ personRetries < MaxPersonRetries
@@ -86,13 +88,13 @@ PersonRetriesSend ==
           /\ UNCHANGED status
     /\ job' = Enqueue
     /\ personRetries' = personRetries + 1
-    /\ UNCHANGED <<worker, lockHolder, delivered, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, worker, lockHolder, delivered, sentUnapproved, faults>>
 
 PersonDiscards ==
     /\ status \in {"pending", "send_failed"}
     /\ lockHolder = 0
     /\ status' = "discarded"
-    /\ UNCHANGED <<job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
 
 WorkerClaimsJob(w) ==
@@ -100,8 +102,8 @@ WorkerClaimsJob(w) ==
     /\ job.state = "queued"
     /\ LET tries == IF job.claimed THEN job.tries + 1 ELSE job.tries
        IN /\ job' = [job EXCEPT !.state = "active", !.tries = tries, !.claimed = TRUE]
-          /\ worker' = [worker EXCEPT ![w] = [pc |-> "claimed", tries |-> tries, gen |-> job.gen]]
-    /\ UNCHANGED <<status, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+          /\ worker' = [worker EXCEPT ![w] = [pc |-> "claimed", tries |-> tries, gen |-> job.gen, marker |-> personRetries, resend |-> FALSE]]
+    /\ UNCHANGED <<requested, status, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
 AttemptAlive ==
     \E w \in Workers :
@@ -115,7 +117,7 @@ JobLeaseExpires ==
     /\ \/ ~AttemptAlive /\ UNCHANGED faults
        \/ AttemptAlive /\ CanFault("lease_expires") /\ faults' = faults + 1
     /\ job' = [job EXCEPT !.state = IF job.tries < RetryLimit THEN "queued" ELSE "failed"]
-    /\ UNCHANGED <<status, worker, lockHolder, delivered, personRetries, sentUnapproved>>
+    /\ UNCHANGED <<requested, status, worker, lockHolder, delivered, personRetries, sentUnapproved>>
 
 
 \* The attempt throws: the transaction rolls back, then consume() runs onGiveUp on the last
@@ -128,43 +130,73 @@ Fail(w) ==
        ELSE /\ worker' = [worker EXCEPT ![w].pc = "settling_fail"]
             /\ job' = job
 
-\* select ... for update on the draft, then the status checks. A draft that is sent, or not
-\* approved, returns. Otherwise the outbound message and markSent are written in the
-\* transaction, under the lock, before the send.
 WorkerLocksAndChecks(w) ==
     /\ worker[w].pc = "claimed"
     /\ lockHolder = 0
-    /\ IF status = "approved"
+    /\ IF status = "approved" \/ (status = "send_uncertain" /\ requested)
+       THEN /\ requested' = FALSE
+            /\ status' = "send_uncertain"
+            /\ worker' = [worker EXCEPT ![w].pc = "prepared", ![w].marker = personRetries, ![w].resend = requested]
+       ELSE /\ worker' = [worker EXCEPT ![w].pc = "settling_complete"]
+            /\ UNCHANGED <<requested, status>>
+    /\ UNCHANGED <<job, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+
+WorkerRechecksMarker(w) ==
+    /\ worker[w].pc = "prepared"
+    /\ lockHolder = 0
+    /\ IF status = "send_uncertain" /\ ~requested /\ worker[w].marker = personRetries
        THEN /\ lockHolder' = w
             /\ worker' = [worker EXCEPT ![w].pc = "sending"]
-            /\ job' = job
        ELSE /\ worker' = [worker EXCEPT ![w].pc = "settling_complete"]
-            /\ job' = job
             /\ UNCHANGED lockHolder
-    /\ UNCHANGED <<status, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, status, job, delivered, personRetries, sentUnapproved, faults>>
+
+PreparationFails(w) ==
+    /\ worker[w].pc = "claimed"
+    /\ (status = "approved" \/ (status = "send_uncertain" /\ requested))
+    /\ lockHolder = 0
+    /\ Fail(w)
+    /\ UNCHANGED <<requested, status, delivered, personRetries, sentUnapproved, faults>>
+
+PersonResolvesSent ==
+    /\ status = "send_uncertain"
+    /\ lockHolder = 0
+    /\ status' = "sent"
+    /\ requested' = FALSE
+    /\ UNCHANGED <<job, worker, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+
+PersonResolvesResend ==
+    /\ status = "send_uncertain"
+    /\ lockHolder = 0
+    /\ personRetries < MaxPersonRetries
+    /\ status' = "send_uncertain"
+    /\ requested' = TRUE
+    /\ personRetries' = personRetries + 1
+    /\ job' = [state |-> "queued", tries |-> 0, claimed |-> FALSE, gen |-> job.gen + 1]
+    /\ UNCHANGED <<worker, lockHolder, delivered, sentUnapproved, faults>>
 
 SmtpAccepts(w) ==
     /\ worker[w].pc = "sending"
     /\ delivered' = delivered + 1
-    /\ sentUnapproved' = (sentUnapproved \/ status # "approved")
+    /\ sentUnapproved' = (sentUnapproved \/ status # "send_uncertain")
     /\ worker' = [worker EXCEPT ![w].pc = "committing"]
-    /\ UNCHANGED <<status, job, lockHolder, personRetries, faults>>
+    /\ UNCHANGED <<requested, status, job, lockHolder, personRetries, faults>>
 
 \* The mail server is down or refuses the message: nothing went out.
 SmtpRejects(w) ==
     /\ worker[w].pc = "sending"
+    /\ status' = IF worker[w].resend THEN "send_uncertain" ELSE "approved"
     /\ Fail(w)
-    /\ UNCHANGED <<status, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, delivered, personRetries, sentUnapproved, faults>>
 
-\* The server accepted the message, but its reply never reached transport.send.
 SmtpReplyLost(w) ==
     /\ worker[w].pc = "sending"
     /\ CanFault("smtp_reply_lost")
     /\ delivered' = delivered + 1
-    /\ sentUnapproved' = (sentUnapproved \/ status # "approved")
+    /\ sentUnapproved' = (sentUnapproved \/ status # "send_uncertain")
     /\ faults' = faults + 1
     /\ Fail(w)
-    /\ UNCHANGED <<status, personRetries>>
+    /\ UNCHANGED <<requested, status, personRetries>>
 
 TransactionCommits(w) ==
     /\ worker[w].pc = "committing"
@@ -172,14 +204,14 @@ TransactionCommits(w) ==
     /\ lockHolder' = Release(w)
     /\ worker' = [worker EXCEPT ![w].pc = "settling_complete"]
     /\ job' = job
-    /\ UNCHANGED <<delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, delivered, personRetries, sentUnapproved, faults>>
 
 TransactionCommitFails(w) ==
     /\ worker[w].pc = "committing"
     /\ CanFault("commit_fails")
     /\ faults' = faults + 1
     /\ Fail(w)
-    /\ UNCHANGED <<status, delivered, personRetries, sentUnapproved>>
+    /\ UNCHANGED <<requested, status, delivered, personRetries, sentUnapproved>>
 
 
 GiveUpMarksFailed(w) ==
@@ -188,7 +220,7 @@ GiveUpMarksFailed(w) ==
     /\ status' = IF status \in MarkSendFailedFrom THEN "send_failed" ELSE status
     /\ worker' = [worker EXCEPT ![w].pc = "settling_fail"]
     /\ job' = job
-    /\ UNCHANGED <<lockHolder, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
 GiveUpFails(w) ==
     /\ worker[w].pc = "giving_up"
@@ -196,7 +228,7 @@ GiveUpFails(w) ==
     /\ faults' = faults + 1
     /\ worker' = [worker EXCEPT ![w].pc = "settling_fail"]
     /\ job' = job
-    /\ UNCHANGED <<status, lockHolder, delivered, personRetries, sentUnapproved>>
+    /\ UNCHANGED <<requested, status, lockHolder, delivered, personRetries, sentUnapproved>>
 
 \* The worker process dies mid-attempt: Postgres rolls its transaction back and frees the
 \* lock, and the job stays active until its lease runs out.
@@ -206,19 +238,20 @@ WorkerDies(w) ==
     /\ faults' = faults + 1
     /\ lockHolder' = Release(w)
     /\ worker' = [worker EXCEPT ![w].pc = "idle"]
-    /\ UNCHANGED <<status, job, delivered, personRetries, sentUnapproved>>
+    /\ UNCHANGED <<requested, status, job, delivered, personRetries, sentUnapproved>>
 
 JobSettles(w) ==
     /\ worker[w].pc \in {"settling_complete", "settling_fail"}
     /\ job' = Settle(w, IF worker[w].pc = "settling_complete" THEN "complete" ELSE "fail")
     /\ worker' = [worker EXCEPT ![w].pc = "idle"]
-    /\ UNCHANGED <<status, lockHolder, delivered, personRetries, sentUnapproved, faults>>
+    /\ UNCHANGED <<requested, status, lockHolder, delivered, personRetries, sentUnapproved, faults>>
 
 Next ==
     \/ PersonApproves \/ PersonRetriesSend \/ PersonDiscards
+    \/ PersonResolvesSent \/ PersonResolvesResend
     \/ JobLeaseExpires
     \/ \E w \in Workers :
-        \/ WorkerClaimsJob(w) \/ WorkerLocksAndChecks(w)
+        \/ WorkerClaimsJob(w) \/ WorkerLocksAndChecks(w) \/ WorkerRechecksMarker(w) \/ PreparationFails(w)
         \/ SmtpAccepts(w) \/ SmtpRejects(w) \/ SmtpReplyLost(w)
         \/ TransactionCommits(w) \/ TransactionCommitFails(w)
         \/ GiveUpMarksFailed(w) \/ GiveUpFails(w)

@@ -120,7 +120,7 @@ export const jobs: readonly Job[] = [
     retry: sendReplyRetry,
     run: (s) =>
       s.transport
-        ? { transaction: handleSendReply({ ...s, transport: s.transport }) }
+        ? { steps: handleSendReply({ ...s, transport: s.transport }) }
         : { waits: "HELPOS_SMTP_URL is not set: approved replies will wait in the queue" },
     onGiveUp: handleSendGaveUp,
   }),

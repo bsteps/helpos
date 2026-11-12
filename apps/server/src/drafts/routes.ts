@@ -7,7 +7,7 @@ import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute, Grant } from "../auth/access.ts";
 import type { Principal } from "../auth/principal.ts";
 import {
-  auditor,
+  auditContext,
   errorSchema,
   idParams,
   json,
@@ -24,8 +24,10 @@ import {
   discardDraft,
   discardStale,
   editDraft,
+  isPendingDraft,
   liveDraftFor,
   lockConversationForDrafting,
+  resolveUncertainSend,
   retrySend,
 } from "./lifecycle.ts";
 
@@ -68,6 +70,7 @@ const draftSchema = z
      */
     kind: z.enum(schema.draftKinds),
     status: z.enum(schema.draftStatuses),
+    outboundMessageId: z.string().nullable(),
     body: z.string(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -248,6 +251,7 @@ function serialize(
     messageId: d.messageId,
     kind: d.kind,
     status: d.status,
+    outboundMessageId: d.outboundMessageIdHeader,
     body: d.body,
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
@@ -332,11 +336,11 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
 
   app.openapi(editRoute, async (c) => {
     const principal = c.get("principal");
-    const audit = auditor(c);
+    const context = auditContext(c);
     const { id } = c.req.valid("param");
     const { body } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const edited = await editDraft(tx, audit, id, body);
+      const edited = await editDraft(tx, context, id, body);
       if (edited.outcome !== "changed") return edited.outcome;
       return presentOne(tx, principal, edited.draft);
     });
@@ -347,11 +351,11 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
 
   app.openapi(approveRoute, async (c) => {
     const principal = c.get("principal");
-    const audit = auditor(c);
+    const context = auditContext(c);
     const { id } = c.req.valid("param");
     const { body: reviewed } = c.req.valid("json");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const approved = await approveDraft(tx, audit, id, reviewed);
+      const approved = await approveDraft(tx, context, id, reviewed);
       if (approved.outcome !== "changed") return approved.outcome;
       return presentOne(tx, principal, approved.draft);
     });
@@ -360,6 +364,7 @@ export function registerDraftRoutes(app: OpenAPIHono, deps: DraftRoutesDeps): vo
     return c.json(result, 200);
   });
 
+  registerResolveRoute(app, deps);
   registerDiscardRoute(app, deps);
   registerRetryRoute(app, deps);
   registerCreateRoute(app, deps);
@@ -372,7 +377,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     const { id: conversationId } = c.req.valid("param");
     const input = c.req.valid("json");
     const { tenantId } = principal;
-    const audit = auditor(c);
+    const context = auditContext(c);
 
     const result = await deps.db.withTenant(tenantId, async (tx) => {
       const lock = await lockConversationForDrafting(tx, conversationId);
@@ -380,7 +385,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       const messageId = lock.answering;
       if (!messageId) return "nothing_to_answer" as const;
       const live = await liveDraftFor(tx, messageId, "reply");
-      if (live && live.status !== "pending") return "already_answered" as const;
+      if (live && !isPendingDraft(live)) return "already_answered" as const;
 
       if ("regenerate" in input) {
         // The worker drafts nothing for a closed conversation, so asking would wait forever.
@@ -388,7 +393,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         // Checked before anything is discarded: a refused regenerate leaves the current draft
         // alone, and the caller hears why instead of waiting for a draft that never comes.
         if ((await budget.today(tx, tenantId)).paused) return "daily_budget_reached" as const;
-        const stale = await discardStale(tx, audit, {
+        const stale = await discardStale(tx, context, {
           conversationIds: [conversationId],
           kind: "reply",
         });
@@ -408,7 +413,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
         if (stale.length === 0) nothingToAudit("queued; the worker audits the draft");
         return "queued" as const;
       }
-      const draft = await createReply(tx, audit, {
+      const draft = await createReply(tx, context, {
         tenantId,
         conversationId,
         messageId,
@@ -435,10 +440,10 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(discardRoute, async (c) => {
     const principal = c.get("principal");
-    const audit = auditor(c);
+    const context = auditContext(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const discarded = await discardDraft(tx, audit, id);
+      const discarded = await discardDraft(tx, context, id);
       if (discarded.outcome !== "changed") return discarded.outcome;
       return presentOne(tx, principal, discarded.draft);
     });
@@ -451,10 +456,10 @@ function registerDiscardRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
 function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
   app.openapi(retryRoute, async (c) => {
     const principal = c.get("principal");
-    const audit = auditor(c);
+    const context = auditContext(c);
     const { id } = c.req.valid("param");
     const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const retried = await retrySend(tx, audit, id);
+      const retried = await retrySend(tx, context, id);
       if (retried.outcome === "not_found" || retried.outcome === "conflict") {
         return retried.outcome;
       }
@@ -463,6 +468,47 @@ function registerRetryRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
     });
     if (result === "not_found") return notFound(c);
     if (result === "conflict") return c.json({ error: "not_send_failed" }, 409);
+    return c.json(result, 200);
+  });
+}
+
+const resolveRoute = apiRoute({
+  access: { allScopes: ["drafts:approve"], humansOnly: true },
+  audit: { records: ["draft.send_confirmed", "draft.send_retried"] },
+  method: "post",
+  path: "/v1/drafts/{id}/resolve-send",
+  summary: "Resolve an uncertain send",
+  description:
+    "Human decision for a reply that may already have gone out. Mark it sent or explicitly send again. The Message-ID binds the decision to the attempt reviewed.",
+  request: {
+    params: idParams,
+    body: jsonBody(
+      z.strictObject({
+        messageId: z.string().min(1),
+        decision: z.enum(["mark_sent", "send_again"]),
+      }),
+    ),
+  },
+  responses: {
+    200: json(draftSchema, "The resolved draft"),
+    404: notFoundResponse,
+    409: json(errorSchema, "This uncertain attempt is no longer current"),
+  },
+});
+
+function registerResolveRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
+  app.openapi(resolveRoute, async (c) => {
+    const principal = c.get("principal");
+    const context = auditContext(c);
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
+      const resolved = await resolveUncertainSend(tx, context, id, input);
+      if (resolved.outcome !== "changed") return resolved.outcome;
+      return presentOne(tx, principal, resolved.draft);
+    });
+    if (result === "not_found") return notFound(c);
+    if (result === "conflict") return c.json({ error: "not_current_uncertain_send" }, 409);
     return c.json(result, 200);
   });
 }

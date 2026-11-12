@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { brand } from "@helpos/brand";
 import { describe, expect, it } from "vitest";
+import { composeEmail, type ReplyEmail } from "./composer.ts";
 import { intendedToHeader, planDelivery } from "./shadow.ts";
-import { buildReply, type ReplyEmail } from "./transport.ts";
 
 const fixture = new URL("../../../../fixtures/email/outbound/shadow-reply.eml", import.meta.url);
 
@@ -57,7 +57,9 @@ describe("shadow mode delivery", () => {
   it("the shadowed email matches the fixture", async () => {
     const delivery = planDelivery(reply, shadowOn);
     if (delivery.kind !== "shadow") throw new Error(`got ${delivery.kind}`);
-    const raw = lf(new TextDecoder().decode(await buildReply(delivery.email)));
+    const raw = lf(
+      new TextDecoder().decode(await composeEmail({ kind: "reply", ...delivery.email })),
+    );
     // UPDATE_FIXTURES=1 rewrites the fixture after an intended change; review the diff.
     if (process.env.UPDATE_FIXTURES) writeFileSync(fixture, raw);
     expect(raw).toBe(lf(readFileSync(fixture, "utf8")));

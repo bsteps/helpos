@@ -26,6 +26,7 @@ function draft(id: string, status: Draft["status"], kind: Draft["kind"] = "reply
     messageId: "m1",
     kind,
     status,
+    outboundMessageId: null,
     body: "Thanks for writing in.",
     createdAt: "2026-11-09T09:30:00.000Z",
     updatedAt: "2026-11-09T09:30:00.000Z",

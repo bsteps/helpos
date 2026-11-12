@@ -1,16 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { schema, type TenantTx } from "@helpos/db";
-
-export type AuditActor = { type: "user" | "agent" | "system"; id: string };
+import type { Actor } from "@helpos/db/actor";
 
 export interface AuditEvent {
   tenantId: string;
-  actor: AuditActor;
+  actor: Actor;
   action:
     | "draft.created"
     | "draft.edited"
     | "draft.approved"
     | "draft.discarded"
+    | "draft.send_rejected"
+    | "draft.sending"
+    | "draft.send_confirmed"
     | "draft.sent"
     | "draft.send_failed"
     | "draft.send_retried"
@@ -50,6 +52,8 @@ export interface AuditEvent {
 }
 
 export type AuditAction = AuditEvent["action"];
+
+export type AuditContext = Pick<AuditEvent, "tenantId" | "actor" | "requestId">;
 
 /** What one request has audited so far. Set by the route's middleware; see `apiRoute()`. */
 export interface AuditTrail {
@@ -99,7 +103,7 @@ export type Auditor = (
  */
 export function auditorFor(
   tenantId: string,
-  actor: AuditActor,
+  actor: Actor,
   requestId: string | null = null,
 ): Auditor {
   return (tx, action, target) => recordAudit(tx, { tenantId, actor, action, target, requestId });

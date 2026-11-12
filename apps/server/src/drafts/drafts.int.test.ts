@@ -302,6 +302,7 @@ describe("draft → approve → send", () => {
       ["draft.created", "system", "draft-reply"],
       ["draft.edited", "agent", "test-agent"],
       ["draft.approved", "agent", "test-agent"],
+      ["draft.sending", "system", "send-reply"],
       ["draft.sent", "system", "send-reply"],
     ]);
     expect(audit[2]?.requestId).toBe(requestId);
@@ -483,17 +484,15 @@ describe("nothing is sent without approval", () => {
     const email = await receiveEmail();
     const pending = await waitForDraft(email.conversationId, "pending");
     const send = vi.fn<EmailTransport["send"]>();
-    await db.withTenant(acme, (tx) =>
-      handleSendReply({ transport: { send, close: () => {} }, files, logger })(
-        { tenantId: acme, draftId: pending.id },
-        tx,
-      ),
+    await handleSendReply({ transport: { send, close: () => {} }, files, logger })(
+      { tenantId: acme, draftId: pending.id },
+      (fn) => db.withTenant(acme, fn),
     );
     expect(send).not.toHaveBeenCalled();
     expect((await draftsOf(email.conversationId))[0]?.status).toBe("pending");
   });
 
-  it("a failed send keeps the draft approved and writes nothing, so a retry can send it", async () => {
+  it("an unknown send outcome leaves a durable decision instead of permitting retry", async () => {
     const email = await receiveEmail();
     const pending = await waitForDraft(email.conversationId, "pending");
     // Approve directly, so the running worker doesn't race this test for the job.
@@ -510,23 +509,25 @@ describe("nothing is sent without approval", () => {
       close: () => {},
     };
     await expect(
-      db.withTenant(acme, (tx) =>
-        handleSendReply({ transport: failing, files, logger })(
-          { tenantId: acme, draftId: pending.id },
-          tx,
-        ),
+      handleSendReply({ transport: failing, files, logger })(
+        { tenantId: acme, draftId: pending.id },
+        (fn) => db.withTenant(acme, fn),
       ),
     ).rejects.toThrow("SMTP down");
 
-    expect((await draftsOf(email.conversationId))[0]?.status).toBe("approved");
-    expect((await auditOf(pending.id)).map((e) => e.action)).toEqual(["draft.created"]);
+    expect((await draftsOf(email.conversationId))[0]?.status).toBe("send_uncertain");
+    expect((await auditOf(pending.id)).map((e) => e.action)).toEqual([
+      "draft.created",
+      "draft.sending",
+    ]);
     const outbound = await db.withTenant(acme, (tx) =>
       tx
         .select()
         .from(schema.messages)
         .where(eq(schema.messages.messageIdHeader, "<retry@acme.test>")),
     );
-    expect(outbound).toEqual([]);
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]?.sentAt).toBeNull();
   });
 });
 

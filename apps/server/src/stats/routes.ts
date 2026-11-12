@@ -1,6 +1,7 @@
-import { and, type Database, eq, gte, inArray, lt, schema, sql, type TenantTx } from "@helpos/db";
+import { and, type Database, eq, gte, inArray, lt, schema, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { apiRoute } from "../auth/access.ts";
+import { draftWhere } from "../drafts/lifecycle.ts";
 import { errorSchema, json } from "../http/route-kit.ts";
 import type { Clock } from "../services.ts";
 import { countDraftOutcomes, type DraftOutcomes } from "./draft-outcomes.ts";
@@ -69,7 +70,7 @@ async function draftOutcomes(tx: TenantTx, from: Date, to: Date): Promise<DraftO
     .select({
       id: drafts.id,
       status: drafts.status,
-      approved: sql<boolean>`${drafts.approvedAt} is not null`,
+      approved: draftWhere.wasApproved(),
     })
     .from(drafts)
     .where(and(gte(drafts.createdAt, from), lt(drafts.createdAt, to)));
