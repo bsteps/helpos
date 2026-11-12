@@ -211,10 +211,10 @@ describe("job runner", () => {
           .toEqual({ state: "failed", retry_count: 1 });
         expect(handler).not.toHaveBeenCalled();
         expect(onGiveUp).not.toHaveBeenCalled();
-        expect(onError).toHaveBeenCalledExactlyOnceWith(expect.any(Error), {
-          queue: job.queue,
-          jobId: id,
-        });
+        expect(onError).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ name: "InvalidJobPayloadError" }),
+          { queue: job.queue, jobId: id },
+        );
         expect(String(onError.mock.calls[0]?.[0])).not.toContain(secret);
         const [row] = await jobsSql`select output from pgboss.job where id = ${id}`;
         expect(JSON.stringify(row)).not.toContain(secret);

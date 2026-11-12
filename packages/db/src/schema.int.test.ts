@@ -211,22 +211,40 @@ describe("api_tokens: the app role can only create and revoke", () => {
   });
 });
 
+const enumChecks = [
+  ["memberships", "memberships_role", schema.workspaceRoles],
+  ["conversations", "conversations_status", schema.conversationStatuses],
+  ["conversations", "conversations_ai_paused_reason", schema.aiPausedReasons],
+  ["messages", "messages_direction", schema.messageDirections],
+  ["drafts", "drafts_status", schema.draftStatuses],
+  ["drafts", "drafts_kind", schema.draftKinds],
+  ["audit_events", "audit_events_actor_type", schema.actorTypes],
+  ["knowledge_sources", "knowledge_sources_kind", schema.knowledgeSourceKinds],
+  ["knowledge_sources", "knowledge_sources_visibility", schema.knowledgeVisibilities],
+  ["knowledge_sources", "knowledge_sources_managed_by", schema.managedByValues],
+  ["draft_citations", "draft_citations_visibility", schema.knowledgeVisibilities],
+  ["integrations", "integrations_provider", schema.integrationProviders],
+  ["conversation_github_issues", "conversation_github_issues_state", schema.githubIssueStates],
+] as const;
+
 describe("enum CHECK constraints", () => {
-  it.each([
-    ["memberships", "memberships_role", schema.workspaceRoles],
-    ["conversations", "conversations_status", schema.conversationStatuses],
-    ["conversations", "conversations_ai_paused_reason", schema.aiPausedReasons],
-    ["messages", "messages_direction", schema.messageDirections],
-    ["drafts", "drafts_status", schema.draftStatuses],
-    ["drafts", "drafts_kind", schema.draftKinds],
-    ["audit_events", "audit_events_actor_type", schema.actorTypes],
-    ["knowledge_sources", "knowledge_sources_kind", schema.knowledgeSourceKinds],
-    ["knowledge_sources", "knowledge_sources_visibility", schema.knowledgeVisibilities],
-    ["knowledge_sources", "knowledge_sources_managed_by", schema.managedByValues],
-    ["draft_citations", "draft_citations_visibility", schema.knowledgeVisibilities],
-    ["integrations", "integrations_provider", schema.integrationProviders],
-    ["conversation_github_issues", "conversation_github_issues_state", schema.githubIssueStates],
-  ])("%s: %s allows exactly its typed list", async (table, constraint, values) => {
+  it("every CHECK with an allowed-value list is compared with its typed list below", async () => {
+    // Postgres stores `in (...)` as `= ANY (ARRAY[...])`, or as `= '...'` for one value.
+    const allowedValues = String.raw`= ANY \(ARRAY\[|^CHECK \(\([a-z_]+ = '[^']*'::text\)\)$`;
+    const rows = await owner<{ name: string }[]>`
+      select c.conname as name
+      from pg_constraint c
+      join pg_class t on t.oid = c.conrelid
+      join pg_namespace n on n.oid = t.relnamespace
+      where n.nspname = 'public' and c.contype = 'c'
+        and pg_get_constraintdef(c.oid) ~ ${allowedValues}`;
+    // The knowledge state CHECK validates JSON shapes; its own tests cover it.
+    expect(rows.map((row) => row.name).sort()).toEqual(
+      [...enumChecks.map(([, constraint]) => constraint), "knowledge_sources_state"].sort(),
+    );
+  });
+
+  it.each(enumChecks)("%s: %s allows exactly its typed list", async (table, constraint, values) => {
     const rows = await owner<{ def: string }[]>`
       select pg_get_constraintdef(c.oid) as def
       from pg_constraint c

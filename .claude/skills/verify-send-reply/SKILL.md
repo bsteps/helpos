@@ -85,7 +85,7 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
-| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `23141a4a4b69` |
+| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `13c7c8ab11d4` |
 | packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `0ac5978b52bb` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->

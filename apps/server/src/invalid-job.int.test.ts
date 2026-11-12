@@ -1,5 +1,5 @@
 import { createDatabase, defineTenantJob, enqueue, uuidv7 } from "@helpos/db";
-import { startTestDatabase } from "@helpos/db/testing";
+import { startTestDatabase, waitForTenantJobs } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -28,12 +28,14 @@ it("logs the queue and job ID after a stored payload becomes invalid", async () 
     const tenantId = uuidv7();
     const jobId = await db.withTenant(tenantId, (tx) => enqueue(tx, oldJob, { tenantId }));
     await server.runner.work(currentJob, { transaction: handler, onGiveUp });
-    await expect.poll(() => lines.length, { timeout: 20_000 }).toBe(1);
+    const { terminal } = await waitForTenantJobs(testDb, tenantId, { queues: [currentJob.queue] });
+    expect(terminal).toMatchObject([{ id: jobId, state: "failed", retryCount: 1 }]);
+    expect(lines).toHaveLength(1);
     expect(JSON.parse(lines.join(""))).toMatchObject({
       level: 50,
       queue: currentJob.queue,
       jobId,
-      err: { name: "Error" },
+      err: { name: "InvalidJobPayloadError" },
       msg: "job runner error",
     });
     expect(lines.join("")).not.toContain(tenantId);

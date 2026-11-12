@@ -151,9 +151,20 @@ export interface JobRunnerOptions {
   jobsUrl: string;
   /** App-role database. Tenant handlers reach data only through its withTenant(). */
   db: Database;
-  /** pg-boss reports background errors here. Without a listener they would crash the process. */
+  /**
+   * pg-boss reports background errors here; without a listener they would crash the process.
+   * A stored payload that fails validation is reported here too, once, on its last attempt.
+   */
   onError: (error: unknown, context?: { queue: string; jobId: string }) => void;
   pollingIntervalSeconds?: number;
+}
+
+/** Named so a log entry says what failed: logs carry an error's name, never its message. */
+class InvalidJobPayloadError extends Error {
+  override name = "InvalidJobPayloadError";
+  constructor() {
+    super("Invalid stored job payload");
+  }
 }
 
 export function createJobRunner(options: JobRunnerOptions): JobRunner {
@@ -193,20 +204,19 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     const workOptions = { batchSize: 1, pollingIntervalSeconds, includeMetadata: true } as const;
     await boss.work<unknown, unknown, typeof workOptions>(job.queue, workOptions, async (jobs) => {
       for (const { id, data, retryCount, retryLimit } of jobs) {
+        const lastAttempt = retryCount >= retryLimit;
         // Re-validate: the row came from a table, and a bad payload must fail, not guess.
         const parsed = job.payload.safeParse(data);
         if (!parsed.success) {
-          const error = new Error("Invalid stored job payload");
-          if (retryCount >= retryLimit) {
-            options.onError(error, { queue: job.queue, jobId: id });
-          }
+          const error = new InvalidJobPayloadError();
+          if (lastAttempt) options.onError(error, { queue: job.queue, jobId: id });
           throw error;
         }
         const payload = parsed.data;
         try {
           await run(payload, retryLimit - retryCount);
         } catch (error) {
-          if (onLastFailure && retryCount >= retryLimit) {
+          if (onLastFailure && lastAttempt) {
             // Reported, not thrown: the job's own error is the one pg-boss should record.
             await onLastFailure(payload).catch(options.onError);
           }
