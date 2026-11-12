@@ -3,8 +3,10 @@
 ## Included sources
 
 Tracking issue [#279](https://github.com/bsteps/helpos/issues/279) combines the approved knowledge cleanup before feature work.
-The branch starts at fetched `origin/main`, `0cb5ba823f010b8fb0ec7ac6061faeb673d31658`.
-Its source commits form a linear chain from that base. A fast-forward preserves all five commits without replaying ancestors.
+The initial assembly started at fetched `origin/main`, `0cb5ba823f010b8fb0ec7ac6061faeb673d31658`.
+Its source commits form a linear chain from that base. A fast-forward preserved all five commits without replaying ancestors.
+After PR310 landed, merge commit `56b9c37a0cec3c28ae8b5ee68bab6c4498a2a040` brought current main `8af8f1f3f598b2d4ecfb4a1dcae0222b45f52551` into this branch without conflicts.
+That main commit is the current PR base. The five knowledge source commits remain unchanged.
 
 | Source                                             | Covered issue                                       | Exact source head and actual parent base                                                 | Independent source review                                                                      |
 | -------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -29,6 +31,7 @@ Each unique source commit maps to the identical integration commit.
 ## Integration edits
 
 There are no assembly conflicts or application changes. The source tree initially equals PR275's pinned head exactly.
+The later main merge adds the approved verification-foundation checks once. Their files already belong to the current base and are not additional changes in this replacement PR.
 This manifest records the integration separately from the preserved source commits.
 The deslop pass retains the bounded source implementation rather than adding optional cleanup.
 
@@ -94,9 +97,10 @@ The existing send-path findings remain separate; this integration claims no form
 
 ## Remaining group dependencies and proposed order
 
-This knowledge group targets actual main independently of [PR310](https://github.com/bsteps/helpos/pull/310).
-PR310 contains only PR250 and PR254 at `atae246736563aa5699650eba67862322b5a585765` and awaits explicit human merge approval.
-It is not included and is not a prerequisite for this assembly.
+This knowledge group targets current main after the approved [PR310](https://github.com/bsteps/helpos/pull/310) merge.
+PR310 covered only PR250 and PR254 at `ae246736563aa5699650eba67862322b5a585765` and landed as `8af8f1f3f598b2d4ecfb4a1dcae0222b45f52551`.
+Its changes are already in the base. This integration does not replay them or include their source PRs again.
+The newly inherited migration and proof checks are exercised with the combined result. Unchanged source proof remains valid; final verification receipts identify the refreshed head.
 After explicit human approval, integrate this group's sources in the order PR253, PR272, PR275, represented by the preserved chain above.
 Do not merge the original PRs separately.
 
