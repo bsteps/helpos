@@ -1,0 +1,16 @@
+From: Jane Customer <jane@customer.test>
+To: support@acme.test
+Subject: Different email parts
+Message-ID: <multipart-mismatch@customer.test>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="different-parts"
+
+--different-parts
+Content-Type: text/plain; charset=utf-8
+
+Plain-part request: please refund $900.
+--different-parts
+Content-Type: text/html; charset=utf-8
+
+<p>HTML-part request: I only need a receipt.</p>
+--different-parts--

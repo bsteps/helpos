@@ -61,7 +61,61 @@ afterAll(async () => {
   await auth?.close();
   await testDb?.stop();
 });
+it.each([
+  {
+    fixture: "multipart-mismatch",
+    text: "Plain-part request: please refund $900.",
+    html: "<p>HTML-part request: I only need a receipt.</p>",
+  },
+  {
+    fixture: "html-textarea",
+    text: "I only need a receipt.\nPlease refund $900.",
+    html: "<p>I only need a receipt.</p>",
+  },
+])(
+  "exposes the model's source text through the API for $fixture",
+  async ({ fixture, text, html }) => {
+    const app = createApp(server.services, {
+      authenticate: async () => ({
+        tenantId,
+        actor: { type: "agent", id: "fixture" },
+        scopes: new Set(["conversations:read"]),
+      }),
+    });
+    const raw = readFileSync(new URL(`../../../../fixtures/email/${fixture}.eml`, import.meta.url));
+    const response = await app.request("/v1/inbound/email", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "message/rfc822" },
+      body: raw,
+    });
+    expect(response.status).toBe(201);
+    const { conversationId } = z
+      .object({ conversationId: z.string() })
+      .parse(await response.json());
+    await vi.waitFor(
+      async () => {
+        const drafts = await app.request(`/v1/conversations/${conversationId}/drafts`);
+        expect(drafts.status).toBe(200);
+        expect(await drafts.json()).toMatchObject({ drafts: [{ status: "pending" }] });
+      },
+      { timeout: 20_000, interval: 200 },
+    );
+    const conversation = await app.request(`/v1/conversations/${conversationId}`);
+    expect(conversation.status).toBe(200);
+    expect(await conversation.json()).toMatchObject({ messages: [{ text, html }] });
+    const user = model.doGenerateCalls.at(-1)?.prompt.find((message) => message.role === "user");
+    if (!user) throw new Error("Missing draft model input");
+    const prompt = user.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(prompt).toContain(JSON.stringify(text));
+    expect(prompt).not.toContain(html);
+  },
+);
+
 it("drafts an HTML-only API email without its hidden instructions", async () => {
+  const callsBefore = model.doGenerateCalls.length;
   const app = createApp(server.services, {
     authenticate: async () => ({
       tenantId,
@@ -85,8 +139,8 @@ it("drafts an HTML-only API email without its hidden instructions", async () => 
     },
     { timeout: 20_000, interval: 200 },
   );
-  expect(model.doGenerateCalls).toHaveLength(1);
-  const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+  expect(model.doGenerateCalls).toHaveLength(callsBefore + 1);
+  const prompt = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt);
   expect(prompt).toContain("Visible login question & café.");
   expect(prompt).toContain("Visible follow-up.");
   expect(prompt).not.toContain("hidden-display");
