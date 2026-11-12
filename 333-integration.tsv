@@ -1,0 +1,9 @@
+ts	phase	decision	why	evidence	result
+2026-11-12T10:32:41.445Z	assembly	Started at exact published PR334 and normal-merged exact PR332	Account prerequisites separately and preserve PR315 once	4cbbdc13e31a4de6a743a53378eb2b2e2946a192; 76b245effcb4d048d553806370cf58fabacd2156	assembled
+2026-11-12T10:32:41.445Z	sources	Applied nine unique parent deltas with author/date/-x receipts	Never replay stale parent chains	.helpos/333/accounting.json	9 receipts pass
+2026-11-12T10:32:41.445Z	ports	Moved typed callers into extracted helpers and preserved domain ownership	Retain PR332 and PR334 behavior	docs/integrations/333-public-http-contracts.md	7 package typechecks pass
+2026-11-12T10:32:41.445Z	migration	Generated 0025 against combined schema; kept RLS/tombstone revocations	Preserve inherited snapshots and audit0024	.helpos/333/migration-noop.log; .helpos/333/accounting.json	no schema changes; prior history unchanged
+2026-11-12T10:32:41.445Z	resource-error	Three finite PG fixtures unintentionally ran under stale unit names	Report actual resource use and prevent repeated selection	.helpos/333/server-unit.log; .helpos/333/server-unit-corrected.log	runners exited; afterAll owned cleanup awaited
+2026-11-12T10:32:41.445Z	selection	Renamed dashboard and pagination DB fixtures to int; flattened coverage projects	Keep241/200 and both server contract setups	.helpos/333/selection-guard.log; .helpos/333/coverage-selection.json	6 guards pass; 101 files once
+2026-11-12T10:32:41.445Z	review	Applied one native Comment Sicko deletion and deslop	Remove misplaced form comment without changing behavior	apps/web/src/lib/knowledge-form.ts	1 comment deleted; no suppressions
+2026-11-12T10:32:41.445Z	evidence	Read source verdicts and actual hosted artifact inventory	Do not infer video upload from green CI	.helpos/333/hosted-artifacts.json	hosted failure video unobserved; widget measurement deferred

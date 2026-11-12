@@ -1,12 +1,31 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import base from "./vitest.config.mts";
 
 export default defineConfig({
   test: {
+    testTimeout: base.test.testTimeout,
+    hookTimeout: base.test.hookTimeout,
     projects: [
-      ...["apps/server", "apps/web", "packages/db"].map((root) => ({
-        extends: `./${root}/vitest.config.ts`,
-        test: { root, maxWorkers: 3 },
-      })),
+      ...["apps/server", "packages/db"].flatMap((root) =>
+        base.test.projects.map((project) => ({
+          extends: true,
+          test: {
+            ...project.test,
+            root,
+            name: `${root}:${project.test.name}`,
+            maxWorkers: 3,
+            ...(root === "apps/server"
+              ? {
+                  setupFiles: [
+                    fileURLToPath(new URL("./apps/server/src/testing/setup.ts", import.meta.url)),
+                  ],
+                }
+              : {}),
+          },
+        })),
+      ),
+      { extends: "./apps/web/vitest.config.ts", test: { root: "apps/web", maxWorkers: 3 } },
       ...["packages/ai", "packages/brand", "packages/files", "packages/safe-fetch"].map((root) => ({
         test: { root, maxWorkers: 3 },
       })),

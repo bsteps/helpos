@@ -1,6 +1,6 @@
 import type { ConversationDetail, Draft } from "@/api/client.ts";
-import { formatDateTime } from "../lib/format.ts";
 import { type ErrorMessages, errorMessage } from "../api/error-messages.ts";
+import { formatDateTime } from "../lib/format.ts";
 
 export function newestReply(drafts: Draft[]): Draft | undefined {
   return drafts.filter((d) => d.kind === "reply").at(-1);

@@ -5,9 +5,48 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { createVitest } from "vitest/node";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
+
+test("combined coverage keeps unit isolation and server response contracts in both projects", async () => {
+  const ctx = await createVitest({
+    root: fileURLToPath(root),
+    config: "vitest.coverage.config.mts",
+    watch: false,
+    coverage: { enabled: false },
+  });
+  try {
+    const specs = await ctx.globTestSpecifications();
+    const paths = specs.map((spec) => spec.moduleId.replaceAll("\\", "/"));
+    assert.equal(new Set(paths).size, paths.length, "each test file runs once");
+    for (const name of ["apps/server:unit", "apps/server:int"]) {
+      const project = ctx.projects.find((project) => project.name === name);
+      assert.ok(project);
+      assert.ok(project.config.setupFiles.some((path) => path.endsWith("/src/testing/setup.ts")));
+      assert.equal(project.config.globalSetup.length, name.endsWith(":int") ? 1 : 0);
+    }
+    for (const path of [
+      "web/dashboard.int.test.ts",
+      "http/pagination.int.test.ts",
+      "app.int.test.ts",
+      "knowledge/knowledge.int.test.ts",
+    ]) {
+      const spec = specs.find((spec) => spec.moduleId.replaceAll("\\", "/").endsWith(path));
+      assert.equal(spec?.project.name, "apps/server:int", path);
+    }
+    const contract = specs.find((spec) => spec.moduleId.endsWith("/testing/contract.test.ts"));
+    assert.equal(contract?.project.name, "apps/server:unit");
+    const config = read("vitest.coverage.config.mts");
+    assert.ok(config.includes('"apps/*/src/**/*.{ts,tsx}"'));
+    assert.ok(config.includes('"packages/*/src/**/*.ts"'));
+    assert.ok(config.includes('"apps/server/src/**/testing.ts"'));
+  } finally {
+    await ctx.close();
+  }
+});
 
 test("dashboard budget counts modulepreload chunks and rejects oversized initial JavaScript", () => {
   const fixture = mkdtempSync(join(tmpdir(), "dashboard-budget-"));

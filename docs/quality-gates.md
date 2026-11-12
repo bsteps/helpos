@@ -33,7 +33,7 @@ The exclusions have these purposes.
 
 No source folder is excluded because its coverage is low. An unimported temporary production file with 500 functions makes the coverage gate fail and is then removed in the negative proof.
 
-The separate #241 test split and #200 test-helper changes are not integrated here. When combined later, preserve `apps/server/src/testing/setup.ts` in both server projects. Map `app.test.ts` to `app.int.test.ts` and `knowledge/knowledge.test.ts` to `knowledge/knowledge.int.test.ts`; keep `testing/contract.test.ts` in the unit project. Changes to `waitFor` and `drain` do not replace the contract wrapper. Rerun combined coverage after adopting the split; these source percentages do not predict that combined result.
+The combined configuration includes the landed #241 test split and #200 worker waits. Server and DB unit and integration projects run each test file once. Both server projects retain `apps/server/src/testing/setup.ts`; only integration projects initialize Postgres. `app.int.test.ts`, `knowledge/knowledge.int.test.ts`, `web/dashboard.int.test.ts` and `http/pagination.int.test.ts` are integration tests. `testing/contract.test.ts` remains a unit test. The selection test resolves the real Vitest projects without executing tests. Source percentages above are historical and do not predict combined coverage.
 
 ## Bundles
 
@@ -41,7 +41,7 @@ The existing web build still runs `apps/web/scripts/check-budget.mjs`. Its initi
 
 `pnpm check:widget` reserves `apps/widget` as the adoption hook. Once that directory exists, its build must produce `dist` with JavaScript or CSS. The checker sums each JavaScript and CSS file recursively, compressed separately at gzip level 9, and rejects totals over 20 × 1024 bytes. CI runs it after workspace builds, so a missing build or empty output fails on adoption. The widget implementation must join the workspace build graph and use this location, or explicitly update the hook in its PR.
 
-There is no widget workspace or bundle in this source baseline. The checker reports `absent`, not a successful bundle measurement. Synthetic fixtures prove small, missing, empty and oversized artifact behavior only. Actual-widget verification remains unfulfilled and #22 requires a human acceptance decision for this missing artifact. The roadmap schedules the widget later. This PR does not create it.
+There is no widget workspace or bundle in this source baseline. The checker reports `absent`, not a successful bundle measurement. Synthetic fixtures prove small, missing, empty and oversized artifact behavior only. The accepted criterion keeps the 20 KB adoption gate and defers actual-widget measurement until a widget artifact exists. The roadmap schedules the widget later. Synthetic fixtures do not measure that future artifact.
 
 ## API reads
 
@@ -74,4 +74,4 @@ pnpm test:performance
 pnpm test:e2e
 ```
 
-`pnpm verify` preserves the existing test and build checks. Coverage, widget adoption, the HTTP budget and Playwright run separately. For fresh stable-head evidence, bypass Turbo caches with `TURBO_FORCE=true` when running `pnpm verify`. The parent API compatibility job is unchanged. Its three-operation knowledge declaration justification belongs only to #210 and does not waive future contract breaks or approve a merge. Known send findings remain unchanged.
+`pnpm verify` preserves the existing test and build checks. Coverage, widget adoption, the HTTP budget and Playwright run separately. Run the final gate on stable committed code with valid Turbo cache entries, and report executed tasks and cache hits separately. The parent API compatibility job is unchanged. Its three-operation knowledge declaration justification belongs only to #210 and does not waive future contract breaks or approve a merge. Known send findings remain unchanged.

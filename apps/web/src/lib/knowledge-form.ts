@@ -1,8 +1,11 @@
 import { ApiError, type KnowledgeSource, type KnowledgeSourceUpdate } from "../api/client.ts";
-
 import { errorMessage } from "../api/error-messages.ts";
 
-export function knowledgeProblem(error: unknown, failed: string, invalid = `${failed} Try again.`): string {
+export function knowledgeProblem(
+  error: unknown,
+  failed: string,
+  invalid = `${failed} Try again.`,
+): string {
   if (!(error instanceof ApiError)) {
     return `${failed} Something went wrong. Check your connection, then try again or reload the page.`;
   }
@@ -29,7 +32,6 @@ export function knowledgeProblem(error: unknown, failed: string, invalid = `${fa
   return `${failed} Try again.`;
 }
 
-/** A form's error is about what was sent, so it goes once any field changes. */
 export const blankTitle = (title: string) =>
   title !== "" && title.trim() === "" ? "Add a title." : false;
 

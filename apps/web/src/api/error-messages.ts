@@ -2,7 +2,7 @@ import type { ErrorCode } from "./client.ts";
 
 const generic = "That didn't work. Try again.";
 
-export const errorMessages = {
+const errorMessages = {
   ai_busy: generic,
   ai_not_configured: generic,
   ai_unavailable: generic,

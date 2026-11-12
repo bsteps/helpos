@@ -46,7 +46,7 @@ describe("the committed API document", () => {
           KnowledgeSourceConflict: {
             properties: { error, sourceId: { type: "string", format: "uuid" } },
           },
-          KnowledgeSource: { properties: { error: { type: ["string", "null"] } } },
+          KnowledgeSource: { properties: { state: { oneOf: expect.any(Array) } } },
         },
       },
       paths: {

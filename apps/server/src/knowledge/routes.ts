@@ -270,7 +270,8 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
     );
     if (result.kind === "created") return c.json(serialize(result.source), 201);
     if (result.kind === "url_taken") {
-      return errorResponse(c,
+      return errorResponse(
+        c,
         { error: result.kind, ...(result.sourceId ? { sourceId: result.sourceId } : {}) },
         409,
       );

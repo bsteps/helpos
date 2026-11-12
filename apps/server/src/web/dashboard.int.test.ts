@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { createDatabase, type Database } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "../app.ts";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createLogger } from "../logger.ts";
 import { composeServices } from "../services.ts";
+
+const { createApp } = await vi.importActual<typeof import("../app.ts")>("../app.ts");
 
 const index = "<!doctype html><html><body>Dashboard fixture</body></html>";
 const asset = 'document.body.dataset.loaded = "true";';
@@ -44,7 +45,7 @@ describe("production dashboard routing", () => {
   it.each([
     { path: "/", body: index, type: "text/html", cache: "no-cache" },
     { path: "/index.html", body: index, type: "text/html", cache: "no-cache" },
-    { path: "/tickets/example", body: index, type: "text/html", cache: "no-cache" },
+    { path: "/conversations/example", body: index, type: "text/html", cache: "no-cache" },
     { path: "/v1-looking-page", body: index, type: "text/html", cache: "no-cache" },
     { path: "/assets/missing.js", body: index, type: "text/html", cache: "no-cache" },
     {
@@ -85,16 +86,18 @@ describe("production dashboard routing", () => {
   });
 
   it.each([
-    { path: "/health", status: 200, body: { status: "ok", database: "ok" } },
+    { path: "/health", status: 200, body: { status: "ok" } },
     { path: "/openapi.json", status: 200, body: { openapi: "3.1.0" } },
-    { path: "/v1/tickets", status: 401, body: { error: "unauthorized" } },
+    { path: "/v1/conversations", status: 401, body: { error: "unauthorized" } },
     { path: "/v1", status: 404, body: { error: "not_found" } },
     { path: "/v1/", status: 404, body: { error: "not_found" } },
     { path: "/v1/does-not-exist", status: 404, body: { error: "not_found" } },
   ])("keeps $path a JSON API response", async ({ path, status, body }) => {
     const res = await app.request(path);
     expect(res.status).toBe(status);
-    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("content-type")).toContain(
+      status >= 400 ? "application/problem+json" : "application/json",
+    );
     expect(await res.json()).toMatchObject(body);
     for (const header of [
       "content-security-policy",
