@@ -1,0 +1,8 @@
+From: Jane <jane@customer.test>
+To: support@acme.test
+Subject: Visible HTML login question
+Message-ID: <hidden-html-224@customer.test>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Visible login question &amp; café.</p><span style="display:none">hidden-display instruction</span><div aria-hidden="true"><b>hidden-aria instruction</b></div><div style="visibility:hidden">hidden-visibility instruction</div><p>Visible follow-up.</p>

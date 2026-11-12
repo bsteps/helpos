@@ -217,6 +217,7 @@ function Conversation({ id }: { id: string }) {
 }
 
 function MessageCard({ message }: { message: Message }) {
+  const [formatted, setFormatted] = useState(false);
   const inbound = message.direction === "inbound";
   const sender = message.from.name
     ? `${message.from.name} <${message.from.address}>`
@@ -232,10 +233,26 @@ function MessageCard({ message }: { message: Message }) {
       </CardHeader>
       <CardContent>
         {message.html ? (
-          <EmailFrame html={message.html} title={`Email from ${message.from.address}`} />
-        ) : (
-          <p className="whitespace-pre-wrap break-words leading-relaxed">{message.text}</p>
-        )}
+          <p className="mb-2 text-muted-foreground text-xs">
+            AI drafts read this text within their input limits. The formatted email may differ.
+          </p>
+        ) : null}
+        <p className="whitespace-pre-wrap break-words leading-relaxed" data-testid="message-text">
+          {message.text}
+        </p>
+        {message.html ? (
+          <details
+            className="mt-3 border-t"
+            onToggle={(event) => setFormatted(event.currentTarget.open)}
+          >
+            <summary className="cursor-pointer py-3 text-muted-foreground text-sm hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+              Formatted email
+            </summary>
+            {formatted ? (
+              <EmailFrame html={message.html} title={`Email from ${message.from.address}`} />
+            ) : null}
+          </details>
+        ) : null}
       </CardContent>
     </Card>
   );
