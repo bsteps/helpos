@@ -7,11 +7,11 @@ import {
   type TenantStepsHandler,
   type TenantTx,
 } from "@helpos/db";
+import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { recordAudit } from "../audit/audit.ts";
 import type { SecretBox } from "../secrets/secret-box.ts";
 import type { ServerConfig } from "../services.ts";
-import { githubWebhookActor } from "./fixed-notice.ts";
 import { type GithubApiFactory, parseRepo } from "./github-api.ts";
 import { openGithubAccess } from "./integration.ts";
 import { markIssueClosed, markIssueReopened } from "./issue-state.ts";
@@ -65,7 +65,7 @@ export async function handleRecheckGaveUp(
   if (!link) return;
   await recordAudit(tx, {
     tenantId: payload.tenantId,
-    actor: githubWebhookActor,
+    actor: builtInActors.githubRecheck,
     action: "github_issue.recheck_failed",
     target: { type: "conversation", id: link.conversationId },
     requestId: null,
@@ -135,7 +135,7 @@ export function handleRecheckIssue(
       number: target.number,
       changedAt: now.value.updatedAt,
       current: true,
-      actor: githubWebhookActor,
+      actor: builtInActors.githubRecheck,
       requestId: null,
       noticeDelaySeconds: deps.config.noticeDelaySeconds,
     };

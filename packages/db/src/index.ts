@@ -26,6 +26,7 @@ export {
   type EnqueueOptions,
   enqueue,
   installJobs,
+  type JobDeferral,
   type JobRunner,
   type JobRunnerOptions,
   type RetryPolicy,
@@ -37,6 +38,7 @@ export {
   tenantTransactions,
 } from "./jobs.ts";
 export {
+  hasSearchableKnowledge,
   isKnowledgeUrlTaken,
   type KnowledgeHit,
   type KnowledgeQuery,

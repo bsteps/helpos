@@ -6,6 +6,7 @@ import type { Logger } from "pino";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import {
+  auditContext,
   auditor,
   errorSchema,
   idParams,
@@ -408,12 +409,11 @@ function registerIssueRoutes(app: OpenAPIHono, deps: GithubRoutesDeps): void {
     const outcome = await createIssue(
       { ...deps, secretBox },
       {
-        tenantId: principal.tenantId,
+        ...auditContext(c),
         conversationId: c.req.valid("param").id,
         issue: c.req.valid("json"),
         author: isHuman(principal.actor) ? "human" : "agent",
         audit: auditor(c),
-        requestId: c.get("requestId"),
       },
     );
     switch (outcome.kind) {

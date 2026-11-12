@@ -160,6 +160,7 @@ export async function markIssueReopened(tx: TenantTx, change: IssueChange): Prom
     {
       conversationIds: reopened.map((r) => r.conversationId),
       kind: "fixed",
+      details: { reason: "issue_reopened" },
     },
   );
   return reopened.length;
