@@ -2,6 +2,7 @@ import { draftReply } from "@helpos/ai";
 import { mockModel } from "@helpos/ai/testing";
 import { describe, expect, it } from "vitest";
 import { htmlToText, messageText } from "./html-text.ts";
+import { withPaidModels } from "./paid-model.ts";
 
 describe("htmlToText", () => {
   it("keeps the words and line breaks, drops tags, scripts and styles", () => {
@@ -38,7 +39,9 @@ it("excludes hidden email instructions from the captured model input", async () 
     htmlBody:
       '<p>Visible login question.</p><span style="display:none">hidden-display</span><div aria-hidden="true">hidden-aria</div><div style="visibility:hidden">hidden-visibility</div><p>Visible follow-up.</p>',
   });
-  await draftReply(model, { from: "customer@example.com", subject: "Login", body });
+  await withPaidModels(new AbortController().signal, (models) =>
+    draftReply(models(model), { from: "customer@example.com", subject: "Login", body }),
+  );
   const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
   expect(prompt).toContain("Visible login question.");
   expect(prompt).toContain("Visible follow-up.");
