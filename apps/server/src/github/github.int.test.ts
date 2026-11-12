@@ -237,12 +237,14 @@ function makeApp(
     budget?: number;
     db?: Database;
     webhookSecretCacheMs?: number;
+    logger?: typeof logger;
   } = {},
 ) {
   // The worker's services, with what this test changes.
   return createApp(
     {
       ...helpos.services,
+      logger: overrides.logger ?? logger,
       db: overrides.db ?? db,
       model: "model" in overrides ? overrides.model : issueModel,
       secretBox: "secretBox" in overrides ? undefined : box,
@@ -1957,16 +1959,17 @@ describe("the webhook", () => {
         })
         .where(eq(schema.integrations.provider, "github")),
     );
-    const warnings = () =>
-      logger.warn.mock.calls.filter(([fields]) => fields?.tenantId === acme).length;
-    const before = warnings();
+    const webhookLogger = { ...logger, warn: vi.fn() };
     // The key is changed behind the app's back here, so nothing the app read before is kept.
-    app = makeApp({ webhookSecretCacheMs: 0 });
+    app = makeApp({ webhookSecretCacheMs: 0, logger: webhookLogger });
     try {
       for (let i = 0; i < 3; i++) {
         expect((await deliver(secret, { zen: "hi" }, { event: "ping" })).status).toBe(401);
       }
-      expect(warnings() - before).toBe(1);
+      expect(webhookLogger.warn).toHaveBeenCalledExactlyOnceWith(
+        { tenantId: acme },
+        expect.any(String),
+      );
     } finally {
       app = makeApp();
     }
