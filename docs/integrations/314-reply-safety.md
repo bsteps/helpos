@@ -173,3 +173,9 @@ The fresh native Comment Sicko review covers only integration-authored changes, 
 The full publication gate runs once on the final stable committed head after scratch fixtures finish. Its exact SHA, result and fresh/cache split are recorded in the append-only decision trail and PR evidence. Previous full-gate receipts remain historical, not a claim about this refreshed head. Shared Docker is preserved; test-owned databases, containers and processes are cleaned up by their harnesses.
 
 `pnpm test:scripts` passed all 107 tests with no skips after browser and source mutation restoration. This includes corrected lexical/nested fingerprint invalidation, model negative controls, filename and Knip fixtures. No scratch test remains before the full gate.
+
+## Independent review fix
+
+The independent review found that two more readers of the conversation still used every outbound row. The AI reply drafter's earlier-message history and the GitHub issue drafter therefore gave the model unconfirmed attempts as delivered replies. That included an attempt a person replaced with an explicit resend. Both readers now share the conversation history's rule, `inHistory()` in `apps/server/src/conversations/history.ts`. A received message always counts. A reply counts once its `sentAt` is set. Inbound threading and duplicate detection still match an unconfirmed attempt's Message-ID, because that reply may have reached the customer.
+
+New integration tests in `drafts.int.test.ts` and `github.int.test.ts` failed with the readers reverted and passed with the fix. Both whole files passed with real Postgres and Mailpit, 90 tests in all. No send, lifecycle or model-covered function changed.
