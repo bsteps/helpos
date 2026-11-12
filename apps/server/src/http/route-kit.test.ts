@@ -127,6 +127,7 @@ describe("auditor() binds the request", () => {
         actorType: "agent",
         actorId: principal.actor.id,
         action: "conversation.closed",
+        details: {},
         targetType: "conversation",
         targetId: "t-1",
         requestId: "req-123",
