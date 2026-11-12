@@ -1,0 +1,9 @@
+From: Jane <jane@customer.test>
+To: support@acme.test
+MIME-Version: 1.0
+Message-ID: <208-references@customer.test>
+References: <unknown@customer.test> <OUTBOUND-ID>
+Subject: Re: My order
+Content-Type: text/plain; charset=utf-8
+
+Following up using References only.

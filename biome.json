@@ -25,7 +25,11 @@
     "./biome-plugins/draft-writes.grit",
     "./biome-plugins/conversation-writes.grit",
     "./biome-plugins/ai-usage.grit",
-    "./biome-plugins/paid-ai.grit"
+    "./biome-plugins/paid-ai.grit",
+    "./biome-plugins/empty-catch.grit",
+    "./biome-plugins/raw-request-body.grit",
+    "./biome-plugins/brand-name.grit",
+    "./biome-plugins/outbound-requests.grit"
   ],
   "formatter": {
     "enabled": true,
@@ -43,7 +47,13 @@
       },
       "style": {
         "useImportType": "error",
-        "noNonNullAssertion": "error"
+        "noNonNullAssertion": "error",
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "filenameCases": ["kebab-case"]
+          }
+        }
       },
       "correctness": {
         "noUnusedImports": "error",

@@ -1,0 +1,9 @@
+From: Jane <jane@customer.test>
+To: support@acme.test
+MIME-Version: 1.0
+Message-ID: <208-html@customer.test>
+Subject: HTML receipt
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<p>Merci pour le caf=C3=A9.</p>

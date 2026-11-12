@@ -25,6 +25,7 @@ export const evalCaseSchema = z.strictObject({
     from: z.string(),
     subject: z.string(),
     body: z.string(),
+    bodyFormat: z.enum(["text", "html"]).optional(),
     history: z
       .array(
         z.strictObject({
