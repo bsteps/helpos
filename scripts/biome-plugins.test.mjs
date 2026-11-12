@@ -164,3 +164,30 @@ test("conversation-writes.grit allows reads and unrelated table writes", () => {
     [],
   );
 });
+
+for (const source of [
+  'import { generateText } from "ai"; export { generateText };',
+  'import type { LanguageModel } from "ai"; export type { LanguageModel };',
+  'export * from "ai";',
+  'export * as sdk from "ai";',
+  'export type * as sdk from "ai";',
+  'export { generateText } from "ai";',
+  'export const sdk = import("ai");',
+  'export const sdk = require("ai");',
+  'import { MockLanguageModelV4 } from "ai/test"; export { MockLanguageModelV4 };',
+  'import { createOpenAI } from "@ai-sdk/openai"; export { createOpenAI };',
+  'import { withPaidModels } from "@helpos/ai/budget"; export { withPaidModels };',
+  'export * as budgetAccess from "@helpos/ai/budget";',
+  'export type * as budgetAccess from "@helpos/ai/budget";',
+]) {
+  test(`paid AI boundary rejects ${source}`, () => {
+    assert.ok(pluginMessages(source).some((m) => m.includes("AI SDK imports belong")));
+  });
+}
+
+test("paid AI boundary allows the public helpers", () => {
+  assert.deepEqual(
+    pluginMessages('import { draftReply } from "@helpos/ai"; export { draftReply };'),
+    [],
+  );
+});

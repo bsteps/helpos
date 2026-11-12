@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Other fingerprints remain unchanged. Conversation-write extraction uses the selective #240 fingerprints below. Audit instrumentation uses the selective #85 fingerprints below.
+Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Other fingerprints remain unchanged. Conversation-write extraction uses the selective #240 fingerprints below. Audit instrumentation uses the selective #85 fingerprints below. The #328 assembly selectively rechecks `defineJob`, `consume`, and `work` against the two-phase send contract. `handleSendReply` returns no deferral, so no send successor is enqueued by the new AI deferral branch. The logging wrapper still awaits and rethrows failures, the last-attempt condition and rollback-before-give-up order stay intact, and pg-boss settles after the callback. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -82,11 +82,11 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `97968274f48d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `1ab4b0b08c2b` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
-| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `a99b2cee9f9e` |
+| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
-| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `246f97b5f432` |
-| packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `1c138699acca` |
+| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `1c5921f6eb32` |
+| packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `0ac5978b52bb` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->
 

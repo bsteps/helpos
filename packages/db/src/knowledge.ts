@@ -2,11 +2,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import type { TenantTx } from "./client.ts";
 import { isUniqueViolation } from "./errors.ts";
-import {
-  type KnowledgeVisibility,
-  knowledgeEmbeddingDimensions,
-  knowledgeVisibilities,
-} from "./schema.ts";
+import { type KnowledgeVisibility, knowledgeEmbeddingDimensions } from "./schema.ts";
 
 /**
  * The form a `url` source's URL is stored in, so one page is one source. WHATWG parsing already
@@ -43,17 +39,33 @@ export interface KnowledgeQuery {
   /** The model that embedded the query. Chunks from any other model are never compared. */
   embeddingModel: string;
   limit: number;
-  /** Only sources with one of these visibilities. Omitted: all of them. */
-  visibility?: KnowledgeVisibility[] | undefined;
+  audience: "approver" | "customer";
 }
 
-const querySchema = z.strictObject({
+const scopeSchema = z.strictObject({
   tenantId: z.uuid(),
-  embedding: z.array(z.number().finite()).length(knowledgeEmbeddingDimensions),
   embeddingModel: z.string().min(1).max(200),
-  limit: z.number().int().min(1).max(20),
-  visibility: z.array(z.enum(knowledgeVisibilities)).min(1).optional(),
+  audience: z.enum(["approver", "customer"]),
 });
+
+const querySchema = scopeSchema.extend({
+  embedding: z.array(z.number().finite()).length(knowledgeEmbeddingDimensions),
+  limit: z.number().int().min(1).max(20),
+});
+
+export async function hasSearchableKnowledge(
+  tx: TenantTx,
+  query: Pick<KnowledgeQuery, "tenantId" | "embeddingModel" | "audience">,
+): Promise<boolean> {
+  const { tenantId, embeddingModel, audience } = scopeSchema.parse(query);
+  const [row] = await tx.execute<{ found: boolean }>(sql`
+    select exists (
+      select 1 from knowledge_chunks
+      where tenant_id = ${tenantId} and embedding_model = ${embeddingModel}
+        ${audienceFilter(tenantId, audience)}
+    ) as found`);
+  return row?.found ?? false;
+}
 
 /**
  * The only vector search over knowledge. Run it inside withTenant(): RLS limits
@@ -68,7 +80,7 @@ export async function searchKnowledge(
   tx: TenantTx,
   query: KnowledgeQuery,
 ): Promise<KnowledgeHit[]> {
-  const { tenantId, embedding, embeddingModel, limit, visibility } = querySchema.parse(query);
+  const { tenantId, embedding, embeddingModel, limit, audience } = querySchema.parse(query);
   await tx.execute(sql`set local hnsw.iterative_scan = relaxed_order`);
   const vector = JSON.stringify(embedding);
   // relaxed_order may return rows slightly out of order, so the outer query sorts again
@@ -86,7 +98,7 @@ export async function searchKnowledge(
       select id, source_id, content, embedding <=> ${vector}::vector as distance
       from knowledge_chunks
       where tenant_id = ${tenantId} and embedding_model = ${embeddingModel}
-        ${visibilityFilter(tenantId, visibility)}
+        ${audienceFilter(tenantId, audience)}
       order by embedding <=> ${vector}::vector
       limit ${limit}
     )
@@ -102,13 +114,10 @@ export async function searchKnowledge(
  * Inside the nearest-neighbour scan, not after it, so iterative scan keeps going until enough
  * passages of the wanted visibility are found.
  */
-function visibilityFilter(tenantId: string, visibility: KnowledgeVisibility[] | undefined) {
-  if (!visibility) return sql``;
+function audienceFilter(tenantId: string, audience: KnowledgeQuery["audience"]) {
+  if (audience === "approver") return sql``;
   return sql`and source_id in (
     select id from knowledge_sources
-    where tenant_id = ${tenantId} and visibility in (${sql.join(
-      visibility.map((v) => sql`${v}`),
-      sql`, `,
-    )})
+    where tenant_id = ${tenantId} and visibility = 'public'
   )`;
 }

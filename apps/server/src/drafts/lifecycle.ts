@@ -14,7 +14,7 @@ import {
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
-import type { AiBudget } from "../ai-budget/budget.ts";
+import { type AiBudget, dailyBudgetRefusal, mapAiRefusal } from "../ai-budget/budget.ts";
 import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
 import { type Details, type DiscardDetails, hashBody } from "../audit/details.ts";
 import { clearAiPause, markMessageSent, recordActivity } from "../conversations/lifecycle.ts";
@@ -456,9 +456,14 @@ export async function regenerateDraft(
   const live = await liveDraftFor(tx, messageId, "reply");
   if (live && !isPendingDraft(live)) return { outcome: "already_answered" };
   if (lock.closed) return { outcome: "conversation_closed" };
-  if ((await budget.today(tx, context.tenantId)).paused) {
-    return { outcome: "daily_budget_reached" };
-  }
+  const refusal = dailyBudgetRefusal(await budget.today(tx, context.tenantId));
+  const refused =
+    refusal &&
+    mapAiRefusal(refusal, {
+      busy: () => null,
+      over_budget: () => "daily_budget_reached" as const,
+    });
+  if (refused) return { outcome: refused };
   const discardedDraftIds = await discardStale(tx, context, {
     conversationIds: [conversationId],
     kind: "reply",

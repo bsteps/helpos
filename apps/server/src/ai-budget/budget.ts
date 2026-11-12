@@ -1,4 +1,5 @@
-import type { DraftUsage } from "@helpos/ai";
+import type { DraftUsage, PaidModels } from "@helpos/ai";
+import { withPaidModels } from "@helpos/ai/budget";
 import { and, eq, schema, sql, type TenantTransaction, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import type { Clock, ServerConfig } from "../services.ts";
@@ -87,14 +88,20 @@ export interface Reservation {
  * Why reserve() said no. `over_budget`: today's budget is spent, until UTC midnight.
  * `busy`: it isn't, but calls in flight hold the rest of it; try again once they settle.
  */
-type Refusal = { refused: "over_budget"; resetsAt: Date } | "busy";
+export interface AiRefusal {
+  refused: "over_budget" | "busy";
+  retryAt: Date;
+}
 
-/** Thrown by a job refused as `busy`, so pg-boss runs it again once the calls in flight end. */
-export class AiBusyError extends Error {
-  constructor() {
-    super("AI calls in flight hold the rest of today's budget: trying again later");
-    this.name = "AiBusyError";
-  }
+export function dailyBudgetRefusal(today: Pick<BudgetToday, "paused" | "day">): AiRefusal | null {
+  return today.paused ? { refused: "over_budget", retryAt: nextUtcDay(new Date(today.day)) } : null;
+}
+
+export function mapAiRefusal<T>(
+  refusal: AiRefusal,
+  handlers: Record<AiRefusal["refused"], (retryAt: Date) => T>,
+): T {
+  return handlers[refusal.refused](refusal.retryAt);
 }
 
 /**
@@ -117,7 +124,7 @@ export interface AiBudgetDeps {
 export interface AiBudget {
   today(tx: TenantTx, tenantId: string): Promise<BudgetToday>;
   /** Run in a short transaction that commits before the call, so the lock is let go. */
-  reserve(tx: TenantTx, tenantId: string, estimate: number): Promise<Reservation | Refusal>;
+  reserve(tx: TenantTx, tenantId: string, estimate: number): Promise<Reservation | AiRefusal>;
   /**
    * Makes the call, then settles the reservation in its own transaction: to `cost.of` the
    * result, or `cost.ofFailure` the error, which is then rethrown. A settle that fails is
@@ -127,7 +134,7 @@ export interface AiBudget {
   spend<T>(
     transaction: TenantTransaction,
     reservation: Reservation,
-    call: (signal: AbortSignal) => Promise<T>,
+    call: (signal: AbortSignal, models: PaidModels) => Promise<T>,
     cost: { of: (result: T) => Spent; ofFailure: (error: unknown) => FailureCost },
   ): Promise<T>;
 }
@@ -196,8 +203,8 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
       if (reserved) return { tenantId, day, tokens, expiresAt: new Date(reserved.expiresAtMs) };
       const usage = await spentOn(tx, day);
       return usage.inputTokens + usage.outputTokens >= budget
-        ? { refused: "over_budget", resetsAt: nextUtcDay(new Date(day)) }
-        : "busy";
+        ? { refused: "over_budget", retryAt: nextUtcDay(new Date(day)) }
+        : { refused: "busy", retryAt: new Date(deps.clock.now().getTime() + 30_000) };
     },
 
     async spend(transaction, reservation, call, cost) {
@@ -215,7 +222,7 @@ export function aiBudget(deps: AiBudgetDeps): AiBudget {
       const signal = deps.shutdown ? AbortSignal.any([timeout, deps.shutdown]) : timeout;
       let result: Awaited<ReturnType<typeof call>>;
       try {
-        result = await call(signal);
+        result = await withPaidModels(signal, (models) => call(signal, models));
       } catch (error) {
         await settleQuietly(cost.ofFailure(error));
         throw error;

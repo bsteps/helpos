@@ -88,6 +88,7 @@ When a rule here has a check, the check is the rule: if you hit it, do what its 
 | UI routes/components need `apps/web/e2e`, AI production source needs `packages/ai/evals`, and inbound/outbound email needs `fixtures/email`; a standalone `Proof: not needed because ...` PR-body line records an explicit exception | `scripts/proof-check/decide.mjs`, script tests, `.github/workflows/proof-check.yml`                                            |
 | GitHub Actions pinned to a SHA, `persist-credentials: false`, locked-down AI review                                                                                                                                                  | `scripts/workflows.test.mjs`                                                                                                   |
 | Which scopes a route needs, whether a `none` audit reason holds, inbound content as data, safe output, `safe-fetch` for outside URLs                                                                                                 | Judgment: the tenant-isolation and security-baseline checks, and review                                                        |
+| AI helpers require a paid model from `budget.spend()`; SDK imports stay inside `packages/ai`                                                                                                                                         | `PaidModel` type, `scripts/paid-ai-types.test.mjs`, `biome-plugins/paid-ai.grit`, `scripts/biome-plugins.test.mjs`             |
 
 ## Code style and patterns
 
