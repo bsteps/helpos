@@ -1,0 +1,96 @@
+language js
+
+or {
+  identifier() as $ref where { $ref <: "fetch", $ref <: not within `typeof fetch` },
+  `globalThis.fetch`,
+  `window.fetch`,
+  `global.fetch`,
+  `globalThis["fetch"]`,
+  `window["fetch"]`,
+  `global["fetch"]`,
+  js"$global[`fetch`]" where {
+    $global <: or {
+      `globalThis`,
+      `window`,
+      `global`
+    }
+  },
+  or {
+    JsVariableDeclarator(id=$binding, initializer=JsInitializerClause(expression=$global)),
+    JsAssignmentExpression(left=$binding, right=$global)
+  } where {
+    $global <: or {
+      `globalThis`,
+      `window`,
+      `global`
+    },
+    $binding <: or {
+      JsObjectBindingPattern(),
+      JsObjectAssignmentPattern()
+    },
+    $binding <: contains ( JsLiteralMemberName() as $name where {
+      $name <: r"[\x22']?fetch[\x22']?"
+    })
+  },
+  `import $imports from $source` where {
+    $source <: or {
+      `"undici"`,
+      `"node:http"`,
+      `"node:https"`,
+      `"http"`,
+      `"https"`
+    }
+  },
+  `import $source` where {
+    $source <: or {
+      `"undici"`,
+      `"node:http"`,
+      `"node:https"`,
+      `"http"`,
+      `"https"`
+    }
+  },
+  `export { $exports } from $source` where {
+    $source <: or {
+      `"undici"`,
+      `"node:http"`,
+      `"node:https"`,
+      `"http"`,
+      `"https"`
+    }
+  },
+  `export * from $source` where {
+    $source <: or {
+      `"undici"`,
+      `"node:http"`,
+      `"node:https"`,
+      `"http"`,
+      `"https"`
+    }
+  },
+  `import($source)` where {
+    $source <: or {
+      `"undici"`,
+      `"node:http"`,
+      `"node:https"`,
+      `"http"`,
+      `"https"`
+    }
+  },
+  `require($source)` where {
+    $source <: or {
+      `"undici"`,
+      `"node:http"`,
+      `"node:https"`,
+      `"http"`,
+      `"https"`
+    }
+  }
+} as $request where {
+  $filename <: r"(?:^|.*[/\\\\])(?:apps[/\\\\](?:server|web)[/\\\\]src|packages)[/\\\\].*",
+  $filename <: not r"(?:^|.*[/\\\\])packages[/\\\\]safe-fetch[/\\\\].*",
+  $filename <: not r"(?:^|.*[/\\\\])apps[/\\\\]web[/\\\\]src[/\\\\]api[/\\\\]client\.ts$",
+  $filename <: not r".*\.(?:test|spec)\.[cm]?[jt]sx?$",
+  $filename <: not r".*[/\\\\]e2e[/\\\\].*",
+  register_diagnostic(span=$request, message="Use @helpos/safe-fetch for outside URLs, or api from apps/web/src/api/client.ts for dashboard requests.", severity="error")
+}

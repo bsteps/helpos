@@ -72,7 +72,14 @@ const pages: Record<
   string,
   { type: string; body: string | Buffer; status?: number; location?: string }
 > = {
-  // A quoted charset label is valid HTTP; the bytes are Latin-1, not UTF-8.
+  "/unknown-utf8": {
+    type: "text/html; charset=unknown-charset",
+    body: "<p>Crème brûlée is free.</p>",
+  },
+  "/unknown-latin1": {
+    type: "text/html; charset=unknown-charset",
+    body: Buffer.from("<p>Crème brûlée is free.</p>", "latin1"),
+  },
   "/latin1": {
     type: 'text/html; charset="iso-8859-1"',
     body: Buffer.from("<p>Café crème: refunds in 5 days.</p>", "latin1"),
@@ -392,6 +399,19 @@ describe("adding and ingesting sources", () => {
     expect((await ingested(acme, added.id)).state.status).toBe("ready");
     expect((await chunksOf(acme, added.id))[0]?.content).toBe("Café crème: refunds in 5 days.");
   });
+
+  it.each(["/unknown-utf8", "/unknown-latin1"])(
+    "decodes an unknown charset using the byte fallback: %s",
+    async (path) => {
+      const added = await addSource("editor", {
+        kind: "url",
+        title: "Unknown charset",
+        url: pageUrl(path),
+      });
+      expect((await ingested(acme, added.id)).state.status).toBe("ready");
+      expect((await chunksOf(acme, added.id))[0]?.content).toBe("Crème brûlée is free.");
+    },
+  );
 
   it("keeps the indentation of code in a markdown page", async () => {
     const added = await addSource("editor", {

@@ -15,6 +15,7 @@
 //   {token} {tokenId}  the last token minted with POST v1/tokens
 //   {source}     the last knowledge source created
 // Exit code 0 for a 2xx answer, 1 otherwise.
+
 import { readFileSync } from "node:fs";
 import {
   apiFetch,
@@ -30,6 +31,7 @@ import {
   seedToken,
   whyNoDraft,
 } from "./instance.mjs";
+import { responseBody } from "./response.mjs";
 
 const hint = {
   conversation: "run new-email.mjs first",
@@ -165,16 +167,9 @@ const res = await apiFetch(`${inst.apiUrl}${path}`, {
   body,
 });
 const text = await res.text();
-let shown = text;
-try {
-  shown = JSON.stringify(JSON.parse(text), null, 2);
-} catch {}
+const { shown, json } = responseBody(text);
 process.stdout.write(`${res.status}\n${shown}\n`);
 if (res.ok) {
-  let json = {};
-  try {
-    json = text ? JSON.parse(text) : {};
-  } catch {}
   const post = method.toUpperCase() === "POST";
   // Only what a POST made or acted on: reading another conversation's draft must not move {conversation}.
   if (post && json.conversationId) remember({ conversation: json.conversationId });

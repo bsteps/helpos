@@ -13,12 +13,12 @@
  * Not lower: notes often script a short line to say ("tell them a teammate will apply it within
  * one business day"), and a draft that says it is following the note, not leaking it.
  */
-export const minQuoteWords = 10;
+const minQuoteWords = 10;
 /**
  * …and it must carry this many distinct content words. Support mail is full of long stock
  * phrases ("please let us know if you have any questions") that a note may share by chance.
  */
-export const minQuoteContentWords = 4;
+const minQuoteContentWords = 4;
 
 // Function words and support-mail boilerplate: shared runs made only of these aren't quotes.
 const common = new Set(
