@@ -8,7 +8,7 @@
       "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
     },
     "apps/server": {
-      "entry": ["src/worker.ts", "src/cli/*.ts"]
+      "entry": ["src/worker.ts", "src/cli/*.ts", "scripts/*.ts"]
     },
     "apps/web": {
       // Playwright picks up *.setup.ts through a testMatch regex knip can't read.
