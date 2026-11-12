@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import { compareSpecs, intendedBreak, readBaseSpec } from "./api-compatibility.mjs";
 import { oasdiff } from "./oasdiff.mjs";
 
@@ -101,6 +103,72 @@ test("a marker cannot waive a malformed spec or a tool failure", () => {
       justification: "A justification does not make the tool exist.",
     }),
   );
+});
+
+test("a justification cannot admit invalid base or revision documents", () => {
+  const invalidSchema = structuredClone(original);
+  invalidSchema.paths["/health"].get.responses["200"].content["application/json"].schema.type =
+    "invalid";
+  const invalid = join(dir, "invalid.json");
+  for (const doc of [{}, invalidSchema]) {
+    writeFileSync(invalid, JSON.stringify(doc));
+    for (const side of ["base", "current"]) {
+      assert.throws(
+        () =>
+          compareSpecs({
+            binary,
+            base: side === "base" ? invalid : base,
+            current: side === "current" ? invalid : base,
+            justification: "This reason cannot permit an invalid specification.",
+          }),
+        /oasdiff failed to validate/,
+      );
+    }
+  }
+});
+
+test("external refs in either input never reach the loopback network", async () => {
+  const worker = new Worker(
+    `
+    const { createServer } = require("node:http");
+    const { parentPort } = require("node:worker_threads");
+    const server = createServer((req, res) => {
+      parentPort.postMessage({ kind: "request" });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ type: "string" }));
+    });
+    server.listen(0, "127.0.0.1", () => {
+      parentPort.postMessage({ kind: "ready", url: "http://127.0.0.1:" + server.address().port + "/schema.json" });
+    });
+  `,
+    { eval: true },
+  );
+  let requests = 0;
+  try {
+    const [ready] = await once(worker, "message");
+    worker.on("message", (message) => {
+      if (message.kind === "request") requests += 1;
+    });
+    const external = structuredClone(original);
+    external.components.schemas.Conversation.properties.subject = { $ref: ready.url };
+    const input = join(dir, "external.json");
+    writeFileSync(input, JSON.stringify(external));
+    for (const side of ["base", "current"]) {
+      assert.throws(
+        () =>
+          compareSpecs({
+            binary,
+            base: side === "base" ? input : base,
+            current: side === "current" ? input : base,
+            justification: "This reason cannot permit outside reference fetching.",
+          }),
+        /external|disallowed/i,
+      );
+    }
+  } finally {
+    await worker.terminate();
+  }
+  assert.equal(requests, 0);
 });
 
 test("CI compares the event's base without interpolating its body into shell code", () => {
