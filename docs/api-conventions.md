@@ -95,3 +95,47 @@ The checked-in contract is `apps/web/src/api/openapi.json`.
 `apps/server/src/openapi.test.ts` compares it with the served document during the server tests in `pnpm verify`.
 It also checks every operation in both documents for nonempty, unique IDs, including health, readiness, and authentication.
 A stale contract or a missing, empty, or duplicate ID fails verification.
+
+## Validate responses and compatibility
+
+Server tests install `src/testing/setup.ts` through Vitest. It wraps the real `createApp()` with
+`contractApp()`, including apps built by `composeServer()`. Existing request helpers keep their
+response bodies because validation reads a clone. Standalone integration apps must use
+`contractApp()` too. Pure domain tests do not need an app or a contract.
+
+The boundary reads the app's live OpenAPI registry, including test-only routes. It uses Hono's
+matched route and request method, then checks the declared status, media type and response schema.
+AJV 2020 validates local schema refs, composition and formats without coercion or removal of fields.
+Text responses validate as strings. HEAD, 204, 304 and responses without content must be empty.
+Undocumented test routes, ambiguous overlapping paths, missing statuses, unsupported external refs
+and unexpected media types fail. Register test probe contracts explicitly.
+Unmatched requests must return the standard 404 problem. `/openapi.json` must return a 3.1 document.
+These two infrastructure responses have explicit test contracts rather than bypasses.
+
+The required CI check also runs `node scripts/api-compatibility.mjs --event "$GITHUB_EVENT_PATH"`.
+It reads the actual pull request base SHA from the event, loads that commit's checked-in spec,
+and compares it with a freshly generated current document. It never defaults to `main`.
+To reproduce locally, run `node scripts/api-compatibility.mjs <actual-base-commit-or-ref> [pr-body-file]`.
+Freshness tests still run independently.
+
+The compatibility check uses oasdiff 1.37.0, an Apache-2.0 tool. It downloads the upstream release
+archive for Linux or Windows x64 and verifies a pinned SHA-256 before extraction.
+The test-only AJV and ajv-formats dependencies use MIT licences.
+The complete breaking report stays in the CI log and `.helpos/api-breaking.json`, including
+when an exception permits the check to pass. Tool errors and invalid specs always fail.
+
+An intended breaking PR must contain exactly one line in its body in this form:
+
+```text
+API-Break: <affected operations, concrete reason, and how consumers must migrate>
+```
+
+Replace the placeholder with a justification of at least 20 characters. A quoted line or a mention
+inside a paragraph does not mark a break. This marker covers the PR's reported changes, so review
+every finding against the justification. Body edits rerun CI. The marker grants no merge authority
+and does not remove `needs-human` for a public contract decision.
+
+The response checks exposed a declaration bug in the shared `json()` helper. A knowledge source's
+nullable ingestion `error` is resource data, not a typed API problem. Creation, editing and re-ingest
+already return `application/json`; their declarations now describe that behavior without problem
+fields. Conversation-list query validation now also declares its existing 400 problem response.

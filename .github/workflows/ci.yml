@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 # Least privilege: CI only needs to read the code.
 permissions:
@@ -24,12 +25,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # don't leave a token on disk for later steps
+          fetch-depth: 0
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Compare API contract to the actual PR base
+        if: github.event_name == 'pull_request'
+        run: node scripts/api-compatibility.mjs --event "$GITHUB_EVENT_PATH"
       - run: pnpm exec biome ci .
       # Unused files, exports and dependencies (knip.jsonc).
       - run: pnpm knip

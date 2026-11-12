@@ -1962,6 +1962,16 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid conversation filters",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "401": {
             "description": "No valid credentials",
             "content": {
@@ -3317,41 +3327,9 @@
           "201": {
             "description": "The new source, status `pending`",
             "content": {
-              "application/problem+json": {
+              "application/json": {
                 "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/KnowledgeSource"
-                    },
-                    {
-                      "allOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "type": {
-                              "type": "string",
-                              "const": "about:blank"
-                            },
-                            "title": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "integer"
-                            },
-                            "instance": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "type",
-                            "title",
-                            "status",
-                            "instance"
-                          ]
-                        }
-                      ]
-                    }
-                  ]
+                  "$ref": "#/components/schemas/KnowledgeSource"
                 }
               }
             }
@@ -3455,41 +3433,9 @@
           "202": {
             "description": "The source, status `pending`",
             "content": {
-              "application/problem+json": {
+              "application/json": {
                 "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/KnowledgeSource"
-                    },
-                    {
-                      "allOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "type": {
-                              "type": "string",
-                              "const": "about:blank"
-                            },
-                            "title": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "integer"
-                            },
-                            "instance": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "type",
-                            "title",
-                            "status",
-                            "instance"
-                          ]
-                        }
-                      ]
-                    }
-                  ]
+                  "$ref": "#/components/schemas/KnowledgeSource"
                 }
               }
             }
@@ -3615,41 +3561,9 @@
           "200": {
             "description": "The source as it is now",
             "content": {
-              "application/problem+json": {
+              "application/json": {
                 "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/KnowledgeSource"
-                    },
-                    {
-                      "allOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "type": {
-                              "type": "string",
-                              "const": "about:blank"
-                            },
-                            "title": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "integer"
-                            },
-                            "instance": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "type",
-                            "title",
-                            "status",
-                            "instance"
-                          ]
-                        }
-                      ]
-                    }
-                  ]
+                  "$ref": "#/components/schemas/KnowledgeSource"
                 }
               }
             }

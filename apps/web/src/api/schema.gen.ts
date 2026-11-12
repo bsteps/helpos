@@ -1443,6 +1443,15 @@ export interface operations {
                     };
                 };
             };
+            /** @description Invalid conversation filters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Error"];
+                };
+            };
             /** @description No valid credentials */
             401: {
                 headers: {
@@ -2282,13 +2291,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["KnowledgeSource"] & {
-                        /** @constant */
-                        type: "about:blank";
-                        title: string;
-                        status: number;
-                        instance: string;
-                    };
+                    "application/json": components["schemas"]["KnowledgeSource"];
                 };
             };
             /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
@@ -2358,13 +2361,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["KnowledgeSource"] & {
-                        /** @constant */
-                        type: "about:blank";
-                        title: string;
-                        status: number;
-                        instance: string;
-                    };
+                    "application/json": components["schemas"]["KnowledgeSource"];
                 };
             };
             /** @description Invalid request or idempotency key; credential and provider writes refuse keyed requests */
@@ -2524,13 +2521,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["KnowledgeSource"] & {
-                        /** @constant */
-                        type: "about:blank";
-                        title: string;
-                        status: number;
-                        instance: string;
-                    };
+                    "application/json": components["schemas"]["KnowledgeSource"];
                 };
             };
             /** @description `content` sent for a URL source (`content_not_editable`) */

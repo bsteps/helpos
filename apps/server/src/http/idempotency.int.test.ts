@@ -22,6 +22,7 @@ import { createApp } from "../app.ts";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import { type Principal, scopes } from "../auth/principal.ts";
+import { errorSchema, json } from "../http/route-kit.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { composeServices } from "../services.ts";
 import { generateToken } from "../tokens/token.ts";
@@ -332,7 +333,10 @@ describe("durable idempotency through the public API middleware", () => {
       path: "/crash-probe",
       access: { allScopes: ["knowledge:write"] },
       audit: { records: ["knowledge_source.created"] },
-      responses: { 200: { description: "probe" } },
+      responses: {
+        200: { description: "probe" },
+        500: json(errorSchema, "Simulated response loss"),
+      },
     });
     instance.openapi(route, async () => {
       calls += 1;

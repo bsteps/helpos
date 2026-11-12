@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 // machine responsive: the app tests are heavy, and Docker shares the same CPUs.
 export default defineConfig({
   test: {
+    setupFiles: ["./src/testing/setup.ts"],
     globalSetup: ["../../packages/db/src/testing.ts"],
     testTimeout: 30_000,
     hookTimeout: 180_000,

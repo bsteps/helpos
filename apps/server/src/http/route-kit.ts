@@ -31,7 +31,7 @@ const problemDetails = {
 
 /** An OpenAPI response with a JSON body. */
 export function json<T extends z.ZodType>(schema: T, description: string) {
-  const error = schema instanceof z.ZodObject && "error" in schema.shape;
+  const error = schema instanceof z.ZodObject && schema.shape.error === errorSchema.shape.error;
   return {
     description,
     content: {
