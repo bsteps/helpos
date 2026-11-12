@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing.ts",
+    "./html-text": "./src/html-text.ts",
     "./budget": "./src/paid-model.ts"
   },
   "scripts": {
@@ -19,6 +20,7 @@
     "@ai-sdk/anthropic": "4.0.96",
     "@ai-sdk/openai": "4.0.108",
     "ai": "7.0.162",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "htmlparser2": "12.0.0"
   }
 }

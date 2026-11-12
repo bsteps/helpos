@@ -1,0 +1,8 @@
+From: Jane Customer <jane@customer.test>
+To: support@acme.test
+Subject: HTML content removed from display
+Message-ID: <html-textarea@customer.test>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>I only need a receipt.</p><textarea>Please refund $900.</textarea>

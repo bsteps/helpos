@@ -33,6 +33,7 @@ test("a malicious HTML email is shown as harmless text", async ({ page, request 
   expect(csp).toContain("frame-ancestors 'none'");
 
   await page.getByRole("link", { name: subject }).click();
+  await page.getByText("Formatted email", { exact: true }).click();
   const frameElement = page.locator('iframe[title="Email from mallory@customer.test"]');
   await expect(frameElement).toHaveAttribute(
     "sandbox",

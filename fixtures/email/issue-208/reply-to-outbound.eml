@@ -1,0 +1,9 @@
+From: Jane <jane@customer.test>
+To: support@acme.test
+MIME-Version: 1.0
+Message-ID: <208-answer@customer.test>
+In-Reply-To: <OUTBOUND-ID>
+Subject: Re: My order
+Content-Type: text/plain; charset=utf-8
+
+Thanks, that answered my question.

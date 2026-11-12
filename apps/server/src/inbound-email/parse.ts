@@ -1,3 +1,4 @@
+import { messageText } from "@helpos/ai/html-text";
 import PostalMime, { type Address } from "postal-mime";
 import { type AutomatedReason, detectAutomated } from "./automated.ts";
 
@@ -31,6 +32,8 @@ interface ParsedAttachment {
 }
 
 export const noSubject = "(no subject)";
+export const maxAttachments = 20;
+export const maxFilenameLength = 255;
 
 export async function parseEmail(raw: Uint8Array): Promise<ParsedEmail> {
   const email = await PostalMime.parse(raw, { attachmentEncoding: "arraybuffer" });
@@ -41,6 +44,12 @@ export async function parseEmail(raw: Uint8Array): Promise<ParsedEmail> {
   const date = email.date ? new Date(email.date) : null;
 
   const fromAddress = from ? from.address.toLowerCase() : null;
+  const omitted = Math.max(0, email.attachments.length - maxAttachments);
+  const note = omitted
+    ? `Attachment limit reached: ${omitted} attachment(s) omitted. Only the first ${maxAttachments} attachments were stored separately. The original email is retained.`
+    : null;
+  const text = email.text === undefined ? null : clean(email.text);
+  const html = email.html === undefined ? null : clean(email.html);
 
   return {
     from: from && fromAddress ? { address: fromAddress, name: clean(from.name) || null } : null,
@@ -55,15 +64,18 @@ export async function parseEmail(raw: Uint8Array): Promise<ParsedEmail> {
     ),
     to: to.map((m) => m.address),
     subject: clean(email.subject).trim() || noSubject,
-    text: email.text === undefined ? null : clean(email.text),
-    html: email.html === undefined ? null : clean(email.html),
+    text: note ? `${note}\n\n${messageText({ textBody: text, htmlBody: html })}` : text,
+    html: note ? null : html,
     messageId: messageIds(email.messageId)[0] ?? null,
     inReplyTo,
     threadIds: unique([...(inReplyTo ? [inReplyTo] : []), ...references.toReversed()]),
     references,
     date: date && !Number.isNaN(date.getTime()) ? date : null,
-    attachments: email.attachments.map((a) => ({
-      filename: a.filename === null ? null : clean(a.filename),
+    attachments: email.attachments.slice(0, maxAttachments).map((a) => ({
+      filename:
+        a.filename === null
+          ? null
+          : Array.from(clean(a.filename)).slice(0, maxFilenameLength).join(""),
       contentType: a.mimeType || "application/octet-stream",
       contentId: a.contentId ?? null,
       bytes:
