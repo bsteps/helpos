@@ -1,5 +1,5 @@
+import { maxHtmlChars } from "@helpos/ai/html-text";
 import sanitizeHtml from "sanitize-html";
-import { maxHtmlChars } from "../drafts/html-text.ts";
 
 /** Formatting and layout only: no scripts, forms, frames, embeds, `<style>`, `<base>` or `<meta>`. */
 const allowedTags = [...sanitizeHtml.defaults.allowedTags, "img", "center", "font", "del", "ins"];

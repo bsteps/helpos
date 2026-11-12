@@ -21,6 +21,7 @@ export {
   enqueue,
   type JobDeferral,
   type JobRunner,
+  type JobRunnerOptions,
   type RetryPolicy,
   type TenantJob,
   type TenantJobHandler,

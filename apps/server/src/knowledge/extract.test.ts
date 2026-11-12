@@ -1,6 +1,6 @@
+import { extractHtml } from "@helpos/ai/html-text";
 import { describe, expect, it } from "vitest";
 import { chunkText } from "./chunk.ts";
-import { extractHtml } from "./extract.ts";
 
 describe("extractHtml", () => {
   it("returns readable text, with headings, lists and entities", () => {
@@ -100,6 +100,11 @@ describe("extractHtml", () => {
     expect(text).toBe("## Install\n\n```\n# install deps\nnpm install\n```\n\nThen run it.");
     // One section: the shell comment didn't start a new one.
     expect(chunkText(text)).toEqual([text]);
+  });
+
+  it("doesn't let page text fake the code-block marker to keep its own spacing", () => {
+    const page = "<p>Spaced\uE000<b> </b><i> </i>out.</p>";
+    expect(extractHtml(page).text).toBe("Spaced out.");
   });
 
   it("keeps line breaks in code blocks and separates table cells", () => {

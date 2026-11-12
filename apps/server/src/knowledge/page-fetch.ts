@@ -1,7 +1,8 @@
+import { extractHtml } from "@helpos/ai/html-text";
 import type { schema } from "@helpos/db";
 import { SafeFetchError, type SafeFetchLogger, type safeFetch } from "@helpos/safe-fetch";
 import { Parser } from "htmlparser2";
-import { extractHtml, tidyAuthored } from "./extract.ts";
+import { tidyAuthored } from "./extract.ts";
 
 /** The SSRF-safe fetch. A parameter only so tests can reach a local test server. */
 export type Fetcher = typeof safeFetch;

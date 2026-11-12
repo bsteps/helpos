@@ -1,3 +1,4 @@
+import { messageText } from "@helpos/ai/html-text";
 import {
   type AuthStore,
   and,
@@ -24,7 +25,6 @@ import {
 import { noticeWindowMinutes } from "../outbound-email/draft-notice.ts";
 import type { EmailTransport } from "../outbound-email/transport.ts";
 import type { ServerConfig } from "../services.ts";
-import { messageText } from "./html-text.ts";
 import { draftNoticeJob } from "./jobs.ts";
 import { draftWhere } from "./lifecycle.ts";
 

@@ -6,6 +6,7 @@ import {
   createJobRunner,
   type Database,
   type JobRunner,
+  type JobRunnerOptions,
 } from "@helpos/db";
 import { createLocalFileStore } from "@helpos/files";
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -22,8 +23,8 @@ export type ServerInput = Omit<ServicesInput, "db" | "shutdown"> & {
   db: Database;
   /** The jobs role (owner of `pgboss`). */
   jobsUrl: string;
-  /** pg-boss's background errors. Default: logged. */
-  onJobError?: (error: unknown) => void;
+  /** The job runner's errors, with queue and job ID when it has them. Default: logged. */
+  onJobError?: JobRunnerOptions["onError"];
   pollingIntervalSeconds?: number;
 };
 
@@ -58,7 +59,9 @@ export function composeServer(input: ServerInput): Server {
   const runner = createJobRunner({
     jobsUrl: input.jobsUrl,
     db: input.db,
-    onError: input.onJobError ?? ((err) => services.logger.error({ err }, "job runner error")),
+    onError:
+      input.onJobError ??
+      ((err, context) => services.logger.error({ err, ...context }, "job runner error")),
     ...(input.pollingIntervalSeconds === undefined
       ? {}
       : { pollingIntervalSeconds: input.pollingIntervalSeconds }),

@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type LanguageModel, wrapLanguageModel } from "ai";
+import { htmlToText } from "../html-text.ts";
 import { mockModel } from "../testing.ts";
 import { checkAssertions } from "./assert.ts";
 import { type EvalCase, evalCaseSchema } from "./case.ts";
@@ -54,7 +55,11 @@ export async function runEvals(
     });
     try {
       const task = evalCase.task === "github-issue" ? draftIssueTask : draftReplyTask;
-      const output = await task(model, evalCase.input);
+      const input = evalCase.input;
+      const output = await task(model, {
+        ...input,
+        body: input.bodyFormat === "html" ? htmlToText(input.body) : input.body,
+      });
       results.push({
         file,
         name: evalCase.name,

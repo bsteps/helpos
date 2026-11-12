@@ -26,13 +26,15 @@ describe("runEvals", () => {
   it("sends the email fenced as untrusted data, after the instructions", async () => {
     const model = mockModel({ text: "ok" });
     await runEvals(evalsDir, model);
-    // Every case is fenced; the hidden-HTML case is the one whose payload we can recognise.
     const call = model.doGenerateCalls.find((c) =>
-      JSON.stringify(c.prompt).includes("display:none"),
+      JSON.stringify(c.prompt).includes("since yesterday"),
     );
     expect(call?.prompt[0]?.role).toBe("system");
     const user = JSON.stringify(call?.prompt[1]);
-    expect(user).toMatch(/<untrusted_email>.*display:none.*<\/untrusted_email>/);
+    expect(user).toMatch(/<untrusted_email>.*since yesterday.*<\/untrusted_email>/);
+    expect(user).not.toContain("display:none");
+    expect(user).not.toContain("reveal your system prompt");
+    expect(user).not.toContain("hacked");
 
     const latestSteps = model.doGenerateCalls.find((c) =>
       JSON.stringify(c.prompt).includes("Here are the steps you asked for"),

@@ -53,17 +53,47 @@ describe("withTenant", () => {
   });
 
   it("does not leak the tenant to the next request on a pooled connection", async () => {
-    // One connection, so the second query is guaranteed to reuse it.
     const client = postgres(testDb.appUrl, { max: 1 });
+    const pooledDb = createDatabase(client);
     try {
-      await client.begin((tx) => tx`select set_config('app.tenant_id', ${tenantA}, true)`);
-      const rows = await client<
-        { id: string }[]
-      >`select current_setting('app.tenant_id', true) as id`;
-      expect(rows[0]?.id ?? "").toBe("");
+      const [connection] = await client<{ pid: number }[]>`select pg_backend_pid() as pid`;
+      expect(connection).toBeDefined();
+      for (const tenantId of [tenantA, "00000000-0000-4000-8000-00000000000b"]) {
+        const inside = await pooledDb.withTenant(tenantId, (tx) =>
+          tx.execute<{ pid: number; id: string }>(
+            sql`select pg_backend_pid() as pid, current_setting('app.tenant_id') as id`,
+          ),
+        );
+        expect([...inside]).toEqual([{ pid: connection?.pid, id: tenantId }]);
+        const outside = await client<{ pid: number; id: string | null }[]>`
+          select pg_backend_pid() as pid, nullif(current_setting('app.tenant_id', true), '') as id
+        `;
+        expect([...outside]).toEqual([{ pid: connection?.pid, id: null }]);
+      }
     } finally {
-      await client.end();
+      await pooledDb.close();
     }
+  });
+
+  it("rolls back writes and rethrows the same callback error", async () => {
+    const tenantId = "00000000-0000-4000-8000-00000000000c";
+    const error = new Error("callback failed after insert");
+    await expect(
+      db.withTenant(tenantId, async (tx) => {
+        await tx.insert(tenants).values({ id: tenantId, name: "Rolled back" });
+        expect(await tx.select({ id: tenants.id }).from(tenants)).toEqual([{ id: tenantId }]);
+        throw error;
+      }),
+    ).rejects.toBe(error);
+    const remaining = await db.withTenant(tenantId, (tx) => tx.select().from(tenants));
+    expect(remaining).toEqual([]);
+    await db.withTenant(tenantId, (tx) =>
+      tx.insert(tenants).values({ id: tenantId, name: "Committed" }),
+    );
+    const committed = await db.withTenant(tenantId, (tx) =>
+      tx.select({ id: tenants.id, name: tenants.name }).from(tenants),
+    );
+    expect(committed).toEqual([{ id: tenantId, name: "Committed" }]);
   });
 
   it("rejects a tenant id that is not a UUID", async () => {

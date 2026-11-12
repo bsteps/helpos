@@ -94,7 +94,7 @@ type TenantSpec = {
   name: string;
   domain: string;
   mailbox: string;
-  members: { email: string; name: string; role: "owner" | "member" }[];
+  members: { email: string; name: string; role: schema.WorkspaceRole }[];
   customers: { email: string; name: string }[];
   tokens: { name: string; scopes: schema.ApiTokenScope[]; revoked?: boolean }[];
   sources: SourceSpec[];

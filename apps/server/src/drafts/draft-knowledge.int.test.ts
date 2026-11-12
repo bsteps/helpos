@@ -60,13 +60,15 @@ async function draftWith(
   messageId: string,
   model: LanguageModel = mockModel({ text: "A teammate will follow up." }),
 ) {
+  const draftLogger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
   await handleDraftReply({
     model,
-    logger,
+    logger: draftLogger,
     search,
     clock: systemClock,
     config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
   })({ tenantId: acme, messageId }, tenantTransactions(db, acme));
+  return draftLogger;
 }
 
 const usedToday = () => usageOn(db, acme).then((u) => u.totalTokens);
@@ -148,8 +150,7 @@ describe("drafting when knowledge search fails", () => {
     ],
   ])("drafts without knowledge when %s", async (_, provider) => {
     const email = await receive(++received);
-    logger.warn.mockClear();
-    await draftWith(provider(), email.messageId);
+    const draftLogger = await draftWith(provider(), email.messageId);
 
     const [draft] = await draftsOf(email.conversationId);
     if (!draft) throw new Error("no draft was written");
@@ -158,9 +159,9 @@ describe("drafting when knowledge search fails", () => {
       tx.select().from(schema.draftCitations).where(eq(schema.draftCitations.draftId, draft.id)),
     );
     expect(citations).toEqual([]);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.anything(),
-      "knowledge search failed: drafting without it",
+    expect(draftLogger.warn).toHaveBeenCalledExactlyOnceWith(
+      { err: expect.any(Error) },
+      expect.any(String),
     );
   });
 });
