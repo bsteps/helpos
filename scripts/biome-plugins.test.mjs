@@ -76,6 +76,12 @@ test("domain modules cannot import HTTP values or types", () => {
   for (const source of [
     'import type { Auditor } from "../http/route-kit.ts";\n',
     'import { json } from "../http/route-kit.ts";\n',
+    'export { json } from "../http/route-kit.ts";\n',
+    'export type { Auditor } from "../http/route-kit.ts";\n',
+    'export * from "../http/route-kit.ts";\n',
+    'export * as kit from "../http/route-kit.ts";\n',
+    'import "../http/route-kit.ts";\n',
+    'export const kit = await import("../http/route-kit.ts");\n',
   ]) {
     for (const name of ["github/issues.ts", "github/issue-draft.ts", "ai-budget/set-budget.ts"]) {
       assert.ok(pluginMessages(source, name).some((m) => m.includes("Domain modules")));
@@ -205,10 +211,13 @@ test("intentional no-op callbacks and handled errors are allowed", () => {
     [],
   );
 });
-for (const method of ["json", "text", "parseBody", "formData", "arrayBuffer"]) {
-  test(`raw request ${method} is rejected outside the raw routes`, () => {
+for (const read of [
+  ...["json", "text", "parseBody", "formData", "arrayBuffer", "blob"].map((m) => `req.${m}`),
+  ...["json", "text", "formData", "arrayBuffer", "blob"].map((m) => `req.raw.${m}`),
+]) {
+  test(`raw request ${read} is rejected outside the raw routes`, () => {
     assert.ok(
-      pluginMessages(`export const f = (ctx) => ctx.req.${method}();`, "handler.ts").some((m) =>
+      pluginMessages(`export const f = (ctx) => ctx.${read}();`, "handler.ts").some((m) =>
         /req.valid/.test(m),
       ),
     );
@@ -216,7 +225,9 @@ for (const method of ["json", "text", "parseBody", "formData", "arrayBuffer"]) {
 }
 test("validated request and response body reads are allowed", () => {
   assert.deepEqual(
-    pluginMessages('export const f = (c, response) => [c.req.valid("json"), response.json()];'),
+    pluginMessages(
+      'export const f = (c, response) => [c.req.valid("json"), c.req.raw.headers, response.json()];',
+    ),
     [],
   );
 });
