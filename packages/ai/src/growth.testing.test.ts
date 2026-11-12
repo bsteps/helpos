@@ -45,17 +45,21 @@ describe("expectLinearGrowth", () => {
   });
 
   it.each([
-    { power: 1, pausedSize: 2_000 },
-    { power: 1, pausedSize: 16_000 },
-    { power: 2, pausedSize: 2_000 },
-    { power: 2, pausedSize: 16_000 },
+    { power: 1, pausedSize: 2_000, factor: 2 },
+    { power: 1, pausedSize: 16_000, factor: 2 },
+    { power: 2, pausedSize: 2_000, factor: 2 },
+    { power: 2, pausedSize: 16_000, factor: 2 },
+    { power: 1, pausedSize: 2_000, factor: 4 },
+    { power: 1, pausedSize: 16_000, factor: 4 },
+    { power: 2, pausedSize: 2_000, factor: 4 },
+    { power: 2, pausedSize: 16_000, factor: 4 },
   ])(
-    "handles intermittent slowdowns at size $pausedSize for growth power $power",
-    ({ power, pausedSize }) => {
+    "handles $factor-fold slowdowns at size $pausedSize for growth power $power",
+    ({ power, pausedSize, factor }) => {
       const run = () =>
         measuredGrowth(
           (size, _now, batch) =>
-            (size / 2_000) ** power * (size === pausedSize && batch % 3 !== 0 ? 4 : 1),
+            (size / 2_000) ** power * (size === pausedSize && batch % 3 !== 0 ? factor : 1),
         );
       if (power === 1) run();
       else expect(run).toThrow("to be less than 24");
