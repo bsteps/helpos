@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { KnowledgeSource } from "../src/api/client.ts";
 import { deliver, plainEmail, signIn, uniqueSubject } from "./support.ts";
 
 const cases = [
@@ -19,17 +20,25 @@ test("knowledge and citations render only parsed web links", async ({ page, requ
   await page.route("**/v1/knowledge/sources", (route) =>
     route.fulfill({
       json: {
-        sources: cases.map(({ title, url }) => ({
-          id: crypto.randomUUID(),
-          title,
-          url,
-          kind: "url",
-          visibility: "public",
-          status: "ready",
-          error: null,
-          chunkCount: 1,
-          managedBy: "app",
-        })),
+        sources: cases.map(
+          ({ title, url }) =>
+            ({
+              id: crypto.randomUUID(),
+              title,
+              url,
+              kind: "url",
+              visibility: "public",
+              state: { status: "ready" },
+              slug: title.toLowerCase().replaceAll(" ", "-"),
+              sourcePath: null,
+              embeddingModel: null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              ingestedAt: new Date().toISOString(),
+              chunkCount: 1,
+              managedBy: "app",
+            }) satisfies KnowledgeSource,
+        ),
       },
     }),
   );
