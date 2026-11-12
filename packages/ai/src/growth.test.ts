@@ -1,12 +1,9 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { expectLinearGrowth } from "./growth.testing.ts";
-
-afterEach(() => vi.restoreAllMocks());
 
 function measuredGrowth(cost: (length: number, calls: number) => number): () => void {
   let elapsed = 0;
   let calls = 0;
-  vi.spyOn(performance, "now").mockImplementation(() => elapsed);
   return () =>
     expectLinearGrowth(
       (size) => "x".repeat(size),
@@ -16,6 +13,7 @@ function measuredGrowth(cost: (length: number, calls: number) => number): () => 
         return text.length;
       },
       (result, text) => expect(result).toBe(text.length),
+      () => elapsed,
     );
 }
 
