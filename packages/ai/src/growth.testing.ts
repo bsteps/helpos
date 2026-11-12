@@ -38,5 +38,7 @@ export function expectLinearGrowth<T>(
   const ratios = pairs.map(({ n, eightN }) => eightN / n).sort((a, b) => a - b);
   const evidence = JSON.stringify({ count, pairs, ratios });
   expect(Math.min(...pairs.map(({ n }) => n)), evidence).toBeGreaterThan(1);
-  expect(ratios[3], evidence).toBeLessThan(24);
+  // 8x the input costs about 8x when linear and 64x when quadratic. The median of the pairs
+  // ignores a pause on a busy machine. A quadratic part too small to dominate at n passes.
+  expect(ratios[Math.floor(ratios.length / 2)], evidence).toBeLessThan(24);
 }

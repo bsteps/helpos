@@ -235,7 +235,10 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
 /** Room for the model's answer: a title and a few short sections. */
 const maxIssueOutputTokens = 2_000;
 
-/** An upper bound on the tokens one draft costs: its prompt (see tokenBound) and the output cap. */
+/**
+ * An upper bound on the tokens one draft costs (see tokenBound): its prompt, the output schema
+ * sent with it, and the output cap.
+ */
 export function issueDraftTokenEstimate(input: DraftInput): number {
   return (
     tokenBound(issueInstructions, fenceEmail(input)) + issueSchemaTokenBound + maxIssueOutputTokens

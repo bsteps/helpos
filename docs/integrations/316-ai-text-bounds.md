@@ -22,7 +22,7 @@ The only textual conflict is adjacent imports in `draft-issue.test.ts`. Resoluti
 
 ## Preserved contracts
 
-`quoteWords` uses `Intl.Segmenter` after the existing case, punctuation, and apostrophe normalization. Japanese and Chinese verbatim notes receive a warning. The thresholds remain ten shared words and four distinct content words. Short shared phrases and support boilerplate remain negative cases. The API computes the warning when it reads the draft, so editing out the quote clears the warning.
+`quoteWords` uses `Intl.Segmenter` after the existing case, punctuation, and apostrophe normalization. Japanese and Chinese verbatim notes receive a warning. The thresholds remain ten shared words and four distinct content words. Short shared phrases of five to seven segments stay unflagged. The segmenter splits Japanese and Chinese finer than English words, and the stop-word list is English only, so a one-sentence scripted line or stock apology in those languages (11 to 13 segments) is flagged where its English equivalent is not. This errs toward warning; tuning it for those languages is an open product decision. The API computes the warning when it reads the draft, so editing out the quote clears the warning.
 
 The issue estimate counts the actual SDK structured-output schema. Generation passes the same `issueOutputSchema` to `Output.object`, and the model-spy test compares the schema it receives. The output cap remains 2,000 tokens. Missing, zero, and invalid embedding usage charges `tokenBound(...batch)`; valid positive usage remains the provider's reported value.
 
@@ -44,7 +44,7 @@ Focused execution uses `pnpm exec vitest run --project unit packages/ai/src` fro
 
 - Applying the #223 tests before its fix reproduces the Japanese and Chinese misses. Applying its fix passes all 16 quote tests.
 - Applying the #225 tests before its fix fails seven assertions across schema and embedding cost tests. Its fix passes all 55 focused tests.
-- After #227, fresh direct execution passes all 130 AI unit tests. `EVAL_LIVE=0 pnpm eval` passes all 31 offline cases, including the Japanese quote and CJK schema-cost cases. Direct AI typecheck and scoped Biome checks pass.
+- After #227, fresh direct execution passes all 130 AI unit tests. `EVAL_LIVE=0 pnpm eval` passes all 31 offline cases, including the Japanese quote case and a Japanese issue-format case. The issue-format case does not exercise the cost estimate; unit tests do. Direct AI typecheck and scoped Biome checks pass.
 - Restored negative probes reject the parent quote matcher in both the quote tests and Japanese eval, omitted schema cost, the old embedding fallback, and a reduced byte bound. Output-preserving quadratic scans inserted into the real sanitizer and citation parser fail the inherited growth assertions. Each mutation restores the exact original file bytes. Fresh restored AI unit tests and offline evals pass again.
 - Deslop finds no required change. The one native Comment Sicko reviews the combined source diff at `cb746ab` with the same model and effort as the integration owner. It finds zero required deletions, suppressions, or open constraints. This is not the independent integration review.
 
