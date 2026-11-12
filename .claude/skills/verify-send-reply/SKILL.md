@@ -85,7 +85,7 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
-| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `1c5921f6eb32` |
+| packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `23141a4a4b69` |
 | packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `0ac5978b52bb` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
 <!-- /coverage -->
@@ -99,6 +99,8 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 **Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.0 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
 
 **Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
+
+Stored payloads are assumed valid in this model. Malformed payloads fail before tenant handlers or give-up callbacks run. The runner reports a fixed error with queue and job ID on the last attempt. The real malformed-job regressions in `packages/db/src/jobs.int.test.ts` and `apps/server/src/invalid-job.int.test.ts` cover that separate behavior. The valid-payload model does not prove it.
 
 ## Known findings
 
