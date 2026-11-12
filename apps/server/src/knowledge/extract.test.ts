@@ -102,6 +102,11 @@ describe("extractHtml", () => {
     expect(chunkText(text)).toEqual([text]);
   });
 
+  it("doesn't let page text fake the code-block marker to keep its own spacing", () => {
+    const page = "<p>Spaced\uE000<b> </b><i> </i>out.</p>";
+    expect(extractHtml(page).text).toBe("Spaced out.");
+  });
+
   it("keeps line breaks in code blocks and separates table cells", () => {
     const page =
       "<p>Run:</p><pre>npm install\nnpm start</pre>" +

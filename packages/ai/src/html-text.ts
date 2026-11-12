@@ -42,6 +42,7 @@ const blockTags = new Set([
   "figcaption",
 ]);
 
+/** Marks <pre> lines until tidy() runs. Removed from the page's own text first, so a page can't fake it. */
 const preformattedLineMarker = "\uE000";
 const codeFence = "```";
 
