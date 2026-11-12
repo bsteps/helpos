@@ -1,16 +1,4 @@
-import {
-  and,
-  asc,
-  type Database,
-  desc,
-  eq,
-  isNotNull,
-  ne,
-  or,
-  schema,
-  sql,
-  type TenantTx,
-} from "@helpos/db";
+import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
@@ -18,6 +6,7 @@ import { messageText } from "../drafts/html-text.ts";
 import { draftWhere } from "../drafts/lifecycle.ts";
 import { auditor, idParams, json, notFound, notFoundResponse } from "../http/route-kit.ts";
 import { sanitizeEmailHtml } from "./email-html.ts";
+import { inHistory } from "./history.ts";
 
 const { customers, drafts, messages, conversationGithubIssues, conversations } = schema;
 
@@ -207,12 +196,7 @@ export function registerConversationRoutes(app: OpenAPIHono, deps: ConversationR
       const rows = await tx
         .select()
         .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, id),
-            or(eq(messages.direction, "inbound"), isNotNull(messages.sentAt)),
-          ),
-        )
+        .where(and(eq(messages.conversationId, id), inHistory()))
         .orderBy(asc(messages.createdAt), asc(messages.id));
       const [issue] = await tx
         .select()
