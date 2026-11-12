@@ -157,10 +157,10 @@ describe("migrating a database that is already migrated", () => {
           values (${auditId}, ${tenantId}, 'system', 'legacy', 'draft.edited', 'draft', ${uuidv7()})`;
         const before = await tx`select * from audit_events where id = ${auditId}`;
         await tx.unsafe(migration);
-        const after = await tx`select * from audit_events where id = ${auditId}`;
+        const after = await tx`select audit_events.* from audit_events where id = ${auditId}`;
         expect(after).toEqual(before.map((row) => ({ ...row, details: null })));
-        await tx`insert into audit_events (tenant_id, actor_type, actor_id, action, target_type, target_id, details)
-          values (${tenantId}, 'system', 'new', 'conversation.closed', 'conversation', ${uuidv7()}, '{}')`;
+        await tx`insert into audit_events (id, tenant_id, actor_type, actor_id, action, target_type, target_id, details)
+          values (${uuidv7()}, ${tenantId}, 'system', 'new', 'conversation.closed', 'conversation', ${uuidv7()}, '{}')`;
         throw rollback;
       }),
     ).rejects.toBe(rollback);
