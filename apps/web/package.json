@@ -16,10 +16,10 @@
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",
     "@helpos/brand": "workspace:*",
-    "@tanstack/react-query": "5.106.0",
+    "@tanstack/react-query": "5.106.1",
     "@tanstack/react-router": "1.170.46",
     "clsx": "2.1.1",
-    "lucide-react": "1.68.0",
+    "lucide-react": "1.69.0",
     "motion": "14.9.1",
     "openapi-fetch": "0.17.0",
     "react": "19.3.1",
@@ -28,13 +28,13 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.0",
     "@tailwindcss/vite": "4.3.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.2.1",
     "openapi-typescript": "7.13.0",
     "tailwindcss": "4.3.4",
-    "vite": "8.3.5"
+    "vite": "8.3.6"
   }
 }

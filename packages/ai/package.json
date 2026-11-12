@@ -17,9 +17,9 @@
     "eval": "node --env-file-if-exists=../../.env src/eval-cli.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.96",
-    "@ai-sdk/openai": "4.0.108",
-    "ai": "7.0.162",
+    "@ai-sdk/anthropic": "4.0.97",
+    "@ai-sdk/openai": "4.0.109",
+    "ai": "7.0.163",
     "zod": "4.6.7",
     "htmlparser2": "12.0.0"
   }

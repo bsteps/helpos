@@ -47,7 +47,7 @@
     "verify:send-reply:mutations": "node .claude/skills/verify-send-reply/scripts/prove-mutations.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
+    "@biomejs/biome": "2.6.5",
     "@types/node": "24.19.2",
     "@vitest/coverage-v8": "5.1.0",
     "knip": "6.44.1",
