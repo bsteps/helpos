@@ -1,18 +1,5 @@
-import {
-  and,
-  asc,
-  type Database,
-  enqueue,
-  eq,
-  isKnowledgeUrlTaken,
-  isUniqueViolation,
-  normalizeKnowledgeUrl,
-  schema,
-  sql,
-  uuidv7,
-} from "@helpos/db";
+import { asc, type Database, schema } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
-import { type AuditAction, nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
 import {
   auditor,
@@ -23,9 +10,9 @@ import {
   notFound,
   notFoundResponse,
 } from "../http/route-kit.ts";
-import { ingestSourceJob } from "./jobs.ts";
+import { createSource, deleteSource, requestIngest, updateSource } from "./sources.ts";
 
-const { knowledgeChunks, knowledgeSources } = schema;
+const { knowledgeSources } = schema;
 type SourceRow = typeof knowledgeSources.$inferSelect;
 
 export interface KnowledgeRoutesDeps {
@@ -99,17 +86,7 @@ const sourceSchema = z
     title: z.string(),
     url: z.string().nullable(),
     visibility: z.enum(schema.knowledgeVisibilities),
-    /** `pending` until the ingest job has run, then `ready` or `failed`. */
-    status: z.enum(schema.knowledgeSourceStatuses),
-    /**
-     * Why ingestion failed, e.g. `blocked_address`, `http_404`, `no_text`, or `too_long` (more
-     * passages than one source may have: split the document). On a `pending` source,
-     * `daily_budget_reached` means it waits for the daily AI budget to reset at midnight UTC.
-     * A temporary problem (`embedding_unavailable`, or the site's `http_503`, `timeout`…)
-     * means it tries once more in 15 minutes, and fails if the problem is still there. Either
-     * way it then runs by itself.
-     */
-    error: z.string().nullable(),
+    state: schema.knowledgeSourceStateSchema,
     chunkCount: z.number().int(),
     /** `git` items are changed in the workspace's repo, never through this API. */
     managedBy: z.enum(schema.managedByValues),
@@ -194,7 +171,7 @@ const reingestRoute = apiRoute({
   path: "/v1/knowledge/sources/{id}/reingest",
   summary: "Ingest a knowledge source again",
   description:
-    "Sets the source back to `pending` and queues it, e.g. after a `failed` ingest, after the " +
+    "Sets the source back to `pending` (or preserves a budget wait) and queues it, e.g. after a `failed` ingest, after the " +
     "page changed, or after the embedding model changed. Until the new ingest is done, drafts " +
     "keep using the current passages. If it fails on a temporary problem (the site is down, " +
     "the embedding call failed), they stay. If the page is gone (404, 410) or no longer usable " +
@@ -203,7 +180,7 @@ const reingestRoute = apiRoute({
     "Needs `knowledge:write`.",
   request: { params: idParams },
   responses: {
-    202: json(sourceSchema, "The source, status `pending`"),
+    202: json(sourceSchema, "The source, pending or waiting for the daily budget"),
     404: notFoundResponse,
     409: json(
       errorSchema,
@@ -255,8 +232,7 @@ function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
     title: s.title,
     url: s.url,
     visibility: s.visibility,
-    status: s.status,
-    error: s.error,
+    state: s.state,
     chunkCount: s.chunkCount,
     managedBy: s.managedBy,
     sourcePath: s.sourcePath,
@@ -265,21 +241,6 @@ function serialize(s: SourceRow): z.infer<typeof sourceSchema> {
     updatedAt: s.updatedAt.toISOString(),
     ingestedAt: s.ingestedAt?.toISOString() ?? null,
   };
-}
-
-/** A slug from a title: "Refunds & Returns!" becomes "refunds-returns". */
-export function slugify(title: string): string {
-  return (
-    title
-      .normalize("NFKD")
-      // NFKD splits "é" into "e" plus an accent mark; dropping the marks keeps the word whole.
-      .replaceAll(/\p{M}/gu, "")
-      .toLowerCase()
-      .replaceAll(/[^a-z0-9]+/g, "-")
-      .replaceAll(/^-+|-+$/g, "")
-      .slice(0, 80)
-      .replace(/-+$/, "")
-  );
 }
 
 export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesDeps): void {
@@ -295,236 +256,55 @@ export function registerKnowledgeRoutes(app: OpenAPIHono, deps: KnowledgeRoutesD
   });
 
   app.openapi(createSourceRoute, async (c) => {
-    const principal = c.get("principal");
+    const { tenantId } = c.get("principal");
     const input = c.req.valid("json");
-    const { tenantId } = principal;
     const audit = auditor(c);
-    const id = uuidv7();
-    const url = input.kind === "url" ? normalizeKnowledgeUrl(input.url) : null;
-    const base = slugify(input.title);
-    // A slug the caller chose is kept or refused. One made from the title gets a random
-    // suffix when another source already has it (two pages can share a title), a new one on
-    // each try, and a title with no Latin letters or digits gets only that. A failed try rolled
-    // back, so the next one can reuse the id.
-    const suffix = () => uuidv7().slice(-12);
-    const slugs = input.slug
-      ? [input.slug]
-      : [
-          ...(base ? [base] : []),
-          ...Array.from({ length: 3 }, () => `${base || "source"}-${suffix()}`),
-        ];
-
-    try {
-      for (const slug of slugs) {
-        const created = await insertSource(slug);
-        if (created) return c.json(serialize(created), 201);
-      }
-    } catch (error) {
-      if (!url || !isKnowledgeUrlTaken(error)) throw error;
-      const sourceId = await sourceWithUrl(url);
-      // Deleted between the failed insert and this read: rare, and a retry would succeed.
-      return c.json({ error: "url_taken", ...(sourceId ? { sourceId } : {}) }, 409);
-    }
-    // Postgres may report the slug before the URL, so a repeat with the same slug lands here.
-    const sourceId = url ? await sourceWithUrl(url) : undefined;
-    if (sourceId) return c.json({ error: "url_taken", sourceId }, 409);
-    return c.json({ error: "slug_taken" }, 409);
-
-    /** Read in this workspace only, so it can only ever name the caller's own source. */
-    async function sourceWithUrl(url: string): Promise<string | undefined> {
-      const [existing] = await deps.db.withTenant(tenantId, (tx) =>
-        tx
-          .select({ id: knowledgeSources.id })
-          .from(knowledgeSources)
-          .where(and(eq(knowledgeSources.kind, "url"), eq(knowledgeSources.url, url))),
+    const result = await deps.db.withTenant(tenantId, (tx) =>
+      createSource(tx, audit, { tenantId, ...input }),
+    );
+    if (result.kind === "created") return c.json(serialize(result.source), 201);
+    if (result.kind === "url_taken") {
+      return c.json(
+        { error: result.kind, ...(result.sourceId ? { sourceId: result.sourceId } : {}) },
+        409,
       );
-      return existing?.id;
     }
-
-    /** The new source, or undefined when the workspace already uses the slug. */
-    async function insertSource(slug: string): Promise<SourceRow | undefined> {
-      try {
-        return await deps.db.withTenant(tenantId, async (tx) => {
-          const [row] = await tx
-            .insert(knowledgeSources)
-            .values({
-              id,
-              tenantId,
-              slug,
-              kind: input.kind,
-              title: input.title,
-              url,
-              content: input.kind === "markdown" ? input.content : null,
-              ...(input.visibility ? { visibility: input.visibility } : {}),
-            })
-            .returning();
-          if (!row) throw new Error("create knowledge source: insert returned no row");
-          await audit(tx, "knowledge_source.created", { type: "knowledge_source", id });
-          // In the same transaction: the source and its ingest job exist together or not at all.
-          await enqueue(
-            tx,
-            ingestSourceJob,
-            { tenantId, sourceId: id, requests: row.ingestRequests },
-            { singletonKey: id },
-          );
-          return row;
-        });
-      } catch (error) {
-        // Per workspace: this says nothing about other workspaces' slugs.
-        if (isUniqueViolation(error, "knowledge_sources_tenant_slug")) return undefined;
-        throw error;
-      }
-    }
+    return c.json({ error: result.kind }, 409);
   });
 
   app.openapi(reingestRoute, async (c) => {
-    const principal = c.get("principal");
+    const { tenantId } = c.get("principal");
     const { id } = c.req.valid("param");
-    const { tenantId } = principal;
     const audit = auditor(c);
-    const result = await deps.db.withTenant(tenantId, async (tx) => {
-      const [found] = await tx
-        .select({
-          managedBy: knowledgeSources.managedBy,
-          status: knowledgeSources.status,
-          error: knowledgeSources.error,
-        })
-        .from(knowledgeSources)
-        .where(eq(knowledgeSources.id, id))
-        .for("update");
-      if (!found) return "not_found" as const;
-      if (found.managedBy === "git") return "managed_in_git" as const;
-      const [row] = await tx
-        .update(knowledgeSources)
-        .set({
-          status: "pending",
-          // Waiting for the budget: asking again doesn't end that wait, so the reason stays.
-          // Any other reason (a site or provider that was down) is cleared: asking again is a
-          // fresh try, with its own one more try if it fails.
-          error:
-            found.status === "pending" && found.error === "daily_budget_reached"
-              ? found.error
-              : null,
-          ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
-        })
-        .where(eq(knowledgeSources.id, id))
-        .returning();
-      if (!row) throw new Error("reingest: update returned no row");
-      await audit(tx, "knowledge_source.reingest_requested", { type: "knowledge_source", id });
-      // Already pending: reuse its job rather than queue two. If that job is already fetching,
-      // it sees this request when it writes (the count went up) and queues a run for it.
-      // Otherwise always queue a new one. The last job may have committed but still look
-      // unfinished to pg-boss, and reusing it would leave this source pending with no job. An
-      // extra job is harmless: the worker skips a source that isn't pending.
-      await enqueue(
-        tx,
-        ingestSourceJob,
-        { tenantId, sourceId: id, requests: row.ingestRequests },
-        found.status === "pending" ? { singletonKey: id } : {},
-      );
-      return row;
-    });
+    const result = await deps.db.withTenant(tenantId, (tx) =>
+      requestIngest(tx, audit, { tenantId, id }),
+    );
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
+    if (result === "managed_in_git") return c.json({ error: result }, 409);
     return c.json(serialize(result), 202);
   });
 
   app.openapi(updateRoute, async (c) => {
-    const principal = c.get("principal");
+    const { tenantId } = c.get("principal");
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    const { tenantId } = principal;
     const audit = auditor(c);
-    const result = await deps.db.withTenant(tenantId, async (tx) => {
-      const [found] = await tx
-        .select()
-        .from(knowledgeSources)
-        .where(eq(knowledgeSources.id, id))
-        .for("update");
-      // Another workspace's source looks exactly like one that doesn't exist.
-      if (!found) return "not_found" as const;
-      if (found.managedBy === "git") return "managed_in_git" as const;
-      if (input.content !== undefined && found.kind !== "markdown") {
-        return "content_not_editable" as const;
-      }
-      const title = input.title !== undefined && input.title !== found.title;
-      const visibility = input.visibility !== undefined && input.visibility !== found.visibility;
-      const content = input.content !== undefined && input.content !== found.content;
-      if (!title && !visibility && !content) {
-        nothingToAudit("same title, visibility and content");
-        return found;
-      }
-
-      const [row] = await tx
-        .update(knowledgeSources)
-        .set({
-          ...(title ? { title: input.title } : {}),
-          ...(visibility ? { visibility: input.visibility } : {}),
-          ...(content
-            ? {
-                content: input.content,
-                status: "pending" as const,
-                error: null,
-                chunkCount: 0,
-                embeddingModel: null,
-                // An ingest already fetching the old text sees this and doesn't write it.
-                ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
-              }
-            : {}),
-        })
-        .where(eq(knowledgeSources.id, id))
-        .returning();
-      if (!row) throw new Error("update knowledge source: update returned no row");
-      if (content) {
-        // The old passages go now, not when the new ones are ready: an edit often removes
-        // something wrong or private, and that must stop being quoted at once.
-        await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, id));
-        await enqueue(tx, ingestSourceJob, {
-          tenantId,
-          sourceId: id,
-          requests: row.ingestRequests,
-        });
-      }
-      const record = (action: AuditAction) => audit(tx, action, { type: "knowledge_source", id });
-      if (title || content) await record("knowledge_source.edited");
-      // There are two visibilities, so the new one names the old one too: what customers may
-      // be shown is always traceable.
-      if (visibility) {
-        await record(
-          row.visibility === "public"
-            ? "knowledge_source.made_public"
-            : "knowledge_source.made_internal",
-        );
-      }
-      return row;
-    });
+    const result = await deps.db.withTenant(tenantId, (tx) =>
+      updateSource(tx, audit, { tenantId, id, ...input }),
+    );
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
-    if (result === "content_not_editable") return c.json({ error: "content_not_editable" }, 400);
+    if (result === "managed_in_git") return c.json({ error: result }, 409);
+    if (result === "content_not_editable") return c.json({ error: result }, 400);
     return c.json(serialize(result), 200);
   });
 
   app.openapi(deleteRoute, async (c) => {
-    const principal = c.get("principal");
-    const audit = auditor(c);
+    const { tenantId } = c.get("principal");
     const { id } = c.req.valid("param");
-    const result = await deps.db.withTenant(principal.tenantId, async (tx) => {
-      const [found] = await tx
-        .select({ managedBy: knowledgeSources.managedBy })
-        .from(knowledgeSources)
-        .where(eq(knowledgeSources.id, id))
-        .for("update");
-      // Another workspace's source looks exactly like one that doesn't exist.
-      if (!found) return "not_found" as const;
-      // Git owns these rows; the API never writes them.
-      if (found.managedBy === "git") return "managed_in_git" as const;
-      // Its chunks go with it (ON DELETE CASCADE); drafts' copies of its passages stay.
-      await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));
-      await audit(tx, "knowledge_source.deleted", { type: "knowledge_source", id });
-      return "deleted" as const;
-    });
+    const audit = auditor(c);
+    const result = await deps.db.withTenant(tenantId, (tx) => deleteSource(tx, audit, { id }));
     if (result === "not_found") return notFound(c);
-    if (result === "managed_in_git") return c.json({ error: "managed_in_git" }, 409);
+    if (result === "managed_in_git") return c.json({ error: result }, 409);
     return c.body(null, 204);
   });
 }

@@ -1,6 +1,6 @@
-import { type AuthStore, type Database, enqueue, type JobRunner, schema } from "@helpos/db";
+import { type AuthStore, type Database, type JobRunner, schema } from "@helpos/db";
 import { ensureJobQueues } from "../jobs.ts";
-import { ingestSourceJob } from "../knowledge/jobs.ts";
+import { queueIngest } from "../knowledge/sources.ts";
 import type { ServerConfig } from "../services.ts";
 import { hashToken } from "../tokens/token.ts";
 import { buildDemoData, type DemoData } from "./demo-data.ts";
@@ -73,7 +73,10 @@ export async function seedDemoData(deps: {
         .insert(schema.knowledgeSources)
         .values(t.sources)
         .onConflictDoNothing()
-        .returning({ id: schema.knowledgeSources.id });
+        .returning({
+          id: schema.knowledgeSources.id,
+          requests: schema.knowledgeSources.ingestRequests,
+        });
       await tx.insert(schema.draftCitations).values(t.citations).onConflictDoNothing();
       if (t.githubIssues.length > 0) {
         await tx
@@ -81,13 +84,8 @@ export async function seedDemoData(deps: {
           .values(t.githubIssues)
           .onConflictDoNothing();
       }
-      for (const { id } of added) {
-        await enqueue(
-          tx,
-          ingestSourceJob,
-          { tenantId: t.tenant.id, sourceId: id, requests: 0 },
-          { singletonKey: id },
-        );
+      for (const { id, requests } of added) {
+        await queueIngest(tx, { tenantId: t.tenant.id, sourceId: id, requests }, { kind: "reuse" });
       }
     });
   }
