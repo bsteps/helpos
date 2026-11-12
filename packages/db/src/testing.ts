@@ -483,3 +483,15 @@ export function uncoveredTables(snapshot: Record<string, unknown[]>): string[] {
     .filter(([, rows]) => rows.length === 0)
     .map(([table]) => table);
 }
+
+export async function jobsForLink(jobsUrl: string, tenantId: string, linkId: string) {
+  const sql = postgres(jobsUrl, { max: 1, onnotice: () => {} });
+  try {
+    return await sql<{ id: string; state: string }[]>`
+      select id, state from pgboss.job
+      where name = 'github.recheck-issue'
+        and data->>'tenantId' = ${tenantId} and data->>'linkId' = ${linkId}`;
+  } finally {
+    await sql.end();
+  }
+}

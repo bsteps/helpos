@@ -14,6 +14,7 @@ import {
   sql,
 } from "@helpos/db";
 import {
+  jobsForLink,
   startTestDatabase,
   type TestDatabase,
   waitFor,
@@ -23,6 +24,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiBudget } from "../ai-budget/budget.ts";
+import { usageOn } from "../ai-budget/testing.ts";
 import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
@@ -785,6 +787,7 @@ describe("drafting an issue with the AI", () => {
 
   it("still answers ai_unavailable when the failed call's cost can't be written back", async () => {
     const email = await receiveEmail();
+    const before = await usageOn(db, acme);
     // Fails every transaction after the one that reserves the budget: the settle, here.
     let calls = 0;
     const flaky: Database = {
@@ -801,7 +804,10 @@ describe("drafting an issue with the AI", () => {
       );
       expect(res.status).toBe(502);
       expect(await res.json()).toEqual({ error: "ai_unavailable" });
-      expect(JSON.stringify(logger.warn.mock.calls)).toContain("usage not settled");
+      const after = await usageOn(db, acme);
+      expect(after.reservedTokens).toBeGreaterThan(before.reservedTokens);
+      expect(after.totalTokens).toBe(before.totalTokens);
+      expect(after.calls).toBe(before.calls);
     } finally {
       app = makeApp();
     }
@@ -1275,11 +1281,24 @@ describe("creating the issue", () => {
       },
     );
     expect(res.status).toBe(201);
-    await waitFor("the recheck to wait", async () =>
-      JSON.stringify(logger.warn.mock.calls).includes("github recheck: waiting") ? true : undefined,
+    const [link] = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.conversationGithubIssues)
+        .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
     );
-    // Connected again: the waiting recheck applies the close.
-    await db.withTenant(acme, (tx) => tx.insert(schema.integrations).values(saved));
+    if (!link) throw new Error("no linked issue");
+    try {
+      await waitFor("a completed recheck and its successor while disconnected", async () => {
+        const jobs = await jobsForLink(testDb.jobsUrl, acme, link.id);
+        return jobs.some((job) => job.state === "completed") && jobs.length >= 2 ? true : undefined;
+      });
+      expect(
+        (await draftsOf(email.conversationId)).filter((draft) => draft.kind === "fixed"),
+      ).toEqual([]);
+    } finally {
+      await db.withTenant(acme, (tx) => tx.insert(schema.integrations).values(saved));
+    }
     const fixed = await waitFor("the recheck's fixed draft", async () => {
       const drafts = (await draftsOf(email.conversationId)).filter((d) => d.kind === "fixed");
       return drafts.length > 0 ? drafts : undefined;
@@ -1377,6 +1396,7 @@ describe("creating the issue", () => {
   });
 
   it("gives the issue's address when it was opened but can't be linked", async () => {
+    const openedBefore = openedIssues.length;
     const email = await receiveEmail();
     // Another request claimed the conversation while GitHub was opening this one's issue.
     duringCreate = () =>
@@ -1406,8 +1426,15 @@ describe("creating the issue", () => {
       error: "issue_not_linked",
       url: `https://github.com/acme/app/issues/${opened}`,
     });
-    // The log names the orphan, so it can be found and closed.
-    expect(JSON.stringify(logger.error.mock.calls)).toContain(`"issue":${opened}`);
+    expect(openedIssues).toHaveLength(openedBefore + 1);
+    const claims = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.conversationGithubIssues)
+        .where(eq(schema.conversationGithubIssues.conversationId, email.conversationId)),
+    );
+    expect(claims).toHaveLength(1);
+    expect(claims[0]).toMatchObject({ state: "creating", issueNumber: null, issueUrl: null });
   });
 
   it("never opens a second issue when GitHub's answer is lost and the issue isn't listed yet", async () => {
@@ -1747,8 +1774,7 @@ describe("the webhook", () => {
         .where(eq(schema.integrations.provider, "github")),
     );
     const warnings = () =>
-      logger.warn.mock.calls.filter((call) => JSON.stringify(call).includes("can't be read"))
-        .length;
+      logger.warn.mock.calls.filter(([fields]) => fields?.tenantId === acme).length;
     const before = warnings();
     // The key is changed behind the app's back here, so nothing the app read before is kept.
     app = makeApp({ webhookSecretCacheMs: 0 });
