@@ -25,6 +25,9 @@ const resultSchema = z
 
 const inboundEmailRoute = apiRoute({
   operationId: "email.receive",
+  idempotency: {
+    refuse: "No caller to scope the key to; the shared inbound secret proves the provider.",
+  },
   access: { noCaller: "The email provider proves itself with the shared inbound secret." },
   audit: {
     none: "A customer's email, not an action by a member or agent: the stored message is its record.",

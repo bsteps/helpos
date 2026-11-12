@@ -936,10 +936,7 @@ export interface operations {
     "email.receive": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1035,10 +1032,7 @@ export interface operations {
     "auth.signIn": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1108,10 +1102,7 @@ export interface operations {
     "auth.signOut": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1165,10 +1156,7 @@ export interface operations {
     "auth.setPassword": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1298,10 +1286,7 @@ export interface operations {
     "tokens.create": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1374,7 +1359,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -1553,7 +1538,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -1683,7 +1668,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -1783,7 +1768,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -1868,7 +1853,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -1953,7 +1938,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -2040,7 +2025,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -2119,7 +2104,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -2276,7 +2261,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -2373,7 +2358,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -2452,7 +2437,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -2529,7 +2514,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -2702,7 +2687,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -2815,10 +2800,7 @@ export interface operations {
     "github.connect": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -2910,7 +2892,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -2975,10 +2957,7 @@ export interface operations {
     "github.rotateWebhookSecret": {
         parameters: {
             query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -3053,7 +3032,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -3141,7 +3120,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
+                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -3256,10 +3235,7 @@ export interface operations {
             query: {
                 workspace: string;
             };
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };

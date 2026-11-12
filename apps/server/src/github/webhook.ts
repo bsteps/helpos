@@ -59,6 +59,9 @@ const webhookPayload = z
 
 const webhookRoute = apiRoute({
   operationId: "github.receiveWebhook",
+  idempotency: {
+    refuse: "No caller to scope the key to; the webhook signature proves the sender.",
+  },
   access: {
     noCaller:
       "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret.",

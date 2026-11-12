@@ -119,6 +119,7 @@ const listRoute = apiRoute({
 
 const createSourceRoute = apiRoute({
   operationId: "knowledge.createSource",
+  idempotency: "replay",
   access: { allScopes: ["knowledge:write"] },
   audit: { records: ["knowledge_source.created"] },
   method: "post",
@@ -148,6 +149,7 @@ const createSourceRoute = apiRoute({
 
 const deleteRoute = apiRoute({
   operationId: "knowledge.deleteSource",
+  idempotency: "replay",
   access: { allScopes: ["knowledge:write"] },
   audit: { records: ["knowledge_source.deleted"] },
   method: "delete",
@@ -170,6 +172,7 @@ const deleteRoute = apiRoute({
 
 const reingestRoute = apiRoute({
   operationId: "knowledge.reingestSource",
+  idempotency: "replay",
   access: { allScopes: ["knowledge:write"] },
   audit: { records: ["knowledge_source.reingest_requested"] },
   method: "post",
@@ -196,6 +199,7 @@ const reingestRoute = apiRoute({
 
 const updateRoute = apiRoute({
   operationId: "knowledge.updateSource",
+  idempotency: "replay",
   access: { allScopes: ["knowledge:write"] },
   audit: {
     records: [

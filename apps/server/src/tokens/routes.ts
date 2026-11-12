@@ -47,6 +47,7 @@ const adminRefused = json(
 
 const createTokenRoute = apiRoute({
   operationId: "tokens.create",
+  idempotency: { refuse: "The response contains the new token, which must never be stored." },
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["api_token.created"] },
   method: "post",
@@ -85,6 +86,7 @@ const listTokensRoute = apiRoute({
 
 const revokeTokenRoute = apiRoute({
   operationId: "tokens.revoke",
+  idempotency: "replay",
   access: { selfOrAdmin: { tokenIdParam: "id" } },
   audit: { records: ["api_token.revoked"] },
   method: "delete",

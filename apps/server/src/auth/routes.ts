@@ -38,6 +38,7 @@ const meSchema = z
 
 const signInRoute = apiRoute({
   operationId: "auth.signIn",
+  idempotency: { refuse: "No caller to scope the key to, and the response sets a session cookie." },
   access: { noCaller: "The caller proves who they are with an email and password in the body." },
   audit: { none: "Signing in changes no workspace data, and users live outside workspaces." },
   method: "post",
@@ -62,6 +63,7 @@ const signInRoute = apiRoute({
 
 const signOutRoute = apiRoute({
   operationId: "auth.signOut",
+  idempotency: { refuse: "No caller to scope the key to; signing out again is harmless." },
   access: {
     noCaller:
       "The session cookie, if any, is the only credential, and signing out without one is harmless.",
@@ -76,6 +78,7 @@ const signOutRoute = apiRoute({
 
 const setPasswordRoute = apiRoute({
   operationId: "auth.setPassword",
+  idempotency: { refuse: "No caller to scope the key to; the one-time link proves the caller." },
   access: {
     noCaller: "The one-time token in the body proves the caller holds the password setup link.",
   },

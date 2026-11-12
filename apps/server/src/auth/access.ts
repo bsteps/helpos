@@ -37,7 +37,20 @@ export type Audit =
   | { readonly records: readonly [AuditAction, ...AuditAction[]] }
   | { readonly none: string };
 
-type WriteMethod = "post" | "put" | "patch" | "delete";
+/**
+ * What a write route does with an `Idempotency-Key`. Required on every POST, PUT, PATCH and
+ * DELETE, so no write stores its response for replay without saying so.
+ *
+ * - `"replay"`: the response is stored and replayed to a retry with the same key
+ *   (docs/api-conventions.md).
+ * - `refuse`: a keyed request gets `400 idempotency_not_supported` before the handler runs. Say
+ *   why. A route whose response carries a credential refuses, so the credential is never stored.
+ *   A `noCaller` route always refuses: there is no caller to scope the key to.
+ */
+export type Idempotency = "replay" | { readonly refuse: string };
+
+const writeMethods = ["post", "put", "patch", "delete"] as const;
+type WriteMethod = (typeof writeMethods)[number];
 
 /**
  * Proof that a caller holds `scope`. Only `Grant.check()` makes one, so a function that takes a
@@ -97,7 +110,7 @@ function enforce(
   name: string,
   access: Access,
   audit: Audit | undefined,
-  write: boolean,
+  idempotency: Idempotency | undefined,
 ): MiddlewareHandler {
   return async (c, next) => {
     const principal = "noCaller" in access ? undefined : await resolveCaller(c);
@@ -107,7 +120,11 @@ function enforce(
     if (refusal === "unauthorized") return errorResponse(c, { error: refusal }, 401);
     if (refusal) return errorResponse(c, { error: refusal }, 403);
     const run = () => enforceAudit(name, audit, c, next);
-    return write ? keyedWrite(c, run) : run();
+    if (idempotency === "replay") return keyedWrite(c, run);
+    if (idempotency && c.req.header("Idempotency-Key") !== undefined) {
+      return errorResponse(c, { error: "idempotency_not_supported" }, 400);
+    }
+    return run();
   };
 }
 
@@ -171,9 +188,10 @@ function authResponses<A extends Access>(access: A): AuthResponses<A> {
 
 /**
  * The only way to define an API route: `createRoute()` plus a required `access`, and on a
- * write route a required `audit`. Both are enforced by middleware: access before validation
- * and the handler, audit after the handler. Both are published in the OpenAPI document
- * (`x-access`, `x-audit`), so agents can read what each operation needs and records.
+ * write route a required `audit` and `idempotency`. All are enforced by middleware: access
+ * before validation and the handler, audit after the handler. All are published in the OpenAPI
+ * document (`x-access`, `x-audit`, `x-idempotency`), so agents can read what each operation
+ * needs, records and replays.
  *
  * The caller is authenticated here too, so a route needs no path middleware, and it gets
  * what follows from its `access`: the `apiAuth` security scheme and the 401 and 403 responses.
@@ -186,15 +204,19 @@ export function apiRoute<
   config: R & {
     access: A;
     operationId: R["operationId"] extends "" ? never : string;
-  } & (R["method"] extends WriteMethod ? { audit: Audit } : { audit?: never }),
+  } & (R["method"] extends WriteMethod
+      ? {
+          audit: Audit;
+          idempotency: A extends { noCaller: string } ? { readonly refuse: string } : Idempotency;
+        }
+      : { audit?: never; idempotency?: never }),
 ) {
   if (!config.operationId.trim()) throw new Error("apiRoute requires a nonempty operationId");
-  const { access, audit, ...rest } = config;
-  // TypeScript can't see that removing `access` and `audit` from R leaves R's own route fields.
+  const { access, audit, idempotency, ...rest } = config;
+  // TypeScript can't see that removing these fields from R leaves R's own route fields.
   const route = rest as unknown as R;
   const name = `${route.method.toUpperCase()} ${route.path}`;
-  const write = ["post", "put", "patch", "delete"].includes(route.method);
-  // Spelled out, so the route's type names its parts instead of inlining the library's.
+  const write = writeMethods.some((method) => method === route.method);
   const responses = {
     ...authResponses<A>(access),
     ...(write ? writeErrorResponses : {}),
@@ -202,7 +224,7 @@ export function apiRoute<
   };
   return createRoute({
     ...route,
-    ...(write
+    ...(idempotency === "replay"
       ? {
           parameters: [
             {
@@ -211,7 +233,7 @@ export function apiRoute<
               required: false,
               schema: { type: "string" as const, minLength: 1, maxLength: 200 },
               description:
-                "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md.",
+                "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md.",
             },
           ],
         }
@@ -220,6 +242,7 @@ export function apiRoute<
     responses,
     "x-access": access,
     ...(audit ? { "x-audit": audit } : {}),
-    middleware: [enforce(name, access, audit, write)] as const,
+    ...(idempotency ? { "x-idempotency": idempotency } : {}),
+    middleware: [enforce(name, access, audit, idempotency)] as const,
   });
 }

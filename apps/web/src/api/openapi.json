@@ -1351,24 +1351,14 @@
             "inboundSecret": []
           }
         ],
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "x-access": {
           "noCaller": "The email provider proves itself with the shared inbound secret."
         },
         "x-audit": {
           "none": "A customer's email, not an action by a member or agent: the stored message is its record."
+        },
+        "x-idempotency": {
+          "refuse": "No caller to scope the key to; the shared inbound secret proves the provider."
         },
         "requestBody": {
           "required": true,
@@ -1480,24 +1470,14 @@
         "operationId": "auth.signIn",
         "summary": "Sign in with email and password",
         "description": "Starts a human session and sets it as an HttpOnly cookie. A wrong email and a wrong password get the same answer. There is no sign-up: users are created by the operator. Agents use tokens instead (`POST /v1/tokens`).",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "x-access": {
           "noCaller": "The caller proves who they are with an email and password in the body."
         },
         "x-audit": {
           "none": "Signing in changes no workspace data, and users live outside workspaces."
+        },
+        "x-idempotency": {
+          "refuse": "No caller to scope the key to, and the response sets a session cookie."
         },
         "requestBody": {
           "required": true,
@@ -1587,24 +1567,14 @@
         "operationId": "auth.signOut",
         "summary": "Sign out",
         "description": "Ends the current session and clears its cookie. Safe to call without one.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "x-access": {
           "noCaller": "The session cookie, if any, is the only credential, and signing out without one is harmless."
         },
         "x-audit": {
           "none": "Ends the caller's own session; it changes no workspace data."
+        },
+        "x-idempotency": {
+          "refuse": "No caller to scope the key to; signing out again is harmless."
         },
         "responses": {
           "204": {
@@ -1658,24 +1628,14 @@
         "operationId": "auth.setPassword",
         "summary": "Set a password with a one-time link",
         "description": "Uses the token from a password setup link (printed by `helpos:init`) to set the user's password, 12 to 128 characters. The token works once. Every existing session of that user is signed out.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "x-access": {
           "noCaller": "The one-time token in the body proves the caller holds the password setup link."
         },
         "x-audit": {
           "none": "Users live outside workspaces, and the audit log belongs to one workspace."
+        },
+        "x-idempotency": {
+          "refuse": "No caller to scope the key to; the one-time link proves the caller."
         },
         "requestBody": {
           "required": true,
@@ -1793,19 +1753,6 @@
         "operationId": "tokens.create",
         "summary": "Create an agent token",
         "description": "Creates a token for one agent, with exactly the scopes given. The response holds the token itself, the only time it is shown: store it right away. Needs a human session with `workspace:admin`; an agent token can't create tokens. A token can only get scopes its creator holds (`scope_not_held`).",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "security": [
           {
             "apiAuth": []
@@ -1821,6 +1768,9 @@
           "records": [
             "api_token.created"
           ]
+        },
+        "x-idempotency": {
+          "refuse": "The response contains the new token, which must never be stored."
         },
         "requestBody": {
           "required": true,
@@ -1990,7 +1940,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -2017,6 +1967,7 @@
             "api_token.revoked"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "204": {
             "description": "Revoked"
@@ -2276,7 +2227,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -2304,6 +2255,7 @@
             "conversation.closed"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "200": {
             "description": "The closed conversation",
@@ -2472,7 +2424,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -2501,6 +2453,7 @@
             "draft.discarded"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -2651,7 +2604,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -2678,6 +2631,7 @@
             "draft.edited"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -2788,7 +2742,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -2815,6 +2769,7 @@
             "draft.approved"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -2923,7 +2878,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -2952,6 +2907,7 @@
             "draft.send_retried"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -3069,7 +3025,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -3096,6 +3052,7 @@
             "draft.discarded"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "200": {
             "description": "The discarded draft",
@@ -3185,7 +3142,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -3212,6 +3169,7 @@
             "draft.send_retried"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "200": {
             "description": "The draft, queued to send (or already sending or sent)",
@@ -3408,7 +3366,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           }
         ],
         "security": [
@@ -3426,6 +3384,7 @@
             "knowledge_source.created"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -3598,7 +3557,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -3625,6 +3584,7 @@
             "knowledge_source.reingest_requested"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "202": {
             "description": "The source, pending or waiting for the daily budget",
@@ -3714,7 +3674,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -3743,6 +3703,7 @@
             "knowledge_source.made_internal"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -3840,7 +3801,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -3867,6 +3828,7 @@
             "knowledge_source.deleted"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "204": {
             "description": "Deleted"
@@ -4079,7 +4041,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           }
         ],
         "security": [
@@ -4100,6 +4062,7 @@
             "workspace.shadow_recipient_changed"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -4237,19 +4200,6 @@
         "operationId": "github.connect",
         "summary": "Connect a GitHub repo",
         "description": "Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown; connecting the same repo again (a new token) keeps the secret unless `rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs `workspace:admin` in a human session.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "security": [
           {
             "apiAuth": []
@@ -4265,6 +4215,9 @@
           "records": [
             "github.connected"
           ]
+        },
+        "x-idempotency": {
+          "refuse": "The request carries a GitHub token; retrying the PUT replaces the same connection."
         },
         "requestBody": {
           "required": true,
@@ -4391,7 +4344,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           }
         ],
         "security": [
@@ -4410,6 +4363,7 @@
             "github.disconnected"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "204": {
             "description": "Disconnected, or nothing was connected"
@@ -4472,19 +4426,6 @@
         "operationId": "github.rotateWebhookSecret",
         "summary": "Give the GitHub webhook a new secret",
         "description": "Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          }
-        ],
         "security": [
           {
             "apiAuth": []
@@ -4500,6 +4441,9 @@
           "records": [
             "github.webhook_secret_rotated"
           ]
+        },
+        "x-idempotency": {
+          "refuse": "The response contains the new webhook secret, which must never be stored."
         },
         "responses": {
           "200": {
@@ -4590,7 +4534,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -4618,6 +4562,7 @@
             "github_issue.drafted"
           ]
         },
+        "x-idempotency": "replay",
         "responses": {
           "200": {
             "description": "The suggested issue",
@@ -4717,7 +4662,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
+            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
           },
           {
             "schema": {
@@ -4747,6 +4692,7 @@
             "draft.created"
           ]
         },
+        "x-idempotency": "replay",
         "requestBody": {
           "required": true,
           "content": {
@@ -4971,18 +4917,16 @@
             "githubSignature": []
           }
         ],
+        "x-access": {
+          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
+        },
+        "x-audit": {
+          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
+        },
+        "x-idempotency": {
+          "refuse": "No caller to scope the key to; the webhook signature proves the sender."
+        },
         "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. Credential-producing and provider/auth writes refuse this header. See docs/api-conventions.md."
-          },
           {
             "schema": {
               "type": "string",
@@ -4993,12 +4937,6 @@
             "in": "query"
           }
         ],
-        "x-access": {
-          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
-        },
-        "x-audit": {
-          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
-        },
         "requestBody": {
           "required": false,
           "content": {

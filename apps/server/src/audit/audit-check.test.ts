@@ -106,6 +106,7 @@ function appWith(handle: () => Promise<void> | void, status: 200 | 409 = 200) {
     operationId: "test.audit.closeConversation",
     access: { noCaller: "a test route, called without any principal" },
     audit: { records: ["conversation.closed"] },
+    idempotency: { refuse: "a test route without a caller" },
     method: "post",
     path: "/close",
     responses: { 200: { description: "closed" }, 409: { description: "refused" } },

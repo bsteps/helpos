@@ -120,6 +120,9 @@ const getRoute = apiRoute({
 
 const connectRoute = apiRoute({
   operationId: "github.connect",
+  idempotency: {
+    refuse: "The request carries a GitHub token; retrying the PUT replaces the same connection.",
+  },
   // A token is a credential to the customer's code host: only a human admin stores one.
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.connected"] },
@@ -165,6 +168,7 @@ const connectRoute = apiRoute({
 
 const disconnectRoute = apiRoute({
   operationId: "github.disconnect",
+  idempotency: "replay",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.disconnected"] },
   method: "delete",
@@ -179,6 +183,9 @@ const disconnectRoute = apiRoute({
 const rotatePath = `${integrationPath}/webhook-secret`;
 const rotateRoute = apiRoute({
   operationId: "github.rotateWebhookSecret",
+  idempotency: {
+    refuse: "The response contains the new webhook secret, which must never be stored.",
+  },
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: { records: ["github.webhook_secret_rotated"] },
   method: "post",
@@ -201,6 +208,7 @@ const rotateRoute = apiRoute({
 
 const draftIssueRoute = apiRoute({
   operationId: "github.draftIssue",
+  idempotency: "replay",
   access: { allScopes: ["github:write", "conversations:read"] },
   audit: { records: ["github_issue.drafted"] },
   method: "post",
@@ -231,6 +239,7 @@ const draftIssueRoute = apiRoute({
 
 const createIssueRoute = apiRoute({
   operationId: "github.createIssue",
+  idempotency: "replay",
   // conversations:read too: the issue is made from the conversation, and the conversation's customer is who is
   // told when it is fixed, so a caller that cannot read the conversation cannot pick it either.
   access: { allScopes: ["github:write", "conversations:read"] },

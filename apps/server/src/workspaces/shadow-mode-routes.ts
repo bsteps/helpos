@@ -35,6 +35,7 @@ const getRoute = apiRoute({
 
 const patchRoute = apiRoute({
   operationId: "workspaces.updateShadowMode",
+  idempotency: "replay",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
   audit: {
     records: [

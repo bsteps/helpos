@@ -163,6 +163,7 @@ describe("durable idempotency through the public API middleware", () => {
     instance.openapi(
       apiRoute({
         operationId: "test.idempotency.pending",
+        idempotency: "replay",
         method: "post",
         path: "/pending-probe",
         access: { allScopes: ["knowledge:write"] },
@@ -329,6 +330,7 @@ describe("durable idempotency through the public API middleware", () => {
     let calls = 0;
     const route = apiRoute({
       operationId: "test.idempotency.crash",
+      idempotency: "replay",
       method: "post",
       path: "/crash-probe",
       access: { allScopes: ["knowledge:write"] },
@@ -391,6 +393,7 @@ describe("durable idempotency through the public API middleware", () => {
     instance.openapi(
       apiRoute({
         operationId: "test.idempotency.emptyResponse",
+        idempotency: "replay",
         method: "delete",
         path: "/empty-probe",
         access: { allScopes: ["knowledge:write"] },

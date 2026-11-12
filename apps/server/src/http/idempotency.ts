@@ -16,12 +16,6 @@ declare module "hono" {
   }
 }
 
-const credentialWrites = new Set([
-  "POST /v1/tokens",
-  "PUT /v1/integrations/github",
-  "POST /v1/integrations/github/webhook-secret",
-]);
-
 export function idempotency(deps: Pick<Services, "db" | "clock">): MiddlewareHandler {
   return async (c, next) => {
     const rawKey = c.req.header("Idempotency-Key");
@@ -29,9 +23,7 @@ export function idempotency(deps: Pick<Services, "db" | "clock">): MiddlewareHan
     const key = keySchema.safeParse(rawKey);
     if (!key.success) return errorResponse(c, { error: "invalid_idempotency_key" }, 400);
     const principal = c.get("principal");
-    if (!principal || credentialWrites.has(`${c.req.method} ${c.req.routePath}`)) {
-      return errorResponse(c, { error: "idempotency_not_supported" }, 400);
-    }
+    if (!principal) return errorResponse(c, { error: "idempotency_not_supported" }, 400);
     const url = new URL(c.req.url);
     const fingerprint = hash(
       JSON.stringify([

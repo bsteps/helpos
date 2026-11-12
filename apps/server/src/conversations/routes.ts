@@ -136,6 +136,7 @@ const getConversationRoute = apiRoute({
 
 const closeConversationRoute = apiRoute({
   operationId: "conversations.close",
+  idempotency: "replay",
   // conversations:read too: the answer is the conversation, with its customer.
   access: { allScopes: ["conversations:write", "conversations:read"] },
   audit: { records: ["conversation.closed"] },
