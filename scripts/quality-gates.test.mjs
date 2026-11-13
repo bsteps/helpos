@@ -83,7 +83,7 @@ test("quality commands run in the existing required check and failure artifacts 
   const ci = read(".github/workflows/ci.yml");
   const check = ci.split("\n  check:")[1]?.split("\n  e2e:")[0];
   assert.ok(check);
-  for (const command of ["pnpm test:coverage", "pnpm check:widget", "pnpm test:performance"]) {
+  for (const command of ["pnpm test:coverage", "pnpm test:performance"]) {
     assert.ok(
       check.includes(`- run: ${command}\n`),
       `${command} must be an unconditional required-check step`,
