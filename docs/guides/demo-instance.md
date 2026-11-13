@@ -4,14 +4,12 @@ One small instance that people can try: they forward their support mail to it an
 
 Everything lives in [`deploy/demo/`](../../deploy/demo/):
 
-| File                          | What it does                                                                            |
-| ----------------------------- | --------------------------------------------------------------------------------------- |
-| `compose.yaml`                | Postgres 17 + pgvector, migrations, the server (API, worker, dashboard), Caddy, backups |
-| `Caddyfile`                   | HTTPS for your domain, with certificates from Let's Encrypt, renewed automatically      |
-| `postgres-init.sh`            | Creates the database roles on first start, with the passwords from `.env`               |
-| `backup.sh`                   | A daily dump of the whole database into `deploy/demo/backups/`, keeping the newest 14   |
-| `cloudflare-email-worker.mjs` | Forwards inbound mail to the webhook (the one inbound provider)                         |
-| `.env.example`                | Every setting. Copy it to `.env`, which is never committed                              |
+| File           | What it does                                                                            |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `compose.yaml` | Postgres 17 + pgvector, migrations, the server (API, worker, dashboard), Caddy, backups |
+| `Caddyfile`    | HTTPS for your domain, with certificates from Let's Encrypt, renewed automatically      |
+| `backup.sh`    | A daily dump of the whole database into `deploy/demo/backups/`, keeping the newest 14   |
+| `.env.example` | Every setting. Copy it to `.env`, which is never committed                              |
 
 ## Shadow mode is always on
 
@@ -38,13 +36,33 @@ To update later: `git pull && docker compose up -d --build`. Migrations run on e
 
 ### Inbound mail
 
-The server receives mail at `POST https://<your-domain>/v1/inbound/email`. The body is the raw email, sent with `Authorization: Bearer <HELPOS_INBOUND_SECRET>`. The demo uses **Cloudflare Email Routing** for this, because it's free and only needs the domain's DNS on Cloudflare:
+Any mail provider that can POST the raw email works. Point the domain's MX records at it, and have it send each email like this:
 
-1. In Cloudflare, enable Email Routing for the domain (it adds the MX records).
-2. Create a Worker from [`cloudflare-email-worker.mjs`](../../deploy/demo/cloudflare-email-worker.mjs), and give it two secrets: `HELPOS_INBOUND_URL` (`https://<your-domain>/v1/inbound/email`) and `HELPOS_INBOUND_SECRET` (same value as in `.env`).
-3. Email Routing → Routing rules → **Catch-all** → action "Send to a Worker" → that Worker.
+```http
+POST https://<your-domain>/v1/inbound/email
+Authorization: Bearer <HELPOS_INBOUND_SECRET>
+Content-Type: message/rfc822
 
-The Worker also adds a `Delivered-To` header with the address the email was really sent to, which is how forwarded mail finds its workspace (see below). Any provider that can POST the raw email and add that header works the same way. To move away from Cloudflare, only that Worker changes.
+Delivered-To: acme@<your-domain>
+<the raw email, unchanged>
+```
+
+- **`Delivered-To`** goes on top, with the address the email was really delivered to (the envelope recipient). A forwarded email still says `To: support@acme.com`, so this header is how it finds its workspace (see below).
+- **The answer** says what to do with the email. `201`: stored. `200`: a repeat delivery, already stored. `404`: no workspace has this address, so bounce it. `401`: wrong secret. `413`: larger than 10 MB. `422`: not a usable email. On any other error, retry later.
+
+Try it by hand with one of the test emails in the repo:
+
+```bash
+{ printf 'Delivered-To: acme@<your-domain>\r\n'; cat fixtures/email/plain.eml; } |
+  curl -sS https://<your-domain>/v1/inbound/email --data-binary @- \
+    -H "Authorization: Bearer $HELPOS_INBOUND_SECRET" -H "Content-Type: message/rfc822"
+```
+
+Some ways to set it up:
+
+- **Your own mail server.** A Postfix `pipe` transport with the `D` flag (it adds `Delivered-To`) that pipes each email into a small script around the `curl` part of the command above. The script must turn the answer into an exit code: `0` for `200` and `201`, `67` (unknown user, so Postfix bounces it) for `404`, and `75` (try again later) for anything else. Plain `curl` exits `0` on every answer, so Postfix would drop failed emails silently.
+- **Cloudflare Email Routing.** Free, if the domain's DNS is on Cloudflare. Add a catch-all rule that sends mail to a Worker. The Worker's `email` handler POSTs `message.raw` with `Delivered-To: <message.to>` in front, and calls `message.setReject()` on a `404`.
+- **An inbound email service that calls a webhook.** If it wraps the email in JSON or a form instead of sending it raw, put a small relay in front that unwraps it.
 
 ## Add a demo workspace
 
@@ -59,7 +77,7 @@ docker compose exec server node src/cli/init.ts \
 - `--owner` must be the owner's **personal** address, never the inbox they forward. Shadowed replies and notices go to the owner. If that inbox forwards them back, each one becomes a new conversation, and can loop.
 - It prints a one-time link (valid 24 hours) where the owner sets their password. Send it only to them.
 
-Then the owner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the Worker's `Delivered-To` header is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a conversation in their inbox, with the confirmation link in it.
+Then the owner sets up their support inbox (Gmail, Outlook, Google Groups…) to **auto-forward** to that address. A forwarded email still says `To: support@acme.com`, so the `Delivered-To` header your mail provider adds is what routes it to the right workspace. Most providers first send a confirmation email to that address. It arrives as a conversation in their inbox, with the confirmation link in it.
 
 Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft appears in the inbox, and the owner can approve it.
 
@@ -114,7 +132,7 @@ These need someone with the accounts. The repo can't do them:
 
 1. **Rent a VPS** with Docker and Compose v2 (2 GB RAM is enough), and open ports 80 and 443.
 2. **Pick a domain** and point its A (and AAAA) record at the VPS.
-3. **Move the domain's DNS to Cloudflare** (or another inbound provider) and set up Email Routing and the Worker as described above.
+3. **Pick an inbound mail provider**, point the domain's MX records at it, and have it POST each email to the server as described in [Inbound mail](#inbound-mail).
 4. **Get an SMTP account** for outbound mail (shadowed replies and notices) and put it in `HELPOS_SMTP_URL`. It must be allowed to send from your demo domain: set up SPF and DKIM for that domain (the provider gives you the DNS records), so the mail doesn't land in spam.
 5. **Get an AI API key** for `AI_API_KEY`.
 6. **Fill in `.env`** on the VPS with fresh secrets, then `docker compose up -d --build`.

@@ -309,6 +309,19 @@ test("the security check covers code, config, CI and agent instruction files", (
   }
 });
 
+test("pull request jobs skip drafts and run when the PR is marked ready", () => {
+  const prWorkflows = workflows.filter((w) => triggers(w.text, w.name).includes("pull_request"));
+  assert.ok(prWorkflows.length > 0, "no pull_request workflows found");
+  for (const { name, text } of prWorkflows) {
+    const types = /^ {2}pull_request:\n {4}types: \[([^\]]*)\]/m.exec(block(text, "on"))?.[1] ?? "";
+    assert.ok(types.split(", ").includes("ready_for_review"), `${name}: no ready_for_review`);
+    for (const [id, job] of Object.entries(jobs(text))) {
+      const gate = /^ {4}if: \$\{\{ (.+) \}\}$/m.exec(job)?.[1] ?? condition(job);
+      assert.ok(gate.includes("!github.event.pull_request.draft"), `${name}: ${id} runs on drafts`);
+    }
+  }
+});
+
 test("each AI check is gated to maintainers' same-repo PRs, capped and path-filtered", () => {
   for (const { name, text } of callers) {
     assert.deepEqual(triggers(text, name), ["pull_request"], name);

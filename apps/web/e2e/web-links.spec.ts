@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import type { KnowledgeSource } from "../src/api/client.ts";
 import { deliver, plainEmail, signIn, uniqueSubject } from "./support.ts";
 
 const cases = [
@@ -15,41 +14,8 @@ const cases = [
   { title: "Normal source", url: "https://example.com/normal", href: "https://example.com/normal" },
 ];
 
-test("knowledge and citations render only parsed web links", async ({ page, request }) => {
+test("citations render only parsed web links", async ({ page, request }) => {
   await signIn(page);
-  await page.route("**/v1/knowledge/sources", (route) =>
-    route.fulfill({
-      json: {
-        sources: cases.map(
-          ({ title, url }) =>
-            ({
-              id: crypto.randomUUID(),
-              title,
-              url,
-              kind: "url",
-              visibility: "public",
-              state: { status: "ready" },
-              slug: title.toLowerCase().replaceAll(" ", "-"),
-              sourcePath: null,
-              embeddingModel: null,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              ingestedAt: new Date().toISOString(),
-              chunkCount: 1,
-              managedBy: "app",
-            }) satisfies KnowledgeSource,
-        ),
-      },
-    }),
-  );
-  await page.goto("/knowledge");
-  for (const entry of cases) {
-    const card = page.getByTestId("knowledge-source").filter({ hasText: entry.title });
-    await expect(card).toBeVisible();
-    if (entry.href) await expect(card.getByRole("link")).toHaveAttribute("href", entry.href);
-    else await expect(card.locator("a")).toHaveCount(0);
-  }
-
   const id = await deliver(request, plainEmail(uniqueSubject("Web links"), "Please help."));
   await page.route(`**/v1/conversations/${id}/drafts`, async (route) => {
     const response = await route.fetch();

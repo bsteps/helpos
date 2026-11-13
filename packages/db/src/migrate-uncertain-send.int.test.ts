@@ -1,12 +1,12 @@
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { withDevBootstrap } from "./dev-bootstrap.ts";
 import { runMigrations } from "./migrate.ts";
 import { containerHost } from "./testing.ts";
 import { uuidv7 } from "./uuid.ts";
@@ -24,14 +24,7 @@ beforeEach(async () => {
   const journal = JSON.parse(await readFile(journalPath, "utf8"));
   journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx <= 22);
   await writeFile(journalPath, JSON.stringify(journal));
-  container = await new PostgreSqlContainer("pgvector/pgvector:pg17")
-    .withCopyFilesToContainer([
-      {
-        source: fileURLToPath(new URL("../../../docker/postgres/init.sql", import.meta.url)),
-        target: "/docker-entrypoint-initdb.d/init.sql",
-      },
-    ])
-    .start();
+  container = await withDevBootstrap(new PostgreSqlContainer("pgvector/pgvector:pg17")).start();
   ownerUrl = `postgres://helpos_owner:helpos_owner@${containerHost(container)}:${container.getPort()}/helpos`;
   owner = postgres(ownerUrl, { max: 1, prepare: false, onnotice: () => {} });
   await migrate(drizzle(owner), { migrationsFolder: predecessor });

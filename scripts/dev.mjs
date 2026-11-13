@@ -55,6 +55,7 @@ const childEnv = { ...process.env, ...overrides.env };
 // Every checkout shares one compose project. Worktrees use the main checkout's compose file, so
 // its bind mounts don't change and Docker doesn't recreate the shared Postgres container.
 const composeFile = worktree ? join(mainCheckoutDir(), "docker-compose.yml") : "docker-compose.yml";
+const initSql = new URL("../docker/postgres/init.sql", import.meta.url);
 run(`docker compose -f "${composeFile}" up -d --wait`);
 let created = false;
 if (isolation.isolated) {
@@ -94,7 +95,7 @@ for (const child of children) {
   });
 }
 
-// Creates this worktree's database in the shared Postgres container, with the same roles and
+// Creates this worktree's database in the shared Postgres container, with the same schemas and
 // grants as docker/postgres/init.sql gives the default one. The name is our own hex digest, so
 // it is safe to put in SQL.
 function ensureDatabase(name) {
@@ -110,9 +111,10 @@ function ensureDatabase(name) {
   const exists = psql(["-tAc", `SELECT 1 FROM pg_database WHERE datname = '${name}'`]);
   if (exists.status !== 0) fail(`checking for database ${name}`, exists.stderr);
   if (exists.stdout.trim() === "1") return false;
+  const setupSql = databaseSetupSql(readFileSync(initSql, "utf8"));
   const create = psql(["-c", `CREATE DATABASE ${name} OWNER helpos_owner`]);
   if (create.status !== 0) fail(`creating database ${name}`, create.stderr);
-  const setup = psql(["-v", "ON_ERROR_STOP=1", "-d", name], databaseSetupSql());
+  const setup = psql(["-v", "ON_ERROR_STOP=1", "-d", name], setupSql);
   if (setup.status !== 0) {
     // Drop the half-made database, so the next run creates it again instead of skipping it.
     psql(["-c", `DROP DATABASE IF EXISTS ${name}`]);

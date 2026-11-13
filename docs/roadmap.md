@@ -11,11 +11,14 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 - **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#185).
 - **Remove what the vision replaced, only once the replacement works.**
 
+## What works today
+
+Email comes in and becomes a conversation. The AI drafts a reply from the workspace's knowledge, with citations. A person approves it, and it is sent in shadow mode, so every reply goes to the workspace owner, never to a real customer. Agents do the same through the public API with scoped tokens, and every action is audit-logged.
+
 ## The sets
 
 | Set                             | Exit goal                                                                                                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ✅ **MVP**                      | Email → conversation → AI draft → approve → send, in shadow mode                                                                                              |
 | **0. Clean foundation**         | The audit's architecture debt is fixed, every behaviour is proven by a test, and every judgment-only rule that can be a check is one                          |
 | **A. The gate**                 | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
 | **B. Shadow mode** (after #187) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
@@ -57,7 +60,7 @@ The existing code is cleaned before new work builds on it. The [0: Clean foundat
 
 ## C. First real reply
 
-The remaining release-safety items from the [architecture overview](architecture/overview.md#mvp-vs-first-release), plus real email basics.
+The remaining release-safety items from the [architecture overview](architecture/overview.md#shortcuts-before-the-first-real-reply), plus real email basics.
 
 - **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption
 - **Email:** #74 sending domain and DKIM signing · #75 bounces and quote stripping

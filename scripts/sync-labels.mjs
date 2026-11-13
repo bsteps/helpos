@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export const issueStates = ["needs-triage", "ready", "in-progress"];
-export const prStates = ["pr:in-progress", "pr:ready", "land"];
+export const prStates = ["land"];
 
 export function loadLabels(path = new URL("../.github/labels.json", import.meta.url)) {
   return JSON.parse(readFileSync(path, "utf8"));

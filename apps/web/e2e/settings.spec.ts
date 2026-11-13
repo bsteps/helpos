@@ -68,42 +68,7 @@ test("turning shadow mode off asks first, and while the server locks it shows wh
 type Paused = { paused: boolean };
 type PausedConversation = { aiPausedReason: string | null };
 
-const tokens = async (page: Page, testId: string): Promise<number> =>
-  Number(((await page.getByTestId(testId).textContent()) ?? "").replace(/\D/g, ""));
-
-const leftMatchesBudget = (page: Page, budget: number): Promise<boolean> =>
-  page.evaluate((budget) => {
-    const read = (testId: string) =>
-      Number(
-        (document.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "").replace(/\D/g, ""),
-      );
-    return read("ai-usage-remaining") === Math.max(0, budget - read("ai-usage-used"));
-  }, budget);
-
-test("AI usage shows today's tokens and budget, and grows after a draft", async ({
-  page,
-  request,
-}) => {
-  await signIn(page);
-  await openSettings(page);
-  await expect(page.getByText("Drafting", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("ai-usage-budget")).toHaveText(/\d/);
-  const before = await tokens(page, "ai-usage-used");
-  const budget = await tokens(page, "ai-usage-budget");
-  await expect.poll(() => leftMatchesBudget(page, budget)).toBe(true);
-
-  const subject = uniqueSubject("Order status");
-  await deliver(request, plainEmail(subject, "Hi, where is my order?"));
-  await page.goto("/");
-  await page.getByRole("link", { name: subject }).click();
-  await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
-
-  await openSettings(page);
-  await expect.poll(() => tokens(page, "ai-usage-used")).toBeGreaterThan(before);
-  await expect.poll(() => leftMatchesBudget(page, budget)).toBe(true);
-});
-
-test("when drafting uses up the daily budget, Settings and the next conversation show drafting is paused", async ({
+test("when drafting uses up the daily budget, the next conversation shows drafting is paused", async ({
   page,
   request,
 }) => {
@@ -117,10 +82,6 @@ test("when drafting uses up the daily budget, Settings and the next conversation
   await expect
     .poll(async () => ((await (await page.request.get("/v1/ai-usage")).json()) as Paused).paused)
     .toBe(true);
-  await openSettings(page);
-  await expect(page.getByText("Paused", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("ai-usage-remaining")).toHaveText("0");
-  await expect(page.getByText("Drafting is paused")).toBeVisible();
 
   const subject = uniqueSubject("After the budget");
   const conversationId = await deliver(

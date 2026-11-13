@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn, state, uniqueSubject } from "./support.ts";
+import { signIn, state } from "./support.ts";
 
 test.beforeEach(async ({ page }) => {
   const { seedMember, seedPassword } = state();
@@ -24,7 +24,6 @@ test("a member can't change owner-only settings, in the dashboard or the API", a
   await expect(card.getByText("Only workspace owners can change this.")).toBeVisible();
   await expect(card.getByRole("button")).toHaveCount(0);
   await expect(card.locator("input")).toHaveCount(0);
-  await expect(page.getByTestId("ai-usage-budget")).toBeVisible();
   await expect(page.getByTestId("shadow-mode-summary")).toBeVisible();
 
   const shadowBefore = await page.request.get("/v1/workspace/shadow-mode");
@@ -38,36 +37,4 @@ test("a member can't change owner-only settings, in the dashboard or the API", a
   const shadowAfter = await page.request.get("/v1/workspace/shadow-mode");
   expect(shadowAfter.status()).toBe(200);
   expect(await shadowAfter.json()).toEqual(shadow);
-});
-
-test("a member adds, edits and deletes knowledge through the dashboard", async ({ page }) => {
-  const title = uniqueSubject("Member warranty");
-  await page.getByRole("link", { name: "Knowledge" }).click();
-  await page.getByRole("button", { name: "Add a source" }).click();
-  await page.getByLabel("Title").fill(title);
-  await page.getByLabel("Content").fill("Every frame has a five year warranty.");
-  const created = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/v1/knowledge/sources") && response.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add source", exact: true }).click();
-  const response = await created;
-  expect(response.status()).toBe(201);
-  const source = await response.json();
-  try {
-    const card = page.getByTestId("knowledge-source").filter({ hasText: title });
-    await expect(card.getByText("Ready", { exact: true })).toBeVisible();
-    await card.getByRole("button", { name: "Edit" }).click();
-    await card.getByLabel("Visibility").selectOption("public");
-    await card.getByRole("button", { name: "Save" }).click();
-    await expect(card).toContainText("Public");
-    await page.reload();
-    await expect(card).toContainText("Public");
-    await card.getByRole("button", { name: "Delete" }).click();
-    await card.getByRole("button", { name: "Delete" }).click();
-    await expect(card).toBeHidden();
-  } finally {
-    const cleanup = await page.request.delete(`/v1/knowledge/sources/${source.id}`);
-    expect([204, 404]).toContain(cleanup.status());
-  }
 });

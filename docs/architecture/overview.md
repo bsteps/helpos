@@ -37,7 +37,7 @@ flowchart LR
 | Unit                  | Role                                                                                                                                                                                                                      | May import                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
 | `apps/server`         | HTTP API: routes, auth middleware, validation (Zod), OpenAPI spec at `/openapi.json`                                                                                                                                      | any `packages/*`                   |
-| worker role           | Background jobs (AI drafts, sending, webhooks). Same code as `apps/server`, started in a different mode. Inside the server process during the MVP (#18 splits it out)                                                     | any `packages/*`                   |
+| worker role           | Background jobs (AI drafts, sending, webhooks). Same code as `apps/server`, started in a different mode. Runs inside the server process for now (#18 splits it out)                                                       | any `packages/*`                   |
 | `apps/web`            | Dashboard: React + Vite SPA, TanStack Router/Query, components copied in from beUI's shadcn registry. Uses **only** a client generated from `/openapi.json`. Served by the server from the same origin under a strict CSP | `packages/brand`, generated client |
 | `packages/db`         | Drizzle schema, migrations, `withTenant()`. **The only place that touches the raw DB client** (ADR 0003, enforced by Biome)                                                                                               | —                                  |
 | `packages/ai`         | Builds the AI model from env, prompt helpers, the mock model for tests                                                                                                                                                    | —                                  |
@@ -105,25 +105,24 @@ Each table, its owner column, the roles and special grants, and how to add a tab
 
 ## Trust boundaries
 
-The [threat model](../security/threat-model.md) maps every boundary, the threats that cross it, and the rules the gate must hold. The list below is what holds in the MVP.
+The [threat model](../security/threat-model.md) maps every boundary, the threats that cross it, and the rules the gate must hold. The list below is what holds today.
 
 1. **Everything that comes in is data, never instructions** (ADR 0004): emails, attachments, imported pages. It is quoted to the AI, never merged into its instructions, and AI output can't trigger an action without the policy and approval path.
 2. **Every request is authenticated.** Humans use a Better Auth session: an HttpOnly, SameSite=Lax cookie from `POST /v1/auth/sign-in`, resolved to the user's oldest membership. A cookie-authenticated write whose `Origin` isn't the dashboard's is refused (CSRF). There is no sign-up: `pnpm helpos:init` prints a one-time link (token in the URL fragment, stored only hashed) for the owner to set a password. Agents use a scoped `hos_` token. Webhooks use a shared secret or HMAC signature. Each one resolves to _tenant + actor + scopes_ before any data access. A token is stored only as its SHA-256 and looked up by that hash through a read-only policy that shows the one matching row, the same way inbound mail finds its mailbox. Tokens are created by a human with `workspace:admin`, never by another token, can't hold `workspace:admin` themselves, and are revoked rather than deleted, so the audit log can always name the agent. The operator can also create them with `pnpm helpos:token`.
 3. **Customer HTML is never trusted.** The API returns it only sanitised (an allow-list of tags and attributes, no scripts, remote images replaced by their alt text), and the dashboard renders it in a sandboxed iframe without `allow-scripts`, under the dashboard's CSP plus its own.
 4. **Every data access goes through `withTenant()`**, so the database itself refuses cross-tenant reads (ADR 0003).
 5. **Every action is audit-logged** in the same transaction as the action.
-6. **Nothing reaches a customer without approval.** There is no auto-send in the MVP.
+6. **Nothing reaches a customer without approval.** There is no auto-send.
 
-## MVP vs first release
+## Shortcuts before the first real reply
 
-The MVP is a demo to learn from, **not a release**. To stay small, it takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (set C, first real reply, in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the workspace owner, never to a real customer:
+HelpOS isn't released yet. To stay small, the code takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (set C, first real reply, in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the workspace owner, never to a real customer:
 
-| MVP shortcut                               | Required before release                   |
+| Shortcut today                             | Required before release                   |
 | ------------------------------------------ | ----------------------------------------- |
 | Sender identity is just the `From` address | SPF/DKIM/DMARC checks (#31)               |
 | Approve endpoint + scopes only             | Policy layer, caps, kill switch (#13)     |
 | No rate limits                             | Rate limiting (#29)                       |
-| Basic per-table leak tests                 | Full leak harness (#8)                    |
 | Plain-text AI drafts                       | Output sanitisation and PII masking (#52) |
 
 ## Where to read more

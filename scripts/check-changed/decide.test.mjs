@@ -58,7 +58,6 @@ test("normalises Windows paths and drops duplicates", () => {
 test("knip runs on any code change, never on docs alone", () => {
   assert.equal(decide(["README.md", "docs/guide.md"]).knip, false);
   assert.equal(decide(["apps/server/src/app.ts"]).knip, true);
-  assert.equal(decide(["deploy/demo/cloudflare-email-worker.mjs"]).knip, true);
 });
 
 test("knip config runs everything", () => {

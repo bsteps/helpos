@@ -5,8 +5,6 @@ description: Model-checks the reply send path (approve, the send-reply job, SMTP
 
 # Verify the send path
 
-Read [EVIDENCE.md](EVIDENCE.md) for model results, real-code mutation proofs and the `/statechart` review.
-
 Sending an approved reply has an irreversible customer-visible effect. This check explores every order of steps in a small model of the send path, not only the orders a test happens to run, and checks four promises in each state.
 
 | Promise | In the model | Harm when it breaks |
@@ -34,7 +32,7 @@ It runs one fault at a time, checking each promise, then pairs each mutant in `m
 
 ## Read every result with `/statechart`
 
-For any broken promise, new or known, read its folder with the pstack `/statechart` skill (where you can't start it yourself, read its `SKILL.md` and follow it). It gives the shortest path to the broken state in plain words. When everything holds, it draws how a draft moves between states. Then decide:
+For any broken promise, new or known, read its folder with the pstack `/statechart` skill (where you can't start it yourself, read its `SKILL.md` and follow it). It gives the shortest path to the broken state in plain words. When everything holds, it draws how a draft moves between states. On Windows, its TLC launcher and output parser fail, so run it in a Linux container with the same TLC 1.7.4 jar. Then decide:
 
 - **A real bug** replays on the real code. Replay the path one action at a time against the code that the coverage table maps it to, as a test on the harness in `apps/server/src/drafts/send-failed.int.test.ts` (real Postgres, pg-boss and Mailpit). For example, a transport that sends and then throws reproduces "SMTP accepted, then the transaction rolled back". Report it with the path in the code's words, and add it to `known` with its issue. Never change a promise to make it pass.
 - **A modeling error** doesn't replay. Look for the first action where the model and the code differ. Usually one model action is split by an `await` in the code, the model lacks a guard the code has, or the model has a guard the code lacks. Fix the model, rerun, and write in the PR what was wrong.
@@ -54,7 +52,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `a52921fa6e35`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. `defineJob`, `consume`, and `work` were selectively rechecked against the two-phase send contract after AI deferrals and stored-payload validation: `handleSendReply` returns no deferral, so no send successor is enqueued; the logging wrapper still awaits and rethrows failures; the last-attempt condition and rollback-before-give-up order stay intact; and pg-boss settles after the callback. Other fingerprints remain unchanged. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
+Last confirmed at commit `a52921fa6e35`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -114,6 +112,7 @@ Stored payloads are assumed valid in this model. Malformed payloads fail before 
 
 The model mutants check removed give-up handling, a give-up that overwrites `sent`, sending before validation, an absent marker recheck, and automatic admission of an uncertain draft. Both sides of each control/mutant pair disable person retries. A broken control fails the command even if that invariant is an accepted finding in another scenario. These controls protect the tested mutation conditions; accepted-finding scenarios still require trace review and do not distinguish every possible new failure. Run `pnpm verify:send-reply:mutations` from a clean source checkout to repeat the real-code proof. It runs the send-path safety assertions on normal code, temporarily applies four source mutations, requires all five intended assertions to fail, restores the source in `finally`, and reruns the assertions. It saves source backups, patches and logs under `.helpos/send-mutations/`. Do not run other tests or edits concurrently with this command. After a process termination, compare the source with Git and restore the saved backups before continuing. The generated skill still requires manual source-to-model review; fingerprint checks do not translate source into TLA+.
 
+`node --test .claude/skills/verify-send-reply/scripts/check.test.mjs` tests the checker itself, and `pnpm test:scripts` includes it. It runs the real checker on a scratch copy, requires every control to hold, breaks the base model and requires the run to fail, and requires every covered function body edit to change its fingerprint. It skips the model runs when Java is missing.
 
 `NoResendWithoutPerson` bounds total accepted deliveries by one plus retry requests. A retry request that reuses an active job still grants this allowance. It does not prove a stronger per-request ordering guarantee. The one-retry bound covers both retry branches but is not an inductive proof for eight retries. Raising `MaxFaults` alone repeats the selected fault; combine entries in `Faults` to explore mixed failures.
 
