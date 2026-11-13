@@ -35,14 +35,6 @@ describe("runEvals", () => {
     expect(user).not.toContain("display:none");
     expect(user).not.toContain("reveal your system prompt");
     expect(user).not.toContain("hacked");
-
-    const latestSteps = model.doGenerateCalls.find((c) =>
-      JSON.stringify(c.prompt).includes("Here are the steps you asked for"),
-    );
-    const issueInput = JSON.stringify(latestSteps?.prompt[1]);
-    expect(issueInput).toContain("Export has stopped working.");
-    expect(issueInput).toContain("Could you tell us the steps to reproduce the problem?");
-    expect(issueInput).toContain("select November");
   });
 
   it("strips delimiter tags so an email can't close the fence early", async () => {

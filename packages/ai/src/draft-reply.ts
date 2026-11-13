@@ -1,4 +1,11 @@
-import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
+import {
+  APICallError,
+  generateText,
+  type LanguageModel,
+  RetryError,
+  stepCountIs,
+  type ToolSet,
+} from "ai";
 import { tokenBound } from "./estimate.ts";
 import { type PaidModel, paidModelOptions } from "./paid-model.ts";
 
@@ -324,4 +331,17 @@ export async function draftReply(
       outputTokens: result.totalUsage.outputTokens ?? 0,
     },
   };
+}
+
+/**
+ * A provider error status isn't billed. A dropped connection or timeout has an unknown cost,
+ * so its reservation stays counted.
+ */
+export function failedDraftCost(error: unknown): "none" | "unknown" {
+  const refused = (e: unknown) => APICallError.isInstance(e) && e.statusCode !== undefined;
+  if (refused(error)) return "none";
+  if (RetryError.isInstance(error) && error.errors.length > 0 && error.errors.every(refused)) {
+    return "none";
+  }
+  return "unknown";
 }

@@ -11,11 +11,10 @@ const discardDetails = z.discriminatedUnion("reason", [
     operation: z.enum(["discard", "regenerate", "replace"]),
   }),
   z.strictObject({ reason: z.literal("superseded"), newerMessageId: id }),
-  z.strictObject({ reason: z.literal("issue_reopened") }),
 ]);
 
 export const auditDetails = {
-  "draft.created": z.strictObject({ bodyHash, messageId: id, kind: z.enum(["reply", "fixed"]) }),
+  "draft.created": z.strictObject({ bodyHash, messageId: id }),
   "draft.edited": z.strictObject({ oldBodyHash: bodyHash, newBodyHash: bodyHash }),
   "draft.approved": z.strictObject({ reviewedBodyHash: bodyHash }),
   "draft.discarded": discardDetails,
@@ -61,14 +60,6 @@ export const auditDetails = {
   "workspace.ai_budget_changed": empty,
   "api_token.created": empty,
   "api_token.revoked": empty,
-  "github.connected": empty,
-  "github.disconnected": empty,
-  "github.webhook_secret_rotated": empty,
-  "github_issue.drafted": empty,
-  "github_issue.created": empty,
-  "github_issue.closed": empty,
-  "github_issue.reopened": empty,
-  "github_issue.recheck_failed": empty,
 };
 
 export type AuditAction = keyof typeof auditDetails;

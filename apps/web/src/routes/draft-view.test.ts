@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationDetail, Draft } from "@/api/client.ts";
-import {
-  draftDescription,
-  draftTitle,
-  draftView,
-  liveFixNotice,
-  newDraftError,
-  waitingOn,
-} from "./draft-view.ts";
+import { draftDescription, draftTitle, draftView, newDraftError, waitingOn } from "./draft-view.ts";
 
 const conversation: ConversationDetail = {
   id: "t1",
@@ -20,18 +13,16 @@ const conversation: ConversationDetail = {
   aiPausedReason: null,
   replyNotSent: false,
   messages: [],
-  githubIssue: null,
 };
 
 const sentAt = "2026-11-09T10:00:00.000Z";
 
-function draft(id: string, status: Draft["status"], kind: Draft["kind"] = "reply"): Draft {
+function draft(id: string, status: Draft["status"]): Draft {
   const approved = status === "sent" || status === "approved" || status === "send_failed";
   return {
     id,
     conversationId: conversation.id,
     messageId: "m1",
-    kind,
     status,
     outboundMessageId: null,
     body: "Thanks for writing in.",
@@ -206,17 +197,6 @@ describe("draftView", () => {
   });
 });
 
-describe("liveFixNotice", () => {
-  it("still shows an earlier fix notice when a newer one was withdrawn", () => {
-    const drafts = [draft("f1", "sent", "fixed"), draft("f2", "discarded", "fixed")];
-    expect(liveFixNotice(drafts)?.id).toBe("f1");
-  });
-
-  it("isn't affected by replies", () => {
-    expect(liveFixNotice([draft("d1", "pending")])).toBeUndefined();
-  });
-});
-
 describe("newDraftError", () => {
   it("preserves the contextual refusal and unknown-response wording", () => {
     expect(newDraftError("daily_budget_reached")).toBe(
@@ -240,7 +220,7 @@ describe("newDraftError", () => {
 });
 
 describe("draft card copy", () => {
-  it.each(["reply", "fixed"] as const)("titles and descriptions for every %s state", (kind) => {
+  it("titles and descriptions for every state", () => {
     const cases = [
       ["pending", "Draft", "Nothing is sent until you approve it."],
       ["approved", "Reply", "Approved. It goes out in a moment."],
@@ -250,34 +230,27 @@ describe("draft card copy", () => {
       ["sent", "Reply", "Approved. It goes out in a moment."],
     ] satisfies [Draft["status"], string, string][];
     for (const [status, title, description] of cases) {
-      const value = { kind, status, sentAt: null };
-      expect(draftTitle(value)).toBe(kind === "fixed" ? "Fix notice" : title);
-      expect(draftDescription(value)).toBe(
-        kind === "fixed" && status === "pending"
-          ? "The GitHub issue was closed as done. Nothing is sent until you approve it."
-          : description,
-      );
+      const value = { status, sentAt: null };
+      expect(draftTitle(value)).toBe(title);
+      expect(draftDescription(value)).toBe(description);
     }
   });
 
-  it.each(["reply", "fixed"] as const)(
-    "a %s sent timestamp takes precedence over status",
-    (kind) => {
-      const statuses: Draft["status"][] = [
-        "pending",
-        "approved",
-        "sent",
-        "send_failed",
-        "send_uncertain",
-        "discarded",
-      ];
-      const formatted = new Date(sentAt).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-      for (const status of statuses) {
-        expect(draftDescription({ kind, status, sentAt })).toBe(`Sent ${formatted}`);
-      }
-    },
-  );
+  it("a sent timestamp takes precedence over status", () => {
+    const statuses: Draft["status"][] = [
+      "pending",
+      "approved",
+      "sent",
+      "send_failed",
+      "send_uncertain",
+      "discarded",
+    ];
+    const formatted = new Date(sentAt).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    for (const status of statuses) {
+      expect(draftDescription({ status, sentAt })).toBe(`Sent ${formatted}`);
+    }
+  });
 });

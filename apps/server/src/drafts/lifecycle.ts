@@ -30,7 +30,6 @@ const { drafts, mailboxes, messages, conversations } = schema;
 
 export type DraftRow = typeof drafts.$inferSelect;
 type DraftStatus = schema.DraftStatus;
-type DraftKind = schema.DraftKind;
 
 interface Transition {
   /** The statuses a draft may be in for this change. Anything else is a conflict. */
@@ -42,7 +41,7 @@ interface Transition {
 
 /**
  * Every way a draft's status changes, and nothing else. A new draft is `pending` (see
- * `createReply` and `createFixedNotice`).
+ * `createReply`).
  */
 export const draftTransitions = {
   /** A person rewrites the text. Only while nobody has approved it. */
@@ -52,8 +51,8 @@ export const draftTransitions = {
   /** A person drops a draft that shouldn't go out, or a send that kept failing. */
   discard: { from: ["pending", "send_failed"], to: "discarded", audit: "draft.discarded" },
   /**
-   * Something newer replaced it: a newer reply on the conversation, or the issue a "fixed" notice was
-   * about was reopened. Only a pending one: a failed send waits for a person to decide.
+   * Something newer replaced it, such as a newer reply on the conversation. Only a pending one: a
+   * failed send waits for a person to decide.
    */
   discardStale: { from: ["pending"], to: "discarded", audit: "draft.discarded" },
   rejectSend: { from: ["send_uncertain"], to: "approved", audit: "draft.send_rejected" },
@@ -73,14 +72,6 @@ export const draftTransitions = {
 
 type DraftOperation = Exclude<keyof typeof draftTransitions, "discardStale">;
 
-/**
- * Statuses a draft can still move on from: it is waiting for approval, being sent, or waiting
- * on a person after a failed send. `sent` and `discarded` are final.
- */
-export const openStatuses: readonly DraftStatus[] = schema.draftStatuses.filter((status) =>
-  Object.values(draftTransitions).some((t) => (t.from as readonly DraftStatus[]).includes(status)),
-);
-
 export function isPendingDraft(draft: Pick<DraftRow, "status">): boolean {
   return draft.status === "pending";
 }
@@ -99,9 +90,7 @@ export function isUncertainDraft(draft: Pick<DraftRow, "status">): boolean {
 
 export const draftWhere = {
   pending: () => eq(drafts.status, "pending"),
-  open: () => inArray(drafts.status, [...openStatuses]),
-  live: (kind: DraftKind) =>
-    and(ne(drafts.status, "discarded"), kind === "fixed" ? ne(drafts.status, "sent") : undefined),
+  live: () => ne(drafts.status, "discarded"),
   wasApproved: (after?: Date) =>
     after
       ? sql<boolean>`${gt(drafts.approvedAt, after)}`
@@ -346,15 +335,13 @@ export function markSendFailed(
 }
 
 /**
- * Discards the conversations' pending drafts of `kind`, auditing each, and returns their IDs. A new
- * reply replaces pending replies (`createReply` does it itself); a reopened issue withdraws the
- * pending "fixed" notice. The two kinds never replace each other: "it's fixed" is still news
- * when the customer writes again.
+ * Discards the conversations' pending drafts, auditing each, and returns their IDs. A new reply
+ * replaces pending replies (`createReply` does it itself).
  */
 export async function discardStale(
   tx: TenantTx,
   context: AuditContext,
-  where: { conversationIds: string[]; kind: DraftKind; details: DiscardDetails },
+  where: { conversationIds: string[]; details: DiscardDetails },
 ): Promise<string[]> {
   if (where.conversationIds.length === 0) return [];
   const { from, to, audit: action } = draftTransitions.discardStale;
@@ -362,11 +349,7 @@ export async function discardStale(
     .update(drafts)
     .set({ status: to })
     .where(
-      and(
-        inArray(drafts.conversationId, where.conversationIds),
-        eq(drafts.kind, where.kind),
-        inArray(drafts.status, [...from]),
-      ),
+      and(inArray(drafts.conversationId, where.conversationIds), inArray(drafts.status, [...from])),
     )
     .returning({ id: drafts.id, messageId: drafts.messageId });
   for (const { id, messageId } of stale)
@@ -415,19 +398,17 @@ export async function lockConversationForDrafting(
 }
 
 /**
- * The message's live draft of `kind`, if any: one not discarded (and, for a "fixed" notice, not
- * sent: a fix that didn't hold gets a new notice). The same rule as the unique index, so there
- * is at most one.
+ * The message's live draft, if any: one not discarded. The same rule as the unique index, so
+ * there is at most one.
  */
 export async function liveDraftFor(
   tx: TenantTx,
   messageId: string,
-  kind: DraftKind,
 ): Promise<{ id: string; status: DraftStatus } | undefined> {
   const [live] = await tx
     .select({ id: drafts.id, status: drafts.status })
     .from(drafts)
-    .where(and(eq(drafts.messageId, messageId), eq(drafts.kind, kind), draftWhere.live(kind)))
+    .where(and(eq(drafts.messageId, messageId), draftWhere.live()))
     .limit(1);
   return live;
 }
@@ -453,7 +434,7 @@ export async function regenerateDraft(
   if (!lock) return { outcome: "not_found" };
   const messageId = lock.answering;
   if (!messageId) return { outcome: "nothing_to_answer" };
-  const live = await liveDraftFor(tx, messageId, "reply");
+  const live = await liveDraftFor(tx, messageId);
   if (live && !isPendingDraft(live)) return { outcome: "already_answered" };
   if (lock.closed) return { outcome: "conversation_closed" };
   const refusal = dailyBudgetRefusal(await budget.today(tx, context.tenantId));
@@ -466,7 +447,6 @@ export async function regenerateDraft(
   if (refused) return { outcome: refused };
   const discardedDraftIds = await discardStale(tx, context, {
     conversationIds: [conversationId],
-    kind: "reply",
     details: { reason: "manual", operation: "regenerate" },
   });
   await clearAiPause(tx, conversationId, "draft_failed");
@@ -487,7 +467,6 @@ async function insertPending(
     tenantId: string;
     conversationId: string;
     messageId: string;
-    kind: DraftKind;
     body: string;
     noticeDelaySeconds: number;
   },
@@ -500,7 +479,7 @@ async function insertPending(
     ...context,
     action: "draft.created",
     target: { type: "draft", id: draft.id },
-    details: { bodyHash: hashBody(draft.body), messageId: draft.messageId, kind: draft.kind },
+    details: { bodyHash: hashBody(draft.body), messageId: draft.messageId },
   });
   return draft;
 }
@@ -524,42 +503,11 @@ export async function createReply(
 ): Promise<DraftRow> {
   await discardStale(tx, context, {
     conversationIds: [input.conversationId],
-    kind: "reply",
     details: { reason: "superseded", newerMessageId: input.messageId },
   });
-  const draft = await insertPending(tx, context, { ...input, kind: "reply" });
+  const draft = await insertPending(tx, context, input);
   await clearAiPause(tx, input.conversationId);
   return draft;
-}
-
-/**
- * Adds a pending "fixed" notice to the conversation, answering the customer's latest message. Null,
- * with nothing written, when the conversation has no message from a person or already has a "fixed"
- * notice open (waiting, being sent or waiting on a retry), whichever message it answers: the
- * customer is never told twice at once. One already sent (a fix that didn't hold, reopened, now
- * closed again) is no reason not to tell them about this one. A pending reply stays: the two
- * kinds never replace each other.
- */
-export async function createFixedNotice(
-  tx: TenantTx,
-  context: AuditContext,
-  input: { tenantId: string; conversationId: string; body: string; noticeDelaySeconds: number },
-): Promise<DraftRow | null> {
-  const lock = await lockConversationForDrafting(tx, input.conversationId);
-  if (!lock?.answering) return null;
-  const [open] = await tx
-    .select({ id: drafts.id })
-    .from(drafts)
-    .where(
-      and(
-        eq(drafts.conversationId, input.conversationId),
-        eq(drafts.kind, "fixed"),
-        draftWhere.open(),
-      ),
-    )
-    .limit(1);
-  if (open) return null;
-  return insertPending(tx, context, { ...input, messageId: lock.answering, kind: "fixed" });
 }
 
 export async function rejectSend(tx: TenantTx, context: AuditContext, id: string): Promise<void> {

@@ -15,12 +15,6 @@
         "type": "http",
         "scheme": "bearer",
         "description": "The value of HELPOS_INBOUND_SECRET."
-      },
-      "githubSignature": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Hub-Signature-256",
-        "description": "`sha256=` and the hex HMAC-SHA256 of the raw body under the webhook secret."
       }
     },
     "schemas": {
@@ -30,23 +24,15 @@
           "error": {
             "type": "string",
             "enum": [
-              "ai_busy",
-              "ai_not_configured",
-              "ai_unavailable",
               "already_answered",
-              "already_linked",
               "bad_request",
               "busy",
               "content_not_editable",
               "conversation_closed",
-              "creation_pending",
               "daily_budget_reached",
               "empty_range",
-              "encryption_not_configured",
               "forbidden",
               "forbidden_origin",
-              "github_outcome_unknown",
-              "github_unavailable",
               "idempotency_conflict",
               "idempotency_expired",
               "idempotency_not_supported",
@@ -55,30 +41,21 @@
               "internal_error",
               "invalid_credentials",
               "invalid_idempotency_key",
-              "invalid_payload",
-              "invalid_repo",
               "invalid_token",
-              "issue_not_linked",
-              "issue_rejected",
               "managed_in_git",
               "missing_from",
-              "not_connected",
               "not_current_uncertain_send",
               "not_found",
               "not_pending",
               "not_ready",
               "not_send_failed",
               "nothing_to_answer",
-              "nothing_to_report",
               "range_too_long",
-              "reconnect_required",
-              "repo_not_found",
               "scope_not_held",
               "session_required",
               "sessions_disabled",
               "shadow_mode_locked",
               "slug_taken",
-              "token_rejected",
               "too_large",
               "unauthorized",
               "unknown_mailbox",
@@ -192,7 +169,6 @@
                 "drafts:approve",
                 "knowledge:read",
                 "knowledge:write",
-                "github:write",
                 "stats:read",
                 "workspace:admin"
               ]
@@ -232,7 +208,6 @@
           "drafts:approve",
           "knowledge:read",
           "knowledge:write",
-          "github:write",
           "stats:read"
         ]
       },
@@ -358,41 +333,10 @@
                 "items": {
                   "$ref": "#/components/schemas/Message"
                 }
-              },
-              "githubIssue": {
-                "type": [
-                  "object",
-                  "null"
-                ],
-                "properties": {
-                  "repo": {
-                    "type": "string"
-                  },
-                  "number": {
-                    "type": "integer"
-                  },
-                  "url": {
-                    "type": "string"
-                  },
-                  "state": {
-                    "type": "string",
-                    "enum": [
-                      "open",
-                      "closed"
-                    ]
-                  }
-                },
-                "required": [
-                  "repo",
-                  "number",
-                  "url",
-                  "state"
-                ]
               }
             },
             "required": [
-              "messages",
-              "githubIssue"
+              "messages"
             ]
           }
         ]
@@ -478,13 +422,6 @@
             "type": "string",
             "format": "uuid"
           },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "reply",
-              "fixed"
-            ]
-          },
           "status": {
             "type": "string",
             "enum": [
@@ -544,7 +481,6 @@
           "id",
           "conversationId",
           "messageId",
-          "kind",
           "status",
           "outboundMessageId",
           "body",
@@ -943,23 +879,15 @@
           "error": {
             "type": "string",
             "enum": [
-              "ai_busy",
-              "ai_not_configured",
-              "ai_unavailable",
               "already_answered",
-              "already_linked",
               "bad_request",
               "busy",
               "content_not_editable",
               "conversation_closed",
-              "creation_pending",
               "daily_budget_reached",
               "empty_range",
-              "encryption_not_configured",
               "forbidden",
               "forbidden_origin",
-              "github_outcome_unknown",
-              "github_unavailable",
               "idempotency_conflict",
               "idempotency_expired",
               "idempotency_not_supported",
@@ -968,30 +896,21 @@
               "internal_error",
               "invalid_credentials",
               "invalid_idempotency_key",
-              "invalid_payload",
-              "invalid_repo",
               "invalid_token",
-              "issue_not_linked",
-              "issue_rejected",
               "managed_in_git",
               "missing_from",
-              "not_connected",
               "not_current_uncertain_send",
               "not_found",
               "not_pending",
               "not_ready",
               "not_send_failed",
               "nothing_to_answer",
-              "nothing_to_report",
               "range_too_long",
-              "reconnect_required",
-              "repo_not_found",
               "scope_not_held",
               "session_required",
               "sessions_disabled",
               "shadow_mode_locked",
               "slug_taken",
-              "token_rejected",
               "too_large",
               "unauthorized",
               "unknown_mailbox",
@@ -1119,149 +1038,6 @@
           "enabled",
           "recipient"
         ]
-      },
-      "GithubIntegration": {
-        "type": "object",
-        "properties": {
-          "connected": {
-            "type": "boolean"
-          },
-          "repo": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "webhookUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "connected",
-          "repo",
-          "webhookUrl"
-        ]
-      },
-      "GithubConnected": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/GithubIntegration"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "webhookSecret": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "webhookSecret"
-            ]
-          }
-        ]
-      },
-      "GithubWebhookSecret": {
-        "type": "object",
-        "properties": {
-          "webhookSecret": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "webhookSecret"
-        ]
-      },
-      "GithubIssueDraft": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string"
-          },
-          "body": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "body"
-        ]
-      },
-      "GithubIssueLink": {
-        "type": "object",
-        "properties": {
-          "repo": {
-            "type": "string"
-          },
-          "number": {
-            "type": "integer"
-          },
-          "url": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "open",
-              "closed"
-            ]
-          }
-        },
-        "required": [
-          "repo",
-          "number",
-          "url",
-          "state"
-        ]
-      },
-      "GithubWebhookPayload": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "issue": {
-            "type": "object",
-            "properties": {
-              "number": {
-                "type": "integer",
-                "exclusiveMinimum": 0
-              },
-              "state_reason": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "updated_at": {
-                "type": "string",
-                "format": "date-time"
-              }
-            },
-            "required": [
-              "number"
-            ]
-          },
-          "repository": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "properties": {
-              "full_name": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "full_name"
-            ]
-          }
-        }
       }
     },
     "parameters": {}
@@ -1740,7 +1516,7 @@
                       "$ref": "#/components/schemas/TokenScope"
                     },
                     "minItems": 1,
-                    "maxItems": 8
+                    "maxItems": 7
                   }
                 },
                 "required": [
@@ -2343,7 +2119,7 @@
       "post": {
         "operationId": "drafts.create",
         "summary": "Write a draft, or ask the AI for a new one",
-        "description": "Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.",
+        "description": "Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded. Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.",
         "parameters": [
           {
             "in": "header",
@@ -3178,7 +2954,7 @@
       "get": {
         "operationId": "ai.getUsage",
         "summary": "Today's AI usage for this workspace",
-        "description": "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.",
+        "description": "Tokens the workspace's AI calls (reply drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.",
         "security": [
           {
             "apiAuth": []
@@ -4066,879 +3842,6 @@
           },
           "503": {
             "description": "Idempotency storage or a required service is unavailable",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/integrations/github": {
-      "get": {
-        "operationId": "github.getConnection",
-        "summary": "Read the workspace's GitHub connection",
-        "description": "Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`, or `workspace:admin`.",
-        "security": [
-          {
-            "apiAuth": []
-          }
-        ],
-        "x-access": {
-          "anyScope": [
-            "github:write",
-            "workspace:admin"
-          ]
-        },
-        "responses": {
-          "200": {
-            "description": "The connection",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GithubIntegration"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid credentials",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "operationId": "github.connect",
-        "summary": "Connect a GitHub repo",
-        "description": "Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown; connecting the same repo again (a new token) keeps the secret unless `rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs `workspace:admin` in a human session.",
-        "security": [
-          {
-            "apiAuth": []
-          }
-        ],
-        "x-access": {
-          "allScopes": [
-            "workspace:admin"
-          ],
-          "humansOnly": true
-        },
-        "x-audit": {
-          "records": [
-            "github.connected"
-          ]
-        },
-        "x-idempotency": {
-          "refuse": "The request carries a GitHub token; retrying the PUT replaces the same connection."
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "repo": {
-                    "type": "string",
-                    "maxLength": 140
-                  },
-                  "token": {
-                    "type": "string",
-                    "pattern": "^github_pat_[A-Za-z0-9_]{20,250}$"
-                  },
-                  "rotateWebhookSecret": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "repo",
-                  "token"
-                ],
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Connected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GithubConnected"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid credentials",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "GitHub refused the token (`token_rejected`), or the token can't see the repo (`repo_not_found`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "GitHub could not be reached (`github_unavailable`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "operationId": "github.disconnect",
-        "summary": "Disconnect the GitHub repo",
-        "description": "Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
-          }
-        ],
-        "security": [
-          {
-            "apiAuth": []
-          }
-        ],
-        "x-access": {
-          "allScopes": [
-            "workspace:admin"
-          ],
-          "humansOnly": true
-        },
-        "x-audit": {
-          "records": [
-            "github.disconnected"
-          ]
-        },
-        "x-idempotency": "replay",
-        "responses": {
-          "204": {
-            "description": "Disconnected, or nothing was connected"
-          },
-          "400": {
-            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid credentials",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key conflicts, is pending, or has expired",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Idempotency storage or a required service is unavailable",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/integrations/github/webhook-secret": {
-      "post": {
-        "operationId": "github.rotateWebhookSecret",
-        "summary": "Give the GitHub webhook a new secret",
-        "description": "Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.",
-        "security": [
-          {
-            "apiAuth": []
-          }
-        ],
-        "x-access": {
-          "allScopes": [
-            "workspace:admin"
-          ],
-          "humansOnly": true
-        },
-        "x-audit": {
-          "records": [
-            "github.webhook_secret_rotated"
-          ]
-        },
-        "x-idempotency": {
-          "refuse": "The response contains the new webhook secret, which must never be stored."
-        },
-        "responses": {
-          "200": {
-            "description": "The new secret",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GithubWebhookSecret"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid credentials",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No repo is connected (`not_connected`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/conversations/{id}/github-issue/draft": {
-      "post": {
-        "operationId": "github.draftIssue",
-        "summary": "Ask the AI to draft a GitHub issue from a conversation",
-        "description": "Suggests a title and body (steps to reproduce, expected, actual) from the conversation's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
-        "security": [
-          {
-            "apiAuth": []
-          }
-        ],
-        "x-access": {
-          "allScopes": [
-            "github:write",
-            "conversations:read"
-          ]
-        },
-        "x-audit": {
-          "records": [
-            "github_issue.drafted"
-          ]
-        },
-        "x-idempotency": "replay",
-        "responses": {
-          "200": {
-            "description": "The suggested issue",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GithubIssueDraft"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid credentials",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found in this workspace",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "No message from the customer to work from (`nothing_to_report`), or today's AI budget is spent (`daily_budget_reached`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "The AI provider failed (`ai_unavailable`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "AI is not configured on this server (`ai_not_configured`), or the workspace's other AI calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/conversations/{id}/github-issue": {
-      "post": {
-        "operationId": "github.createIssue",
-        "summary": "Create a GitHub issue from a conversation",
-        "description": "Opens an issue with exactly this title and body in the connected repo, and links it to the conversation. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the conversation gets a `fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            },
-            "description": "Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md."
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "id",
-            "in": "path"
-          }
-        ],
-        "security": [
-          {
-            "apiAuth": []
-          }
-        ],
-        "x-access": {
-          "allScopes": [
-            "github:write",
-            "conversations:read"
-          ]
-        },
-        "x-audit": {
-          "records": [
-            "github_issue.created",
-            "github_issue.closed",
-            "draft.created"
-          ]
-        },
-        "x-idempotency": "replay",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  "body": {
-                    "type": "string",
-                    "maxLength": 60000
-                  }
-                },
-                "required": [
-                  "title",
-                  "body"
-                ],
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "The issue, now linked to the conversation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GithubIssueLink"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request, or an Idempotency-Key this route refuses or can't read",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No valid credentials",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The credentials lack the required scope",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found in this workspace",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "No repo is connected (`not_connected`), the conversation already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`)",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation (`issue_not_linked`). Don't create it again: close that one or link it by hand",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "ai_busy",
-                        "ai_not_configured",
-                        "ai_unavailable",
-                        "already_answered",
-                        "already_linked",
-                        "bad_request",
-                        "busy",
-                        "content_not_editable",
-                        "conversation_closed",
-                        "creation_pending",
-                        "daily_budget_reached",
-                        "empty_range",
-                        "encryption_not_configured",
-                        "forbidden",
-                        "forbidden_origin",
-                        "github_outcome_unknown",
-                        "github_unavailable",
-                        "idempotency_conflict",
-                        "idempotency_expired",
-                        "idempotency_not_supported",
-                        "idempotency_pending",
-                        "idempotency_unavailable",
-                        "internal_error",
-                        "invalid_credentials",
-                        "invalid_idempotency_key",
-                        "invalid_payload",
-                        "invalid_repo",
-                        "invalid_token",
-                        "issue_not_linked",
-                        "issue_rejected",
-                        "managed_in_git",
-                        "missing_from",
-                        "not_connected",
-                        "not_current_uncertain_send",
-                        "not_found",
-                        "not_pending",
-                        "not_ready",
-                        "not_send_failed",
-                        "nothing_to_answer",
-                        "nothing_to_report",
-                        "range_too_long",
-                        "reconnect_required",
-                        "repo_not_found",
-                        "scope_not_held",
-                        "session_required",
-                        "sessions_disabled",
-                        "shadow_mode_locked",
-                        "slug_taken",
-                        "token_rejected",
-                        "too_large",
-                        "unauthorized",
-                        "unknown_mailbox",
-                        "unsupported_media_type",
-                        "url_taken"
-                      ]
-                    },
-                    "url": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "error",
-                    "url"
-                  ],
-                  "allOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "const": "about:blank"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "type": "integer"
-                        },
-                        "instance": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "title",
-                        "status",
-                        "instance"
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the conversation stays claimed, and a try after five minutes first looks for that issue again",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/integrations/github/webhook": {
-      "post": {
-        "operationId": "github.receiveWebhook",
-        "summary": "Receive a GitHub webhook",
-        "description": "Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Conversations are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to conversations is closed as completed, each conversation gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.",
-        "security": [
-          {
-            "githubSignature": []
-          }
-        ],
-        "x-access": {
-          "noCaller": "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret."
-        },
-        "x-audit": {
-          "none": "Each change a delivery applies is audited where it's applied, with GitHub as the actor."
-        },
-        "x-idempotency": {
-          "refuse": "No caller to scope the key to; the webhook signature proves the sender."
-        },
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "workspace",
-            "in": "query"
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GithubWebhookPayload"
-              }
-            },
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "payload": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "payload"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Handled. `conversations` is how many linked conversations changed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "processed",
-                        "ignored"
-                      ]
-                    },
-                    "conversations": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "status",
-                    "conversations"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Not a GitHub event payload",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unknown workspace, no repo connected, or a missing or wrong signature",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Larger than 1048576 bytes",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Neither JSON nor GitHub's form encoding",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Too many deliveries waiting to be checked (`busy`); try again",
             "content": {
               "application/problem+json": {
                 "schema": {

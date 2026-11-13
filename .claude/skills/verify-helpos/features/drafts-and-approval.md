@@ -2,7 +2,7 @@
 
 For every new customer email, the AI writes a reply draft that cites the knowledge it used. Nothing reaches a customer until a human or an agent with `drafts:approve` approves it. Approving queues the send. The worker sends it threaded, and the draft becomes `sent`. A send that keeps failing becomes `send_failed`, and can be retried or discarded.
 
-Draft states: `pending` → `approved` → `sent`, or `discarded`, or `send_failed` (→ retry → `approved`).
+Draft states are `pending`, `approved`, `sent`, `discarded`, `send_failed` and `send_uncertain`. A failed send can be retried. Uncertain delivery requires a human decision before another send.
 
 ## Sub-features
 
@@ -26,7 +26,7 @@ Draft states: `pending` → `approved` → `sent`, or `discarded`, or `send_fail
 Preconditions: baseline. AI configured. Embeddings on, for `sources`.
 
 - **Whole loop, scripted.** `pnpm app:journey --via web` and `--via api`. Both must print `PASS`. Evidence is in `.helpos/verify/<ts>-reply-<via>/`.
-- **AI draft.** After delivering an email, `pnpm api northwind:triage-bot GET v1/conversations/<id>/drafts` shows one `pending` `reply` with a non-empty `sources[]`. The conversation page shows it in `draft-body` with `Waiting for approval` and `Written from <source title>`.
+- **AI draft.** After delivering an email, `pnpm api northwind:triage-bot GET v1/conversations/<id>/drafts` shows one `pending` draft with a non-empty `sources[]`. The conversation page shows it in `draft-body` with `Waiting for approval` and `Written from <source title>`.
 - **Edit.** Click `Edit`, fill textbox `Reply`, and click `Save`. `draft-body` shows the new text. API: `pnpm api northwind:triage-bot PATCH v1/drafts/<draftId> '{"body":"New text"}'` returns `200`, and a second GET shows it.
 - **Stale approve.** Open the conversation page, then change the draft over the API, then click `Approve & send`. The page says `This draft changed since you opened it`, shows the new text, and nothing is sent. API: approving with an old `body` returns `409 not_pending`, the same answer as for a draft that is no longer pending.
 - **Approve and send.** One command: `pnpm approve-draft new` (or a conversation ID). By hand: `pnpm api northwind:approver-bot POST v1/drafts/<draftId>/approve '{"body":"<current body>"}'` returns `200` with `status: "approved"`. The draft is `sent` within seconds. Mailpit has `Re: <subject>` addressed to the owner (shadow recipient) and not to the customer. In the dashboard, the badge reads `Sent`.

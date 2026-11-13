@@ -14,6 +14,6 @@ or {
   `$context.req.raw.blob($...)`
 } as $read where {
   $filename <: r".*[/\\]apps[/\\]server[/\\]src[/\\].*",
-  $filename <: not r".*[/\\]apps[/\\]server[/\\]src[/\\](?:inbound-email[/\\]route|github[/\\]webhook)\.ts$",
-  register_diagnostic(span=$read, message="Use c.req.valid() with the route's Zod schema. Raw request bodies belong only in inbound-email/route.ts and github/webhook.ts.", severity="error")
+  $filename <: not r".*[/\\]apps[/\\]server[/\\]src[/\\]inbound-email[/\\]route\.ts$",
+  register_diagnostic(span=$read, message="Use c.req.valid() with the route's Zod schema. Raw request bodies belong only in inbound-email/route.ts.", severity="error")
 }

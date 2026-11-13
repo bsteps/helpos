@@ -16,11 +16,6 @@ const knowledgeSchema = z.strictObject({
 export const evalCaseSchema = z.strictObject({
   name: z.string().min(1),
   description: z.string().min(1),
-  /**
-   * What is drafted: a `reply` to the email (the default), or a `github-issue` from it. An
-   * issue case judges the issue's title and body as one text.
-   */
-  task: z.enum(["reply", "github-issue"]).default("reply"),
   input: z.strictObject({
     from: z.string(),
     subject: z.string(),

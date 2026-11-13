@@ -32,7 +32,6 @@
     "api": "node .claude/skills/verify-helpos/scripts/api.mjs",
     "new-email": "node .claude/skills/verify-helpos/scripts/new-email.mjs",
     "approve-draft": "node .claude/skills/verify-helpos/scripts/approve-draft.mjs",
-    "github-webhook": "node .claude/skills/verify-helpos/scripts/github-webhook.mjs",
     "app:start": "node .claude/skills/verify-helpos/scripts/launch.mjs",
     "app:doctor": "node .claude/skills/verify-helpos/scripts/doctor.mjs",
     "app:stop": "node .claude/skills/verify-helpos/scripts/cleanup.mjs",

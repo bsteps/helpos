@@ -8,7 +8,6 @@ import {
 import { z } from "zod";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { defaultPublicUrl } from "./defaults.ts";
-import { parseEncryptionKey } from "./secrets/secret-box.ts";
 
 /** Server configuration, validated once at startup. Every variable is documented in .env.example. */
 export const envSchema = z
@@ -52,26 +51,6 @@ export const envSchema = z
       .transform((v) => v === "true"),
     // Hard cap on AI tokens per workspace per UTC day. Over it, drafting pauses until midnight UTC.
     HELPOS_AI_DAILY_TOKEN_BUDGET: z.coerce.number().int().min(0).default(defaultDailyTokenBudget),
-    // Encrypts integration secrets (the GitHub token, webhook secrets) at rest: 32 bytes as hex or
-    // base64. Optional: without it, no GitHub repo can be connected. The message never shows the
-    // value. Changing it makes stored tokens unreadable: connect the repo again afterwards.
-    HELPOS_ENCRYPTION_KEY: z
-      .string()
-      .optional()
-      .transform((v, ctx) => {
-        if (v === undefined || v === "") return undefined;
-        const key = parseEncryptionKey(v);
-        if (!key) {
-          ctx.addIssue({
-            code: "custom",
-            message: "must be 32 bytes, as 64 hex characters or base64",
-          });
-          return z.NEVER;
-        }
-        return key;
-      }),
-    // The GitHub API. Optional, default api.github.com; set it for GitHub Enterprise Server.
-    HELPOS_GITHUB_API_URL: z.url().default("https://api.github.com"),
   })
   .transform((env, ctx) => ({
     ...env,

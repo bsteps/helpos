@@ -484,33 +484,6 @@ const steps = [
     () => api("northwind:triage-bot", "GET", "v1/ai-usage"),
     (r) => status(r) === 200 && typeof json(r).paused === "boolean",
   ],
-
-  [
-    "github not connected",
-    () => api("owner", "GET", "v1/integrations/github"),
-    (r) => status(r) === 200 && json(r).connected === false,
-  ],
-  [
-    "classic github token → 400",
-    () => api("owner", "PUT", "v1/integrations/github", '{"repo":"a/b","token":"ghp_classic"}'),
-    (r) => status(r) === 400,
-  ],
-  [
-    "triage-bot can't connect → 403",
-    () =>
-      api(
-        "northwind:triage-bot",
-        "PUT",
-        "v1/integrations/github",
-        '{"repo":"a/b","token":"github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
-      ),
-    (r) => status(r) === 403,
-  ],
-  [
-    "github-webhook with no repo says so",
-    () => run("github-webhook.mjs", ["1", "--secret", "x"]),
-    (r) => r.code === 1 && /No repo is connected/.test(r.all),
-  ],
   [
     "app:run uses this worktree",
     () => run("instance.mjs", ["run", "node", "-e", "console.log(process.env.HELPOS_PORT)"]),

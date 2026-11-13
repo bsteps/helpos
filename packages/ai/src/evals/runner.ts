@@ -5,7 +5,7 @@ import { htmlToText } from "../html-text.ts";
 import { mockModel } from "../testing.ts";
 import { checkAssertions } from "./assert.ts";
 import { type EvalCase, evalCaseSchema } from "./case.ts";
-import { draftIssueTask, draftReplyTask } from "./task.ts";
+import { draftReplyTask } from "./task.ts";
 
 export type EvalResult = { file: string; name: string; failures: string[] };
 
@@ -54,9 +54,8 @@ export async function runEvals(
       },
     });
     try {
-      const task = evalCase.task === "github-issue" ? draftIssueTask : draftReplyTask;
       const input = evalCase.input;
-      const output = await task(model, {
+      const output = await draftReplyTask(model, {
         ...input,
         body: input.bodyFormat === "html" ? htmlToText(input.body) : input.body,
       });

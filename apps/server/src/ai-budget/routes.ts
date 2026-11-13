@@ -36,7 +36,7 @@ const usageRoute = apiRoute({
   path: "/v1/ai-usage",
   summary: "Today's AI usage for this workspace",
   description:
-    "Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used " +
+    "Tokens the workspace's AI calls (reply drafts, knowledge embeddings) used " +
     "today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. " +
     "At or over the budget, no model call is made and new conversations are marked " +
     "`ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.",

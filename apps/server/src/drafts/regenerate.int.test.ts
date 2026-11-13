@@ -25,7 +25,6 @@ import { ensureJobQueues } from "../jobs.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import {
   approveDraft,
-  createFixedNotice,
   createReply,
   lockConversationForDrafting,
   markSendFailed,
@@ -149,7 +148,6 @@ it.each([
     const audit = context(actor);
     const stale = await db.withTenant(tenantId, async (tx) => {
       const reply = await createReply(tx, context(), input);
-      await createFixedNotice(tx, context(), { ...input, body: "Fixed notice" });
       await pauseAi(tx, context(), input.conversationId, "draft_failed");
       return reply;
     });
@@ -160,14 +158,9 @@ it.each([
     );
     expect(results).toContainEqual({ outcome: "queued", discardedDraftIds: [stale.id] });
     expect(results).toContainEqual({ outcome: "queued", discardedDraftIds: [] });
-    expect(
-      (await draftsOf(input.conversationId)).map(({ kind, status }) => ({ kind, status })),
-    ).toEqual(
-      expect.arrayContaining([
-        { kind: "reply", status: "discarded" },
-        { kind: "fixed", status: "pending" },
-      ]),
-    );
+    expect((await draftsOf(input.conversationId)).map(({ status }) => status)).toEqual([
+      "discarded",
+    ]);
     expect(await conversationOf(input.conversationId)).toMatchObject([{ aiPausedReason: null }]);
     expect(await jobsFor(input.messageId)).toEqual([
       {

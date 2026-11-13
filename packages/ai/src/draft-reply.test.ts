@@ -1,11 +1,11 @@
-import { APICallError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { draftGithubIssue } from "./draft-issue.ts";
 import {
   draftInstructions,
   draftReply,
+  failedDraftCost,
   fenceEmail,
   fenceKnowledge,
   knowledgeInstructions,
@@ -429,28 +429,47 @@ describe("replyDraftTokenEstimate", () => {
 });
 
 describe("one provider attempt per reservation", () => {
-  it.each([draftReply, draftGithubIssue])(
-    "leaves retryable generation failures to the caller",
-    async (generate) => {
-      let calls = 0;
-      const model = new MockLanguageModelV4({
-        doGenerate: async () => {
-          calls++;
-          throw new APICallError({
-            message: "response lost",
-            url: "https://provider.test",
-            requestBodyValues: {},
-            isRetryable: true,
-          });
-        },
-      });
-      await expect(
-        withPaidModels(
-          new AbortController().signal,
-          async (models) => await generate(models(model), email),
-        ),
-      ).rejects.toThrow("response lost");
-      expect(calls).toBe(1);
-    },
-  );
+  it("leaves retryable generation failures to the caller", async () => {
+    let calls = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => {
+        calls++;
+        throw new APICallError({
+          message: "response lost",
+          url: "https://provider.test",
+          requestBodyValues: {},
+          isRetryable: true,
+        });
+      },
+    });
+    await expect(
+      withPaidModels(
+        new AbortController().signal,
+        async (models) => await draftReply(models(model), email),
+      ),
+    ).rejects.toThrow("response lost");
+    expect(calls).toBe(1);
+  });
+});
+
+describe("failedDraftCost", () => {
+  const apiError = (statusCode?: number) =>
+    new APICallError({
+      message: "failed",
+      url: "https://api.test",
+      requestBodyValues: {},
+      ...(statusCode === undefined ? {} : { statusCode }),
+    });
+
+  it("calls a refusal with an error status free, but an unknown failure unknown", () => {
+    expect(failedDraftCost(apiError(529))).toBe("none");
+    expect(
+      failedDraftCost(
+        new RetryError({ message: "x", reason: "maxRetriesExceeded", errors: [apiError(503)] }),
+      ),
+    ).toBe("none");
+    // No status: the connection dropped, maybe after the provider did the work.
+    expect(failedDraftCost(apiError())).toBe("unknown");
+    expect(failedDraftCost(new Error("socket hang up"))).toBe("unknown");
+  });
 });

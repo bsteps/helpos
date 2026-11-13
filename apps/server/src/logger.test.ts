@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createLogger, errorSummary, withoutRequestId, withRequestId } from "./logger.ts";
 
-const pat = "github_pat_11AAAAAAA0secretsecretsecret_abcdefghijklmnopqrstuvwxyz0123";
+const apiToken = "hos_11AAAAAAA0secretsecretsecret_abcdefghijklmnopqrstuvwxyz0123";
 
 function capture() {
   const lines: string[] = [];
@@ -37,10 +37,10 @@ describe("logger", () => {
     const child = logger.child({ component: "nested-service" });
     await withRequestId("current-request", async () => {
       await Promise.resolve();
-      child.info({ requestId: "stale-request", token: pat }, "service called");
+      child.info({ requestId: "stale-request", token: apiToken }, "service called");
       child.warn("string-only log");
     });
-    expect(output()).not.toContain(pat);
+    expect(output()).not.toContain(apiToken);
     expect(output()).not.toContain("stale-request");
     expect(
       output()
@@ -59,19 +59,22 @@ describe("logger", () => {
 
   it("redacts a token logged by accident, at the top level or one level down", () => {
     const { logger, output } = capture();
-    logger.info({ token: pat }, "connect");
-    logger.warn({ input: { token: pat, repo: "acme/app" } }, "connect failed");
-    logger.error({ request: { headers: { authorization: `token ${pat}` } } }, "github call");
-    logger.info({ authorization: `Bearer ${pat}` }, "raw header");
-    expect(output()).not.toContain(pat);
+    logger.info({ token: apiToken }, "request");
+    logger.warn({ input: { token: apiToken, resource: "conversation" } }, "request failed");
+    logger.error(
+      { request: { headers: { authorization: `Bearer ${apiToken}` } } },
+      "outbound call",
+    );
+    logger.info({ authorization: `Bearer ${apiToken}` }, "raw header");
+    expect(output()).not.toContain(apiToken);
     expect(output()).toContain("[redacted]");
     // Only the secret goes; the rest of the entry is still useful.
-    expect(output()).toContain("acme/app");
+    expect(output()).toContain("conversation");
   });
 
-  it("redacts webhook secrets and passwords too", () => {
+  it("redacts secrets and passwords too", () => {
     const { logger, output } = capture();
-    logger.info({ webhookSecret: "whsec-1234", body: { password: "hunter2" } }, "x");
+    logger.info({ secret: "whsec-1234", body: { password: "hunter2" } }, "x");
     expect(output()).not.toContain("whsec-1234");
     expect(output()).not.toContain("hunter2");
   });

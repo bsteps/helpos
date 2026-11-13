@@ -8,32 +8,29 @@ A leak test reads this page: every table in the `public` schema must appear belo
 
 Every table is in the `public` schema, has row-level security (RLS) enabled **and forced**, and has a `tenant_isolation` policy that matches the owner column against `app.tenant_id`. The owner column is `tenant_id` everywhere except `tenants`, where it is `id`.
 
-| Table                        | Owner column | What it holds                                                                                                                    |
-| ---------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants`                    | `id`         | A workspace: name, shadow mode, AI budget. The root of tenancy.                                                                  |
-| `memberships`                | `tenant_id`  | Which user belongs to which workspace, and as what (`owner` or `member`).                                                        |
-| `mailboxes`                  | `tenant_id`  | A support address. Inbound mail is routed to its workspace by address.                                                           |
-| `customers`                  | `tenant_id`  | Someone who writes in, identified by email.                                                                                      |
-| `conversations`              | `tenant_id`  | A conversation with one customer, in one mailbox.                                                                                |
-| `messages`                   | `tenant_id`  | An email on a conversation, inbound or outbound.                                                                                 |
-| `attachments`                | `tenant_id`  | Metadata of a message's attachment. The bytes live in the files adapter.                                                         |
-| `drafts`                     | `tenant_id`  | A reply or a "fixed" notice: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed.          |
-| `draft_citations`            | `tenant_id`  | The knowledge passages a draft was written with, copied as the draft saw them, and which it cited.                               |
-| `knowledge_sources`          | `tenant_id`  | A knowledge document for the AI: a web page or a markdown text, `public` or `internal`, managed in the app or in git (ADR 0010). |
-| `knowledge_chunks`           | `tenant_id`  | A passage of a source with its embedding, for vector search.                                                                     |
-| `integrations`               | `tenant_id`  | A workspace's link to an outside service (GitHub: repo, plus the token and webhook secret, encrypted).                           |
-| `conversation_github_issues` | `tenant_id`  | The GitHub issue made from a conversation, and whether it's open or closed.                                                      |
-| `api_tokens`                 | `tenant_id`  | An agent's token (`hos_…`), stored as a hash, with its scopes. Revoked, never deleted.                                           |
-| `http_idempotency`           | `tenant_id`  | Durable write reservations and replay responses, isolated by caller. Expired and uncertain keys never run again.                 |
-| `audit_events`               | `tenant_id`  | Append-only log of every human, agent and system action.                                                                         |
-| `ai_usage`                   | `tenant_id`  | AI tokens a workspace used (and has reserved) per UTC day, for the daily budget.                                                 |
+| Table               | Owner column | What it holds                                                                                                                    |
+| ------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants`           | `id`         | A workspace: name, shadow mode, AI budget. The root of tenancy.                                                                  |
+| `memberships`       | `tenant_id`  | Which user belongs to which workspace, and as what (`owner` or `member`).                                                        |
+| `mailboxes`         | `tenant_id`  | A support address. Inbound mail is routed to its workspace by address.                                                           |
+| `customers`         | `tenant_id`  | Someone who writes in, identified by email.                                                                                      |
+| `conversations`     | `tenant_id`  | A conversation with one customer, in one mailbox.                                                                                |
+| `messages`          | `tenant_id`  | An email on a conversation, inbound or outbound.                                                                                 |
+| `attachments`       | `tenant_id`  | Metadata of a message's attachment. The bytes live in the files adapter.                                                         |
+| `drafts`            | `tenant_id`  | A reply: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed.                              |
+| `draft_citations`   | `tenant_id`  | The knowledge passages a draft was written with, copied as the draft saw them, and which it cited.                               |
+| `knowledge_sources` | `tenant_id`  | A knowledge document for the AI: a web page or a markdown text, `public` or `internal`, managed in the app or in git (ADR 0010). |
+| `knowledge_chunks`  | `tenant_id`  | A passage of a source with its embedding, for vector search.                                                                     |
+| `api_tokens`        | `tenant_id`  | An agent's token (`hos_…`), stored as a hash, with its scopes. Revoked, never deleted.                                           |
+| `http_idempotency`  | `tenant_id`  | Durable write reservations and replay responses, isolated by caller. Expired and uncertain keys never run again.                 |
+| `audit_events`      | `tenant_id`  | Append-only log of every human, agent and system action.                                                                         |
+| `ai_usage`          | `tenant_id`  | AI tokens a workspace used (and has reserved) per UTC day, for the daily budget.                                                 |
 
 ## Relationships
 
 - A `conversation` belongs to a `customer` and a `mailbox`. It has many `messages`, and a message has many `attachments`.
 - A `draft` answers one inbound `message` on a `conversation`. It has many `draft_citations`, which point at a `knowledge_source` until that source is deleted (then the pointer becomes null and the copied passage stays).
 - A `knowledge_source` has many `knowledge_chunks`. Deleting the source deletes its chunks.
-- A `conversation` has at most one `conversation_github_issues` row. A workspace has at most one `integrations` row per provider.
 - Relations between tenant tables use composite keys on `(tenant_id, id)`, so a row can't point at another tenant's row even if RLS were off.
 
 ## Other schemas
@@ -59,7 +56,7 @@ Every table is in the `public` schema, has row-level security (RLS) enabled **an
 
 ## Uniqueness
 
-Uniqueness of tenant data is per tenant (`UNIQUE (tenant_id, ...)`): customer email, Message-ID, knowledge slug and URL, GitHub repo and issue. A clash never tells a workspace that another one has the value. Two values are global on purpose: a mailbox address (one address routes to one workspace) and an API token hash (a hash of 32 random bytes). Both are written through code that reports a clash as a generic "not available".
+Uniqueness of tenant data is per tenant (`UNIQUE (tenant_id, ...)`): customer email, Message-ID, knowledge slug and URL. A clash never tells a workspace that another one has the value. Two values are global on purpose: a mailbox address (one address routes to one workspace) and an API token hash (a hash of 32 random bytes). Both are written through code that reports a clash as a generic "not available".
 
 ## Adding a table
 

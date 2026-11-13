@@ -12,7 +12,6 @@ export type ConversationDetail = components["schemas"]["ConversationDetail"];
 export type Message = components["schemas"]["Message"];
 export type Draft = components["schemas"]["Draft"];
 export type Me = components["schemas"]["Me"];
-export type GithubConnected = components["schemas"]["GithubConnected"];
 export type KnowledgeSource = components["schemas"]["KnowledgeSource"];
 export type ErrorCode = components["schemas"]["Error"]["error"];
 

@@ -7,7 +7,6 @@ import {
   eq,
   schema,
   sql,
-  uuidv7,
 } from "@helpos/db";
 import { startTestDatabase, type TestDatabase } from "@helpos/db/testing";
 import { createMemoryFileStore } from "@helpos/files";
@@ -15,7 +14,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.ts";
 import { handleDraftGaveUp } from "./drafts/draft-worker.ts";
 import { handleNoticeGaveUp } from "./drafts/notice-worker.ts";
-import { handleRecheckGaveUp } from "./github/recheck.ts";
 import { ingestEmail } from "./inbound-email/ingest.ts";
 import { handleIngestGaveUp } from "./knowledge/ingest-worker.ts";
 import { composeServer, type Server } from "./server.ts";
@@ -360,35 +358,8 @@ describe("ingest-source gives up", () => {
   });
 });
 
-describe("github.recheck-issue gives up", () => {
-  it("records on the conversation that the issue's state may be stale", async () => {
-    const email = await receiveEmail("Hi, the export is broken.");
-    const linkId = uuidv7();
-    await db.withTenant(acme, (tx) =>
-      tx.insert(schema.conversationGithubIssues).values({
-        id: linkId,
-        tenantId: acme,
-        conversationId: email.conversationId,
-        repo: "acme/app",
-        issueNumber: 7,
-        issueUrl: "https://github.com/acme/app/issues/7",
-        state: "open",
-      }),
-    );
-    await db.withTenant(acme, (tx) => handleRecheckGaveUp({ tenantId: acme, linkId }, tx));
-    expect(await auditActions(email.conversationId)).toContain("github_issue.recheck_failed");
-    const [link] = await db.withTenant(acme, (tx) =>
-      tx
-        .select()
-        .from(schema.conversationGithubIssues)
-        .where(eq(schema.conversationGithubIssues.id, linkId)),
-    );
-    expect(link?.state).toBe("open");
-  });
-});
-
 describe("give-up handlers stay in their tenant", () => {
-  it("another workspace's job can't mark this workspace's conversation, draft, source or link", async () => {
+  it("another workspace's job can't mark this workspace's conversation, draft or source", async () => {
     const email = await receiveEmail(`Hi, ${providerDown} again, help?`);
     await expect
       .poll(async () => (await conversationOf(email.conversationId))?.aiPausedReason, eventually)
@@ -424,18 +395,6 @@ describe("give-up handlers stay in their tenant", () => {
         .returning({ id: schema.drafts.id }),
     );
     if (!draft) throw new Error("no draft");
-    const linkId = uuidv7();
-    await db.withTenant(acme, (tx) =>
-      tx.insert(schema.conversationGithubIssues).values({
-        id: linkId,
-        tenantId: acme,
-        conversationId: email.conversationId,
-        repo: "acme/app",
-        issueNumber: 8,
-        issueUrl: "https://github.com/acme/app/issues/8",
-        state: "open",
-      }),
-    );
     const before = (await auditActions(email.conversationId)).length;
 
     // Tenant B's payloads naming tenant A's rows: RLS shows B nothing of A's, so nothing changes.
@@ -443,7 +402,6 @@ describe("give-up handlers stay in their tenant", () => {
       await handleDraftGaveUp({ tenantId: other, messageId: email.messageId }, tx);
       await handleIngestGaveUp({ tenantId: other, sourceId: source.id, requests: 0 }, tx);
       await handleNoticeGaveUp({ tenantId: other, draftId: draft.id }, tx);
-      await handleRecheckGaveUp({ tenantId: other, linkId }, tx);
     });
 
     expect((await conversationOf(email.conversationId))?.aiPausedReason).toBeNull();
@@ -459,6 +417,5 @@ describe("give-up handlers stay in their tenant", () => {
     expect(otherActions).not.toContain("ai.draft_failed");
     expect(otherActions).not.toContain("knowledge_source.failed");
     expect(otherActions).not.toContain("draft.notice_failed");
-    expect(otherActions).not.toContain("github_issue.recheck_failed");
   });
 });

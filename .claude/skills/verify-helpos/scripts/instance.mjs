@@ -159,7 +159,6 @@ export function instance() {
     inboundSecret: config.HELPOS_INBOUND_SECRET,
     embeddingsInEnv: Boolean(config.AI_EMBEDDING_PROVIDER),
     aiConfigured: Boolean(config.AI_PROVIDER && config.AI_MODEL && config.AI_API_KEY),
-    encryptionKeySet: Boolean(config.HELPOS_ENCRYPTION_KEY),
     shadowOffAllowed: config.HELPOS_ALLOW_SHADOW_MODE_OFF === "true",
     env: overrides.env,
   };

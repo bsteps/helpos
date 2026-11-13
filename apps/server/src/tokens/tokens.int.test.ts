@@ -37,7 +37,6 @@ const allTokenScopes = [
   "drafts:approve",
   "knowledge:read",
   "knowledge:write",
-  "github:write",
   "stats:read",
 ] as const;
 
@@ -208,37 +207,6 @@ describe("an agent token works the inbox", () => {
       { action: "knowledge_source.created", actorType: "agent", actorId: writer.id },
       { action: "knowledge_source.made_public", actorType: "agent", actorId: writer.id },
     ]);
-  });
-
-  it("uses the GitHub routes with github:write, but can never connect a repo", async () => {
-    const github = await createToken(["conversations:read", "github:write"]);
-    const reader = await createToken(["conversations:read"]);
-    const read = await call("GET", "/v1/integrations/github", { token: github.token });
-    expect(read.status).toBe(200);
-    expect(await read.json()).toEqual({ connected: false, repo: null, webhookUrl: null });
-    expect((await call("GET", "/v1/integrations/github", { token: reader.token })).status).toBe(
-      403,
-    );
-    // Past the scope check: this server has no AI model, so it says so instead of 403.
-    const draft = await call("POST", `/v1/conversations/${acmeConversation}/github-issue/draft`, {
-      token: github.token,
-    });
-    expect(draft.status).toBe(503);
-    expect(
-      (
-        await call("POST", `/v1/conversations/${acmeConversation}/github-issue/draft`, {
-          token: reader.token,
-        })
-      ).status,
-    ).toBe(403);
-    // Storing a token is for a human owner: an agent token is refused whatever it holds.
-    const connect = { repo: "acme/app", token: "github_pat_11AAAAAAAAAAAAAAAAAAAAAAAAAAAA" };
-    expect(
-      (await call("PUT", "/v1/integrations/github", { token: github.token }, connect)).status,
-    ).toBe(403);
-    expect((await call("DELETE", "/v1/integrations/github", { token: github.token })).status).toBe(
-      403,
-    );
   });
 
   it("sees another workspace's conversation as not found", async () => {

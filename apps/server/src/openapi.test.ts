@@ -49,24 +49,6 @@ describe("the committed API document", () => {
           KnowledgeSource: { properties: { state: { oneOf: expect.any(Array) } } },
         },
       },
-      paths: {
-        "/v1/conversations/{id}/github-issue": {
-          post: {
-            responses: {
-              "500": {
-                content: {
-                  "application/problem+json": {
-                    schema: {
-                      properties: { error, url: { type: "string" } },
-                      required: ["error", "url"],
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
     });
   });
   it("matches what the server serves, so the dashboard's client is up to date", async () => {

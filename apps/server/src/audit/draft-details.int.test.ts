@@ -20,7 +20,6 @@ import type { Principal } from "../auth/principal.ts";
 import { addMessage } from "../conversations/lifecycle.ts";
 import {
   approveDraft,
-  createFixedNotice,
   createReply,
   discardDraft,
   editDraft,
@@ -33,7 +32,6 @@ import {
 } from "../drafts/lifecycle.ts";
 import { handleDraftNotice, handleNoticeGaveUp } from "../drafts/notice-worker.ts";
 import { handleSendReply } from "../drafts/send-worker.ts";
-import { markIssueReopened } from "../github/issue-state.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { SendRejected } from "../outbound-email/transport.ts";
@@ -168,7 +166,7 @@ it("records exact old/new and reviewed hashes through the public API; stale appr
   expect(await response.text()).toContain("approved");
   const rows = await events(f.draft.id);
   expect(rows.map((row) => [row.action, row.details])).toEqual([
-    ["draft.created", { bodyHash: hash(f.body), messageId: f.messageId, kind: "reply" }],
+    ["draft.created", { bodyHash: hash(f.body), messageId: f.messageId }],
     ["draft.edited", { oldBodyHash: hash(f.body), newBodyHash: hash(body) }],
     ["draft.approved", { reviewedBodyHash: hash(body) }],
   ]);
@@ -253,41 +251,6 @@ it("serializes concurrent edits so each recorded old hash is the preceding commi
     tx.select().from(schema.drafts).where(eq(schema.drafts.id, f.draft.id)),
   );
   expect(rows[1]?.details?.newBodyHash).toBe(hash(draft?.body ?? "missing"));
-});
-
-it("records automatic GitHub withdrawal without inventing an incoming message", async () => {
-  const f = await fixture();
-  const fixed = await db.withTenant(tenantId, async (tx) => {
-    const draft = await createFixedNotice(tx, context(), f);
-    await tx.insert(schema.conversationGithubIssues).values({
-      tenantId,
-      conversationId: f.conversationId,
-      repo: "audit/project",
-      issueNumber: 85,
-      issueUrl: "https://github.com/audit/project/issues/85",
-      state: "closed",
-    });
-    return draft;
-  });
-  if (!fixed) throw new Error("fixed notice missing");
-  await db.withTenant(tenantId, (tx) =>
-    markIssueReopened(tx, {
-      tenantId,
-      repo: "audit/project",
-      number: 85,
-      actor: builtInActors.githubWebhook,
-      requestId: "github-input",
-      noticeDelaySeconds: 3600,
-      changedAt: null,
-    }),
-  );
-  expect((await events(fixed.id)).at(-1)).toMatchObject({
-    action: "draft.discarded",
-    requestId: "github-input",
-    actorId: builtInActors.githubWebhook.id,
-    details: { reason: "issue_reopened" },
-  });
-  expect((await events(f.draft.id)).map((row) => row.action)).toEqual(["draft.created"]);
 });
 
 it("records failed retry, approved requeue, rejected sends, explicit resend and confirmed sends", async () => {

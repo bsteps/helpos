@@ -23,8 +23,6 @@ const auditExceptions: Record<string, string> = {
     "Users live outside workspaces, and the audit log belongs to one workspace.",
   "POST /v1/inbound/email":
     "A customer's email, not an action by a member or agent: the stored message is its record.",
-  "POST /v1/integrations/github/webhook":
-    "Each change a delivery applies is audited where it's applied, with GitHub as the actor.",
 };
 
 function checkAudit(op: (typeof writes)[number]): string[] {
@@ -93,7 +91,6 @@ const record = (action: AuditAction) =>
           details: {
             bodyHash: hashBody("fixture draft"),
             messageId: "0190d6a4-0000-7000-8000-000000000003",
-            kind: "reply" as const,
           },
         }
       : {}),

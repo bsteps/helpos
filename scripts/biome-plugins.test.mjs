@@ -84,10 +84,10 @@ test("domain modules cannot import HTTP values or types", () => {
     'export const kit = await import("../http/route-kit.ts");\n',
   ]) {
     for (const name of [
-      "github/issues.ts",
-      "github/issue-draft.ts",
+      "drafts/lifecycle.ts",
+      "knowledge/ingest-worker.ts",
       "ai-budget/set-budget.ts",
-      "github/app.ts",
+      "conversations/lifecycle.ts",
     ]) {
       assert.ok(pluginMessages(source, name).some((m) => m.includes("Domain modules")));
     }
@@ -103,21 +103,17 @@ test("HTTP adapters can import HTTP helpers and domain modules can import audit 
     "http/helpers.ts",
     "auth/access.ts",
     "apps/server/src/app.ts",
-    "github/webhook.ts",
     "domain.test.ts",
   ]) {
     assert.ok(!pluginMessages(source, name).some((m) => m.includes("Domain modules")), name);
   }
   assert.ok(
-    !pluginMessages('import type { Auditor } from "../audit/audit.ts";\n', "github/issues.ts").some(
-      (m) => m.includes("Domain modules"),
-    ),
+    !pluginMessages(
+      'import type { Auditor } from "../audit/audit.ts";\n',
+      "drafts/lifecycle.ts",
+    ).some((m) => m.includes("Domain modules")),
   );
 });
-
-const githubLookup = 'export const f = (tx) => tx.where(eq(integrations.provider, "github"));\n';
-const githubOpen = "export const f = (box, sealed) => box.open(sealed, { tenantId, purpose });\n";
-const githubIntegration = /github\/integration\.ts/;
 
 for (const [plugin, [source, message]] of Object.entries(samples)) {
   test(`${plugin} reports a route file that uses the banned shape`, () => {
@@ -128,26 +124,6 @@ for (const [plugin, [source, message]] of Object.entries(samples)) {
     );
   });
 }
-
-test("github-integration.grit reports the integration lookup outside github/integration.ts", () => {
-  const messages = pluginMessages(githubLookup, "github/webhook.ts");
-  assert.ok(
-    messages.some((m) => githubIntegration.test(m)),
-    `no longer fires; got ${JSON.stringify(messages)}`,
-  );
-});
-
-test("github-integration.grit reports opening a sealed secret outside github/integration.ts", () => {
-  const messages = pluginMessages(githubOpen, "github/recheck.ts");
-  assert.ok(
-    messages.some((m) => githubIntegration.test(m)),
-    `no longer fires; got ${JSON.stringify(messages)}`,
-  );
-});
-
-test("github-integration.grit allows both in github/integration.ts itself", () => {
-  assert.deepEqual(pluginMessages(githubLookup + githubOpen, "github/integration.ts"), []);
-});
 
 test("ai-usage.grit allows ai_usage writes only inside ai-budget/", () => {
   const write = "export const f = (tx) => tx.insert(aiUsage).values({ tenantId, day });\n";
@@ -235,21 +211,18 @@ test("filenames must be kebab case", () => {
   );
 });
 
-for (const path of [
-  "apps/server/src/inbound-email/route.ts",
-  "apps/server/src/github/webhook.ts",
-]) {
-  test(`raw body owner is allowed: ${path}`, () => {
-    const diagnostics = lint("export const f = (c) => c.req.arrayBuffer();", path);
-    assert.deepEqual(
-      diagnostics.filter((d) => d.category === "plugin"),
-      [],
-    );
-  });
-}
+test("raw body owner is allowed: apps/server/src/inbound-email/route.ts", () => {
+  const diagnostics = lint(
+    "export const f = (c) => c.req.arrayBuffer();",
+    "apps/server/src/inbound-email/route.ts",
+  );
+  assert.deepEqual(
+    diagnostics.filter((d) => d.category === "plugin"),
+    [],
+  );
+});
 for (const path of [
   "apps/server/src/copy/inbound-email/route.ts",
-  "apps/server/src/github/webhook-copy.ts",
   "apps/server/src/handler.test.ts",
 ]) {
   test(`raw body lookalike is rejected: ${path}`, () => {

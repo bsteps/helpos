@@ -77,11 +77,6 @@ type ConversationSpec = {
   aiPaused?: boolean;
   /** Replies to the last customer message. */
   draft?: DraftSpec;
-  /**
-   * A GitHub issue made from the conversation. The workspace has no repo connected (a token can't be
-   * seeded), so it shows the link; closing it needs a real repo and webhook.
-   */
-  githubIssue?: { repo: string; number: number };
 };
 type SourceSpec = {
   slug: string;
@@ -371,7 +366,6 @@ const tenantSpecs: TenantSpec[] = [
         scopes: ["conversations:read", "drafts:write", "drafts:approve", "knowledge:read"],
       },
       { name: "docs-sync", scopes: ["knowledge:read", "knowledge:write"] },
-      { name: "issue-bot", scopes: ["conversations:read", "github:write"] },
       { name: "stats-reader", scopes: ["stats:read"] },
     ],
     sources: [
@@ -449,7 +443,6 @@ const tenantSpecs: TenantSpec[] = [
         customer: "ops@brightpath.test",
         subject: "Main dashboard times out",
         hours: 27,
-        githubIssue: { repo: "lumen-analytics/dashboard", number: 412 },
         messages: [
           {
             from: "customer",
@@ -604,8 +597,6 @@ export function buildDemoData() {
     const messages: (typeof schema.messages.$inferInsert & { id: string; createdAt: Date })[] = [];
     const drafts: (typeof schema.drafts.$inferInsert & { id: string })[] = [];
     const citations: (typeof schema.draftCitations.$inferInsert & { id: string })[] = [];
-    const githubIssues: (typeof schema.conversationGithubIssues.$inferInsert & { id: string })[] =
-      [];
     for (const ts of spec.conversations) {
       const customer = customerByEmail.get(ts.customer);
       if (!customer)
@@ -661,21 +652,6 @@ export function buildDemoData() {
         updatedAt: last.createdAt,
       });
 
-      if (ts.githubIssue) {
-        const filedAt = new Date(opened.getTime() + 90 * 60_000);
-        githubIssues.push({
-          id: id(`github-issue:${ts.key}`, filedAt),
-          tenantId,
-          conversationId,
-          repo: ts.githubIssue.repo,
-          issueNumber: ts.githubIssue.number,
-          issueUrl: `https://github.com/${ts.githubIssue.repo}/issues/${ts.githubIssue.number}`,
-          state: "open",
-          createdAt: filedAt,
-          updatedAt: filedAt,
-        });
-      }
-
       if (!ts.draft) continue;
       const d = ts.draft;
       // A sent draft replied to the customer message before the team's reply; any other draft
@@ -715,9 +691,7 @@ export function buildDemoData() {
       draftAudit(
         "draft.created",
         draftedAt,
-        d.editedBy?.length
-          ? null
-          : { bodyHash: hashBody(d.text), messageId: repliesTo.id, kind: "reply" },
+        d.editedBy?.length ? null : { bodyHash: hashBody(d.text), messageId: repliesTo.id },
       );
       const editedAt = new Date(draftedAt.getTime() + (d.editedBy?.length ?? 0) * 60_000);
       const discardedAt = d.status === "discarded" ? new Date(editedAt.getTime() + 60_000) : null;
@@ -797,7 +771,6 @@ export function buildDemoData() {
       messages,
       drafts,
       citations,
-      githubIssues,
     };
   });
   return { users, tenants };

@@ -135,16 +135,6 @@ const checks = [
     }),
   },
   {
-    name: "encryption key",
-    warn: true,
-    run: async () => ({
-      ok: inst.encryptionKeySet,
-      detail: inst.encryptionKeySet
-        ? "HELPOS_ENCRYPTION_KEY set"
-        : "no HELPOS_ENCRYPTION_KEY: GitHub can't be connected",
-    }),
-  },
-  {
     name: "embeddings",
     warn: true,
     run: async () => {
