@@ -1,7 +1,7 @@
 -- Hand-written. FORCE applies RLS to the owner too, and no tenant is set here, so the changes
 -- would match no rows: it is lifted for them and forced again. "fixed" notices go before the
 -- one-live-draft-per-message index returns. A token whose only scope was github:write is revoked,
--- not deleted, so audit events still name it; it keeps the narrowest scope to satisfy the CHECK.
+-- not deleted, so audit events still name it; a placeholder scope satisfies the CHECK.
 ALTER TABLE "drafts" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "draft_citations" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "api_tokens" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
