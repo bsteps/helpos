@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `fd92a5a7f745`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. `defineJob`, `consume`, and `work` were selectively rechecked against the two-phase send contract after AI deferrals and stored-payload validation: `handleSendReply` returns no deferral, so no send successor is enqueued; the logging wrapper still awaits and rethrows failures; the last-attempt condition and rollback-before-give-up order stay intact; and pg-boss settles after the callback. Other fingerprints remain unchanged. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
+Last confirmed at commit `a52921fa6e35`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. `defineJob`, `consume`, and `work` were selectively rechecked against the two-phase send contract after AI deferrals and stored-payload validation: `handleSendReply` returns no deferral, so no send successor is enqueued; the logging wrapper still awaits and rethrows failures; the last-attempt condition and rollback-before-give-up order stay intact; and pg-boss settles after the callback. Other fingerprints remain unchanged. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -81,7 +81,7 @@ Last confirmed at commit `fd92a5a7f745`. The two nested runner rows were recheck
 | apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `b4dbff48c01d` |
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `97968274f48d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `1ab4b0b08c2b` |
-| apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
+| apps/server/src/jobs.ts | jobs | send-reply worker registration | `7be5a99e506d` |
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
