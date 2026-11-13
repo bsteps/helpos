@@ -26,7 +26,7 @@ The help center rows in ADR 0002 and ADR 0006 no longer apply. HelpOS renders no
 
 ### 3. The chat widget stays
 
-Chat reaches customers only through the widget, an embeddable web component. HelpOS hosts no chat page. ADR 0002's widget row and ADR 0006's widget budget (at most 20 KB gzipped) stand, and apply when the widget is built (#399).
+Chat isn't current work. The roadmap lists it under Later (#399). When chat is built, it reaches customers only through the widget, an embeddable web component. HelpOS hosts no chat page. ADR 0002's widget row and ADR 0006's widget budget (at most 20 KB gzipped) stand, and apply from then.
 
 ## Rejected
 

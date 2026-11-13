@@ -86,7 +86,7 @@ Billing (with Dodo Payments), metering and hosted admin live in the private host
 ## Later (on demand)
 
 - **The dashboard step:** settings and stats you can read without paying for AI, with the layout shaped by the agent
-- **Config, knowledge and policies in git** (ADR 0010, accepted). The sync waits, but new tables must keep it possible
+- **Rules, knowledge and settings in git** (ADR 0013, accepted). The sync waits, but new tables must keep it possible
 - #20 observability · #23 release automation
 - #57 routing by envelope recipient · #90 #91 #92 knowledge re-ingest and vector recall
 - More channels: chat widget, Slack, Discord, WhatsApp, SMS, voice

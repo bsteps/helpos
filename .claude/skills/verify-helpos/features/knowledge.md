@@ -34,5 +34,5 @@ Preconditions: baseline. Embeddings on (`doctor.mjs` shows `embeddings ok`). A t
 - Without embeddings, sources stay `pending` and drafts use no knowledge. That is not a failure of this feature. Fix it with `launch.mjs` (Ollama) or embedding settings in `.env`.
 - URL sources are fetched through the SSRF guard. `localhost`, private and metadata addresses are refused, so you can't point a URL source at a local test server.
 - The database holds 1024-dimension vectors. An embedding model with another size fails ingestion with `expected 1024`.
-- Sources with `managedBy: "git"` come from config in git (ADR 0010), and the API may refuse to edit them.
+- Sources with `managedBy: "git"` come from config in git (ADR 0010, [ADR 0013](../../../../docs/adr/0013-rules-knowledge-settings-in-git.md)), and the API may refuse to edit them.
 - Delete the sources you created. Seeded ones are counted on by other checks.

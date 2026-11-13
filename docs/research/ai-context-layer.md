@@ -77,7 +77,7 @@ The goal: adding a connector is writing one adapter; search, tenancy, citations,
 4. **One tool registry**: scopes, policy check, audit log, per-tenant budget. The same registry backs our agent, the public API and MCP.
 5. **Events in, jobs out.** Connectors emit events (deploy, release, incident, issue closed) into the job queue; features subscribe (notify affected customers, re-sync, re-cluster).
 6. **Search is a provider per corpus** behind one `search(query, {corpora, visibility, language})` call (the `SearchProvider` from #61 grows into this).
-7. Config and knowledge stay compatible with git management (ADR 0010).
+7. Config and knowledge stay compatible with git management (ADR 0010, [ADR 0013](../adr/0013-rules-knowledge-settings-in-git.md)).
 
 ## 7. Order (follows docs/roadmap.md)
 

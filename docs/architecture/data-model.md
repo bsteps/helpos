@@ -8,25 +8,25 @@ A leak test reads this page: every table in the `public` schema must appear belo
 
 Every table is in the `public` schema, has row-level security (RLS) enabled **and forced**, and has a `tenant_isolation` policy that matches the owner column against `app.tenant_id`. The owner column is `tenant_id` everywhere except `tenants`, where it is `id`.
 
-| Table                        | Owner column | What it holds                                                                                                                    |
-| ---------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `tenants`                    | `id`         | A workspace: name, shadow mode, AI budget. The root of tenancy.                                                                  |
-| `memberships`                | `tenant_id`  | Which user belongs to which workspace, and as what (`owner` or `member`).                                                        |
-| `mailboxes`                  | `tenant_id`  | A support address. Inbound mail is routed to its workspace by address.                                                           |
-| `customers`                  | `tenant_id`  | Someone who writes in, identified by email.                                                                                      |
-| `conversations`              | `tenant_id`  | A conversation with one customer, in one mailbox.                                                                                |
-| `messages`                   | `tenant_id`  | An email on a conversation, inbound or outbound.                                                                                 |
-| `attachments`                | `tenant_id`  | Metadata of a message's attachment. The bytes live in the files adapter.                                                         |
-| `drafts`                     | `tenant_id`  | A reply or a "fixed" notice: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed.          |
-| `draft_citations`            | `tenant_id`  | The knowledge passages a draft was written with, copied as the draft saw them, and which it cited.                               |
-| `knowledge_sources`          | `tenant_id`  | A knowledge document for the AI: a web page or a markdown text, `public` or `internal`, managed in the app or in git (ADR 0010). |
-| `knowledge_chunks`           | `tenant_id`  | A passage of a source with its embedding, for vector search.                                                                     |
-| `integrations`               | `tenant_id`  | A workspace's link to an outside service (GitHub: repo, plus the token and webhook secret, encrypted).                           |
-| `conversation_github_issues` | `tenant_id`  | The GitHub issue made from a conversation, and whether it's open or closed.                                                      |
-| `api_tokens`                 | `tenant_id`  | An agent's token (`hos_…`), stored as a hash, with its scopes. Revoked, never deleted.                                           |
-| `http_idempotency`           | `tenant_id`  | Durable write reservations and replay responses, isolated by caller. Expired and uncertain keys never run again.                 |
-| `audit_events`               | `tenant_id`  | Append-only log of every human, agent and system action.                                                                         |
-| `ai_usage`                   | `tenant_id`  | AI tokens a workspace used (and has reserved) per UTC day, for the daily budget.                                                 |
+| Table                        | Owner column | What it holds                                                                                                                                                                                |
+| ---------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants`                    | `id`         | A workspace: name, shadow mode, AI budget. The root of tenancy.                                                                                                                              |
+| `memberships`                | `tenant_id`  | Which user belongs to which workspace, and as what (`owner` or `member`).                                                                                                                    |
+| `mailboxes`                  | `tenant_id`  | A support address. Inbound mail is routed to its workspace by address.                                                                                                                       |
+| `customers`                  | `tenant_id`  | Someone who writes in, identified by email.                                                                                                                                                  |
+| `conversations`              | `tenant_id`  | A conversation with one customer, in one mailbox.                                                                                                                                            |
+| `messages`                   | `tenant_id`  | An email on a conversation, inbound or outbound.                                                                                                                                             |
+| `attachments`                | `tenant_id`  | Metadata of a message's attachment. The bytes live in the files adapter.                                                                                                                     |
+| `drafts`                     | `tenant_id`  | A reply or a "fixed" notice: `pending → approved → sent`, or `discarded`; `send_failed` when every send attempt failed.                                                                      |
+| `draft_citations`            | `tenant_id`  | The knowledge passages a draft was written with, copied as the draft saw them, and which it cited.                                                                                           |
+| `knowledge_sources`          | `tenant_id`  | A knowledge document for the AI: a web page or a markdown text, `public` or `internal`, managed in the app or in git (ADR 0010, [ADR 0013](../adr/0013-rules-knowledge-settings-in-git.md)). |
+| `knowledge_chunks`           | `tenant_id`  | A passage of a source with its embedding, for vector search.                                                                                                                                 |
+| `integrations`               | `tenant_id`  | A workspace's link to an outside service (GitHub: repo, plus the token and webhook secret, encrypted).                                                                                       |
+| `conversation_github_issues` | `tenant_id`  | The GitHub issue made from a conversation, and whether it's open or closed.                                                                                                                  |
+| `api_tokens`                 | `tenant_id`  | An agent's token (`hos_…`), stored as a hash, with its scopes. Revoked, never deleted.                                                                                                       |
+| `http_idempotency`           | `tenant_id`  | Durable write reservations and replay responses, isolated by caller. Expired and uncertain keys never run again.                                                                             |
+| `audit_events`               | `tenant_id`  | Append-only log of every human, agent and system action.                                                                                                                                     |
+| `ai_usage`                   | `tenant_id`  | AI tokens a workspace used (and has reserved) per UTC day, for the daily budget.                                                                                                             |
 
 ## Relationships
 

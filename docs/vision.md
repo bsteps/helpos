@@ -72,7 +72,7 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 - **Coordination:** ownership claims, queues, handoffs.
 - **Waiting lists:** customers waiting on the same fix, all told when it's done.
 - **Wake-ups:** events, signed webhooks, an event feed, scheduled wake-ups.
-- **The playbook:** written rules that humans and agents keep up to date. Rules, knowledge and settings can also live in git (ADR 0010).
+- **The playbook:** written rules that humans and agents keep up to date. Rules, knowledge and settings can also live in git (ADR 0013).
 - **Bulk import:** conversations, customers and articles, keeping threads and dates, and safe to run twice.
 - **Staying current:** change events (release, deploy, fix shipped), cited answers, and versioned rules and knowledge with staleness checks.
 - **Agent access:** API, MCP (we connect out to any tool's MCP server, gated by policy), skills.

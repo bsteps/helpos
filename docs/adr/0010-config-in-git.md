@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-07
-- Superseded in part by: [ADR 0013](0013-rules-knowledge-settings-in-git.md) (the kinds, edits from the UI, the policy wording and the timing)
+- Superseded in part by: [ADR 0013](0013-rules-knowledge-settings-in-git.md) (the kinds, edits from the UI, the policy wording and the timing). Policies here are rules and settings there
 
 ## Context
 
