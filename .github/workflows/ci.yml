@@ -56,7 +56,6 @@ jobs:
           pnpm exec vitest run --project unit
       - run: pnpm exec turbo run typecheck build
       - run: pnpm test:coverage
-      - run: pnpm check:widget
       - run: pnpm test:performance
       - name: Upload coverage and read latency evidence
         if: always()

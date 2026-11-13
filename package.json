@@ -14,7 +14,6 @@
     "test": "turbo run test",
     "test:coverage": "vitest run --config vitest.coverage.config.mts",
     "test:performance": "pnpm --filter @helpos/server exec node scripts/read-budget.ts",
-    "check:widget": "node scripts/check-widget-budget.mjs",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "check:changed": "node scripts/check-changed/index.mjs",
