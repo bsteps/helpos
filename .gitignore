@@ -37,3 +37,6 @@ Thumbs.db
 
 # local AI/agent memory
 .remember/
+
+# eval runs: results, traces and analyzer notes (packages/ai/evals/helpfulness)
+.claude/hillclimb/
