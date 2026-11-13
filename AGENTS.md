@@ -8,7 +8,7 @@ HelpOS is an open-source (AGPL-3.0), **agent-first helpdesk**. AI agents do most
 
 ## Before you change anything
 
-1. Read [docs/architecture/overview.md](docs/architecture/overview.md), then the ADRs that touch your area: `docs/adr/`. **Never contradict an accepted ADR.** If you think one is wrong, stop and say so, or propose a new ADR.
+1. Read [docs/architecture/overview.md](docs/architecture/overview.md), then the ADRs that touch your area: `docs/adr/`. **Never contradict an accepted ADR.** When an approved decision changes, update its ADR and references directly. Keep only the current decision and its reason; Git keeps the history. If a decision is unclear, stop and say so.
 2. Work on a branch named after the GitHub issue: `<issue-number>-<short-slug>` (e.g. `7-tenant-wrapper`). Never commit to `main`.
 3. Keep the PR to one issue and one idea.
 

@@ -16,8 +16,9 @@ CI will fail a PR that breaks a budget (enforcement lands with issue #22):
 | Chat widget bundle                  | ≤ 20 KB gzipped                                       |
 | Dashboard initial JS                | ≤ 200 KB gzipped (to be tuned)                        |
 | API latency (p95, seeded benchmark) | < 100 ms for reads                                    |
-| Help center                         | Lighthouse performance ≥ 95                           |
 | AI reply                            | First token streamed in ~1 s (tracked; not a CI gate) |
+
+Help center content is served through the API and MCP, so its reads use the API latency budget ([ADR 0012](0012-headless-help-center.md)). Teams measure the performance of the sites they render.
 
 The dashboard uses optimistic updates, a client cache, live WebSocket updates and preloading. A local-first sync engine (Zero/ElectricSQL) is an option later.
 

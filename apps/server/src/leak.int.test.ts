@@ -279,7 +279,7 @@ describe("leak: every API operation, called as tenant A", () => {
       ...op,
       name:
         op.method === "GET" && op.path === "/v1/conversations/{id}"
-          ? "leak: fetching B's ticket ID as A returns 404"
+          ? "leak: fetching B's conversation ID as A returns 404"
           : `${op.method} ${op.path} shows nothing of B and changes nothing of B`,
     })),
   )("$name", async (op) => {

@@ -2,17 +2,15 @@
 
 - Status: Accepted
 - Date: 2026-11-06
-- Supersedes: the "collected by a GitHub Action" part of ADR 0007
 
 ## Context
 
-ADR 0007 used `contributor-assistant/github-action` (CLA Assistant Lite). That repository was archived in March 2026 and no longer gets security fixes, yet it ran on `pull_request_target` with write permissions.
+CLA collection must block unsigned contributions without running fork-controlled workflow code with repository write permissions.
 
 ## Decision
 
 - Use the hosted **cla-assistant.io** GitHub App. It is still maintained, though with low activity; signatures can be exported, so we can switch tools if needed. The CLA text lives in `CLA.md` and in a gist that the app reads.
 - Its status check (`license/cla`) is a **required** check on `main`, so an unsigned contribution can't be merged.
-- Remove the archived workflow and the `cla-signatures` branch.
 
 ## Consequences
 

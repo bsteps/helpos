@@ -11,16 +11,16 @@ With coding agents, writing code is fast. The bottleneck is a human manually che
 
 No PR merges without automated proof. A feature is "done" only when it ships with:
 
-| Layer                                                                    | Tool                                                                           | Catches                                                |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| Unit + integration tests against **real Postgres** (throwaway container) | Vitest + Testcontainers                                                        | Logic, SQL, RLS                                        |
-| Cross-tenant leak suite                                                  | Vitest                                                                         | Data leaks (ADR 0003)                                  |
-| API contract tests generated from OpenAPI                                | Vitest                                                                         | Breaking agents' API                                   |
-| End-to-end flows in a real browser                                       | Playwright                                                                     | Widget → AI → handoff → reply                          |
-| Visual snapshots                                                         | Playwright                                                                     | UI regressions                                         |
-| Email fixture corpus (real, messy emails)                                | Vitest                                                                         | Threading/parsing bugs. Every email bug adds a fixture |
-| AI evals (golden tickets, citation faithfulness, injection fixtures)     | Eval runner from "test mode"                                                   | AI quality regressions                                 |
-| Agent QA                                                                 | Coding agent drives the app in a browser and posts screenshots/video on the PR | "Does it actually work?"                               |
+| Layer                                                                      | Tool                                                                           | Catches                                                |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| Unit + integration tests against **real Postgres** (throwaway container)   | Vitest + Testcontainers                                                        | Logic, SQL, RLS                                        |
+| Cross-tenant leak suite                                                    | Vitest                                                                         | Data leaks (ADR 0003)                                  |
+| API contract tests generated from OpenAPI                                  | Vitest                                                                         | Breaking agents' API                                   |
+| End-to-end flows in a real browser                                         | Playwright                                                                     | Widget → AI → handoff → reply                          |
+| Visual snapshots                                                           | Playwright                                                                     | UI regressions                                         |
+| Email fixture corpus (real, messy emails)                                  | Vitest                                                                         | Threading/parsing bugs. Every email bug adds a fixture |
+| AI evals (golden conversations, citation faithfulness, injection fixtures) | Eval runner from "test mode"                                                   | AI quality regressions                                 |
+| Agent QA                                                                   | Coding agent drives the app in a browser and posts screenshots/video on the PR | "Does it actually work?"                               |
 
 A seed script provides realistic demo data in one command, for tests, agent QA and local development.
 

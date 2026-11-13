@@ -6,7 +6,7 @@
 ## Decision
 
 - **Licence: AGPL-3.0-only.** Anyone may use, modify and self-host for free. Anyone running a modified version as a network service must publish their changes. The UI has a "Source" link to satisfy AGPL §13.
-- **CLA** (`CLA.md`, Apache-ICLA-style, with relicensing rights), collected by a GitHub Action. It must be **reviewed by a lawyer** before significant outside contributions are accepted.
+- **CLA** (`CLA.md`, Apache-ICLA-style, with relicensing rights), collected by cla-assistant.io ([ADR 0008](0008-cla-assistant.md)). It must be **reviewed by a lawyer** before significant outside contributions are accepted.
 - **Open-core boundary:** every helpdesk feature is public. Only the machinery of our hosted service (billing, multi-tenant admin, usage metering) lives in a **private `helpos-cloud` repo** that consumes the public packages.
 - **Pledge:** core helpdesk features will stay AGPL. We will not move existing features behind a paywall.
 - **Trademark:** the name and logo are not covered by the AGPL (see `TRADEMARK.md`).
