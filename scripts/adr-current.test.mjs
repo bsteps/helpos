@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -37,8 +37,17 @@ test("maintained documentation references only current ADRs", () => {
     ".claude/skills/verify-helpos/features/knowledge.md",
   ];
   for (const path of paths) {
-    for (const [, id] of readFileSync(join(root, path), "utf8").matchAll(/\bADR\s+(\d{4})\b/g)) {
+    const fullPath = join(root, path);
+    const text = readFileSync(fullPath, "utf8");
+    for (const [, id] of text.matchAll(/\bADR\s+(\d{4})\b/g)) {
       assert.ok(currentIds.has(id), `${path}: point ADR ${id} at its current decision`);
+    }
+    for (const [, link] of text.matchAll(/\]\(([^\s)]+\.md)(?:#[^\s)]*)?\)/g)) {
+      if (/^https?:/.test(link) || !/^\d{4}-.+\.md$/.test(basename(link))) continue;
+      assert.ok(
+        adrFiles.includes(basename(link)) && existsSync(resolve(dirname(fullPath), link)),
+        `${path}: point ${link} at an existing current ADR`,
+      );
     }
   }
 });

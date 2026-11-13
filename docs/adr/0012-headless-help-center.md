@@ -23,7 +23,7 @@ A team's site performance is the team's to measure. HelpOS's API latency budget 
 
 ### 3. Chat uses an embeddable widget
 
-Chat is planned under Later (#399). It reaches customers through an embeddable web component, with its chat UI in a sandboxed iframe. The widget follows ADR 0002 and the bundle budget in ADR 0006 when it is built.
+Chat is planned under Later (#399). It reaches customers only through an embeddable web component, with its chat UI in a sandboxed iframe. HelpOS hosts no chat page. The widget follows ADR 0002 and the bundle budget in ADR 0006 when it is built.
 
 ## Rejected
 
