@@ -6,6 +6,11 @@ services:
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_PASSWORD: postgres # dev only
+      # Dev-only role passwords for docker/postgres/init.sql: each is the role's name.
+      HELPOS_OWNER_DB_PASSWORD: helpos_owner
+      HELPOS_APP_DB_PASSWORD: helpos_app
+      HELPOS_AUTH_DB_PASSWORD: helpos_auth
+      HELPOS_JOBS_DB_PASSWORD: helpos_jobs
     ports:
       - "127.0.0.1:5432:5432" # loopback only: never expose dev DB to the network
     volumes:

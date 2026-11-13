@@ -85,16 +85,17 @@ async function demoSetup(): Promise<Setup> {
   }
 }
 
-/** Starts Postgres the way the compose file would on first start, as the `postgres` superuser. */
-function start({ files, environment }: Setup): Promise<StartedPostgreSqlContainer> {
+/** Postgres as the compose file starts it the first time, as the `postgres` superuser. */
+function postgresFor({ files, environment }: Setup): PostgreSqlContainer {
   return new PostgreSqlContainer("pgvector/pgvector:pg17")
     .withUsername("postgres")
     .withDatabase("postgres")
     .withPassword(environment.POSTGRES_PASSWORD ?? "postgres")
     .withEnvironment(environment)
-    .withCopyFilesToContainer(files)
-    .start();
+    .withCopyFilesToContainer(files);
 }
+
+const start = (setup: Setup) => postgresFor(setup).start();
 
 function connect(
   container: StartedPostgreSqlContainer,
@@ -179,7 +180,7 @@ async function loginsAs(container: StartedPostgreSqlContainer, passwords: typeof
 
 const role = (name: string, attributes = "LOGIN") => ({ name, attributes, memberOf: [] });
 
-// What ADR 0003 and 0009 ask of a fresh database: no HelpOS role can bypass row-level security,
+// What tenant isolation asks of a fresh database: no HelpOS role can bypass row-level security,
 // the app reaches only `public` (data access on what migrations create) and `jobs_api`, and only
 // the jobs role reaches `pgboss`. The `auth` schema comes later, with the migrations.
 const expected = {
@@ -259,6 +260,14 @@ describe("Postgres bootstrap", () => {
   it("the demo database fails to start when a password is missing", async () => {
     const { files, environment } = await demoSetup();
     const { HELPOS_APP_DB_PASSWORD: _missing, ...withoutApp } = environment;
-    await expect(start({ files, environment: withoutApp })).rejects.toThrow();
+    let logs = "";
+    const container = postgresFor({ files, environment: withoutApp }).withLogConsumer((stream) =>
+      stream.on("data", (chunk) => {
+        logs += String(chunk);
+      }),
+    );
+    await expect(container.start()).rejects.toThrow();
+    // The unset password stays in the SQL as `:'app_password'`, which Postgres rejects.
+    expect(logs).toContain(`syntax error at or near ":"`);
   });
 });

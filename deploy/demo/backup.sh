@@ -1,8 +1,9 @@
 #!/bin/sh
 # Once a day: dumps the helpos database (compressed custom format) and archives the files volume
 # (raw emails and attachments, which the database only points to), under one timestamp. Keeps
-# the newest $BACKUP_KEEP of each. Roles aren't in it: postgres-init.sh recreates them from .env, so a restore
-# needs the same .env. A failed dump is logged, never kept, and retried the next day.
+# the newest $BACKUP_KEEP of each. Roles aren't in it: docker/postgres/init.sql recreates them
+# from .env, so a restore needs the same .env. A failed dump is logged, never kept, and retried
+# the next day.
 set -u
 # The dumps hold every workspace's data: readable by root only.
 umask 077
