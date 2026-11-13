@@ -184,16 +184,3 @@ export function AlertDescription({ className, ...props }: AlertDescriptionProps)
     />
   );
 }
-
-export interface AlertActionProps extends ComponentProps<"div"> {}
-
-/** Compose buttons or links here; this part never creates a nested button. */
-export function AlertAction({ className, ...props }: AlertActionProps) {
-  return (
-    <div
-      {...props}
-      data-slot="alert-action"
-      className={cn("flex flex-wrap items-center gap-2 pt-2", className)}
-    />
-  );
-}

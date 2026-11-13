@@ -19,5 +19,5 @@ What the security-baseline check looks for in a diff. Follow it when you write c
 
 ## Don't flag
 
-- The known MVP shortcuts in the [MVP vs first release](../architecture/overview.md#mvp-vs-first-release) table. They're tracked.
+- The known shortcuts in the [shortcuts before the first real reply](../architecture/overview.md#shortcuts-before-the-first-real-reply) table. They're tracked.
 - Tenant isolation (its own check), test quality (its own check), style and naming.

@@ -35,9 +35,7 @@ Server and DB unit and integration projects run each test file once. Both server
 
 The web build runs `apps/web/scripts/check-budget.mjs`. Its initial scripts and modulepreload chunks must total at most 200 × 1024 gzip bytes.
 
-`pnpm check:widget` reserves `apps/widget` as the adoption hook. Once that directory exists, its build must produce `dist` with JavaScript or CSS. The checker sums each JavaScript and CSS file recursively, compressed separately at gzip level 9, and rejects totals over 20 × 1024 bytes. CI runs it after workspace builds, so a missing build or empty output fails on adoption. The widget must join the workspace build graph and use this location, or update the hook in its PR.
-
-Until `apps/widget` exists the checker reports `absent`, which is not a measurement. Its tests use synthetic fixtures for small, missing, empty and oversized artifacts.
+The chat widget's 20 KB budget in ADR 0006 has no check yet, because there is no widget. The PR that adds the widget adds its bundle check.
 
 ## API reads
 
@@ -61,9 +59,8 @@ Run these checks from the repository root with Docker available.
 pnpm verify
 pnpm test:scripts
 pnpm test:coverage
-pnpm check:widget
 pnpm test:performance
 pnpm test:e2e
 ```
 
-`pnpm verify` runs the test and build checks. Coverage, widget adoption, the HTTP budget and Playwright run separately.
+`pnpm verify` runs the test and build checks. Coverage, the HTTP budget and Playwright run separately.
