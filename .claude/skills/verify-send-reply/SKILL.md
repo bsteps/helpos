@@ -34,7 +34,7 @@ It runs one fault at a time, checking each promise, then pairs each mutant in `m
 
 ## Read every result with `/statechart`
 
-For any broken promise, new or known, read its folder with the pstack `/statechart` skill. It gives the shortest path to the broken state in plain words. When everything holds, it draws how a draft moves between states. Then decide:
+For any broken promise, new or known, read its folder with the pstack `/statechart` skill (where you can't start it yourself, read its `SKILL.md` and follow it). It gives the shortest path to the broken state in plain words. When everything holds, it draws how a draft moves between states. Then decide:
 
 - **A real bug** replays on the real code. Replay the path one action at a time against the code that the coverage table maps it to, as a test on the harness in `apps/server/src/drafts/send-failed.int.test.ts` (real Postgres, pg-boss and Mailpit). For example, a transport that sends and then throws reproduces "SMTP accepted, then the transaction rolled back". Report it with the path in the code's words, and add it to `known` with its issue. Never change a promise to make it pass.
 - **A modeling error** doesn't replay. Look for the first action where the model and the code differ. Usually one model action is split by an `await` in the code, the model lacks a guard the code has, or the model has a guard the code lacks. Fix the model, rerun, and write in the PR what was wrong.
@@ -117,4 +117,4 @@ The model mutants check removed give-up handling, a give-up that overwrites `sen
 
 `NoResendWithoutPerson` bounds total accepted deliveries by one plus retry requests. A retry request that reuses an active job still grants this allowance. It does not prove a stronger per-request ordering guarantee. The one-retry bound covers both retry branches but is not an inductive proof for eight retries. Raising `MaxFaults` alone repeats the selected fault; combine entries in `Faults` to explore mixed failures.
 
-Use `/maintain-formal-verification-skill` after covered changes that did not recheck this model. Keep findings separate from a successful runner exit: exit 0 means the expected findings were reproduced, not that all promises hold.
+Use `/maintain-formal-verification-skill` (read its `SKILL.md` where you can't start it yourself) after covered changes that did not recheck this model. Keep findings separate from a successful runner exit: exit 0 means the expected findings were reproduced, not that all promises hold.
