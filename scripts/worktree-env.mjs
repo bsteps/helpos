@@ -102,20 +102,12 @@ export function needsSeed({ isolation, created, marker }) {
 // Node's own .env parser, so values read here match what `--env-file` gives the children.
 export { parseEnv } from "node:util";
 
-/** Per-database setup that docker/postgres/init.sql does for the default `helpos` database. */
-export function databaseSetupSql() {
-  return `CREATE EXTENSION IF NOT EXISTS vector;
-ALTER SCHEMA public OWNER TO helpos_owner;
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO helpos_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE helpos_owner IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO helpos_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE helpos_owner IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO helpos_app;
-CREATE SCHEMA pgboss AUTHORIZATION helpos_jobs;
-REVOKE ALL ON SCHEMA pgboss FROM PUBLIC;
-CREATE SCHEMA jobs_api AUTHORIZATION helpos_jobs;
-REVOKE ALL ON SCHEMA jobs_api FROM PUBLIC;
-GRANT USAGE ON SCHEMA jobs_api TO helpos_app;
-`;
+/**
+ * Per-database setup: the part of docker/postgres/init.sql after it connects to the default
+ * `helpos` database. The roles before it already exist in the shared container.
+ */
+export function databaseSetupSql(initSql) {
+  const [, perDatabase] = initSql.split(/^\\connect helpos$/m);
+  if (perDatabase === undefined) throw new Error("init.sql has no `\\connect helpos` line");
+  return perDatabase;
 }
