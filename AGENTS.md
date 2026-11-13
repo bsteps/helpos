@@ -136,5 +136,5 @@ packages/      shared libraries (ai, brand, db, files, safe-fetch; sdk comes wit
 docs/adr/      architecture decisions (read these)
 docs/architecture/overview.md   how the pieces fit together (read first)
 docs/          guides, including OPEN_SOURCE_101.md
-scripts/       repo tooling (e.g. rename-brand)
+scripts/       repo tooling (worktree setup, label sync, lint and proof checks)
 ```
