@@ -33,7 +33,7 @@ pnpm check:changed    # fast: lint changed files, typecheck + test affected pack
 pnpm test:scripts     # tests for repo tooling in scripts/
 pnpm typecheck        # TypeScript, all packages
 pnpm test             # tests, all packages
-pnpm verify           # lint, typecheck, test, build, evals. Run once before you open a PR (iterate with check:changed)
+pnpm verify           # lint, typecheck, test, build, evals. Run once before you mark a PR ready (iterate with check:changed)
                       # CI also runs coverage, the API contract diff and the read budget: docs/quality-gates.md
 ```
 
@@ -122,11 +122,11 @@ When a rule here has a check, the check is the rule: if you hit it, do what its 
 Labels show where work is. Agents move them; humans only check `needs-human`. The list lives in `.github/labels.json` (a workflow syncs it to GitHub), so change labels there, not in the GitHub UI.
 
 - **Issues:** `needs-triage` (not reviewed yet) → `ready` (can be picked up) → `in-progress`. An issue that GitHub shows as "blocked by" another loses `ready` until the blocker closes. Set `in-progress` when you start an issue, and remove `ready`.
-- **PRs:** `pr:in-progress` → `pr:ready` → `land`. Open the PR with `pr:in-progress`. Move it to `pr:ready` once `pnpm verify` passes and your review findings are resolved. Move it to `land` once checks are green, unless it needs a human.
+- **PRs:** draft → ready for review → `land`. Open the PR as a draft (`gh pr create --draft`), because CI skips drafts. Run `gh pr ready` once `pnpm verify` passes and your review findings are resolved, and CI runs then. Add `land` once checks are green, unless it needs a human.
 - **`needs-human` is required** (instead of `land`) when a PR changes security, auth, tenant isolation or product defaults, or adds a lint or type suppression. Also use it whenever you are blocked on a decision only a person can make.
 - `human-only`, `security` and `area:*` stay as they are: what kind of work it is, not its state. Never pick up a `human-only` issue.
 
-What's happening, by filter: `is:open label:needs-human` (the human queue), `is:open label:in-progress`, `is:pr is:open label:pr:ready`, `is:pr is:open label:land`.
+What's happening, by filter: `is:open label:needs-human` (the human queue), `is:open label:in-progress`, `is:pr is:open draft:false` (ready for review), `is:pr is:open label:land`.
 
 ## Repo map
 

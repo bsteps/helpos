@@ -18,6 +18,8 @@ concurrency:
 jobs:
   check:
     name: Lint, typecheck, test
+    # Draft PRs skip CI. It runs once the PR is marked ready for review.
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -84,6 +86,7 @@ jobs:
 
   e2e:
     name: End-to-end (Playwright)
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -112,6 +115,7 @@ jobs:
 
   demo:
     name: Demo deployment (compose)
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
