@@ -2,12 +2,15 @@
 
 - Status: Accepted
 - Date: 2026-11-07
+- Superseded in part by: [ADR 0013](0013-rules-knowledge-settings-in-git.md) (the kinds, edits from the UI, the policy wording and the timing)
 
 ## Context
 
 "Your helpdesk's config, knowledge and policies live in git as markdown" is one of our differentiators. Teams can review a policy change in a pull request, roll it back with `git revert`, and let a coding agent edit it like any other file.
 
 Building the sync can wait until after the MVP (roadmap "Wedge" set), but the data model can't. If MVP tables like knowledge sources (#61) assume the app is the only writer, adding git later means migrating every row.
+
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 5 replaces this timing.
 
 Constraints from earlier ADRs:
 
@@ -19,6 +22,8 @@ Constraints from earlier ADRs:
 ## Decision
 
 ### 1. What can live in git
+
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 1 replaces `instructions/` and `policies/` with rules and settings.
 
 | Kind               | Folder          | Example                                      | Treated as                     |
 | ------------------ | --------------- | -------------------------------------------- | ------------------------------ |
@@ -37,6 +42,8 @@ The app never reads git when it handles a request or runs an agent. It reads the
 
 ### 3. One owner per item, one-way sync
 
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 2 replaces the UI parts of this section. HelpOS opens no pull requests.
+
 - Every importable row has `managed_by` (`app` or `git`) and, when it's `git`, `source_path` and `source_commit`.
 - A workspace that connects a repo picks, **per kind**, whether that kind is managed in git. Rows of that kind then have `managed_by = 'git'`.
 - **Sync goes one way: git → database.** The API rejects writes to a git-managed row with `409` and a hint to change the file instead. The UI shows these rows read-only, with a link to the file.
@@ -54,9 +61,13 @@ The app never reads git when it handles a request or runs an agent. It reads the
 
 ### 5. Policies from git can't bypass approval
 
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 3 applies this section to rules and settings.
+
 Push access to a repo is not the same as admin rights in the workspace. A policy import that **loosens** anything (enables a write action, raises a threshold or cap, removes an approval step) is staged and takes effect only after an admin approves it in the app. The approval goes through the normal signed-approval path. Tightening changes apply right away. Policy files still can't switch the kill switch off.
 
 ### 6. Prompt injection
+
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 4 replaces the `instructions/` line with rules and settings.
 
 - Knowledge and saved replies are data, the same as imported web pages: quoted to the model, never merged into its instructions (ADR 0004).
 - `instructions/` files are tenant config, the same as instructions typed into the UI. They are trusted exactly as much as a UI edit would be, no more.
@@ -64,12 +75,16 @@ Push access to a repo is not the same as admin rights in the workspace. A policy
 
 ### 7. Tenant isolation and secrets
 
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) sections 2 and 4 replace the pull request and policy wording here. Read access is always enough.
+
 - A repo connection is a tenant `integrations` row. Its access token (a deploy key or a GitHub App installation) is envelope-encrypted, and read-only access is enough unless "propose edits as pull requests" is turned on.
 - One repo (optionally with a subfolder) belongs to one workspace. Every imported row carries `tenant_id` under RLS, like any other row.
 - Files never hold secrets. A policy that needs one refers to an integration by name. The importer rejects files that match secret-scanning patterns, so a key pushed by mistake never reaches the database.
 - Repo fetches use the SSRF-safe fetch (ADR 0004). Self-hosters can point at any git host over HTTPS.
 
 ### 8. What the MVP must do now
+
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 5 replaces this section.
 
 Only the data model. No sync code.
 
@@ -85,6 +100,8 @@ Only the data model. No sync code.
 - **Applying valid files and skipping broken ones.** A half-applied policy set is worse than the previous complete one.
 
 ## Consequences
+
+[ADR 0013](0013-rules-knowledge-settings-in-git.md) replaces the consequences about UI edits, policies and timing.
 
 - Teams that never connect a repo see no difference. Everything defaults to `managed_by = 'app'`.
 - Git-managed items can't be saved directly in the UI; the file is where they change. Until "propose edits as pull requests" ships, non-technical teammates can't edit them, so teams with non-technical editors should keep those kinds managed in the app.
