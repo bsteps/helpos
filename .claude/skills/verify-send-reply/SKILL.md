@@ -98,7 +98,7 @@ Last confirmed at commit `a52921fa6e35`. The two nested runner rows were recheck
 
 **Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.1 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
 
-**Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
+**Left out.** Shadow mode and `planDelivery`, the raw file write, edits, owner notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
 
 Stored payloads are assumed valid in this model. Malformed payloads fail before tenant handlers or give-up callbacks run. The runner reports a fixed error with queue and job ID on the last attempt. The real malformed-job regressions in `packages/db/src/jobs.int.test.ts` and `apps/server/src/invalid-job.int.test.ts` cover that separate behavior. The valid-payload model does not prove it.
 
