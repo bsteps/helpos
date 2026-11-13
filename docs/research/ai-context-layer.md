@@ -19,6 +19,7 @@ Two independent research passes (Nov 2026, web sources at the bottom) agreed on 
 | Relationships                      | Plain SQL over our own tables: customer → conversation → issue → PR → release → article                                                                                                                  | This is the useful "graph". **No GraphRAG**: 100×+ indexing cost, loses on single-hop questions, which support mostly is.                                                           |
 
 Models (check current leaderboards before choosing):
+
 - Embeddings, 1024 dims, multilingual: Qwen3-Embedding-0.6B (Apache, Ollama), BGE-M3, Harrier-0.6B (MIT), EmbeddingGemma; hosted Voyage-4-lite, Cohere embed-v4. OpenAI text-embedding-3-small is weak on non-English.
 - Rerankers: Qwen3-Reranker-0.6B, bge-reranker-v2-m3 (self-host), Cohere Rerank (hosted). Jina v3/v5 and zerank are non-commercial licences.
 - pgvector ≥ 0.8.3. Exact scan below ~20k chunks per tenant; consider `halfvec(1024)` and per-tenant partial HNSW for big tenants.

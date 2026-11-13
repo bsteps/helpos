@@ -117,7 +117,6 @@ Limits remain one draft, two workers, one automatic retry and one person retry. 
 
 The following records preserve the earlier findings and proofs. They describe the old send protocol, not the current implementation.
 
-
 Reconfirmed against 38c9ab9fc2b4 on 2026-11-12 after the #184 conversation rename. No product source changes are retained.
 
 ## Dead system-job removal (#198)
