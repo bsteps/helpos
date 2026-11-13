@@ -58,7 +58,7 @@ export function nextUtcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 }
 
-export type Spent = DraftUsage;
+type Spent = DraftUsage;
 
 /** Today's spend against the budget. Reservations of calls in flight aren't in it. */
 interface BudgetToday {
