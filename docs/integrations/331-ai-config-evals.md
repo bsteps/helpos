@@ -84,6 +84,7 @@ The final gate passed all 15 Turbo tasks, eight fresh and seven cached. Every pa
 The full gate exited and its owned Testcontainers resources were removed. The older Mailpit container created on November 11 remains untouched. The local `.env` hash is unchanged. Subsequent edits record proof only in this manifest and trail; production and test source remain identical to the tested head. Git ancestry checks retain both exact prerequisite pins. The published 328 tip differs from its pinned checkpoint only in its two integration documents. The forge CLI `origin` is unavailable, so publication uses `gh`.
 
 Issue #205 is deferred. No live key request, provisioning, billable eval, Claude call, or provider request is authorized. Offline models prove prompt transport, assertion wiring, citation parsing, and deterministic boundary behavior. They do not prove live quality or injection resistance. Do not run the live verify-helpos journey. Publication retains `pr:in-progress`, `needs-human`, and `security`. Source PRs and branches remain open and unchanged. No merge, approval, closure, deletion, settings change, or watch is part of this task.
+
 ## Post-review startup-probe correction
 
 Independent review at `04f505e` reproduced two CI failures. The tests launched relative `src/main.ts` from the repository root and reached `MODULE_NOT_FOUND` instead of configuration validation. The earlier package-directory gate remains valid for its own invocation; it did not cover this root launch.

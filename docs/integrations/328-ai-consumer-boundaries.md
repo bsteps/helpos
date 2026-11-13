@@ -101,6 +101,7 @@ Before assembly, the combined prerequisites passed 130 AI tests. After paid-hand
 The throughput boundary is explicit. Offline tests, compiler checks and accounting run during shared work. The coordinator owns allocation of focused Postgres/pg-boss runtime and the one stable full gate. No Docker, browser, model run or full suite starts without its concrete grant. Tests use deterministic providers. No live provider calls, credentials or billable runs are requested. Offline evidence is not live quality or injection-resistance proof. #205 stays deferred.
 
 Deslop found no required cleanup. The one native same-model xhigh Comment Sicko found no required changes, suppressions, or open constraints. All 107 repo script tests passed fresh with no skips; the separate two fingerprint regression tests passed without TLC. Knip and Biome pass. Biome retains the source void-union advisory for compatibility with existing `Promise<void>` handlers, plus the two inherited sync-labels environment warnings. Required before publication are granted focused runtime proof and one stable committed-head `EVAL_LIVE=0 pnpm verify`. The append-only [328-integration.tsv](328-integration.tsv) records assembly decisions and focused proof. The final gate SHA, outcome and fresh/cache split are recorded in the PR and local `.helpos/328-runtime.tsv` without changing the stable tested commit. Fresh independent integration review, hosted CI and human security approval remain coordinator-owned. Retain `needs-human` and `security`; never mark `land`. Originals stay open and untouched. No merge, approval, closure, deletion or settings change is authorized.
+
 ## Post-review test and documentation correction
 
 Independent review at `41f08b6` found no new production blocker, but hosted CI rejected one small timing sample at 0.786337 ms despite a median growth ratio of 6.4866, below the unchanged limit of 24. The earlier calibration had not stayed valid through the sampling window.
@@ -112,6 +113,7 @@ A deterministic workload that becomes faster after warmup fails the old helper's
 The history mapping is also corrected. The public conversation API excludes unconfirmed outbound messages. The unchanged AI history query does not filter `sentAt`, so its prompts may include prepared outbound rows. No runtime fix or AI-prompt exclusion proof is claimed. This inherited limit was disclosed on PR315 before human approval.
 
 The earlier full runtime gate remains evidence for unchanged production code. Current-head CI and a fresh focused independent recheck are required for these test and documentation edits. No new live-model, browser, database or formal campaign is claimed.
+
 ## CPU-work measurement after the hosted ratio failure
 
 The floor correction at `c5f23a5` did not resolve the shared-runner timing gate. Its CI run rejected a median wall-clock growth ratio of 31.683392 even though every small sample exceeded one millisecond. That failed result remains recorded; a local pass did not supersede it.

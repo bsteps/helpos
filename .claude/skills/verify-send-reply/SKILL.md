@@ -54,7 +54,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `077f34bb526b`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. `defineJob`, `consume`, and `work` were selectively rechecked against the two-phase send contract after AI deferrals and stored-payload validation: `handleSendReply` returns no deferral, so no send successor is enqueued; the logging wrapper still awaits and rethrows failures; the last-attempt condition and rollback-before-give-up order stay intact; and pg-boss settles after the callback. Other fingerprints remain unchanged. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
+Last confirmed at commit `fd92a5a7f745`. The two nested runner rows were rechecked against parent `80e638451a63`, which removes the unused system-job branch and casts. Tenant payload parsing, rollback, last-attempt give-up, two committed send steps, and pg-boss settlement retain their model actions. Conversation-write extraction and audit details were selectively re-fingerprinted below against the same model actions. `defineJob`, `consume`, and `work` were selectively rechecked against the two-phase send contract after AI deferrals and stored-payload validation: `handleSendReply` returns no deferral, so no send successor is enqueued; the logging wrapper still awaits and rethrows failures; the last-attempt condition and rollback-before-give-up order stay intact; and pg-boss settles after the callback. Other fingerprints remain unchanged. The model and its inputs are unchanged. Known lost-retry and give-up stalls remain open.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -87,7 +87,7 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
 | packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `13c7c8ab11d4` |
 | packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `0ac5978b52bb` |
-| pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.0` |
+| pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.1` |
 <!-- /coverage -->
 
 ## Scope
@@ -96,7 +96,7 @@ Last confirmed at commit `077f34bb526b`. The two nested runner rows were recheck
 
 **Bounds.** One retry (the code has 8). Attempts past the first all take the same steps, and the model covers both the "retries left" and the "last attempt" branch. One person retry. One fault per run, at most once. Raise `MaxFaults` in `scripts/check.mjs` to look for bugs that need two faults. Each extra fault makes the run take longer.
 
-**Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.0 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
+**Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.1 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
 
 **Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
 
