@@ -14,9 +14,6 @@ export type Draft = components["schemas"]["Draft"];
 export type Me = components["schemas"]["Me"];
 export type GithubConnected = components["schemas"]["GithubConnected"];
 export type KnowledgeSource = components["schemas"]["KnowledgeSource"];
-export type KnowledgeSourceUpdate = components["schemas"]["KnowledgeSourceUpdate"];
-export type NewKnowledgeSource =
-  paths["/v1/knowledge/sources"]["post"]["requestBody"]["content"]["application/json"];
 export type ErrorCode = components["schemas"]["Error"]["error"];
 
 /** A failed API call: the HTTP status and the API's error code, e.g. `not_pending`. */
