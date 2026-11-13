@@ -13,7 +13,6 @@ import { registerAuthRoutes } from "./auth/routes.ts";
 import { humanSessions } from "./auth/session.ts";
 import { registerConversationRoutes } from "./conversations/routes.ts";
 import { registerDraftRoutes } from "./drafts/routes.ts";
-import { registerGithubRoutes } from "./github/routes.ts";
 import type { ErrorCode } from "./http/error-codes.ts";
 import { registerHealthRoutes } from "./http/health.ts";
 import { idempotency } from "./http/idempotency.ts";
@@ -32,16 +31,7 @@ import { registerShadowModeRoutes } from "./workspaces/shadow-mode-routes.ts";
 /** What the API (web role) is built from: the shared services, never its own copies. */
 export type AppServices = Pick<
   Services,
-  | "db"
-  | "files"
-  | "logger"
-  | "clock"
-  | "config"
-  | "model"
-  | "auth"
-  | "secretBox"
-  | "github"
-  | "queueReady"
+  "db" | "files" | "logger" | "clock" | "config" | "auth" | "queueReady"
 >;
 
 export interface AppOptions {
@@ -53,7 +43,7 @@ export interface AppOptions {
 }
 
 export function createApp(services: AppServices, options: AppOptions = {}): OpenAPIHono {
-  const { db, files, logger, clock, config, model, auth, secretBox, github } = services;
+  const { db, files, logger, clock, config, auth } = services;
   const { publicUrl, inboundSecret, webDir } = config;
   // Human sign-in needs HELPOS_AUTH_SECRET and HELPOS_DATABASE_AUTH_URL. Without it, sign-in
   // answers 503 and only agent tokens work.
@@ -102,15 +92,6 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   registerKnowledgeRoutes(app, { db });
   registerStatsRoutes(app, { db, clock });
   registerShadowModeRoutes(app, { db, allowShadowModeOff: config.allowShadowModeOff });
-  registerGithubRoutes(app, {
-    db,
-    logger,
-    secretBox,
-    github,
-    model,
-    clock,
-    config,
-  });
 
   if (webDir) registerDashboard(app, webDir);
 

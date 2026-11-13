@@ -12,7 +12,7 @@ test("AI helpers reject raw models and accept models from budget.spend", () => {
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
   const { options } = ts.parseJsonConfigFileContent(config.config, ts.sys, resolve("apps/server"));
   const source = (paid) => `
-import { draftReply, draftGithubIssue, embedTexts } from "@helpos/ai";
+import { draftReply, embedTexts } from "@helpos/ai";
 import { mockModel, mockEmbeddingModel } from "@helpos/ai/testing";
 import type { TenantTransaction } from "@helpos/db";
 import type { AiBudget, Reservation } from "../ai-budget/budget.ts";
@@ -20,7 +20,6 @@ export async function check(budget: AiBudget, tx: TenantTransaction, reservation
   ${paid ? "return budget.spend(tx, reservation, async (_signal, models) => {" : ""}
     const input = { from: "a", subject: "b", body: "c" };
     await draftReply(${paid ? "models(mockModel())" : "mockModel()"}, input);
-    await draftGithubIssue(${paid ? "models(mockModel())" : "mockModel()"}, input);
     await embedTexts(${paid ? "models(mockEmbeddingModel())" : "mockEmbeddingModel()"}, ["x"]);
     return { inputTokens: 1, outputTokens: 1 };
   ${paid ? '}, { of: (value) => value, ofFailure: () => "unknown" });' : ""}
@@ -34,7 +33,7 @@ export async function check(budget: AiBudget, tx: TenantTransaction, reservation
   try {
     assert.deepEqual(compile(true), []);
     const errors = compile(false);
-    assert.equal(errors.length, 3);
+    assert.equal(errors.length, 2);
     for (const error of errors) {
       assert.equal(error.code, 2345);
       assert.match(ts.flattenDiagnosticMessageText(error.messageText, "\n"), /PaidModel/);

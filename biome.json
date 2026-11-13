@@ -22,7 +22,6 @@
     "./biome-plugins/route-security.grit",
     "./biome-plugins/route-not-found.grit",
     "./biome-plugins/route-audit.grit",
-    "./biome-plugins/github-integration.grit",
     "./biome-plugins/draft-writes.grit",
     "./biome-plugins/conversation-writes.grit",
     "./biome-plugins/ai-usage.grit",

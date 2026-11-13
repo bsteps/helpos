@@ -5,16 +5,10 @@ export {
   parseAiConfig,
 } from "./config.ts";
 export {
-  draftGithubIssue,
-  failedDraftCost,
-  issueDraftTokenEstimate,
-  maxIssueTitleChars,
-  sanitizeIssue,
-} from "./draft-issue.ts";
-export {
   type DraftResult,
   type DraftUsage,
   draftReply,
+  failedDraftCost,
   maxHistoryMessages,
   maxKnowledgeArticles,
   replyDraftTokenEstimate,

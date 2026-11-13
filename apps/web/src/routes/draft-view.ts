@@ -3,12 +3,7 @@ import { type ErrorMessages, errorMessage } from "../api/error-messages.ts";
 import { formatDateTime } from "../lib/format.ts";
 
 export function newestReply(drafts: Draft[]): Draft | undefined {
-  return drafts.filter((d) => d.kind === "reply").at(-1);
-}
-
-/** The fix notice to show: the newest one that wasn't withdrawn. Replies don't affect it. */
-export function liveFixNotice(drafts: Draft[]): Draft | undefined {
-  return drafts.filter((d) => d.kind === "fixed" && d.status !== "discarded").at(-1);
+  return drafts.at(-1);
 }
 
 /**
@@ -98,18 +93,13 @@ export function newDraftError(code: string | undefined): string {
   return errorMessage(code, newDraftMessages);
 }
 
-export function draftTitle(draft: Pick<Draft, "kind" | "status">): string {
-  if (draft.kind === "fixed") return "Fix notice";
+export function draftTitle(draft: Pick<Draft, "status">): string {
   return draft.status === "pending" ? "Draft" : "Reply";
 }
 
-export function draftDescription(draft: Pick<Draft, "kind" | "status" | "sentAt">): string {
+export function draftDescription(draft: Pick<Draft, "status" | "sentAt">): string {
   if (draft.sentAt) return `Sent ${formatDateTime(draft.sentAt)}`;
-  if (draft.status === "pending") {
-    return draft.kind === "fixed"
-      ? "The GitHub issue was closed as done. Nothing is sent until you approve it."
-      : "Nothing is sent until you approve it.";
-  }
+  if (draft.status === "pending") return "Nothing is sent until you approve it.";
   if (draft.status === "send_uncertain") return "This reply may already have gone out.";
   return draft.status === "send_failed"
     ? "Approved, but it couldn't be sent."

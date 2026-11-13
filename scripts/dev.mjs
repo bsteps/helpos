@@ -4,7 +4,6 @@
 // In a git worktree it uses its own database and ports (scripts/worktree-env.mjs), so parallel
 // agent threads don't collide, and it seeds demo data on the first run.
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { envMessages, isWorktree, linkEnv, mainCheckoutDir } from "./worktree.mjs";
@@ -36,18 +35,6 @@ if (worktree) {
 if (!existsSync(".env")) {
   copyFileSync(".env.example", ".env");
   process.stdout.write("Created .env from .env.example\n");
-}
-
-// The example ships no encryption key, so nobody reuses a published one. Give this checkout a
-// random key of its own when it has none. Only that one line is written; the key isn't printed.
-const env = readFileSync(".env", "utf8");
-if (!/^HELPOS_ENCRYPTION_KEY=\S+/m.test(env)) {
-  const line = `HELPOS_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`;
-  const updated = /^HELPOS_ENCRYPTION_KEY=.*$/m.test(env)
-    ? env.replace(/^HELPOS_ENCRYPTION_KEY=.*$/m, line)
-    : `${env.trimEnd()}\n${line}\n`;
-  writeFileSync(".env", updated);
-  process.stdout.write("Added a random HELPOS_ENCRYPTION_KEY to .env\n");
 }
 
 const isolation = isolationFor(process.cwd(), { isWorktree: worktree });

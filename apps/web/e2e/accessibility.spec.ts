@@ -96,22 +96,8 @@ test("every screen is accessible and fits a phone with long content", async ({
   await card.getByRole("button", { name: "Keep", exact: true }).click();
 
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  // The webhook secret shows only right after connecting, and the other screen size's run or
-  // the GitHub spec may have connected already, so start from scratch.
-  await expect(page.getByText(/^(Connected|Not connected)$/)).toBeVisible();
-  if (await page.getByRole("button", { name: "Disconnect", exact: true }).isVisible()) {
-    await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-    await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
-  }
-  await page.getByLabel("Repository", { exact: true }).fill(state().githubRepo);
-  await page.getByLabel("Personal access token").fill(state().githubToken);
-  await audit("Settings connection form");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByTestId("webhook-secret")).toHaveText(/^[0-9a-f]{64}$/);
-  await expect(page.getByTestId("webhook-url")).toContainText(
-    "/v1/integrations/github/webhook?workspace=",
-  );
-  await audit("Settings with webhook secret");
+  await expect(page.getByTestId("shadow-mode-summary")).toBeVisible();
+  await audit("Settings");
   await page.getByRole("button", { name: "Turn off shadow mode", exact: true }).click();
   await expect(page.getByRole("button", { name: "Send replies to customers" })).toBeVisible();
   await audit("Shadow mode confirmation");
@@ -124,13 +110,6 @@ test("every screen is accessible and fits a phone with long content", async ({
   );
   await expect(page.getByTestId("draft-body")).toHaveText(state().draft);
   await audit("Conversation with long subject and pending draft");
-  await page.getByRole("button", { name: "Create GitHub issue", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue(
-    state().issueTitle,
-  );
-  await expect(page.getByRole("button", { name: "Create issue", exact: true })).toBeEnabled();
-  await audit("GitHub issue confirmation");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page
     .getByRole("region", { name: "Draft", exact: true })
     .getByRole("button", { name: "Edit", exact: true })

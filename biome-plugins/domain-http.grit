@@ -15,7 +15,6 @@ or {
   $filename <: not r".*[/\\](?:route|routes|[^/\\]+-routes)\.ts",
   $filename <: not r".*[/\\]auth[/\\]access\.ts",
   $filename <: not r".*[/\\]apps[/\\]server[/\\]src[/\\]app\.ts$",
-  $filename <: not r".*[/\\]github[/\\]webhook\.ts",
   $filename <: not r".*\.test\.ts",
   register_diagnostic(span=$statement, message="Domain modules must not import from http/. Import domain types from their owning module, such as audit/audit.ts for Auditor. Keep HTTP adapters in route files.", severity="error")
 }

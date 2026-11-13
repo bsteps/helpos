@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createLogger, errorSummary, withoutRequestId, withRequestId } from "./logger.ts";
 
-const pat = "github_pat_11AAAAAAA0secretsecretsecret_abcdefghijklmnopqrstuvwxyz0123";
+const pat = "hos_11AAAAAAA0secretsecretsecret_abcdefghijklmnopqrstuvwxyz0123";
 
 function capture() {
   const lines: string[] = [];
@@ -61,7 +61,7 @@ describe("logger", () => {
     const { logger, output } = capture();
     logger.info({ token: pat }, "connect");
     logger.warn({ input: { token: pat, repo: "acme/app" } }, "connect failed");
-    logger.error({ request: { headers: { authorization: `token ${pat}` } } }, "github call");
+    logger.error({ request: { headers: { authorization: `token ${pat}` } } }, "outbound call");
     logger.info({ authorization: `Bearer ${pat}` }, "raw header");
     expect(output()).not.toContain(pat);
     expect(output()).toContain("[redacted]");
@@ -69,9 +69,9 @@ describe("logger", () => {
     expect(output()).toContain("acme/app");
   });
 
-  it("redacts webhook secrets and passwords too", () => {
+  it("redacts secrets and passwords too", () => {
     const { logger, output } = capture();
-    logger.info({ webhookSecret: "whsec-1234", body: { password: "hunter2" } }, "x");
+    logger.info({ secret: "whsec-1234", body: { password: "hunter2" } }, "x");
     expect(output()).not.toContain("whsec-1234");
     expect(output()).not.toContain("hunter2");
   });

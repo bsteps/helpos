@@ -140,7 +140,7 @@ export interface AiBudget {
 }
 
 /**
- * The budget for every AI call: reply drafts, GitHub issue drafts and knowledge embeddings.
+ * The budget for every AI call: reply drafts and knowledge embeddings.
  * The only code that reads the budget or writes ai_usage (a Biome plugin keeps it so).
  */
 export function aiBudget(deps: AiBudgetDeps): AiBudget {

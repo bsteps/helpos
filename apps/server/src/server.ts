@@ -16,7 +16,6 @@ import type { Env } from "./env.ts";
 import { jobs } from "./jobs.ts";
 import { withoutRequestId } from "./logger.ts";
 import { createSmtpTransport } from "./outbound-email/transport.ts";
-import { createSecretBox } from "./secrets/secret-box.ts";
 import { composeServices, type Services, type ServicesInput } from "./services.ts";
 import { startWorker } from "./worker.ts";
 
@@ -105,9 +104,6 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
           : {}),
       })
     : undefined;
-  const secretBox = env.HELPOS_ENCRYPTION_KEY
-    ? createSecretBox(env.HELPOS_ENCRYPTION_KEY)
-    : undefined;
 
   if (!env.HELPOS_INBOUND_SECRET) {
     logger.warn("HELPOS_INBOUND_SECRET is not set: inbound email is disabled");
@@ -117,7 +113,6 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
       "HELPOS_AUTH_SECRET or HELPOS_DATABASE_AUTH_URL is not set: nobody can sign in to the dashboard",
     );
   }
-  if (!secretBox) logger.warn("HELPOS_ENCRYPTION_KEY is not set: no GitHub repo can be connected");
 
   const server = composeServer({
     db,
@@ -136,8 +131,6 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
     embeddingModel: env.embedding ? createEmbeddingModel(env.embedding) : undefined,
     transport,
     auth,
-    secretBox,
-    githubApiUrl: env.HELPOS_GITHUB_API_URL,
   });
   return {
     ...server,

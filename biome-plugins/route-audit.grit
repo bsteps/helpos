@@ -8,6 +8,6 @@ or {
   `recordAudit($tx, $event)`,
   `auditorFor($...)`
 } as $call where {
-  $filename <: r".*apps.server.src..*.(?:routes?|[a-z-]+-routes|webhook)\.ts",
+  $filename <: r".*apps.server.src..*.(?:routes?|[a-z-]+-routes)\.ts",
   register_diagnostic(span=$call, message="Record audit events in a route with `const audit = auditor(c)` and `audit(tx, action, target)` from ../http/route-kit.ts, not recordAudit() or auditorFor() with tenantId, actor and requestId by hand.", severity="error")
 }

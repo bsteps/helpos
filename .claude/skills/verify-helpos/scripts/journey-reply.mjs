@@ -110,7 +110,7 @@ record("conversation exists with the email's subject", {
 
 const draft = await until("the AI draft", 120, async () => {
   const { body } = await api(`/v1/conversations/${delivered.conversationId}/drafts`);
-  const found = body.drafts?.find((d) => d.status === "pending" && d.kind === "reply");
+  const found = body.drafts?.find((d) => d.status === "pending");
   if (found) return found;
   // Say at once when no draft can come (the AI budget is spent), instead of timing out.
   const why = await whyNoDraft(inst, delivered.conversationId, reader);

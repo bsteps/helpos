@@ -289,13 +289,8 @@ describe("durable idempotency through the public API middleware", () => {
     const beforeTokens = await db.withTenant(a.tenantId, (tx) =>
       tx.select().from(schema.apiTokens),
     );
-    const beforeIntegrations = await db.withTenant(a.tenantId, (tx) =>
-      tx.select().from(schema.integrations),
-    );
     for (const [method, path] of [
       ["POST", "/v1/tokens"],
-      ["PUT", "/v1/integrations/github"],
-      ["POST", "/v1/integrations/github/webhook-secret"],
       ["POST", "/v1/auth/sign-in"],
       ["POST", "/v1/auth/password"],
     ]) {
@@ -306,8 +301,6 @@ describe("durable idempotency through the public API middleware", () => {
         {
           name: "must-not-mint",
           scopes: ["conversations:read"],
-          repo: "probe/repo",
-          token: "must-not-store",
           email: "owner@example.test",
           password: "must-not-store",
         },
@@ -319,9 +312,6 @@ describe("durable idempotency through the public API middleware", () => {
     expect(await rows()).toEqual(before);
     expect(await db.withTenant(a.tenantId, (tx) => tx.select().from(schema.apiTokens))).toEqual(
       beforeTokens,
-    );
-    expect(await db.withTenant(a.tenantId, (tx) => tx.select().from(schema.integrations))).toEqual(
-      beforeIntegrations,
     );
   });
 

@@ -8,8 +8,6 @@ export const builtInActors = {
   draftWorker: { type: "system", id: "draft-reply" },
   sendWorker: { type: "system", id: "send-reply" },
   noticeWorker: { type: "system", id: "draft-notice" },
-  githubWebhook: { type: "system", id: "github-webhook" },
-  githubRecheck: { type: "system", id: "github-recheck" },
   ingestWorker: { type: "system", id: "ingest-source" },
   tokenCli: { type: "system", id: "cli" },
   operatorCli: { type: "system", id: "operator-cli" },

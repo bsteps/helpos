@@ -1,6 +1,6 @@
 import { schema } from "@helpos/db";
 import { describe, expect, it } from "vitest";
-import { draftTransitions, openStatuses } from "./lifecycle.ts";
+import { draftTransitions } from "./lifecycle.ts";
 
 /** Every status change the table allows, as "from → to (operation)". */
 function edges(): string[] {
@@ -29,10 +29,6 @@ describe("draft lifecycle", () => {
         "send_failed → approved (retry)",
       ].sort(),
     );
-  });
-
-  it("counts a draft as open until it is sent or discarded", () => {
-    expect(openStatuses).toEqual(["pending", "approved", "send_failed", "send_uncertain"]);
   });
 
   it("reaches every status from a new pending draft", () => {

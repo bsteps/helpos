@@ -1,4 +1,12 @@
-import { generateText, type LanguageModel, stepCountIs, type ToolSet } from "ai";
+import {
+  APICallError,
+  generateText,
+  type LanguageModel,
+  NoObjectGeneratedError,
+  RetryError,
+  stepCountIs,
+  type ToolSet,
+} from "ai";
 import { tokenBound } from "./estimate.ts";
 import { type PaidModel, paidModelOptions } from "./paid-model.ts";
 
@@ -314,4 +322,24 @@ export async function draftReply(
       outputTokens: result.totalUsage.outputTokens ?? 0,
     },
   };
+}
+
+/**
+ * What a failed draft cost, as far as can be told:
+ * - the usage the model reported, when it answered but its answer wasn't usable (still billed);
+ * - "none" when the provider answered with an error status, which isn't billed;
+ * - "unknown" otherwise (a dropped connection, a timeout): keep the reservation counted.
+ */
+export function failedDraftCost(error: unknown): DraftUsage | "none" | "unknown" {
+  if (NoObjectGeneratedError.isInstance(error)) {
+    return error.usage
+      ? { inputTokens: error.usage.inputTokens ?? 0, outputTokens: error.usage.outputTokens ?? 0 }
+      : "unknown";
+  }
+  const refused = (e: unknown) => APICallError.isInstance(e) && e.statusCode !== undefined;
+  if (refused(error)) return "none";
+  if (RetryError.isInstance(error) && error.errors.length > 0 && error.errors.every(refused)) {
+    return "none";
+  }
+  return "unknown";
 }

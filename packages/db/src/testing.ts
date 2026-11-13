@@ -13,13 +13,11 @@ import {
   apiTokens,
   attachments,
   auditEvents,
-  conversationGithubIssues,
   conversations,
   customers,
   draftCitations,
   drafts,
   httpIdempotency,
-  integrations,
   knowledgeChunks,
   knowledgeEmbeddingDimensions,
   knowledgeSources,
@@ -269,8 +267,6 @@ export interface LeakTenant {
     chunk: string;
     citation: string;
     token: string;
-    integration: string;
-    githubIssue: string;
     auditEvent: string;
   };
 }
@@ -310,13 +306,10 @@ export async function seedLeakTenant(
       chunk: uuidv7(),
       citation: uuidv7(),
       token: uuidv7(),
-      integration: uuidv7(),
-      githubIssue: uuidv7(),
       auditEvent: uuidv7(),
     },
   };
   const { ids } = seeded;
-  const repo = `${tag}-corp/app`;
   await db.withTenant(tenantId, async (tx) => {
     await tx
       .insert(tenants)
@@ -421,23 +414,6 @@ export async function seedLeakTenant(
       fingerprint: `${tag}-fingerprint`,
       expiresAt: new Date("2099-01-01T00:00:00Z"),
     });
-    await tx.insert(integrations).values({
-      id: ids.integration,
-      tenantId,
-      provider: "github",
-      repo,
-      tokenCiphertext: `v1.${tag}-sealed-token`,
-      webhookSecretCiphertext: `v1.${tag}-sealed-secret`,
-    });
-    await tx.insert(conversationGithubIssues).values({
-      id: ids.githubIssue,
-      tenantId,
-      conversationId: ids.conversation,
-      repo,
-      issueNumber: 7,
-      issueUrl: `https://github.com/${repo}/issues/7`,
-      state: "open",
-    });
     await tx.insert(auditEvents).values({
       id: ids.auditEvent,
       tenantId,
@@ -509,17 +485,5 @@ export async function expireTestSendJob(jobsUrl: string, draftId: string): Promi
   } finally {
     await boss.stop();
     await db.end();
-  }
-}
-
-export async function jobsForLink(jobsUrl: string, tenantId: string, linkId: string) {
-  const sql = postgres(jobsUrl, { max: 1, onnotice: () => {} });
-  try {
-    return await sql<{ id: string; state: string }[]>`
-      select id, state from pgboss.job
-      where name = 'github.recheck-issue'
-        and data->>'tenantId' = ${tenantId} and data->>'linkId' = ${linkId}`;
-  } finally {
-    await sql.end();
   }
 }

@@ -33,7 +33,6 @@ import {
   type DraftView,
   draftDescription,
   draftTitle,
-  liveFixNotice,
   type Meanwhile,
   newDraftError,
 } from "./draft-view.ts";
@@ -225,11 +224,6 @@ function Composer({
   );
 }
 
-export function FixNotice({ conversationId, drafts }: { conversationId: string; drafts: Draft[] }) {
-  const draft = liveFixNotice(drafts);
-  return draft ? <DraftCard key={draft.id} conversationId={conversationId} draft={draft} /> : null;
-}
-
 function DraftCard({ conversationId, draft }: { conversationId: string; draft: Draft }) {
   const edit = useEditDraft(conversationId);
   const approve = useApproveDraft(conversationId);
@@ -249,7 +243,6 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
     approve.isPending ||
     retry.isPending ||
     discard.isPending;
-  const fixed = draft.kind === "fixed";
 
   const discardButton = (variant: "outline" | "ghost") => (
     <Button variant={variant} disabled={busy} onClick={() => discard.mutate(draft.id)}>
@@ -321,7 +314,7 @@ function DraftCard({ conversationId, draft }: { conversationId: string; draft: D
 
         {editing ? (
           <Textarea
-            label={fixed ? "Fix notice" : "Reply"}
+            label="Reply"
             value={body}
             onChange={setBody}
             disabled={edit.isPending}

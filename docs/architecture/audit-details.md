@@ -9,17 +9,16 @@ them. The existing tenant policy still applies to the new JSONB column.
 
 Draft events store lowercase SHA-256 hashes of the exact UTF-8 body, without
 normalization. An edit records `oldBodyHash` and `newBodyHash`. Approval records
-`reviewedBodyHash`. Creation records `bodyHash`, the answered `messageId`, and the
-draft `kind`. These hashes allow comparison with a known body without copying
-customer text into another table. They are not anonymization or proof that a
-low-entropy body cannot be guessed. PII masking and retention remain #52 and #78.
+`reviewedBodyHash`. Creation records `bodyHash` and the answered `messageId`. These
+hashes allow comparison with a known body without copying customer text into another
+table. They are not anonymization or proof that a low-entropy body cannot be guessed.
+PII masking and retention remain #52 and #78.
 
 ## Discard reasons
 
 - `manual` records the requested operation: `discard`, `regenerate`, or `replace` when
   a person or agent writes a new draft for the same message.
 - `superseded` records the newer incoming `newerMessageId`.
-- `issue_reopened` records automatic withdrawal of a pending fixed notice.
 
 A replacement on the same message must not claim that a newer message arrived.
 Nested events retain the supplied actor, tenant and request ID.

@@ -120,9 +120,9 @@ describe("demo draft lifecycle invariants", () => {
   );
 });
 
-it("keeps all 35 demo audit rows compatible without inventing unknown historical inputs", () => {
+it("keeps all 34 demo audit rows compatible without inventing unknown historical inputs", () => {
   const events = buildDemoData().tenants.flatMap((tenant) => tenant.audit);
-  expect(events).toHaveLength(35);
+  expect(events).toHaveLength(34);
   expect(events.filter((event) => event.details == null).map((event) => event.action)).toEqual([
     "draft.discarded",
     "draft.created",
@@ -138,7 +138,7 @@ it("keeps all 35 demo audit rows compatible without inventing unknown historical
     const history = tenant.audit.filter((event) => event.targetId === draft.id);
     const edited = history.some((event) => event.action === "draft.edited");
     expect(history[0]?.details).toEqual(
-      edited ? null : { bodyHash: hashBody(draft.body), messageId: draft.messageId, kind: "reply" },
+      edited ? null : { bodyHash: hashBody(draft.body), messageId: draft.messageId },
     );
     for (const event of history.filter((event) => event.action === "draft.approved")) {
       expect(event.details).toEqual({ reviewedBodyHash: hashBody(draft.body) });
