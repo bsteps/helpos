@@ -15,7 +15,7 @@ Each file records **one decision**: the context, what we chose, what we rejected
 | [0009](0009-tenant-isolation-extended.md)        | Tenant isolation for auth, jobs, realtime and vectors           | Accepted                                                                 |
 | [0010](0010-config-in-git.md)                    | Config, knowledge and policies in git                           | Accepted (kinds, UI edits, policy wording and timing superseded by 0013) |
 | [0011](0011-the-gate.md)                         | The gate: one check for every agent, trust earned from outcomes | Accepted                                                                 |
-| [0012](0012-no-help-center.md)                   | No help center: public content is knowledge articles            | Accepted                                                                 |
+| [0012](0012-headless-help-center.md)             | A headless help center                                          | Accepted                                                                 |
 | [0013](0013-rules-knowledge-settings-in-git.md)  | Rules, knowledge and settings in git                            | Accepted                                                                 |
 
 For how the decisions fit together, see [the architecture overview](../architecture/overview.md).
