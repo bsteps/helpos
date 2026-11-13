@@ -5,6 +5,16 @@
 ALTER TABLE "drafts" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "draft_citations" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "api_tokens" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM "drafts"
+    WHERE "kind" = 'fixed' AND "status" IN ('approved', 'send_uncertain', 'send_failed')
+  ) THEN
+    RAISE EXCEPTION 'Resolve approved, send_uncertain and send_failed tracker notices before upgrading';
+  END IF;
+END
+$$;--> statement-breakpoint
 DELETE FROM "draft_citations" WHERE "draft_id" IN (SELECT "id" FROM "drafts" WHERE "kind" = 'fixed');--> statement-breakpoint
 DELETE FROM "drafts" WHERE "kind" = 'fixed';--> statement-breakpoint
 UPDATE "api_tokens" SET

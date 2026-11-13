@@ -25,7 +25,7 @@ import {
 } from "@helpos/db";
 import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
-import { type AiBudget, aiBudget, mapAiRefusal, type Spent } from "../ai-budget/budget.ts";
+import { type AiBudget, aiBudget, mapAiRefusal } from "../ai-budget/budget.ts";
 import { inHistory } from "../conversations/history.ts";
 import { pauseAi } from "../conversations/lifecycle.ts";
 import {
@@ -200,15 +200,9 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           outputTokens: result?.usage.outputTokens ?? 0,
         }),
         ofFailure: (error) => {
-          const model = failedDraftCost(error);
-          if (model === "unknown" && callBound === undefined) return "unknown";
-          const used: Spent =
-            model === "unknown"
-              ? { inputTokens: callBound ?? 0, outputTokens: 0 }
-              : model === "none"
-                ? { inputTokens: 0, outputTokens: 0 }
-                : model;
-          return { ...used, inputTokens: used.inputTokens + searchTokens };
+          const callTokens = failedDraftCost(error) === "none" ? 0 : callBound;
+          if (callTokens === undefined) return "unknown";
+          return { inputTokens: searchTokens + callTokens, outputTokens: 0 };
         },
       },
     );

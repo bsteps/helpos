@@ -2,7 +2,6 @@ import {
   APICallError,
   generateText,
   type LanguageModel,
-  NoObjectGeneratedError,
   RetryError,
   stepCountIs,
   type ToolSet,
@@ -335,17 +334,10 @@ export async function draftReply(
 }
 
 /**
- * What a failed draft cost, as far as can be told:
- * - the usage the model reported, when it answered but its answer wasn't usable (still billed);
- * - "none" when the provider answered with an error status, which isn't billed;
- * - "unknown" otherwise (a dropped connection, a timeout): keep the reservation counted.
+ * A provider error status isn't billed. A dropped connection or timeout has an unknown cost,
+ * so its reservation stays counted.
  */
-export function failedDraftCost(error: unknown): DraftUsage | "none" | "unknown" {
-  if (NoObjectGeneratedError.isInstance(error)) {
-    return error.usage
-      ? { inputTokens: error.usage.inputTokens ?? 0, outputTokens: error.usage.outputTokens ?? 0 }
-      : "unknown";
-  }
+export function failedDraftCost(error: unknown): "none" | "unknown" {
   const refused = (e: unknown) => APICallError.isInstance(e) && e.statusCode !== undefined;
   if (refused(error)) return "none";
   if (RetryError.isInstance(error) && error.errors.length > 0 && error.errors.every(refused)) {

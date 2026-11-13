@@ -1,4 +1,4 @@
-import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -460,22 +460,6 @@ describe("failedDraftCost", () => {
       requestBodyValues: {},
       ...(statusCode === undefined ? {} : { statusCode }),
     });
-
-  type NoObjectArgs = ConstructorParameters<typeof NoObjectGeneratedError>[0];
-  const unusableAnswer = (usage: NoObjectArgs["usage"]) =>
-    new NoObjectGeneratedError({
-      response: { id: "r", timestamp: new Date(0), modelId: "m" } as NoObjectArgs["response"],
-      usage,
-      finishReason: "stop",
-    });
-
-  it("counts the usage of an answer that wasn't usable: it was still billed", () => {
-    const usage = { inputTokens: 900, outputTokens: 50 } as NoObjectArgs["usage"];
-    expect(failedDraftCost(unusableAnswer(usage))).toEqual({
-      inputTokens: 900,
-      outputTokens: 50,
-    });
-  });
 
   it("calls a refusal with an error status free, but an unknown failure unknown", () => {
     expect(failedDraftCost(apiError(529))).toBe("none");

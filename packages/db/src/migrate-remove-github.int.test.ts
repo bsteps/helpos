@@ -89,6 +89,35 @@ afterAll(async () => {
   if (predecessor) await rm(predecessor, { recursive: true, force: true });
 });
 
+it.each(["approved", "send_uncertain", "send_failed"])(
+  "refuses retirement of %s notices until delivery is resolved",
+  async (status) => {
+    await owner.begin(async (tx) => {
+      await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+      await tx`update drafts set status = ${status} where id = ${ids.pendingFixed}`;
+    });
+
+    await expect(runMigrations(ownerUrl)).rejects.toThrow(/Resolve .* notices before upgrading/);
+
+    await owner.begin(async (tx) => {
+      await tx`select set_config('app.tenant_id', ${tenantId}, true)`;
+      const drafts = await tx`select id, status, kind from drafts where id = ${ids.pendingFixed}`;
+      expect(drafts).toEqual([{ id: ids.pendingFixed, status, kind: "fixed" }]);
+      const citations = await tx`select id from draft_citations order by id`;
+      expect(citations).toHaveLength(2);
+      const [token] =
+        await tx`select scopes, revoked_at from api_tokens where id = ${ids.issueOnlyToken}`;
+      expect(token).toEqual({ scopes: ["github:write"], revoked_at: null });
+      await tx`update drafts set status = 'pending' where id = ${ids.pendingFixed}`;
+    });
+
+    const forced = await owner<{ relforcerowsecurity: boolean }[]>`
+      select relforcerowsecurity from pg_class
+      where relname in ('drafts', 'draft_citations', 'api_tokens')`;
+    expect(forced.map((table) => table.relforcerowsecurity)).toEqual([true, true, true]);
+  },
+);
+
 it("drops fixed notices, their citations and the github:write scope, keeping every reply", async () => {
   await runMigrations(ownerUrl);
   const after = await owner.begin(async (tx) => {

@@ -1,6 +1,6 @@
 # HelpOS verification map
 
-The maintained source for verifying what HelpOS users can see and do. Read this index, then the matching feature file as the recipe. Together the files cover every dashboard screen and all 26 operations in `/openapi.json`. When an endpoint or screen is added, add it here.
+The maintained source for verifying what HelpOS users can see and do. Read this index, then the matching feature file as the recipe. Together the files cover the dashboard screens and user-facing API. `pnpm app:doctor` checks service health and readiness. When an endpoint or screen is added, add it here.
 
 ## Baseline preconditions
 
@@ -31,7 +31,7 @@ Each file has an H1 and one paragraph, then four H2s in order: `Sub-features`, `
 - [Sign-in and sessions](./auth.md): login, set password, sign out, who-am-I. 4 endpoints.
 - [Inbound email](./inbound-email.md): how customer email becomes a conversation. 1 endpoint.
 - [Inbox and conversations](./inbox-and-conversations.md): list, open, close. 3 endpoints.
-- [Drafts and approval](./drafts-and-approval.md): the AI draft, edit, approve and send, discard, retry, redraft. 6 endpoints. The main journey.
+- [Drafts and approval](./drafts-and-approval.md): the AI draft, edit, approve and send, resolve uncertain delivery, discard, retry, redraft. 7 endpoints. The main journey.
 - [Knowledge](./knowledge.md): sources the AI drafts from. API only. 5 endpoints.
 - [Agent tokens](./agent-tokens.md): create, list, revoke, and scope enforcement. API only. 3 endpoints.
 - [Workspace controls](./workspace-controls.md): shadow mode, draft stats, AI budget. 4 endpoints.
