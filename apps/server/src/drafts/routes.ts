@@ -64,11 +64,6 @@ const draftSchema = z
     conversationId: z.uuid(),
     /** The inbound message this draft answers. */
     messageId: z.uuid(),
-    /**
-     * `reply` answers the customer. `fixed` tells them the GitHub issue made from their conversation
-     * is closed as done; it is written when GitHub says so, and approved like any reply.
-     */
-    kind: z.enum(schema.draftKinds),
     status: z.enum(schema.draftStatuses),
     outboundMessageId: z.string().nullable(),
     body: z.string(),
@@ -212,7 +207,7 @@ const createDraftRoute = apiRoute({
     "Answers the conversation's latest customer message. With `body`, saves that text as a " +
     "`pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it " +
     "appears in the list when ready. Either way, older pending replies on the conversation are " +
-    "discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is " +
+    "discarded. Nothing is sent until the draft is " +
     "approved. Needs `drafts:write` and `conversations:read`.",
   request: {
     params: idParams,
@@ -260,7 +255,6 @@ function serialize(
     id: d.id,
     conversationId: d.conversationId,
     messageId: d.messageId,
-    kind: d.kind,
     status: d.status,
     outboundMessageId: d.outboundMessageIdHeader,
     body: d.body,
@@ -402,7 +396,7 @@ function registerCreateRoute(app: OpenAPIHono, deps: DraftRoutesDeps): void {
       if (!lock) return "not_found" as const;
       const messageId = lock.answering;
       if (!messageId) return "nothing_to_answer" as const;
-      const live = await liveDraftFor(tx, messageId, "reply");
+      const live = await liveDraftFor(tx, messageId);
       if (live && !isPendingDraft(live)) return "already_answered" as const;
 
       const draft = await createReply(tx, context, {

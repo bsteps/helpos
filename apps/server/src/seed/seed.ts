@@ -78,12 +78,6 @@ export async function seedDemoData(deps: {
           requests: schema.knowledgeSources.ingestRequests,
         });
       await tx.insert(schema.draftCitations).values(t.citations).onConflictDoNothing();
-      if (t.githubIssues.length > 0) {
-        await tx
-          .insert(schema.conversationGithubIssues)
-          .values(t.githubIssues)
-          .onConflictDoNothing();
-      }
       for (const { id, requests } of added) {
         await queueIngest(tx, { tenantId: t.tenant.id, sourceId: id, requests }, { kind: "reuse" });
       }

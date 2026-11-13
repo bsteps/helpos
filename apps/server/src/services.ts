@@ -5,10 +5,8 @@ import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
 import { defaultDailyTokenBudget } from "./ai-budget/budget.ts";
 import { defaultPublicUrl } from "./defaults.ts";
-import { type GithubApiFactory, octokitGithub } from "./github/github-api.ts";
 import type { Fetcher } from "./knowledge/page-fetch.ts";
 import type { EmailTransport } from "./outbound-email/transport.ts";
-import type { SecretBox } from "./secrets/secret-box.ts";
 
 /** Where "now" comes from. Tests pass a fixed one; everything else uses the system clock. */
 export interface Clock {
@@ -31,10 +29,6 @@ export interface ServerConfig {
   dailyTokenBudget: number;
   /** How long a new draft waits before its owner notice is sent. */
   noticeDelaySeconds: number;
-  /** How long between GitHub issue state checks while GitHub can't be reached. */
-  issueRecheckSeconds: number;
-  /** How long a webhook secret read from the database is trusted (see webhook-secrets). */
-  webhookSecretCacheMs: number;
   /** Waits before each new try of a knowledge page that failed on a temporary error. */
   fetchRetryDelaysMs: readonly number[];
   /**
@@ -52,9 +46,6 @@ export const defaultConfig: ServerConfig = {
   dailyTokenBudget: defaultDailyTokenBudget,
   // A draft approved within 5 minutes never causes an email.
   noticeDelaySeconds: 300,
-  issueRecheckSeconds: 120,
-  // Short: it bounds how long another process accepts a rotated or removed secret.
-  webhookSecretCacheMs: 15_000,
   fetchRetryDelaysMs: [1_000, 3_000],
   jobRetry: undefined,
 };
@@ -78,7 +69,7 @@ export interface Services {
   logger: Pick<Logger, "error" | "warn" | "info">;
   clock: Clock;
   config: ServerConfig;
-  /** Drafts replies (worker) and GitHub issues (API). */
+  /** Drafts replies (worker). */
   model: LanguageModel | undefined;
   /** Embeds knowledge (worker). Without it, drafts use no knowledge. */
   embeddingModel: EmbeddingModel | undefined;
@@ -86,9 +77,6 @@ export interface Services {
   transport: EmailTransport | undefined;
   /** Sign-in and password links (API), owner emails for notices (worker). */
   auth: Pick<AuthStore, "sessions" | "setPassword" | "emailsOf"> | undefined;
-  /** From HELPOS_ENCRYPTION_KEY. Without it, no GitHub repo can be connected. */
-  secretBox: SecretBox | undefined;
-  github: GithubApiFactory;
   /** Fetches knowledge URLs. The SSRF-safe fetch; tests point it at a local server. */
   fetch: Fetcher;
   /**
@@ -101,11 +89,9 @@ export interface Services {
 export type ServicesInput = Pick<Services, "db" | "files" | "logger"> &
   Partial<Omit<Services, "db" | "files" | "logger" | "config">> & {
     config?: Partial<ServerConfig>;
-    /** HELPOS_GITHUB_API_URL, for the default GitHub client. */
-    githubApiUrl?: string;
   };
 
-/** Fills in the defaults: the system clock, the default settings, the real GitHub and fetch. */
+/** Fills in the defaults: the system clock, the default settings and the real fetch. */
 export function composeServices(input: ServicesInput): Services {
   return {
     db: input.db,
@@ -119,9 +105,6 @@ export function composeServices(input: ServicesInput): Services {
     embeddingModel: input.embeddingModel,
     transport: input.transport,
     auth: input.auth,
-    secretBox: input.secretBox,
-    github:
-      input.github ?? octokitGithub({ baseUrl: input.githubApiUrl ?? "https://api.github.com" }),
     fetch: input.fetch ?? safeFetch,
     shutdown: input.shutdown ?? new AbortController().signal,
   };

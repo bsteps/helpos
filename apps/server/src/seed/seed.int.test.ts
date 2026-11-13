@@ -107,7 +107,7 @@ describe("seedDemoData", () => {
       count += stored.length;
       unknown += stored.filter((event) => event.details === null).length;
     }
-    expect(count).toBe(35);
+    expect(count).toBe(34);
     expect(unknown).toBe(4);
   });
 

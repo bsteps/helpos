@@ -25,7 +25,7 @@ import {
 } from "@helpos/db";
 import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
-import { type AiBudget, aiBudget, mapAiRefusal, type Spent } from "../ai-budget/budget.ts";
+import { type AiBudget, aiBudget, mapAiRefusal } from "../ai-budget/budget.ts";
 import { inHistory } from "../conversations/history.ts";
 import { pauseAi } from "../conversations/lifecycle.ts";
 import {
@@ -137,7 +137,7 @@ export async function handleDraftGaveUp(payload: Payload, tx: TenantTx): Promise
   const lock = await lockConversationForDrafting(tx, row.conversationId);
   // The customer wrote again: that message's own job drafts for it.
   if (lock?.answering !== payload.messageId) return;
-  if (await liveDraftFor(tx, payload.messageId, "reply")) return;
+  if (await liveDraftFor(tx, payload.messageId)) return;
   await pauseAi(
     tx,
     { tenantId: payload.tenantId, actor: draftWorkerActor, requestId: null },
@@ -176,7 +176,7 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
         const found = await transaction(async (tx) => {
           // Another job for this message (a retry overlapping a slow attempt) may have drafted
           // it meanwhile. Looked at again before paying the model.
-          return { knowledge, drafted: await liveDraftFor(tx, payload.messageId, "reply") };
+          return { knowledge, drafted: await liveDraftFor(tx, payload.messageId) };
         });
         // The model sees at most this many, and citations are matched to them by position.
         const hits = found.knowledge.hits.slice(0, maxKnowledgeArticles);
@@ -200,15 +200,9 @@ export function handleDraftReply(deps: DraftWorkerDeps) {
           outputTokens: result?.usage.outputTokens ?? 0,
         }),
         ofFailure: (error) => {
-          const model = failedDraftCost(error);
-          if (model === "unknown" && callBound === undefined) return "unknown";
-          const used: Spent =
-            model === "unknown"
-              ? { inputTokens: callBound ?? 0, outputTokens: 0 }
-              : model === "none"
-                ? { inputTokens: 0, outputTokens: 0 }
-                : model;
-          return { ...used, inputTokens: used.inputTokens + searchTokens };
+          const callTokens = failedDraftCost(error) === "none" ? 0 : callBound;
+          if (callTokens === undefined) return "unknown";
+          return { inputTokens: searchTokens + callTokens, outputTokens: 0 };
         },
       },
     );
@@ -266,7 +260,7 @@ async function prepare(deps: DraftWorkerDeps, budget: AiBudget, payload: Payload
   // customer who writes again reopens it, and their message gets a job of its own.
   if (lock.closed) return null;
   // A retry after the draft was saved, or already answered.
-  if (await liveDraftFor(tx, payload.messageId, "reply")) return null;
+  if (await liveDraftFor(tx, payload.messageId)) return null;
 
   // The conversation before this message, so a follow-up is answered in context. Machine
   // mail on the conversation is left out: it's noise, and never something to answer.
@@ -367,7 +361,7 @@ async function save(
   if (lock?.answering !== payload.messageId) return;
   // Closed while the model wrote: a draft (and its notice) would be noise.
   if (lock.closed) return;
-  if (await liveDraftFor(tx, payload.messageId, "reply")) return;
+  if (await liveDraftFor(tx, payload.messageId)) return;
 
   // This is the latest message, so createReply discards pending replies to earlier ones.
   const saved = await createReply(

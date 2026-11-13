@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-import { mockModel } from "@helpos/ai/testing";
 import {
   type AuthStore,
   createAuthStore,
@@ -22,10 +20,8 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.ts";
 import { type Principal, scopes } from "./auth/principal.ts";
-import { octokitGithub } from "./github/github-api.ts";
 import { ensureJobQueues } from "./jobs.ts";
 import { openApiDocument } from "./openapi.ts";
-import { createSecretBox } from "./secrets/secret-box.ts";
 import { composeServices, defaultConfig } from "./services.ts";
 
 const bTag = "leak-b";
@@ -47,12 +43,6 @@ const sampleBodies: Record<string, unknown> = {
   "POST /v1/knowledge/sources": { kind: "markdown", title: "Probe", content: "A probe note." },
   "PATCH /v1/knowledge/sources/{id}": { title: "A new title" },
   "PATCH /v1/workspace/shadow-mode": { recipient: "probe@leak-a.test" },
-  "PUT /v1/integrations/github": {
-    repo: "leak-a-corp/app",
-    token: `github_pat_${"A".repeat(30)}`,
-  },
-  "POST /v1/conversations/{id}/github-issue": { title: "A title", body: "A body." },
-  "POST /v1/integrations/github/webhook": { action: "closed" },
 };
 
 interface Operation {
@@ -101,17 +91,6 @@ const readsWithIds = withIds.filter((op) => op.method === "GET");
 
 const files = createMemoryFileStore();
 const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
-const githubCalls: string[] = [];
-const github = octokitGithub({
-  baseUrl: "https://github.invalid",
-  fetch: async (input, init) => {
-    githubCalls.push(new Request(input, init).url);
-    return new Response(JSON.stringify({ message: "Bad credentials" }), {
-      status: 401,
-      headers: { "content-type": "application/json" },
-    });
-  },
-});
 
 type Caller = "user" | "agent";
 const callers: Caller[] = ["user", "agent"];
@@ -168,9 +147,6 @@ beforeAll(async () => {
       db,
       files,
       logger,
-      secretBox: createSecretBox(randomBytes(32)),
-      model: mockModel({ text: "{}" }),
-      github,
       clock: { now: () => new Date(`${leakFixtureDay}T12:00:00Z`) },
     }),
     {
@@ -263,17 +239,6 @@ function expectedReplies(caller: Caller): Record<string, ExpectedReply> {
       status: 200,
       body: { enabled: true, recipient: "probe@leak-a.test" },
     }),
-    "GET /v1/integrations/github": {
-      status: 200,
-      body: { connected: true, repo: `${a.tag}-corp/app` },
-    },
-    "PUT /v1/integrations/github": human({ status: 422, body: { error: "token_rejected" } }),
-    "DELETE /v1/integrations/github": human({ status: 204 }),
-    "POST /v1/integrations/github/webhook-secret": human({
-      status: 404,
-      body: { error: "not_connected" },
-    }),
-    "POST /v1/integrations/github/webhook": { status: 401, body: { error: "unauthorized" } },
   };
 }
 
@@ -318,7 +283,6 @@ describe("leak: every API operation, called as tenant A", () => {
           : `${op.method} ${op.path} shows nothing of B and changes nothing of B`,
     })),
   )("$name", async (op) => {
-    githubCalls.length = 0;
     for (const caller of callers) {
       const who = `${op.method} ${op.path} as ${caller}`;
       if (op.pathParams.length === 0) {
@@ -358,10 +322,6 @@ describe("leak: every API operation, called as tenant A", () => {
         );
       }
     }
-    expect(
-      githubCalls.filter((url) => !url.startsWith("https://github.invalid/repos/leak-a-corp/")),
-      `${op.method} ${op.path} asked GitHub about a repo that isn't A's`,
-    ).toEqual([]);
     expect(
       await tenantSnapshot(testDb.ownerUrl, b.tenantId),
       `${op.method} ${op.path} changed B's data`,

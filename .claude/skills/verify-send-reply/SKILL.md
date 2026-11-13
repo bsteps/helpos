@@ -52,7 +52,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `fd92a5a7f745`.
+Last confirmed at commit `a52921fa6e35`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ Last confirmed at commit `fd92a5a7f745`.
 | apps/server/src/drafts/lifecycle.ts | resolveUncertainSend | PersonResolvesSent, PersonResolvesResend | `b4dbff48c01d` |
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `97968274f48d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `1ab4b0b08c2b` |
-| apps/server/src/jobs.ts | jobs | send-reply worker registration | `f36a5585f881` |
+| apps/server/src/jobs.ts | jobs | send-reply worker registration | `7be5a99e506d` |
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
@@ -96,7 +96,7 @@ Last confirmed at commit `fd92a5a7f745`.
 
 **Assumed.** A Postgres transaction commits whole or not at all, and a dead worker's transaction rolls back. `select ... for update` and a conditional update both wait for the row lock. SMTP accepting the message means the customer has it: the check doesn't count on mail systems dropping duplicates by Message-ID. pg-boss works as version 12.38.1 does: a re-claim adds 1 to `retry_count`, a settle from an outdated attempt is ignored, and an expired job is retried or failed without calling `onGiveUp`. Retry delays and timeouts are left out, because only the order of steps matters to these promises.
 
-**Left out.** Shadow mode and `planDelivery`, the raw file write, edits, notices and "fixed" notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
+**Left out.** Shadow mode and `planDelivery`, the raw file write, edits, owner notices, more than one draft per conversation, API access checks, tenant isolation, and eventual delivery. `NoSilentStall` is a safety stand-in for "it eventually goes out or a person is told".
 
 Stored payloads are assumed valid in this model. Malformed payloads fail before tenant handlers or give-up callbacks run. The runner reports a fixed error with queue and job ID on the last attempt. The real malformed-job regressions in `packages/db/src/jobs.int.test.ts` and `apps/server/src/invalid-job.int.test.ts` cover that separate behavior. The valid-payload model does not prove it.
 

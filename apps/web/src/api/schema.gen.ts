@@ -255,7 +255,7 @@ export interface paths {
         put?: never;
         /**
          * Write a draft, or ask the AI for a new one
-         * @description Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded (a pending `fixed` notice is kept). Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.
+         * @description Answers the conversation's latest customer message. With `body`, saves that text as a `pending` draft (201). With `regenerate: true`, queues a fresh AI draft (202): it appears in the list when ready. Either way, older pending replies on the conversation are discarded. Nothing is sent until the draft is approved. Needs `drafts:write` and `conversations:read`.
          */
         post: operations["drafts.create"];
         delete?: never;
@@ -373,7 +373,7 @@ export interface paths {
         };
         /**
          * Today's AI usage for this workspace
-         * @description Tokens the workspace's AI calls (reply and issue drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.
+         * @description Tokens the workspace's AI calls (reply drafts, knowledge embeddings) used today (UTC), against its hard daily budget. Calls still in flight aren't counted yet. At or over the budget, no model call is made and new conversations are marked `ai_paused_reason: daily_budget` until UTC midnight. Needs `conversations:read`.
          */
         get: operations["ai.getUsage"];
         put?: never;
@@ -496,121 +496,13 @@ export interface paths {
         patch: operations["workspaces.updateShadowMode"];
         trace?: never;
     };
-    "/v1/integrations/github": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read the workspace's GitHub connection
-         * @description Which repo is connected, and the webhook address to give GitHub. Never includes the token or the webhook secret. Needs `github:write`, or `workspace:admin`.
-         */
-        get: operations["github.getConnection"];
-        /**
-         * Connect a GitHub repo
-         * @description Stores one repo and a fine-grained personal access token (`github_pat_…`) with Issues read and write access to it; classic tokens are refused (400). Replaces any earlier connection. The token is checked with GitHub first, then stored encrypted; it is never returned. The response holds a new webhook secret, the only time it is shown; connecting the same repo again (a new token) keeps the secret unless `rotateWebhookSecret` is set, so the webhook already in GitHub keeps working. Needs `workspace:admin` in a human session.
-         */
-        put: operations["github.connect"];
-        post?: never;
-        /**
-         * Disconnect the GitHub repo
-         * @description Deletes the stored token and webhook secret. Conversations keep their issue links, and webhooks are refused from now on. Needs `workspace:admin` in a human session.
-         */
-        delete: operations["github.disconnect"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/integrations/github/webhook-secret": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Give the GitHub webhook a new secret
-         * @description Replaces the webhook secret, e.g. after it leaked, and returns the new one: this is the only time it is shown. Paste it into the repo's webhook settings right away; until then GitHub's deliveries are refused. The token is kept. Needs `workspace:admin` in a human session.
-         */
-        post: operations["github.rotateWebhookSecret"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/conversations/{id}/github-issue/draft": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask the AI to draft a GitHub issue from a conversation
-         * @description Suggests a title and body (steps to reproduce, expected, actual) from the conversation's messages. Nothing is created: edit the text, then create the issue. The customer's text is data, never instructions, so the draft has no labels, assignees, links, @mentions or issue references. Counts against the AI daily budget. Needs `conversations:read` and `github:write`.
-         */
-        post: operations["github.draftIssue"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/conversations/{id}/github-issue": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create a GitHub issue from a conversation
-         * @description Opens an issue with exactly this title and body in the connected repo, and links it to the conversation. Only title and body are sent: no labels, assignees or milestones. The body ends with an HTML comment GitHub doesn't show, `<!-- helpdesk-claim:<id> -->`, so that if GitHub's answer is lost (a timeout, a 5xx) the server can find exactly this issue instead of opening a duplicate. When the issue is closed as completed, the conversation gets a `fixed` draft to approve. One issue per conversation. Needs `conversations:read` and `github:write`.
-         */
-        post: operations["github.createIssue"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/integrations/github/webhook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Receive a GitHub webhook
-         * @description Called by GitHub with the connected repo's `issues` events. `?workspace=` names the workspace; `X-Hub-Signature-256` must be the HMAC of the body with that workspace's webhook secret. Conversations are matched by the event's repo and issue number, so issues made while another repo was connected still close, as long as that repo's webhook has the current secret. When an issue linked to conversations is closed as completed, each conversation gets a `fixed` draft for a human to approve. A delivery for an issue already closed changes nothing, so a replay is harmless. Other events are acknowledged and ignored.
-         */
-        post: operations["github.receiveWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
             /** @enum {string} */
-            error: "ai_busy" | "ai_not_configured" | "ai_unavailable" | "already_answered" | "already_linked" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "creation_pending" | "daily_budget_reached" | "empty_range" | "encryption_not_configured" | "forbidden" | "forbidden_origin" | "github_outcome_unknown" | "github_unavailable" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_payload" | "invalid_repo" | "invalid_token" | "issue_not_linked" | "issue_rejected" | "managed_in_git" | "missing_from" | "not_connected" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "nothing_to_report" | "range_too_long" | "reconnect_required" | "repo_not_found" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "token_rejected" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
+            error: "already_answered" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "daily_budget_reached" | "empty_range" | "forbidden" | "forbidden_origin" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_token" | "managed_in_git" | "missing_from" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "range_too_long" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
         } & {
             /** @constant */
             type: "about:blank";
@@ -637,13 +529,13 @@ export interface components {
                 id: string;
                 name: string;
             };
-            scopes: ("conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read" | "workspace:admin")[];
+            scopes: ("conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "stats:read" | "workspace:admin")[];
         };
         CreatedApiToken: components["schemas"]["ApiToken"] & {
             token: string;
         };
         /** @enum {string} */
-        TokenScope: "conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "github:write" | "stats:read";
+        TokenScope: "conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "stats:read";
         ApiToken: {
             /** Format: uuid */
             id: string;
@@ -675,13 +567,6 @@ export interface components {
         };
         ConversationDetail: components["schemas"]["Conversation"] & {
             messages: components["schemas"]["Message"][];
-            githubIssue: {
-                repo: string;
-                number: number;
-                url: string;
-                /** @enum {string} */
-                state: "open" | "closed";
-            } | null;
         };
         Message: {
             /** Format: uuid */
@@ -706,8 +591,6 @@ export interface components {
             conversationId: string;
             /** Format: uuid */
             messageId: string;
-            /** @enum {string} */
-            kind: "reply" | "fixed";
             /** @enum {string} */
             status: "pending" | "approved" | "sent" | "send_failed" | "send_uncertain" | "discarded";
             outboundMessageId: string | null;
@@ -799,7 +682,7 @@ export interface components {
         };
         KnowledgeSourceConflict: {
             /** @enum {string} */
-            error: "ai_busy" | "ai_not_configured" | "ai_unavailable" | "already_answered" | "already_linked" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "creation_pending" | "daily_budget_reached" | "empty_range" | "encryption_not_configured" | "forbidden" | "forbidden_origin" | "github_outcome_unknown" | "github_unavailable" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_payload" | "invalid_repo" | "invalid_token" | "issue_not_linked" | "issue_rejected" | "managed_in_git" | "missing_from" | "not_connected" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "nothing_to_report" | "range_too_long" | "reconnect_required" | "repo_not_found" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "token_rejected" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
+            error: "already_answered" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "daily_budget_reached" | "empty_range" | "forbidden" | "forbidden_origin" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_token" | "managed_in_git" | "missing_from" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "range_too_long" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
             /** Format: uuid */
             sourceId?: string;
         } & {
@@ -834,40 +717,6 @@ export interface components {
             enabled: boolean;
             /** Format: email */
             recipient: string | null;
-        };
-        GithubIntegration: {
-            connected: boolean;
-            repo: string | null;
-            webhookUrl: string | null;
-        };
-        GithubConnected: components["schemas"]["GithubIntegration"] & {
-            webhookSecret: string | null;
-        };
-        GithubWebhookSecret: {
-            webhookSecret: string;
-        };
-        GithubIssueDraft: {
-            title: string;
-            body: string;
-        };
-        GithubIssueLink: {
-            repo: string;
-            number: number;
-            url: string;
-            /** @enum {string} */
-            state: "open" | "closed";
-        };
-        GithubWebhookPayload: {
-            action?: string;
-            issue?: {
-                number: number;
-                state_reason?: string | null;
-                /** Format: date-time */
-                updated_at?: string;
-            };
-            repository?: {
-                full_name: string;
-            } | null;
         };
     };
     responses: never;
@@ -2686,537 +2535,6 @@ export interface operations {
                 };
             };
             /** @description Idempotency storage or a required service is unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.getConnection": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The connection */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GithubIntegration"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.connect": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    repo: string;
-                    token: string;
-                    rotateWebhookSecret?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Connected */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GithubConnected"];
-                };
-            };
-            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description GitHub refused the token (`token_rejected`), or the token can't see the repo (`repo_not_found`) */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description GitHub could not be reached (`github_unavailable`) */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.disconnect": {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Disconnected, or nothing was connected */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The idempotency key conflicts, is pending, or has expired */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Idempotency storage or a required service is unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.rotateWebhookSecret": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The new secret */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GithubWebhookSecret"];
-                };
-            };
-            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No repo is connected (`not_connected`) */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.draftIssue": {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The suggested issue */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GithubIssueDraft"];
-                };
-            };
-            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found in this workspace */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No message from the customer to work from (`nothing_to_report`), or today's AI budget is spent (`daily_budget_reached`) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The AI provider failed (`ai_unavailable`) */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description AI is not configured on this server (`ai_not_configured`), or the workspace's other AI calls in flight hold the rest of today's budget (`ai_busy`): try again in a minute */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.createIssue": {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Optional write key, isolated by tenant and caller. Reuse requires the same method, URL, content type, body bytes and scopes. Successful responses replay for 24 hours. Pending and expired keys never execute again. See docs/api-conventions.md. */
-                "Idempotency-Key"?: string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    title: string;
-                    body: string;
-                };
-            };
-        };
-        responses: {
-            /** @description The issue, now linked to the conversation */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GithubIssueLink"];
-                };
-            };
-            /** @description Invalid request, or an Idempotency-Key this route refuses or can't read */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found in this workspace */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No repo is connected (`not_connected`), the conversation already has an issue (`already_linked`), one is being opened or GitHub's answer to the last try was lost (`creation_pending`: try again in five minutes; nothing is opened twice), or the stored token can't be read with the server's key and the repo must be connected again (`reconnect_required`) */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The issue was opened on GitHub, at `url`, but couldn't be linked to the conversation (`issue_not_linked`). Don't create it again: close that one or link it by hand */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": {
-                        /** @enum {string} */
-                        error: "ai_busy" | "ai_not_configured" | "ai_unavailable" | "already_answered" | "already_linked" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "creation_pending" | "daily_budget_reached" | "empty_range" | "encryption_not_configured" | "forbidden" | "forbidden_origin" | "github_outcome_unknown" | "github_unavailable" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_payload" | "invalid_repo" | "invalid_token" | "issue_not_linked" | "issue_rejected" | "managed_in_git" | "missing_from" | "not_connected" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "nothing_to_report" | "range_too_long" | "reconnect_required" | "repo_not_found" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "token_rejected" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
-                        url: string;
-                    } & {
-                        /** @constant */
-                        type: "about:blank";
-                        title: string;
-                        status: number;
-                        instance: string;
-                    };
-                };
-            };
-            /** @description GitHub refused the token (`token_rejected`), can't see the repo (`repo_not_found`), refused the issue itself, e.g. as too long (`issue_rejected`), or could not be reached (`github_unavailable`): no issue was opened. Or GitHub didn't answer and the issue isn't found either (`github_outcome_unknown`): the conversation stays claimed, and a try after five minutes first looks for that issue again */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The server has no HELPOS_ENCRYPTION_KEY (`encryption_not_configured`), so no token can be stored or used */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "github.receiveWebhook": {
-        parameters: {
-            query: {
-                workspace: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["GithubWebhookPayload"];
-                "application/x-www-form-urlencoded": {
-                    payload: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Handled. `conversations` is how many linked conversations changed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        status: "processed" | "ignored";
-                        conversations: number;
-                    };
-                };
-            };
-            /** @description Not a GitHub event payload */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unknown workspace, no repo connected, or a missing or wrong signature */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Larger than 1048576 bytes */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Neither JSON nor GitHub's form encoding */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too many deliveries waiting to be checked (`busy`); try again */
             503: {
                 headers: {
                     [name: string]: unknown;

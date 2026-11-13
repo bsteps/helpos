@@ -6,7 +6,6 @@ export const keys = {
   openConversations: ["conversations", "open"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   drafts: (id: string) => ["conversation", id, "drafts"] as const,
-  github: ["integrations", "github"] as const,
   draftStats: ["stats", "drafts"] as const,
   shadowMode: ["workspace", "shadow-mode"] as const,
 };
@@ -184,66 +183,6 @@ export function useCloseConversation(conversationId: string) {
         queryClient.invalidateQueries({ queryKey: keys.openConversations }),
       ]);
     },
-  });
-}
-
-/** The workspace's GitHub connection: which repo, never the token. */
-export const githubQuery = queryOptions({
-  queryKey: keys.github,
-  queryFn: () => unwrap(api.GET("/v1/integrations/github")),
-  staleTime: 60_000,
-});
-
-export function useConnectGithub() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { repo: string; token: string }) =>
-      unwrap(api.PUT("/v1/integrations/github", { body })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.github }),
-  });
-}
-
-export function useDisconnectGithub() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => unwrap(api.DELETE("/v1/integrations/github")),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.github }),
-  });
-}
-
-/** A new webhook secret, e.g. after a leak. The token stays; the old secret stops working. */
-export function useRotateGithubWebhookSecret() {
-  return useMutation({
-    mutationFn: () => unwrap(api.POST("/v1/integrations/github/webhook-secret")),
-  });
-}
-
-/** Asks the AI for a title and body. Nothing is created until the issue is confirmed. */
-export function useDraftGithubIssue(conversationId: string) {
-  return useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.POST("/v1/conversations/{id}/github-issue/draft", {
-          params: { path: { id: conversationId } },
-        }),
-      ),
-  });
-}
-
-export function useCreateGithubIssue(conversationId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { title: string; body: string }) =>
-      unwrap(
-        api.POST("/v1/conversations/{id}/github-issue", {
-          params: { path: { id: conversationId } },
-          body,
-        }),
-      ),
-    // Refetched either way: a 409 means the conversation already has an issue to show. The returned
-    // promise is awaited before a caller's own onSuccess runs, so the composer closes only
-    // once the conversation shows its issue, never flashing the "Create GitHub issue" button back.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.conversation(conversationId) }),
   });
 }
 

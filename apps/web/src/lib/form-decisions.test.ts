@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 vi.stubGlobal("window", { location: { origin: "http://localhost" } });
 const { ApiError } = await import("../api/client.ts");
 const { signInProblem, setPasswordProblem } = await import("./auth.ts");
-const { shadowModeProblem, connectProblem } = await import("./settings.ts");
+const { shadowModeProblem } = await import("./settings.ts");
 afterAll(() => vi.unstubAllGlobals());
 
 describe("settings errors", () => {
@@ -19,30 +19,10 @@ describe("settings errors", () => {
     expect(shadowModeProblem(new ApiError(status, code))).toBe(message);
   });
 
-  it.each([
-    [
-      400,
-      "token_rejected",
-      "GitHub didn't accept this token. Check it hasn't expired and has Issues read and write access to the repo.",
-    ],
-    [400, "repo_not_found", "GitHub says this repo doesn't exist, or the token can't see it."],
-    [400, "github_unavailable", "Couldn't reach GitHub. Try again."],
-    [
-      400,
-      "encryption_not_configured",
-      "This server can't store tokens yet: whoever runs it needs to set HELPOS_ENCRYPTION_KEY.",
-    ],
-    [400, "unknown", "Enter the repo as owner/name, e.g. acme/app."],
-    [500, "unknown", "That didn't work. Try again."],
-  ])("maps GitHub %s / %s", (status, code, message) => {
-    expect(connectProblem(new ApiError(status, code))).toBe(message);
-  });
-
   it.each([null, undefined, new Error("network"), { status: 400, code: "shadow_mode_locked" }])(
     "uses fallbacks for non-API error %s",
     (error) => {
       expect(shadowModeProblem(error)).toBe("That didn't work. Nothing changed; try again.");
-      expect(connectProblem(error)).toBe("That didn't work. Try again.");
     },
   );
 });

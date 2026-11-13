@@ -117,14 +117,8 @@ describe("every write declares what a keyed retry does", () => {
   );
 
   it("refuses keys on the routes whose request or response carries a credential", () => {
-    for (const name of [
-      "POST /v1/tokens",
-      "PUT /v1/integrations/github",
-      "POST /v1/integrations/github/webhook-secret",
-    ]) {
-      const op = writes.find((w) => `${w.method} ${w.path}` === name);
-      expect(op?.idempotency, name).toEqual({ refuse: expect.any(String) });
-    }
+    const op = writes.find((w) => `${w.method} ${w.path}` === "POST /v1/tokens");
+    expect(op?.idempotency).toEqual({ refuse: expect.any(String) });
   });
 
   it.each(writes.filter((op) => op.idempotency !== "replay"))(
@@ -217,21 +211,11 @@ const callerExceptions: Record<string, CatalogAccess> = {
   "POST /v1/inbound/email": {
     noCaller: "The email provider proves itself with the shared inbound secret.",
   },
-  "POST /v1/integrations/github/webhook": {
-    noCaller:
-      "GitHub proves itself with an HMAC signature of the body, made with the workspace webhook secret.",
-  },
   "GET /v1/me": {
     anyCaller: "Every caller may ask who it is; the answer is its own identity and scopes.",
   },
 };
 
-const githubRead = {
-  key: "GET /v1/integrations/github",
-  access: { anyScope: ["github:write", "workspace:admin"] },
-  reason:
-    "The connection summary is available to GitHub operators and human admins; no github:read scope exists.",
-} satisfies { key: string; access: CatalogAccess; reason: string };
 const adminRead = {
   key: "GET /v1/tokens",
   access: { allScopes: ["workspace:admin"], humansOnly: true },
@@ -280,12 +264,7 @@ function checkAccess(op: CatalogOperation): string[] {
     failures.push(`${key}: unreviewed self-or-admin access`);
   }
   const required = "allScopes" in a ? a.allScopes : "anyScope" in a ? a.anyScope : [];
-  const reviewedGithubRead = key === githubRead.key && isDeepStrictEqual(a, githubRead.access);
-  if (
-    required.includes("workspace:admin") &&
-    !("humansOnly" in a && a.humansOnly) &&
-    !reviewedGithubRead
-  ) {
+  if (required.includes("workspace:admin") && !("humansOnly" in a && a.humansOnly)) {
     failures.push(`${key}: workspace:admin requires humansOnly`);
   }
   if (required.length > 0) {
@@ -294,7 +273,7 @@ function checkAccess(op: CatalogOperation): string[] {
     const consistent =
       "allScopes" in a ? required.some(matchesMethod) : required.every(matchesMethod);
     const reviewedAdminRead = key === adminRead.key && isDeepStrictEqual(a, adminRead.access);
-    if (!consistent && !reviewedGithubRead && !reviewedAdminRead) {
+    if (!consistent && !reviewedAdminRead) {
       failures.push(`${key}: method conflicts with scopes`);
     }
   }
@@ -322,7 +301,7 @@ describe("reviewed access rules across the served catalog", () => {
     for (const [key, access] of Object.entries(callerExceptions)) {
       expect(ops.find((op) => `${op.method} ${op.path}` === key)?.access, key).toEqual(access);
     }
-    for (const entry of [githubRead, adminRead, ...resourceExceptions]) {
+    for (const entry of [adminRead, ...resourceExceptions]) {
       expect(entry.reason.length).toBeGreaterThan(10);
       expect(ops.find((op) => `${op.method} ${op.path}` === entry.key)?.access, entry.key).toEqual(
         entry.access,

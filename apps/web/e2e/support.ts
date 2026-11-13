@@ -13,11 +13,6 @@ export interface E2eState {
   /** An internal note, and the phrase that makes the mock AI paste it into a draft. */
   internalNote: string;
   pasteTrigger: string;
-  /** The one repo the fake GitHub knows, and the one token it accepts. */
-  githubRepo: string;
-  githubToken: string;
-  /** The title the AI suggests for every GitHub issue. */
-  issueTitle: string;
   /** A reply whose subject has this in it fails to send until it is retried from the dashboard. */
   smtpDownMarker: string;
   /** An email whose subject has this in it gets no AI draft until the AI is asked again. */

@@ -192,27 +192,9 @@ describe("draft notice worker", () => {
     expect(await notify(first.id)).toHaveBeenCalledOnce();
   });
 
-  it("a 'fixed' draft after a reply's notice is other news, even inside the window", async () => {
+  it("a reworded reply inside the window is the same news, not a new notice", async () => {
     const reply = await pendingDraft();
     expect(await notify(reply.id)).toHaveBeenCalledOnce();
-    // The linked GitHub issue closes: a fix notice now waits too, next to the reply.
-    const [fixed] = await db.withTenant(acme, (tx) =>
-      tx
-        .insert(schema.drafts)
-        .values({
-          tenantId: acme,
-          conversationId: reply.conversationId,
-          messageId: reply.messageId,
-          kind: "fixed",
-          body: "It's fixed.",
-        })
-        .returning(),
-    );
-    if (!fixed) throw new Error("no fixed draft");
-    expect(await notify(fixed.id)).toHaveBeenCalledOnce();
-    // Told about that one now: nothing more within the window.
-    expect(await notify(fixed.id)).not.toHaveBeenCalled();
-    // The reply is reworded: a kind already announced, so the same news, not a new notice.
     const [reworded] = await db.withTenant(acme, async (tx) => {
       await tx
         .update(schema.drafts)

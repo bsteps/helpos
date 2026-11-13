@@ -81,8 +81,6 @@ Then the owner sets up their support inbox (Gmail, Outlook, Google Groups…) to
 
 Done: a customer emails `support@acme.com`, the copy lands in the demo, a draft appears in the inbox, and the owner can approve it.
 
-To show bugs turning into GitHub issues, set `HELPOS_ENCRYPTION_KEY` in `.env` (see [self-hosting](../self-hosting.md#github-conversation--issue--its-fixed)), then the owner connects their repo under **Settings → GitHub** and adds the webhook it shows. The "it's fixed" emails are shadowed like every other reply. Keep the key next to your backups: a restored database can't read the stored token without it.
-
 ## Data and privacy
 
 Owners forward **real customer emails**. Their content is stored on the VPS and in the backups, and sent to the AI provider to write drafts. Before the first owner:

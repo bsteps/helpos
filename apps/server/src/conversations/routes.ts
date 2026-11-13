@@ -1,5 +1,5 @@
 import { messageText } from "@helpos/ai/html-text";
-import { and, asc, type Database, desc, eq, ne, or, schema, sql, type TenantTx } from "@helpos/db";
+import { and, asc, type Database, desc, eq, or, schema, sql, type TenantTx } from "@helpos/db";
 import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { nothingToAudit } from "../audit/audit.ts";
 import { apiRoute } from "../auth/access.ts";
@@ -16,7 +16,7 @@ import { sanitizeEmailHtml } from "./email-html.ts";
 import { inHistory } from "./history.ts";
 import { closeConversation } from "./lifecycle.ts";
 
-const { customers, drafts, messages, conversationGithubIssues, conversations } = schema;
+const { customers, drafts, messages, conversations } = schema;
 
 const hasUnsentReply = sql<boolean>`exists (select 1 from ${drafts} where ${drafts.conversationId} = ${conversations.id} and ${or(draftWhere.sendFailed(), draftWhere.sendUncertain())})`;
 
@@ -68,18 +68,6 @@ const messageSchema = z
 const conversationDetailSchema = conversationSchema
   .extend({
     messages: z.array(messageSchema),
-    /**
-     * The GitHub issue made from this conversation (`POST /v1/conversations/{id}/github-issue`), or null.
-     * `closed` once GitHub says it was closed.
-     */
-    githubIssue: z
-      .object({
-        repo: z.string(),
-        number: z.int(),
-        url: z.string(),
-        state: z.enum(["open", "closed"]),
-      })
-      .nullable(),
   })
   .openapi("ConversationDetail");
 
@@ -211,17 +199,7 @@ export function registerConversationRoutes(app: OpenAPIHono, deps: ConversationR
         .from(messages)
         .where(and(eq(messages.conversationId, id), inHistory()))
         .orderBy(asc(messages.createdAt), asc(messages.id));
-      const [issue] = await tx
-        .select()
-        .from(conversationGithubIssues)
-        // One still being created isn't shown until GitHub has answered.
-        .where(
-          and(
-            eq(conversationGithubIssues.conversationId, id),
-            ne(conversationGithubIssues.state, "creating"),
-          ),
-        );
-      return { conversation, rows, issue };
+      return { conversation, rows };
     });
     // Another workspace's conversation looks exactly like one that doesn't exist.
     if (!result) return notFound(c);
@@ -238,15 +216,6 @@ export function registerConversationRoutes(app: OpenAPIHono, deps: ConversationR
           html: m.htmlBody ? sanitizeEmailHtml(m.htmlBody) : null,
           createdAt: m.createdAt.toISOString(),
         })),
-        githubIssue:
-          result.issue?.issueNumber && result.issue.issueUrl && result.issue.state !== "creating"
-            ? {
-                repo: result.issue.repo,
-                number: result.issue.issueNumber,
-                url: result.issue.issueUrl,
-                state: result.issue.state,
-              }
-            : null,
       },
       200,
     );

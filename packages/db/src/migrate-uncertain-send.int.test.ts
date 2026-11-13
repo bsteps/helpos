@@ -85,7 +85,10 @@ it("migrates the typed-state predecessor without changing either tenant's stored
     const after = await rows(tenantId);
     expect(after).toEqual({
       ...before[index],
-      drafts: before[index]?.drafts.map((draft) => ({ ...draft, resend_requested: false })),
+      drafts: before[index]?.drafts.map(({ kind: _kind, ...draft }) => ({
+        ...draft,
+        resend_requested: false,
+      })),
     });
     await owner.begin(async (tx) => {
       await tx`select set_config('app.tenant_id', ${tenantId}, true)`;

@@ -22,9 +22,8 @@ import {
 } from "@/components/ui/card.tsx";
 import { Loader } from "@/components/ui/loader.tsx";
 import { formatDateTime } from "@/lib/format.ts";
-import { DraftPanel, FixNotice } from "./conversation-drafts.tsx";
-import { GithubIssuePanel } from "./conversation-github.tsx";
-import { type Ask, draftView, liveFixNotice, newestReply, waitingOn } from "./draft-view.ts";
+import { DraftPanel } from "./conversation-drafts.tsx";
+import { type Ask, draftView, newestReply, waitingOn } from "./draft-view.ts";
 
 export function ConversationPage() {
   const { id } = useParams({ from: "/signed-in/conversations/$id" });
@@ -142,10 +141,6 @@ function Conversation({ id }: { id: string }) {
         ))}
       </section>
 
-      <section aria-label="GitHub issue" className="flex flex-col gap-3">
-        <GithubIssuePanel key={c.id} conversation={c} />
-      </section>
-
       <section aria-label="Draft" className="flex flex-col gap-3">
         {drafts.isPending ? null : drafts.isError ? (
           <Alert variant="destructive">
@@ -181,12 +176,6 @@ function Conversation({ id }: { id: string }) {
           />
         )}
       </section>
-
-      {drafts.data && liveFixNotice(drafts.data) ? (
-        <section aria-label="Fix notice" className="flex flex-col gap-3">
-          <FixNotice conversationId={c.id} drafts={drafts.data} />
-        </section>
-      ) : null}
     </article>
   );
 }

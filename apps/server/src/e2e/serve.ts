@@ -1,8 +1,6 @@
 // The server Playwright tests run against (`pnpm test:e2e`). Not for production: it starts a
-// throwaway Postgres and Mailpit in Docker, uses a mock AI model and a fake GitHub (behind the real
-// Octokit client), and serves the built dashboard. Everything else is the real app: the same API,
-// worker, auth, sanitiser and headers.
-import { randomBytes } from "node:crypto";
+// throwaway Postgres and Mailpit in Docker, uses a mock AI model, and serves the built dashboard.
+// Everything else is the real app: the same API, worker, auth, sanitiser and headers.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,14 +11,12 @@ import { createMemoryFileStore } from "@helpos/files";
 import { serve } from "@hono/node-server";
 import { GenericContainer } from "testcontainers";
 import { z } from "zod";
-import { octokitGithub } from "../github/github-api.ts";
 import { createLogger } from "../logger.ts";
 import {
   createSmtpTransport,
   type EmailTransport,
   SendRejected,
 } from "../outbound-email/transport.ts";
-import { createSecretBox } from "../secrets/secret-box.ts";
 import { seedDemoData } from "../seed/seed.ts";
 import { composeServer } from "../server.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
@@ -103,48 +99,6 @@ function failTries(key: string, tries: number): void {
   }
 }
 
-/** What the AI suggests for every GitHub issue in these tests. */
-const e2eIssue = {
-  title: "CSV export shows an error page",
-  summary: "Exporting a report as CSV fails with an error page.",
-  stepsToReproduce: ["Open Reports", "Click Export CSV"],
-  expected: "The CSV file downloads.",
-  actual: "An error page says 'Something went wrong'.",
-};
-/** The only token the fake GitHub accepts, for the only repo it has. */
-const githubToken = "github_pat_11E2ETOKEN00abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
-const githubRepo = "acme/app";
-
-/**
- * GitHub, faked at the network: Octokit makes its real requests and this answers them. It
- * knows one repo and one token, and opens issues numbered from 1.
- */
-let issueCount = 0;
-const fakeGithub: typeof fetch = async (input, init) => {
-  const request = new Request(input, init);
-  const path = new URL(request.url).pathname;
-  const reply = (status: number, body: object) =>
-    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  if (request.headers.get("authorization") !== `token ${githubToken}`) {
-    return reply(401, { message: "Bad credentials" });
-  }
-  if (request.method === "GET" && path === `/repos/${githubRepo}`)
-    return reply(200, { private: true });
-  if (request.method === "GET" && path === "/user") return reply(200, { login: "helpdesk-bot" });
-  // Open until the test closes it, which it does by sending the webhook.
-  if (request.method === "GET" && path.startsWith(`/repos/${githubRepo}/issues/`)) {
-    return reply(200, { state: "open", state_reason: null, updated_at: new Date().toISOString() });
-  }
-  if (request.method === "POST" && path === `/repos/${githubRepo}/issues`) {
-    issueCount++;
-    return reply(201, {
-      number: issueCount,
-      html_url: `https://github.com/${githubRepo}/issues/${issueCount}`,
-    });
-  }
-  return reply(404, { message: "Not Found" });
-};
-
 const logger = createLogger({ level: "warn" });
 const baseUrl = `http://localhost:${env.E2E_PORT}`;
 const inboundSecret = "e2e-inbound-secret-0123456789abcdef0123456789";
@@ -169,8 +123,6 @@ async function setUserPassword(email: string, password: string): Promise<void> {
     throw new Error(`e2e: setPassword refused the password for ${email}`);
   }
 }
-// A throwaway key: everything it encrypts dies with this process.
-const secretBox = createSecretBox(randomBytes(32));
 // Built like the real server: one set of services for the API and the worker.
 const helpos = composeServer({
   db,
@@ -189,9 +141,8 @@ const helpos = composeServer({
     jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
   },
   // Plays a model that obeyed the injection when an email asks for the note, so the dashboard's
-  // warning can be tested. Every other email gets `e2eDraft`, and every GitHub issue `e2eIssue`.
-  model: routedMockModel((email, system) => {
-    if (system.includes("GitHub issue")) return { text: JSON.stringify(e2eIssue) };
+  // warning can be tested. Every other email gets `e2eDraft`.
+  model: routedMockModel((email) => {
     failWhileModelDown(email);
     return {
       text: email.includes(e2ePasteTrigger) ? `Here is our note: ${e2eInternalNote}` : e2eDraft,
@@ -204,8 +155,6 @@ const helpos = composeServer({
     createSmtpTransport(`smtp://${containerHost(mailpit)}:${mailpit.getMappedPort(1025)}`),
   ),
   auth,
-  secretBox,
-  github: octokitGithub({ baseUrl: "https://api.github.test", fetch: fakeGithub }),
 });
 const runner = helpos.runner;
 await helpos.startWorker();
@@ -264,9 +213,6 @@ writeFileSync(
     draft: e2eDraft,
     internalNote: e2eInternalNote,
     pasteTrigger: e2ePasteTrigger,
-    githubRepo,
-    githubToken,
-    issueTitle: e2eIssue.title,
     smtpDownMarker: e2eSmtpDownMarker,
     modelDownMarker: e2eModelDownMarker,
     modelStillDownMarker: e2eModelStillDownMarker,

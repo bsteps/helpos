@@ -15,7 +15,7 @@ import type { AuditContext } from "../audit/audit.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
-import { createFixedNotice, createReply, discardStale, editDraft } from "./lifecycle.ts";
+import { createReply, discardStale, editDraft } from "./lifecycle.ts";
 
 let testDb: TestDatabase;
 let db: Database;
@@ -92,16 +92,13 @@ it.each([
       const first = await createReply(tx, context, input);
       const second = await createReply(tx, context, input);
       expect((await editDraft(tx, context, second.id, "Edited")).outcome).toBe("changed");
-      const fixed = await createFixedNotice(tx, context, input);
-      expect(fixed).not.toBeNull();
       expect(
         await discardStale(tx, context, {
           conversationIds: [input.conversationId],
-          kind: "reply",
           details: { reason: "manual", operation: "regenerate" },
         }),
       ).toEqual([second.id]);
-      return [first.id, second.id, fixed?.id];
+      return [first.id, second.id];
     });
     const audit = await db.withTenant(tenantId, (tx) =>
       tx
@@ -113,12 +110,11 @@ it.each([
     expect(ownEvents.map((event) => event.action).sort()).toEqual([
       "draft.created",
       "draft.created",
-      "draft.created",
       "draft.discarded",
       "draft.discarded",
       "draft.edited",
     ]);
-    expect(ownEvents).toHaveLength(6);
+    expect(ownEvents).toHaveLength(5);
     for (const event of ownEvents) {
       expect(event).toMatchObject({
         tenantId,

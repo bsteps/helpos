@@ -55,20 +55,16 @@ export function mockModel(response: MockResponse = {}): MockLanguageModelV4 {
 }
 
 /**
- * A mock that picks its scripted response from what the user message says, and from the system
- * rules (second argument), e.g. so one end-to-end server can answer different emails, and
- * different tasks (a reply, a GitHub issue), differently.
+ * A mock that picks its scripted response from what the user message says, e.g. so one
+ * end-to-end server can answer different emails differently.
  */
-export function routedMockModel(
-  pick: (userText: string, systemText: string) => MockResponse,
-): MockLanguageModelV4 {
+export function routedMockModel(pick: (userText: string) => MockResponse): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     provider: "mock",
     modelId: "routed-mock-model",
     doGenerate: (options) => {
       const user = JSON.stringify(options.prompt.filter((m) => m.role === "user"));
-      const system = JSON.stringify(options.prompt.filter((m) => m.role === "system"));
-      return mockModel(pick(user, system)).doGenerate(options);
+      return mockModel(pick(user)).doGenerate(options);
     },
   });
 }

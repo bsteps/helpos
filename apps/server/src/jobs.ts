@@ -9,8 +9,6 @@ import { handleDraftGaveUp, handleDraftReply } from "./drafts/draft-worker.ts";
 import { draftNoticeJob, draftReplyJob, sendReplyJob } from "./drafts/jobs.ts";
 import { handleDraftNotice, handleNoticeGaveUp } from "./drafts/notice-worker.ts";
 import { handleSendGaveUp, handleSendReply } from "./drafts/send-worker.ts";
-import { recheckIssueJob } from "./github/jobs.ts";
-import { handleRecheckGaveUp, handleRecheckIssue } from "./github/recheck.ts";
 import { handleIngestGaveUp, handleIngestSource } from "./knowledge/ingest-worker.ts";
 import { ingestSourceJob } from "./knowledge/jobs.ts";
 import { createVectorSearch } from "./knowledge/search.ts";
@@ -153,18 +151,6 @@ export const jobs: readonly Job[] = [
               "AI embeddings are not configured: knowledge sources will wait in the queue, and drafts use no knowledge",
           },
     onGiveUp: handleIngestGaveUp,
-  }),
-  defineJob({
-    job: recheckIssueJob,
-    // GitHub being down is handled inside (it asks again later); this is for database errors.
-    retry: { limit: 3, delaySeconds: 60, backoff: true, maxDelaySeconds: 600 },
-    run: (s) =>
-      s.secretBox
-        ? { steps: handleRecheckIssue({ ...s, secretBox: s.secretBox }) }
-        : {
-            waits: "HELPOS_ENCRYPTION_KEY is not set: GitHub issue rechecks will wait in the queue",
-          },
-    onGiveUp: handleRecheckGaveUp,
   }),
 ];
 

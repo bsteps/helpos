@@ -72,13 +72,11 @@ async function drafts() {
 
 let pending;
 for (let i = 0; i < 60 && !pending; i++) {
-  // The customer reply first, the same draft api.mjs's {draft} picks.
   const all = await drafts();
-  const waiting = all.filter((d) => d.status === "pending");
-  pending = waiting.find((d) => d.kind === "reply") ?? waiting[0];
+  pending = all.find((d) => d.status === "pending");
   if (pending) break;
   // Already past pending: say so now rather than wait two minutes for nothing.
-  const done = all.find((d) => d.kind === "reply" && ["approved", "sent"].includes(d.status));
+  const done = all.find((d) => ["approved", "sent"].includes(d.status));
   if (done) quit(1, `Nothing to approve: draft ${done.id} is already ${done.status}.`);
   const why = await whyNoDraft(inst, conversationId, reader);
   if (why) quit(1, `No draft to approve: ${why}.`);

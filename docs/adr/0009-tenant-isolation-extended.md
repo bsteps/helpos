@@ -82,5 +82,5 @@ Each item names the test that proves it. "Leak suite" means the cross-tenant sui
 
 - Workers can't forget `withTenant()`, because they never get a client without it.
 - Three database roles beyond migrations: `app`, `auth` and `jobs`. Local dev and the Docker image must create all of them.
-- Realtime events cost one extra API fetch per update. That's acceptable at MVP scale; ADR 0006 budgets still apply.
-- Each test named above becomes a leak-suite case in #44 (MVP parts) or #8 (the rest).
+- Realtime events cost one extra API fetch per update. ADR 0006 budgets still apply.
+- Every test named above belongs in the leak suite. Realtime cases ship with realtime (#8).

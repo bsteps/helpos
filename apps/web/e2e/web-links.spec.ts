@@ -51,29 +51,3 @@ test("citations render only parsed web links", async ({ page, request }) => {
     }
   }
 });
-
-test("GitHub issue links reject dangerous schemes", async ({ page, request }) => {
-  await signIn(page);
-  const id = await deliver(request, plainEmail(uniqueSubject("Issue link"), "Please help."));
-  let url = "javascript:alert(1)";
-  await page.route(`**/v1/conversations/${id}`, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    await route.fulfill({
-      response,
-      json: {
-        ...body,
-        githubIssue: { repo: "acme/app", number: 234, url, state: "open" },
-      },
-    });
-  });
-  await page.goto(`/conversations/${id}`);
-  await expect(page.getByText("acme/app#234", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "acme/app#234" })).toHaveCount(0);
-  url = "HTTPS://GITHUB.COM/acme/app/issues/234";
-  await page.reload();
-  await expect(page.getByRole("link", { name: "acme/app#234" })).toHaveAttribute(
-    "href",
-    "https://github.com/acme/app/issues/234",
-  );
-});

@@ -58,7 +58,7 @@ export function nextUtcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 }
 
-export type Spent = DraftUsage;
+type Spent = DraftUsage;
 
 /** Today's spend against the budget. Reservations of calls in flight aren't in it. */
 interface BudgetToday {
@@ -140,7 +140,7 @@ export interface AiBudget {
 }
 
 /**
- * The budget for every AI call: reply drafts, GitHub issue drafts and knowledge embeddings.
+ * The budget for every AI call: reply drafts and knowledge embeddings.
  * The only code that reads the budget or writes ai_usage (a Biome plugin keeps it so).
  */
 export function aiBudget(deps: AiBudgetDeps): AiBudget {

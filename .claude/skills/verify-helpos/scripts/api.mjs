@@ -195,8 +195,7 @@ async function waitForDraft(conversation) {
     const pending = live.filter((d) => d.status === "pending");
     // A live draft first; with only discarded ones left, the newest of those, so a step can
     // still act on it (retrying a discarded draft must answer 409, not wait for a new one).
-    const draft =
-      pending.find((d) => d.kind === "reply") ?? pending[0] ?? live.at(-1) ?? drafts.at(-1);
+    const draft = pending[0] ?? live.at(-1) ?? drafts.at(-1);
     if (draft) return draft;
     const why = await whyNoDraft(inst, conversation, reader);
     if (why) quit(1, `No draft on conversation ${conversation}: ${why}.`);

@@ -18,15 +18,11 @@ export function withoutRequestId<Result>(run: () => Result): Result {
  */
 const redactedPaths = [
   "token",
-  "githubToken",
-  "webhookSecret",
   "secret",
   "password",
   "authorization",
   "headers.authorization",
   "*.token",
-  "*.githubToken",
-  "*.webhookSecret",
   "*.secret",
   "*.password",
   "*.authorization",
