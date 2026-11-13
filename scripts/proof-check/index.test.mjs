@@ -60,11 +60,15 @@ test("workflow runs on PR updates and body edits without interpolating untrusted
     new URL("../../.github/workflows/proof-check.yml", import.meta.url),
     "utf8",
   );
-  assert.match(workflow, /pull_request:\s+types: \[opened, synchronize, reopened, edited\]/);
+  assert.match(
+    workflow,
+    /pull_request:\s+types: \[opened, synchronize, reopened, edited, ready_for_review\]/,
+  );
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /run: node scripts\/proof-check\/index.mjs/);
+  // The draft gate is a condition GitHub evaluates, never text a script runs.
   assert.doesNotMatch(
-    workflow,
+    workflow.replace("if: ${{ !github.event.pull_request.draft }}", ""),
     /continue-on-error|paths-ignore|pull_request_target|secrets\.|github\.event\./,
   );
 });

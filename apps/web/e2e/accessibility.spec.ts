@@ -7,7 +7,7 @@ test("every screen is accessible and fits a phone with long content", async ({
   request,
 }, testInfo) => {
   // One test walks every screen, waiting for animations and taking a full-page screenshot at
-  // each of its 14 stops, which takes longer than the default one-screen budget.
+  // each stop, which takes longer than the default one-screen budget.
   test.setTimeout(180_000);
   const audit = async (screen: string) => {
     await test.step(screen, async () => {
@@ -71,29 +71,6 @@ test("every screen is accessible and fits a phone with long content", async ({
   expect(await me.json()).toMatchObject({ actor: { type: "user" } });
   await expect(page.getByRole("link", { name: subject, exact: true })).toBeVisible();
   await audit("Inbox with long subject");
-
-  await page.getByRole("link", { name: "Knowledge", exact: true }).click();
-  const title = uniqueSubject("Sweep source");
-  const url = `http://127.0.0.1/${"source".repeat(60)}-${crypto.randomUUID()}`;
-  await page.getByRole("button", { name: "Add a source" }).click();
-  await page.getByRole("button", { name: "Web page", exact: true }).click();
-  await page.getByLabel("Title").fill(title);
-  await page.getByLabel("URL", { exact: true }).fill(url);
-  await audit("Knowledge add source form");
-  await page.getByRole("button", { name: "Add source", exact: true }).click();
-  const card = page.getByTestId("knowledge-source").filter({ hasText: title });
-  await expect(card.getByText(url, { exact: true })).toBeVisible();
-  await expect(card.getByRole("link", { name: url, exact: true })).toHaveAttribute("href", url);
-  await expect(card.getByText("Failed", { exact: true })).toBeVisible();
-  await audit("Knowledge with long source URL");
-  await card.getByRole("button", { name: "Edit", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Save", exact: true })).toBeVisible();
-  await audit("Knowledge edit form");
-  await card.getByRole("button", { name: "Cancel", exact: true }).click();
-  await card.getByRole("button", { name: "Delete", exact: true }).click();
-  await expect(card.getByRole("button", { name: "Keep", exact: true })).toBeVisible();
-  await audit("Knowledge delete confirmation");
-  await card.getByRole("button", { name: "Keep", exact: true }).click();
 
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   // The webhook secret shows only right after connecting, and the other screen size's run or

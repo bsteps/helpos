@@ -11,7 +11,6 @@ import { safeRedirect } from "./lib/redirect.ts";
 import { AppShell } from "./routes/app-shell.tsx";
 import { ConversationPage } from "./routes/conversation.tsx";
 import { InboxPage } from "./routes/inbox.tsx";
-import { KnowledgePage } from "./routes/knowledge.tsx";
 import { LoginPage } from "./routes/login.tsx";
 import { SetPasswordPage } from "./routes/set-password.tsx";
 import { SettingsPage } from "./routes/settings.tsx";
@@ -69,19 +68,10 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
-const knowledgeRoute = createRoute({
-  getParentRoute: () => signedInRoute,
-  path: "/knowledge",
-  beforeLoad: ({ context }) => {
-    if (!context.me.scopes.includes("knowledge:read")) throw redirect({ to: "/" });
-  },
-  component: KnowledgePage,
-});
-
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setPasswordRoute,
-  signedInRoute.addChildren([inboxRoute, conversationRoute, knowledgeRoute, settingsRoute]),
+  signedInRoute.addChildren([inboxRoute, conversationRoute, settingsRoute]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {
