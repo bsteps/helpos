@@ -70,7 +70,7 @@ The remaining release-safety items from the [architecture overview](architecture
 - #17 wake-ups: signed webhooks, event feed, fallback
 - #176 freshness loop: knowledge revisions, change events, staleness flags
 - #173 queues and handoff
-- #71 waiting lists, then #175 remove the GitHub-specific code
+- #71 waiting lists
 - #12 token rotation · #14 audit log query API
 - Last, once #185 shows fewer decisions without worse answers: #174 any MCP tool through the gate
 

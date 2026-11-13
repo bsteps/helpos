@@ -72,7 +72,7 @@ A new key is a new request and can repeat an effect.
 
 Refusing routes answer a keyed request with `400 idempotency_not_supported` before validation or side effects.
 A route whose request or response carries a credential refuses, so the credential is never stored:
-`POST /v1/tokens`, `PUT /v1/integrations/github` and `POST /v1/integrations/github/webhook-secret`.
+`POST /v1/tokens`.
 Authentication and provider routes have no tenant principal to scope a key to, so the type system makes them refuse.
 A provider route's signature or shared-secret check can refuse the request first.
 No token, session cookie, webhook secret or request body is stored for replay.
