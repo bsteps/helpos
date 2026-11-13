@@ -48,7 +48,7 @@ SELECT extversion FROM pg_extension WHERE extname = 'vector';  -- must be 0.8.0 
 
 To upgrade an older one: `ALTER EXTENSION vector UPDATE;` (after your provider or package offers 0.8+).
 
-The roles and schemas HelpOS expects (owner, app, auth and jobs roles) are set up the same way the dev database is. [`docker/postgres/init.sql`](../docker/postgres/init.sql) is the reference: run its equivalent with your own passwords.
+The roles and schemas HelpOS expects (owner, app, auth and jobs roles) are set up the same way the dev database is. Run [`docker/postgres/init.sql`](../docker/postgres/init.sql) with `psql` as the superuser. It reads each role's password from `HELPOS_OWNER_DB_PASSWORD`, `HELPOS_APP_DB_PASSWORD`, `HELPOS_AUTH_DB_PASSWORD` and `HELPOS_JOBS_DB_PASSWORD`, and stops if one is unset.
 
 ## AI configuration at startup
 

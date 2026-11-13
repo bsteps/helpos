@@ -93,15 +93,14 @@ test("isLocalDatabaseUrl: this machine only", () => {
     assert.equal(isLocalDatabaseUrl(url), false, url);
 });
 
-test("per-database setup matches docker/postgres/init.sql", () => {
-  const init = readFileSync(new URL("../docker/postgres/init.sql", import.meta.url), "utf8");
-  const statements = (sql) =>
-    sql
-      .split(";")
-      .map((s) => s.replace(/--.*$/gm, "").replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-  const afterConnect = statements(init.split("connect helpos")[1]);
-  assert.deepEqual(statements(databaseSetupSql()), afterConnect);
+test("per-database setup is init.sql's schemas and grants, without the roles", () => {
+  const setup = databaseSetupSql(
+    readFileSync(new URL("../docker/postgres/init.sql", import.meta.url), "utf8"),
+  );
+  assert.match(setup, /^CREATE EXTENSION IF NOT EXISTS vector;$/m);
+  assert.match(setup, /^GRANT USAGE ON SCHEMA jobs_api TO helpos_app;$/m);
+  assert.doesNotMatch(setup, /CREATE ROLE|CREATE DATABASE|\\getenv|\\connect/);
+  assert.throws(() => databaseSetupSql("CREATE ROLE helpos_app;"), /connect helpos/);
 });
 
 test("parseEnv reads quoted values, `export` and trailing comments like Node does", () => {

@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as pollDelay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import type { AuthStore } from "./auth.ts";
 import type { Database } from "./client.ts";
+import { withDevBootstrap } from "./dev-bootstrap.ts";
 import { installJobs } from "./jobs.ts";
 import { runMigrations } from "./migrate.ts";
 import {
@@ -29,8 +29,6 @@ import {
   tenants,
 } from "./schema.ts";
 import { uuidv7 } from "./uuid.ts";
-
-const initSql = fileURLToPath(new URL("../../../docker/postgres/init.sql", import.meta.url));
 
 /** Set by the test global setup: the shared Postgres that test files make their databases in. */
 const sharedServerEnv = "HELPOS_TEST_POSTGRES";
@@ -140,8 +138,7 @@ function urls(hostPort: string, database: string) {
  * that each test database is copied from.
  */
 async function startServer(): Promise<{ container: StartedPostgreSqlContainer; adminUrl: string }> {
-  const container = await new PostgreSqlContainer("pgvector/pgvector:pg17")
-    .withCopyFilesToContainer([{ source: initSql, target: "/docker-entrypoint-initdb.d/init.sql" }])
+  const container = await withDevBootstrap(new PostgreSqlContainer("pgvector/pgvector:pg17"))
     // A throwaway database: durability only costs disk writes.
     .withCommand([
       "postgres",
