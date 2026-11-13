@@ -6,6 +6,11 @@
     "packages/*": {
       "includeEntryExports": true
     },
+    "packages/ai": {
+      "includeEntryExports": true,
+      // The reply-helpfulness eval runner, run by hand with node (see its README).
+      "entry": ["evals/helpfulness/run-eval.mjs"]
+    },
     ".": {
       // Repo tooling, plus the Cloudflare Email Worker the demo docs tell you to deploy by hand.
       "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
