@@ -247,8 +247,11 @@ export function parseSources(text: string, offered: number): { text: string; cit
   };
 }
 
-/** Room for the reply: an email, not an essay. The budget reservation counts on this bound. */
-const maxReplyOutputTokens = 2_000;
+/**
+ * Room for the reply and the model's thinking, which counts toward this cap on models that think
+ * by default. The budget reservation counts on this bound.
+ */
+const maxReplyOutputTokens = 8_000;
 /** API limits: title 300, URL 2,000 UTF-16 units; JSON escapes take up to six bytes each. */
 const articleExtraBytes = (300 + 2_000) * 6 + 256;
 
