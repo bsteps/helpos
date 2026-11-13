@@ -24,7 +24,6 @@ const composeConfig = z.object({
 
 type Setup = { files: { source: string; target: string }[]; environment: Record<string, string> };
 
-/** What a compose file gives its Postgres on first start: the init files and the environment. */
 async function composeSetup(composeFile: string, envFile?: string): Promise<Setup> {
   const envArgs = envFile ? ["--env-file", envFile] : [];
   const { stdout } = await run(
@@ -85,7 +84,6 @@ async function demoSetup(): Promise<Setup> {
   }
 }
 
-/** Postgres as the compose file starts it the first time, as the `postgres` superuser. */
 function postgresFor({ files, environment }: Setup): PostgreSqlContainer {
   return new PostgreSqlContainer("pgvector/pgvector:pg17")
     .withUsername("postgres")
@@ -113,7 +111,6 @@ function connect(
   });
 }
 
-/** The roles, the database, its extensions, schemas and grants that bootstrap leaves behind. */
 async function snapshot(container: StartedPostgreSqlContainer) {
   const sql = connect(container, "postgres", container.getPassword());
   try {

@@ -2,8 +2,6 @@
  * The product's identity, in one place.
  *
  * Code and UI must read the name from here, never hardcode it.
- * To rename the product, change this file and run `pnpm rename-brand <old> <new>`
- * (that also updates package names and docs).
  */
 export const brand = {
   /** Display name shown in the UI, emails and docs. */
