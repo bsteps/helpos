@@ -158,9 +158,9 @@ it.each([
     );
     expect(results).toContainEqual({ outcome: "queued", discardedDraftIds: [stale.id] });
     expect(results).toContainEqual({ outcome: "queued", discardedDraftIds: [] });
-    expect((await draftsOf(input.conversationId)).map(({ status }) => status)).toEqual(
-      expect.arrayContaining(["discarded"]),
-    );
+    expect((await draftsOf(input.conversationId)).map(({ status }) => status)).toEqual([
+      "discarded",
+    ]);
     expect(await conversationOf(input.conversationId)).toMatchObject([{ aiPausedReason: null }]);
     expect(await jobsFor(input.messageId)).toEqual([
       {
