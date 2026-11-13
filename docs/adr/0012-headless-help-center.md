@@ -2,13 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-11-13
-- Supersedes: the help center row of ADR 0002 and the help center budget of ADR 0006
 
 ## Context
 
-ADR 0002 picks a help center that HelpOS renders on the server (Hono JSX behind a CDN), and ADR 0006 gives it a Lighthouse performance budget of 95.
-
-The [vision](../vision.md) says HelpOS stores the nouns (replies, tags, articles, pages and data) and agents do the verbs (rule 7). It also says HelpOS builds pipes, not features (rule 0). A site with themes, layouts and search engine work is a feature every team wants to design its own way.
+Teams need public help content in their own design. The [vision](../vision.md) makes HelpOS responsible for storing and serving pages, while agents and teams build frontends through the public API and MCP. This keeps the core independent of a site's design and hosting.
 
 ## Decision
 
@@ -20,21 +17,20 @@ Help center pages build on the knowledge store, which already marks content `pub
 
 Reason: storing and serving pages is a pipe. Rendering them is design work that each team does differently, and an agent with API access can build a site in one prompt.
 
-### 2. HelpOS has no rendered site and no Lighthouse budget
+### 2. Page reads use the API performance budget
 
-The help center rows in ADR 0002 and ADR 0006 no longer apply. HelpOS renders no pages with Hono JSX and has no Lighthouse budget of its own. A team's site performance is the team's to measure. HelpOS keeps the API latency budget in ADR 0006, which covers the page reads.
+A team's site performance is the team's to measure. HelpOS's API latency budget in [ADR 0006](0006-performance-budgets.md) covers page reads.
 
-### 3. The chat widget stays
+### 3. Chat uses an embeddable widget
 
-Chat isn't current work. The roadmap lists it under Later (#399). When chat is built, it reaches customers only through the widget, an embeddable web component. HelpOS hosts no chat page. ADR 0002's widget row and ADR 0006's widget budget (at most 20 KB gzipped) stand, and apply from then.
+Chat is planned under Later (#399). It reaches customers through an embeddable web component, with its chat UI in a sandboxed iframe. The widget follows ADR 0002 and the bundle budget in ADR 0006 when it is built.
 
 ## Rejected
 
-- **Render the help center in HelpOS.** It is a separate product with themes, layouts and hosting, and every team would want to change it.
 - **No help center content at all.** Customers need public pages to read, and HelpOS already holds the knowledge they come from. Keeping both in one store means a page and a cited answer can't drift apart.
 
 ## Consequences
 
 - Nothing built before #405 may assume a site rendered by HelpOS, or tie public content to a dashboard screen.
 - A team needs its own site, or an agent to build one, before customers see pages.
-- Rendering a help center inside HelpOS later needs a new ADR.
+- Frontends remain independent of the core, so teams can change their site's design without changing HelpOS.

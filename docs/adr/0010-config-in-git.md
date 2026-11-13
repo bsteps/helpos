@@ -1,109 +1,73 @@
-# 0010. Config, knowledge and policies in git
+# 0010. Rules, knowledge and settings in git
 
 - Status: Accepted
 - Date: 2026-11-07
-- Superseded in part by: [ADR 0013](0013-rules-knowledge-settings-in-git.md) (the kinds, edits from the UI, the policy wording and the timing). Policies here are rules and settings there
 
 ## Context
 
-"Your helpdesk's config, knowledge and policies live in git as markdown" is one of our differentiators. Teams can review a policy change in a pull request, roll it back with `git revert`, and let a coding agent edit it like any other file.
-
-Building the sync can wait until after the MVP (roadmap "Wedge" set), but the data model can't. If MVP tables like knowledge sources (#61) assume the app is the only writer, adding git later means migrating every row.
-
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 5 replaces this timing.
-
-Constraints from earlier ADRs:
-
-- Tenant data is read only through `withTenant()` under RLS (ADR 0003, 0009). A git repo has no RLS.
-- Imported content is data, never instructions. Policies decide what agents may do, and write actions are off by default (ADR 0004).
-- Secrets use envelope encryption (ADR 0004).
-- Job payloads carry IDs only (ADR 0009 §2).
+Teams can keep rules, knowledge and settings in git, review changes in pull requests, roll them back, and let an agent edit them. The database remains the runtime store so requests have tenant isolation and do not depend on a git host being available.
 
 ## Decision
 
-### 1. What can live in git
+### 1. Four kinds can live in git
 
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 1 replaces `instructions/` and `policies/` with rules and settings.
+| Kind          | Folder       | Example                     | Treated as                                         |
+| ------------- | ------------ | --------------------------- | -------------------------------------------------- |
+| Knowledge     | `knowledge/` | `knowledge/refunds.md`      | **Data**, quoted to the AI                         |
+| Saved replies | `replies/`   | `replies/password-reset.md` | **Data**, templates for replies                    |
+| Rules         | `rules/`     | `rules/tone.md`             | Workspace config, the playbook agents follow       |
+| Settings      | `settings/`  | `settings/channels.md`      | Workspace config, values the API lets a person set |
 
-| Kind               | Folder          | Example                                      | Treated as                     |
-| ------------------ | --------------- | -------------------------------------------- | ------------------------------ |
-| Knowledge articles | `knowledge/`    | `knowledge/billing/refunds.md`               | **Data** (quoted to the AI)    |
-| Saved replies      | `replies/`      | `replies/password-reset.md`                  | Data (templates a human sends) |
-| AI instructions    | `instructions/` | `instructions/tone.md`                       | Tenant config                  |
-| Agent policies     | `policies/`     | `policies/refunds.md` (thresholds, approval) | Tenant config                  |
+Each file is Markdown with YAML frontmatter (`id`, `kind`, `version` and fields for its kind), validated by a Zod schema per kind. The body is the content.
 
-Each file is markdown with YAML frontmatter (`id`, `kind`, `version` and kind-specific fields), validated by a Zod schema per kind. The file body is the content.
-
-**Never in git:** tickets, messages, customers, audit log, memberships, tokens and any secret. These are operational data or credentials, not config.
+Conversations, messages, customers, audit logs, memberships, tokens, secrets, trust levels and kill switches stay out of git. Trust is earned from outcomes and accepted by a person in the desk ([ADR 0011](0011-the-gate.md)). A file cannot grant it or turn a kill switch off.
 
 ### 2. The database is the runtime source of truth
 
-The app never reads git when it handles a request or runs an agent. It reads the database, under RLS, as always. Git is an **optional authoring source** that an import job copies into the database.
+Requests and agents read the database under RLS, through `withTenant()` ([ADR 0003](0003-tenant-isolation.md)). Git is an optional authoring source. An import job copies validated content into the database, so a git outage cannot stop support work.
 
 ### 3. One owner per item, one-way sync
 
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 2 replaces the UI parts of this section. HelpOS opens no pull requests.
+- Every importable row has `managed_by` (`app` or `git`) and, when it is `git`, `source_path` and `source_commit`.
+- A workspace chooses per kind whether git manages its items.
+- Sync goes one way, from git to the database. The API rejects writes to a git-managed item with `409` and a hint to change the file. A frontend shows it read-only, with a link to the file.
+- A person changes a git-managed item through an agent using its own git tools. HelpOS needs read access to the repo only.
+- Moving a kind back to `app` keeps the current rows and clears `source_*`. An export endpoint writes app-managed items in the same file layout.
 
-- Every importable row has `managed_by` (`app` or `git`) and, when it's `git`, `source_path` and `source_commit`.
-- A workspace that connects a repo picks, **per kind**, whether that kind is managed in git. Rows of that kind then have `managed_by = 'git'`.
-- **Sync goes one way: git → database.** The API rejects writes to a git-managed row with `409` and a hint to change the file instead. The UI shows these rows read-only, with a link to the file.
-- **Later (built with sync):** editing a git-managed item in the UI opens a pull request with the change. Non-technical teammates can still propose edits, a developer merges them, and git stays the only owner. This needs write access, so it is an opt-in on the repo connection.
-- No two-way sync, so there are no merge conflicts to resolve. The only "conflict" is a file that fails validation, and section 4 handles it.
-- Moving a kind back to `app` keeps the current rows and clears `source_*`. An export endpoint writes app-managed items as files in the same layout, so a team can move into git without retyping.
+One owner prevents conflicting edits between the API and the repo. Agents can propose file changes with their existing tools.
 
-### 4. Import
+### 4. Atomic, idempotent import
 
-- Triggered by a push webhook (signed, per ADR 0004) or a manual "sync now". It enqueues a tenant job with `{tenantId, integrationId, commitSha}`, IDs only.
-- The job fetches that exact commit, validates **every** file, and applies the whole set in one `withTenant()` transaction: create, update, and delete rows whose file is gone. If any file fails, nothing is applied and the error (file, line, reason) is shown and audit-logged. The last good commit stays live.
-- It's idempotent on `commitSha`. An older commit than the one already applied is ignored, so out-of-order webhooks are harmless.
-- Every import is audit-logged with the commit SHA and the commit author. Each changed row's audit event points at that import.
-- Knowledge files then go through the normal ingestion path (#61): chunk, embed, store in `knowledge_chunks`.
+- A signed push webhook or a manual sync request enqueues a tenant job with `{tenantId, integrationId, commitSha}`, IDs only ([ADR 0009](0009-tenant-isolation-extended.md)).
+- The job fetches that exact commit, validates every file, and applies the whole set in one `withTenant()` transaction. It creates and updates items and deletes items whose files are gone. If any file fails, nothing applies, the last good commit stays live, and the error names its file, line and reason.
+- Import is idempotent on `commitSha`. An older commit than the one applied is ignored, so out-of-order webhooks cannot undo newer content.
+- Every import is audited with the commit SHA and author. Each changed row's audit event points to that import.
+- Knowledge files use the normal ingestion path for chunking, embedding and storing passages.
 
-### 5. Policies from git can't bypass approval
+### 5. Rules and settings cannot widen authority without approval
 
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 3 applies this section to rules and settings.
+Repo access is not workspace admin access. An import that widens a permission, raises a cap or removes an approval step is staged until an admin approves it through the signed-approval path. Tightening changes apply at once. This is the git case of [ADR 0011](0011-the-gate.md) section 7.
 
-Push access to a repo is not the same as admin rights in the workspace. A policy import that **loosens** anything (enables a write action, raises a threshold or cap, removes an approval step) is staged and takes effect only after an admin approves it in the app. The approval goes through the normal signed-approval path. Tightening changes apply right away. Policy files still can't switch the kill switch off.
+### 6. Files follow the API trust boundary
 
-### 6. Prompt injection
-
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 4 replaces the `instructions/` line with rules and settings.
-
-- Knowledge and saved replies are data, the same as imported web pages: quoted to the model, never merged into its instructions (ADR 0004).
-- `instructions/` files are tenant config, the same as instructions typed into the UI. They are trusted exactly as much as a UI edit would be, no more.
-- Frontmatter can't set a field the API doesn't let a user set.
+Knowledge and saved replies are data, quoted to the model and never merged into its instructions. Rules and settings are trusted exactly as much as the same change through the API, no more. Frontmatter cannot set a field the API does not let a person set ([ADR 0004](0004-security-baseline.md)).
 
 ### 7. Tenant isolation and secrets
 
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) sections 2 and 4 replace the pull request and policy wording here. Read access is always enough.
+- A repo connection belongs to a tenant. Its read-only credential is envelope-encrypted.
+- One repo, optionally with a subfolder, belongs to one workspace. Every imported row has `tenant_id` under RLS.
+- Files never hold secrets. A rule or setting refers to an integration by name. The importer rejects files that match secret-scanning patterns, so a key pushed by mistake never reaches the database.
+- Repo fetches use SSRF-safe fetch. Self-hosters can use any git host over HTTPS.
 
-- A repo connection is a tenant `integrations` row. Its access token (a deploy key or a GitHub App installation) is envelope-encrypted, and read-only access is enough unless "propose edits as pull requests" is turned on.
-- One repo (optionally with a subfolder) belongs to one workspace. Every imported row carries `tenant_id` under RLS, like any other row.
-- Files never hold secrets. A policy that needs one refers to an integration by name. The importer rejects files that match secret-scanning patterns, so a key pushed by mistake never reaches the database.
-- Repo fetches use the SSRF-safe fetch (ADR 0004). Self-hosters can point at any git host over HTTPS.
+### 8. Data model before sync
 
-### 8. What the MVP must do now
+Every table holding one of the four kinds has `managed_by text not null default 'app'`, `source_path text null` and `source_commit text null`. Each item has a stable slug, unique per workspace, that can map to a file path. Knowledge source kinds must allow a git source without changing this ownership metadata.
 
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) section 5 replaces this section.
-
-Only the data model. No sync code.
-
-- Every table holding one of the four kinds (knowledge sources from #61 first) has `managed_by text not null default 'app'`, `source_path text null` and `source_commit text null`.
-- Each item has a stable, tenant-unique slug (`UNIQUE (tenant_id, slug)`, ADR 0009 §7) that can map to a file path.
-- Knowledge source `kind` is an extensible enum, so `git` can be added later without changing the table's shape.
-
-## Rejected
-
-- **Git as the runtime store** (reading the repo on each request). No RLS, slow, and the app breaks when the git host is down.
-- **Two-way sync.** Every edit risks a merge conflict between the UI and a branch, and the UI would need to commit on the user's behalf. One owner per item is simpler and easy to reason about.
-- **Database only, with export.** It loses review, revert and agent-editable files, which is the differentiator.
-- **Applying valid files and skipping broken ones.** A half-applied policy set is worse than the previous complete one.
+The columns make git ownership explicit before sync is built. `knowledge_sources` already has the ownership columns.
 
 ## Consequences
 
-[ADR 0013](0013-rules-knowledge-settings-in-git.md) replaces the consequences about UI edits, policies and timing.
-
-- Teams that never connect a repo see no difference. Everything defaults to `managed_by = 'app'`.
-- Git-managed items can't be saved directly in the UI; the file is where they change. Until "propose edits as pull requests" ships, non-technical teammates can't edit them, so teams with non-technical editors should keep those kinds managed in the app.
-- Loosening a policy needs a PR **and** an in-app approval. That's slower, and it's the price of not letting repo access become admin access.
-- The tests are written with the implementation (roadmap Wedge set): `import applies all files or none`, `import ignores an older commit`, `API rejects writes to git-managed rows`, `loosening policy import waits for approval`, `importer rejects a file with a secret`, a leak-suite case `import for tenant A writes no rows in B`, and an eval case `instructions hidden in a git knowledge file are not followed`.
+- Teams that never connect a repo use app-managed items and see no difference.
+- A person without git skills changes a git-managed item through an agent, or keeps that kind managed in the desk.
+- Loosening a rule or setting needs a reviewed repo change and an admin's approval in the desk, because push access cannot grant workspace authority.
+- The sync ships with tests for atomic import, ignored older commits, refused API writes to git-managed items, approval of authority-widening imports, rejected secrets, and tenant isolation. An eval checks that instructions hidden in a knowledge file are not followed.

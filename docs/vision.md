@@ -72,12 +72,13 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 - **Coordination:** ownership claims, queues, handoffs.
 - **Waiting lists:** customers waiting on the same fix, all told when it's done.
 - **Wake-ups:** events, signed webhooks, an event feed, scheduled wake-ups.
-- **The playbook:** written rules that humans and agents keep up to date. Rules, knowledge and settings can also live in git (ADR 0013).
+- **The playbook:** written rules that humans and agents keep up to date. Rules, knowledge and settings can also live in git (ADR 0010).
 - **Bulk import:** conversations, customers and articles, keeping threads and dates, and safe to run twice.
 - **Staying current:** change events (release, deploy, fix shipped), cited answers, and versioned rules and knowledge with staleness checks.
 - **Agent access:** API, MCP (we connect out to any tool's MCP server, gated by policy), skills.
 - **Tenant isolation and security underneath everything.**
-- **Day-one interface:** one small page (the decision queue plus the conversation it's about), with alerts in Slack and email. The full dashboard comes last, and the agent shapes it.
+- **Headless:** every frontend is a client of the public API and MCP. Our day-one page is one of them. Teams build their own dashboard, help-center pages and any other frontend in their own design, and new frontends never need a change to the core.
+- **Day-one interface:** one small page (the decision queue plus the conversation it's about), with alerts in Slack and email. The full dashboard comes last, and the team's agent shapes it on the API and MCP.
 
 ## What we don't build
 

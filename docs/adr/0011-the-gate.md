@@ -2,15 +2,12 @@
 
 - Status: Accepted
 - Date: 2026-11-13
-- Supersedes: the approval-threshold sentence of ADR 0004 ("Approval thresholds apply (e.g. refunds over $X need a human)")
 
 ## Context
 
-ADR 0004 turns write actions off by default and then lets a fixed threshold decide what a person approves, such as refunds over a set amount. A threshold treats every agent the same. A new agent gets the same freedom as one with a year of good outcomes, every action under the line runs without review from the first day, and the line never moves when an agent gets better or worse.
+Every agent needs permissions, limits and trust that reflect its own outcomes. The [vision](../vision.md) requires one gate for all agents, so the same controls apply to the built-in agent and a team's own agents. The [threat model](../security/threat-model.md) names its guarantees (`G1` to `G12`).
 
-The [vision](../vision.md) replaces the threshold with a gate (rules 1, 3 and 6). The [threat model](../security/threat-model.md) lists what the gate must guarantee (`G1` to `G12`). This ADR states the rules that decide who may act and who approves, so the gate issues build against an accepted decision. Stale proposals (`G6`) and the customer promises (`G12`) stay in the threat model as their own rules.
-
-The rest of ADR 0004 holds. Write actions are off by default, approvals are signed and checked against the exact action, spend and action caps apply per agent and per workspace, the kill switch exists, and every action is audited.
+[ADR 0004](0004-security-baseline.md) sets the security baseline. Write actions are off by default, approvals are signed and checked against the exact action, spend and action caps apply per agent and per workspace, the kill switch exists, and every action is audited.
 
 ## Decision
 
@@ -69,7 +66,7 @@ A kill switch stops new and pending actions. Caps limit what a trusted action ma
 
 ### 7. Rules never widen authority on their own
 
-A rule or setting that raises a cap, widens a permission or removes an approval step takes effect only after a person approves it. This holds whatever wrote it: a person's answer to a question, an agent, or a file in git (ADR 0013). A change that tightens takes effect at once.
+A rule or setting that raises a cap, widens a permission or removes an approval step takes effect only after a person approves it. This holds whatever wrote it: a person's answer to a question, an agent, or a file in git (ADR 0010). A change that tightens takes effect at once.
 
 Reason: if a rule could loosen the gate, a fooled agent could write the rule that frees it.
 
@@ -79,7 +76,6 @@ The audit log records each gate decision with its reason and inputs: the action 
 
 ## Rejected
 
-- **A fixed threshold as the line that decides who approves.** It trusts every agent the same and never learns. Caps stay, as a ceiling on trusted actions.
 - **Trust per agent only.** Good at replies says nothing about refunds.
 - **Promotions that apply without a person.** Outcomes can be gamed, and nobody would see the agent's authority grow.
 - **A separate path for the built-in agent.** It would be the one agent that nobody can cap, stop or demote on its own.

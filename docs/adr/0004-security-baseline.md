@@ -2,7 +2,6 @@
 
 - Status: Accepted
 - Date: 2026-11-06
-- Superseded in part by: [ADR 0011](0011-the-gate.md) (approval thresholds)
 
 ## Context
 
@@ -20,7 +19,7 @@ In HelpOS, AI agents read untrusted text (emails, chats, imported websites) and 
 
 **Agent actions**
 
-- Policy layer: write actions are **off by default**. Approval thresholds apply (e.g. refunds over $X need a human). [ADR 0011](0011-the-gate.md) replaces the threshold sentence with the gate.
+- Policy layer: write actions are **off by default**. Every agent passes one gate, with trust earned per agent and per action type. A person approves decisions and accepts promotions. Actions that cannot be undone start with human approval, and only a person can automate them with hard caps ([ADR 0011](0011-the-gate.md)).
 - Approvals are signed. The exact approved action is hashed and checked when executed.
 - Spend and action caps per agent and per tenant, hard AI cost caps per tenant, and a tenant-wide **kill switch**.
 - Audit log of every human and agent action: who, what, when, why, and the inputs.

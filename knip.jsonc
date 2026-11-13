@@ -12,8 +12,8 @@
       "entry": ["evals/helpfulness/run-eval.mjs"]
     },
     ".": {
-      // Repo tooling, plus the Cloudflare Email Worker the demo docs tell you to deploy by hand.
-      "entry": ["scripts/**/*.mjs", "deploy/**/*.mjs"]
+      // Repo tooling.
+      "entry": ["scripts/**/*.mjs"]
     },
     "apps/server": {
       "entry": [

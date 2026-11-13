@@ -1,6 +1,6 @@
 # Knowledge
 
-Knowledge sources are the pages and notes the AI drafts from. A source is a URL or Markdown, `public` (may be shown to customers) or `internal` (team notes, the default). The worker splits each source into passages and embeds them. When it drafts, it retrieves the best matches and cites them. People manage sources in the Knowledge screen. Agents and scripts use the public API.
+Knowledge sources are the pages and notes the AI drafts from. A source is a URL or Markdown, `public` (may be shown to customers) or `internal` (team notes, the default). The worker splits each source into passages and embeds them. When it drafts, it retrieves the best matches and cites them. Agents, scripts and people manage sources through the public API. The dashboard has no knowledge screen.
 
 ## Sub-features
 
@@ -13,7 +13,6 @@ Knowledge sources are the pages and notes the AI drafts from. A source is a URL 
 
 ## How to get to it (user POV)
 
-- Dashboard: open **Knowledge** to list, create, edit, re-ingest, or delete a source.
 - API: `GET v1/knowledge/sources`, `POST v1/knowledge/sources`, `PATCH v1/knowledge/sources/{id}`, `POST v1/knowledge/sources/{id}/reingest`, `DELETE v1/knowledge/sources/{id}`.
 - The effect shows in the dashboard on drafts: `Written from <title>`.
 
@@ -34,5 +33,5 @@ Preconditions: baseline. Embeddings on (`doctor.mjs` shows `embeddings ok`). A t
 - Without embeddings, sources stay `pending` and drafts use no knowledge. That is not a failure of this feature. Fix it with `launch.mjs` (Ollama) or embedding settings in `.env`.
 - URL sources are fetched through the SSRF guard. `localhost`, private and metadata addresses are refused, so you can't point a URL source at a local test server.
 - The database holds 1024-dimension vectors. An embedding model with another size fails ingestion with `expected 1024`.
-- Sources with `managedBy: "git"` come from config in git (ADR 0010, [ADR 0013](../../../../docs/adr/0013-rules-knowledge-settings-in-git.md)), and the API may refuse to edit them.
+- Sources with `managedBy: "git"` come from config in git ([ADR 0010](../../../../docs/adr/0010-config-in-git.md)), and the API may refuse to edit them.
 - Delete the sources you created. Seeded ones are counted on by other checks.
