@@ -21,14 +21,6 @@ export function AppShell() {
             <span className="truncate text-muted-foreground text-sm">{me.workspace.name}</span>
           </div>
           <nav aria-label="Account" className="flex shrink-0 items-center gap-1 whitespace-nowrap">
-            {me.scopes.includes("knowledge:read") ? (
-              <Link
-                to="/knowledge"
-                className="rounded-full px-2 py-1.5 text-muted-foreground text-sm hover:text-foreground data-[status=active]:text-foreground sm:px-3"
-              >
-                Knowledge
-              </Link>
-            ) : null}
             {me.scopes.includes("workspace:admin") ? (
               <Link
                 to="/settings"
