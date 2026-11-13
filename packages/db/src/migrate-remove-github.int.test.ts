@@ -26,6 +26,7 @@ const ids = {
   sentFixed: uuidv7(),
   pendingReply: uuidv7(),
   pendingFixed: uuidv7(),
+  replyCitation: uuidv7(),
   mixedToken: uuidv7(),
   issueOnlyToken: uuidv7(),
   otherToken: uuidv7(),
@@ -73,7 +74,8 @@ beforeAll(async () => {
       (${ids.pendingFixed}, ${tenantId}, ${ids.conversation}, ${ids.latest}, 'Fixed again', 'pending', 'fixed')`;
     await tx`insert into draft_citations
       (id, tenant_id, draft_id, title, visibility, excerpt, rank, cited)
-      values (${uuidv7()}, ${tenantId}, ${ids.pendingFixed}, 'Export', 'public', 'Exports', 0, true)`;
+      values (${uuidv7()}, ${tenantId}, ${ids.pendingFixed}, 'Export', 'public', 'Exports', 0, true),
+        (${ids.replyCitation}, ${tenantId}, ${ids.pendingReply}, 'Export', 'public', 'Exports', 0, true)`;
     await tx`insert into api_tokens (id, tenant_id, name, token_hash, scopes) values
       (${ids.mixedToken}, ${tenantId}, 'mixed', ${"a".repeat(64)}, array['conversations:read', 'github:write']),
       (${ids.issueOnlyToken}, ${tenantId}, 'issue-only', ${"b".repeat(64)}, array['github:write']),
@@ -112,7 +114,7 @@ it("drops fixed notices, their citations and the github:write scope, keeping eve
       { id: ids.pendingReply, status: "pending" },
     ].sort((a, b) => a.id.localeCompare(b.id)),
   );
-  expect(after.citations).toEqual([]);
+  expect(after.citations).toEqual([{ id: ids.replyCitation }]);
   expect(after.tokens).toEqual([
     { id: ids.issueOnlyToken, scopes: ["conversations:read"], revoked: true },
     { id: ids.mixedToken, scopes: ["conversations:read"], revoked: false },
