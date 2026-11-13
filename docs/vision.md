@@ -77,7 +77,8 @@ HelpOS lets an agent operate the desk, and the desk keeps the agent safe.
 - **Staying current:** change events (release, deploy, fix shipped), cited answers, and versioned rules and knowledge with staleness checks.
 - **Agent access:** API, MCP (we connect out to any tool's MCP server, gated by policy), skills.
 - **Tenant isolation and security underneath everything.**
-- **Day-one interface:** one small page (the decision queue plus the conversation it's about), with alerts in Slack and email. The full dashboard comes last, and the agent shapes it.
+- **Headless:** every frontend is a client of the public API and MCP. Our day-one page is one of them. Teams build their own dashboard, help-center pages and any other frontend in their own design, and new frontends never need a change to the core.
+- **Day-one interface:** one small page (the decision queue plus the conversation it's about), with alerts in Slack and email. The full dashboard comes last, and the team's agent shapes it on the API and MCP.
 
 ## What we don't build
 

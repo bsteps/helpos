@@ -15,19 +15,9 @@
     "description": "Issue state 3: an agent or human is working on it"
   },
   {
-    "name": "pr:in-progress",
-    "color": "C2E0C6",
-    "description": "PR state 1: still being worked on, not ready for review"
-  },
-  {
-    "name": "pr:ready",
-    "color": "0E8A16",
-    "description": "PR state 2: pnpm verify passes and review findings are resolved"
-  },
-  {
     "name": "land",
     "color": "5319E7",
-    "description": "PR state 3: checks green, no human needed; merge it"
+    "description": "PR ready for review with checks green, no human needed; merge it"
   },
   {
     "name": "needs-human",

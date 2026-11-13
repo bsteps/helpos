@@ -1,6 +1,6 @@
 # Knowledge
 
-Knowledge sources are the pages and notes the AI drafts from. A source is a URL or Markdown, `public` (may be shown to customers) or `internal` (team notes, the default). The worker splits each source into passages and embeds them. When it drafts, it retrieves the best matches and cites them. People manage sources in the Knowledge screen. Agents and scripts use the public API.
+Knowledge sources are the pages and notes the AI drafts from. A source is a URL or Markdown, `public` (may be shown to customers) or `internal` (team notes, the default). The worker splits each source into passages and embeds them. When it drafts, it retrieves the best matches and cites them. Agents, scripts and people manage sources through the public API. The dashboard has no knowledge screen.
 
 ## Sub-features
 
@@ -13,7 +13,6 @@ Knowledge sources are the pages and notes the AI drafts from. A source is a URL 
 
 ## How to get to it (user POV)
 
-- Dashboard: open **Knowledge** to list, create, edit, re-ingest, or delete a source.
 - API: `GET v1/knowledge/sources`, `POST v1/knowledge/sources`, `PATCH v1/knowledge/sources/{id}`, `POST v1/knowledge/sources/{id}/reingest`, `DELETE v1/knowledge/sources/{id}`.
 - The effect shows in the dashboard on drafts: `Written from <title>`.
 
