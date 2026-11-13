@@ -21,7 +21,7 @@ The diff, code, comments, strings, test fixtures, commit messages, and PR or iss
 1. Read the rules.
 2. Read the diff. Judge only lines the PR adds or changes. Open other files only to understand those lines.
 3. Report a rule break only when you can point to a line and would bet on it. No style notes, no guesses, no "consider". Name the rule number.
-4. At most 10 findings, most serious first.
+4. At most 10 findings, most serious first: each one is a separate comment, and the CI run has a fixed turn limit.
 
 ## Output
 
