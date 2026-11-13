@@ -39,27 +39,22 @@ forwarded="$(mktemp)"
 { printf 'Delivered-To: support@acme.test
 '; cat ../../fixtures/email/plain.eml; } >"$forwarded"
 
-# Runs the real Cloudflare worker code inside the server container. Prints the webhook's status,
-# or "rejected" when the worker bounced the email. $1: envelope recipient, $2: worker or direct.
+# POSTs the forwarded email the way any inbound provider does: the raw MIME, the shared secret,
+# and the address it was delivered to on top as Delivered-To. Prints the webhook's status.
+# $1: the delivered-to address, or "" to add none.
 deliver() {
-  dc exec -T -e TO="$1" -e MODE="$2" server node --input-type=module -e '
-    const worker = await import("/app/deploy/demo/cloudflare-email-worker.mjs");
-    const url = "http://127.0.0.1:3000/v1/inbound/email";
-    const secret = process.env.HELPOS_INBOUND_SECRET;
-    const raw = new Uint8Array(await new Response(process.stdin).arrayBuffer());
-    if (process.env.MODE === "direct") {
-      const r = await fetch(url, { method: "POST", body: raw,
-        headers: { authorization: `Bearer ${secret}`, "content-type": "message/rfc822" } });
-      process.stdout.write(String(r.status));
-    } else {
-      let status = "";
-      const realFetch = globalThis.fetch;
-      globalThis.fetch = async (...args) => { const r = await realFetch(...args); status = String(r.status); return r; };
-      const message = { to: process.env.TO, raw: new Blob([raw]).stream(), setReject: () => { status = "rejected"; } };
-      await worker.default.email(message, { HELPOS_INBOUND_URL: url, HELPOS_INBOUND_SECRET: secret });
-      process.stdout.write(status);
-    }
-  ' <"$forwarded"
+  { [ -z "$1" ] || printf 'Delivered-To: %s\r\n' "$1"; cat "$forwarded"; } |
+    dc exec -T server node --input-type=module -e '
+      const res = await fetch("http://127.0.0.1:3000/v1/inbound/email", {
+        method: "POST",
+        body: new Uint8Array(await new Response(process.stdin).arrayBuffer()),
+        headers: {
+          authorization: `Bearer ${process.env.HELPOS_INBOUND_SECRET}`,
+          "content-type": "message/rfc822",
+        },
+      });
+      process.stdout.write(String(res.status));
+    '
 }
 expect() {
   if [ "$1" != "$2" ]; then
@@ -68,10 +63,10 @@ expect() {
     exit 1
   fi
 }
-# Without the worker, nothing in the forwarded email names the demo mailbox.
-expect "$(deliver acme@demo.example.test direct)" 404 "forwarded email posted directly"
-expect "$(deliver acme@demo.example.test worker)" 201 "forwarded email through the worker"
-expect "$(deliver nobody@demo.example.test worker)" rejected "email to an unknown address"
+# Without the provider's Delivered-To, nothing in the forwarded email names the demo mailbox.
+expect "$(deliver "")" 404 "forwarded email without the delivered-to address"
+expect "$(deliver acme@demo.example.test)" 201 "forwarded email with the delivered-to address"
+expect "$(deliver nobody@demo.example.test)" 404 "email to an unknown address"
 rm -f "$forwarded"
 
 # The backup service dumps on start. Restart it now, so the dump holds the email above.
