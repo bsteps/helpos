@@ -233,7 +233,7 @@ describe("issueDraftTokenEstimate", () => {
     expect(format?.type).toBe("json");
     if (format?.type !== "json" || !format.schema) throw new Error("Missing output schema");
     expect(issueDraftTokenEstimate(input)).toBe(
-      tokenBound(issueInstructions, fenceEmail(input), JSON.stringify(format.schema)) + 2_000,
+      tokenBound(issueInstructions, fenceEmail(input), JSON.stringify(format.schema)) + 8_000,
     );
   });
 
@@ -246,7 +246,7 @@ describe("issueDraftTokenEstimate", () => {
     // 300 CJK characters are 900 bytes, and can be up to 900 tokens.
     const cjk = issueDraftTokenEstimate({ from: "a@b.test", subject: "s", body: "字".repeat(300) });
     expect(cjk - ascii).toBe(600);
-    expect(ascii).toBeGreaterThan(2_000 + 300);
+    expect(ascii).toBeGreaterThan(8_000 + 300);
   });
 });
 

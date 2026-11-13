@@ -233,8 +233,8 @@ export function formatIssue(fields: IssueFields): { title: string; body: string 
   return { title, body };
 }
 
-/** Room for the model's answer: a title and a few short sections. */
-const maxIssueOutputTokens = 2_000;
+/** Room for the model's answer and its thinking, which counts toward this cap. */
+const maxIssueOutputTokens = 8_000;
 
 /**
  * An upper bound on the tokens one draft costs (see tokenBound): its prompt, the output schema
