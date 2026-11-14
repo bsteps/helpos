@@ -30,9 +30,17 @@ It needs Java 11 or newer on PATH. The first run downloads TLC 1.7.4 (pinned by 
 
 It runs one fault at a time, checking each promise, then pairs each mutant in `model/mutants/` with the unchanged model under identical constants and faults. The unchanged control must hold and the mutant must break its promise. Exit 0 means two things: every result matches the expected table (the `runs` list in `scripts/check.mjs`, with known findings identified below), and every function in the coverage record matches its fingerprint. Each line starting `!!` says what is off and what to do. The TLC files for every result are in `.helpos/verify-send-reply/<run>/<promise>/`.
 
-## Read every result with `/statechart`
+## Read every broken promise
 
-For any broken promise, new or known, read its folder with the pstack `/statechart` skill (where you can't start it yourself, read its `SKILL.md` and follow it). It gives the shortest path to the broken state in plain words. When everything holds, it draws how a draft moves between states. On Windows, its TLC launcher and output parser fail, so run it in a Linux container with the same TLC 1.7.4 jar. Then decide:
+Read the trace of every broken promise, new or known, before you decide anything. The runner prints the path under the result, as model actions in order. The full trace is in `.helpos/verify-send-reply/<run>/<promise>/tlc.out`:
+
+1. Find `Error: Invariant <promise> is violated.` The states after it are the path. TLC searches breadth-first, so no shorter path breaks the promise.
+2. Each `State N: <Action ...>` block names the model action that led to it, then lists every variable after that step. Compare each state with the one before it to see what the action changed.
+3. Look up each action in the coverage record below and retell the path in the code's words, for example "the person approves, a worker sends, SMTP accepts, then the commit fails".
+
+Optional tip: the pstack `/statechart` skill writes the same path in plain words, and draws how a draft moves between states. On Windows its TLC launcher and output parser fail, so run it in a Linux container with the same TLC 1.7.4 jar.
+
+Then decide:
 
 - **A real bug** replays on the real code. Replay the path one action at a time against the code that the coverage table maps it to, as a test on the harness in `apps/server/src/drafts/send-failed.int.test.ts` (real Postgres, pg-boss and Mailpit). For example, a transport that sends and then throws reproduces "SMTP accepted, then the transaction rolled back". Report it with the path in the code's words, and add it to `known` with its issue. Never change a promise to make it pass.
 - **A modeling error** doesn't replay. Look for the first action where the model and the code differ. Usually one model action is split by an `await` in the code, the model lacks a guard the code has, or the model has a guard the code lacks. Fix the model, rerun, and write in the PR what was wrong.
@@ -116,4 +124,4 @@ The model mutants check removed give-up handling, a give-up that overwrites `sen
 
 `NoResendWithoutPerson` bounds total accepted deliveries by one plus retry requests. A retry request that reuses an active job still grants this allowance. It does not prove a stronger per-request ordering guarantee. The one-retry bound covers both retry branches but is not an inductive proof for eight retries. Raising `MaxFaults` alone repeats the selected fault; combine entries in `Faults` to explore mixed failures.
 
-Use `/maintain-formal-verification-skill` (read its `SKILL.md` where you can't start it yourself) after covered changes that did not recheck this model. Keep findings separate from a successful runner exit: exit 0 means the expected findings were reproduced, not that all promises hold.
+When covered code changed without a recheck of this model, for example in a merge, bring the model back in line. Diff the covered functions since the confirmed commit, update the model actions from the code (see "Changing the model"), rerun, and judge each broken promise as above. Optional tip: maintainers use the pstack `/maintain-formal-verification-skill` for this. Keep findings separate from a successful runner exit: exit 0 means the expected findings were reproduced, not that all promises hold.
