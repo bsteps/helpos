@@ -85,7 +85,7 @@ beforeEach(async () => {
       values (${uuidv7()}, ${tenantId}, ${ids.pendingFixed}, 'Export', 'public', 'Exports', 0, true),
         (${ids.replyCitation}, ${tenantId}, ${ids.pendingReply}, 'Export', 'public', 'Exports', 0, true)`;
     await tx`insert into api_tokens (id, tenant_id, name, token_hash, scopes) values
-      (${ids.mixedToken}, ${tenantId}, 'mixed', ${"a".repeat(64)}, array['drafts:write', 'github:write', 'stats:read']),
+      (${ids.mixedToken}, ${tenantId}, 'mixed', ${"a".repeat(64)}, array['drafts:write', 'github:write', 'knowledge:read']),
       (${ids.issueOnlyToken}, ${tenantId}, 'issue-only', ${"b".repeat(64)}, array['github:write']),
       (${ids.otherToken}, ${tenantId}, 'other', ${"c".repeat(64)}, array['drafts:write'])`;
     await tx`insert into api_tokens (id, tenant_id, name, token_hash, scopes, revoked_at)
@@ -181,7 +181,7 @@ it("drops fixed notices, their citations and the github:write scope, keeping eve
   expect(after.messages).toEqual(before.messages);
   expect(after.tokens).toEqual([
     { id: ids.issueOnlyToken, scopes: ["conversations:read"], revoked: true },
-    { id: ids.mixedToken, scopes: ["drafts:write", "stats:read"], revoked: false },
+    { id: ids.mixedToken, scopes: ["drafts:write", "knowledge:read"], revoked: false },
     { id: ids.otherToken, scopes: ["drafts:write"], revoked: false },
     { id: ids.revokedToken, scopes: ["conversations:read"], revoked: true },
   ]);

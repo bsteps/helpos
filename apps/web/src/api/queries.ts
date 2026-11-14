@@ -6,7 +6,6 @@ export const keys = {
   openConversations: ["conversations", "open"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   drafts: (id: string) => ["conversation", id, "drafts"] as const,
-  draftStats: ["stats", "drafts"] as const,
   shadowMode: ["workspace", "shadow-mode"] as const,
 };
 
@@ -50,22 +49,6 @@ export const draftsQuery = (id: string, waiting: (drafts: Draft[]) => boolean) =
     queryFn: async () =>
       (await unwrap(api.GET("/v1/conversations/{id}/drafts", { params: { path: { id } } }))).drafts,
     refetchInterval: (query) => (waiting(query.state.data ?? []) ? 2_000 : false),
-  });
-
-/** Draft outcomes for the last `days` days, ending now on this device's clock. */
-export const draftStatsQuery = (days: number) =>
-  queryOptions({
-    queryKey: [...keys.draftStats, days],
-    queryFn: () => {
-      const to = new Date();
-      const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
-      return unwrap(
-        api.GET("/v1/stats/drafts", {
-          params: { query: { from: from.toISOString(), to: to.toISOString() } },
-        }),
-      );
-    },
-    staleTime: 60_000,
   });
 
 export function useSignIn() {

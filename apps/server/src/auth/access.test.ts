@@ -91,7 +91,7 @@ const scoped = ops.flatMap((op) => {
 
 describe("every API operation declares who may call it", () => {
   it("found the operations", () => {
-    expect(scoped.length).toBeGreaterThan(20);
+    expect(scoped.length).toBeGreaterThan(15);
   });
 
   it.each(ops)("$method $path has x-access", (op) => {
@@ -418,7 +418,7 @@ describe("reviewed access rules across the served catalog", () => {
       "broadened reviewed scope",
       "POST",
       "/v1/drafts/{id}/approve",
-      { anyScope: ["drafts:approve", "stats:read"] },
+      { anyScope: ["drafts:approve", "knowledge:read"] },
       "requires drafts:read",
     ],
   ] satisfies (readonly [string, string, string, CatalogAccess, string])[])(

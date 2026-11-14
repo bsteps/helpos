@@ -413,8 +413,8 @@ const steps = [
     (r) => status(r) === 400,
   ],
   [
-    "stats-reader can't list conversations → 403",
-    () => api("northwind:stats-reader", "GET", "v1/conversations"),
+    "docs-sync can't list conversations → 403",
+    () => api("lumen:docs-sync", "GET", "v1/conversations"),
     (r) => status(r) === 403,
   ],
 
@@ -463,21 +463,6 @@ const steps = [
     () =>
       api("northwind:triage-bot", "PATCH", "v1/workspace/shadow-mode", '{"recipient":"x@y.test"}'),
     (r) => status(r) === 403,
-  ],
-  [
-    "stats",
-    () => api("northwind:stats-reader", "GET", "v1/stats/drafts"),
-    (r) => status(r) === 200,
-  ],
-  [
-    "stats for January",
-    () =>
-      api(
-        "northwind:stats-reader",
-        "GET",
-        "v1/stats/drafts?from=2026-01-06T00:00:00Z&to=2026-01-20T12:00:00Z",
-      ),
-    (r) => status(r) === 200 && json(r).approvedUnchanged >= 2,
   ],
   [
     "ai usage",

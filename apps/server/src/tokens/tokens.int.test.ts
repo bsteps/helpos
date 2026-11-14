@@ -37,7 +37,6 @@ const allTokenScopes = [
   "drafts:approve",
   "knowledge:read",
   "knowledge:write",
-  "stats:read",
 ] as const;
 
 let testDb: TestDatabase;
