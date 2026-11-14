@@ -6,9 +6,9 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import type { AuditContext } from "../audit/audit.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
-import { ensureJobQueues } from "../jobs.ts";
 import { SendRejected } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
+import { retryJobsQuickly } from "../testing/quick-retries.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { sendReplyJob } from "./jobs.ts";
 import { approveDraft, createReply } from "./lifecycle.ts";
@@ -37,7 +37,7 @@ beforeAll(async () => {
     config: { publicUrl: "http://helpdesk.test" },
   });
   await server.runner.start();
-  await ensureJobQueues(server.runner, { jobRetry: { limit: 0, delaySeconds: 0, backoff: false } });
+  await retryJobsQuickly(server.runner, { limit: 0, delaySeconds: 0, backoff: false });
   const workspace = await initWorkspace(
     { db, auth },
     {

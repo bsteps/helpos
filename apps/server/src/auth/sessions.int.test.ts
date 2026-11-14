@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 // Human sign-in through the public API, against real Postgres and Better Auth: what the
@@ -98,7 +98,7 @@ beforeAll(async () => {
   _sessions = auth.sessions;
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const result = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

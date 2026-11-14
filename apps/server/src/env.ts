@@ -41,8 +41,6 @@ export const envSchema = z
     HELPOS_AUTH_SECRET: z.string().min(32).optional(),
     // The built dashboard (apps/web/dist), served at /. Optional: unset, only the API is served.
     HELPOS_WEB_DIR: z.string().min(1).optional(),
-    // How long a new draft waits before owners are emailed. Approved sooner, no email is sent.
-    HELPOS_NOTICE_DELAY_SECONDS: z.coerce.number().int().min(0).default(300),
     // Shadow mode can only be turned off when this is "true". Unset until the release safety work
     // (set C, first real reply) ships, so no workspace can send to real customers yet.
     HELPOS_ALLOW_SHADOW_MODE_OFF: z

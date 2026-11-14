@@ -20,7 +20,7 @@ import { createApp } from "../app.ts";
 import { handleSendReply } from "../drafts/send-worker.ts";
 import { ensureJobQueues } from "../jobs.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 const fixture = (name: string) =>
@@ -82,7 +82,7 @@ beforeAll(async () => {
   auth = createAuthStore(testDb.authUrl);
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const workspace = await initWorkspace(
     { db, auth },
     { workspace: "Email fixtures", mailbox: "support@acme.test", owner: "owner@acme.test" },

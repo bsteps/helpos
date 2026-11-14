@@ -30,7 +30,7 @@ it("retains real failures across multiple busy deferrals", async () => {
   });
   try {
     await runner.start();
-    await ensureJobQueues(runner, defaultConfig);
+    await ensureJobQueues(runner);
     const workspace = await initWorkspace(
       { db, auth },
       { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -57,7 +57,7 @@ it("retains real failures across multiple busy deferrals", async () => {
     const config = { ...defaultConfig, dailyTokenBudget: 1_000_000 };
     const paid = aiBudget({ logger, clock, config });
     const model = refusingModel();
-    const job = jobs.find((candidate) => candidate.queue === "draft-reply");
+    const job = jobs.find((candidate) => candidate.job.queue === "draft-reply");
     if (!job) throw new Error("Expected the registered draft job");
     await job.start(
       runner,

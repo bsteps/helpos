@@ -300,7 +300,6 @@ beforeAll(async () => {
     embeddingModel,
     fetch: testFetch,
     config: {
-      fetchRetryDelaysMs: [20, 20],
       publicUrl: "http://helpdesk.test",
       dailyTokenBudget: 1_000_000,
     },
@@ -502,7 +501,7 @@ describe("re-ingesting", () => {
       fetch: testFetch,
       logger,
       clock: { now: () => new Date(Date.now() - retryDelayMs - 60_000) },
-      config: { ...defaultConfig, dailyTokenBudget: 1_000_000, fetchRetryDelaysMs: [20, 20] },
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(served["/down-a-while"]).toBe(3);
     expect(await ingested(acme, id)).toMatchObject({ state: { status: "ready" } });
@@ -518,7 +517,7 @@ describe("re-ingesting", () => {
         fetch: testFetch,
         logger,
         clock: systemClock,
-        config: { ...defaultConfig, dailyTokenBudget: 1_000_000, fetchRetryDelaysMs: [20, 20] },
+        config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
       })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     await ingest();
     expect(await sourceOf(acme, id)).toMatchObject({

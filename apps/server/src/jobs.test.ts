@@ -21,7 +21,7 @@ describe("the job registry", () => {
   it("has every job the server defines, each once", () => {
     // A job defined but not registered has no queue (enqueue() then fails at runtime with
     // "unknown queue") and nothing works it.
-    const registered = jobs.map((j) => j.queue);
+    const registered = jobs.map(({ job }) => job.queue);
     expect(new Set(registered).size).toBe(registered.length);
     expect([...registered].sort()).toEqual([...new Set(definedQueues())].sort());
   });

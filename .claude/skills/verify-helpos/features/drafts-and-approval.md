@@ -40,7 +40,7 @@ The uncertainty path is reproduced by `apps/web/e2e/send-uncertain.spec.ts` agai
 ## Gotchas
 
 - `approve` needs the exact current `body`, so read it first. This is deliberate, not a bug.
-- A new pending draft queues an owner notice email 5 minutes later (`HELPOS_NOTICE_DELAY_SECONDS`) unless it's approved first. Don't mistake that notice for the reply in Mailpit. Match `Re: <subject>`.
+- A new pending draft queues an owner notice email 5 minutes later unless it's approved first. Don't mistake that notice for the reply in Mailpit. Match `Re: <subject>`.
 - Locally you can't make a send fail for good in reasonable time: it retries for about 3 hours. The `send_failed` / `Retry send` / `Write a new draft` path is proven by the e2e suite (`apps/web/e2e/send-failed.spec.ts`, fake SMTP). Report it as not driven when you can't reach it.
 - `conversation.automated` conversations and conversations paused by the AI budget (`AI paused`) never get a draft. That is correct behavior, not a failure.
 - Drafts use the real model: wording varies between runs. Assert states, sources and recipients, not exact text.
