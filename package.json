@@ -40,6 +40,7 @@
     "app:journey": "node .claude/skills/verify-helpos/scripts/journey-reply.mjs",
     "app:run": "node .claude/skills/verify-helpos/scripts/instance.mjs run",
     "app:selftest": "node .claude/skills/verify-helpos/scripts/selftest.mjs",
+    "verify:gate": "node .claude/skills/verify-gate/scripts/check.mjs",
     "verify:send-reply": "node .claude/skills/verify-send-reply/scripts/check.mjs",
     "verify:send-reply:mutations": "node .claude/skills/verify-send-reply/scripts/prove-mutations.mjs"
   },

@@ -1,9 +1,11 @@
 import { isDeepStrictEqual } from "node:util";
+import { schema } from "@helpos/db";
 import { createMemoryFileStore } from "@helpos/files";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { openApiDocument } from "../openapi.ts";
 import { composeServices } from "../services.ts";
+import { waitsFor } from "../testing/waits-for.ts";
 import type { Access, Idempotency } from "./access.ts";
 import { type Principal, type Scope, scopes } from "./principal.ts";
 
@@ -466,4 +468,68 @@ describe("self-or-admin access precedes parameter validation and database work",
     });
     expect(res.status).toBe(400);
   });
+});
+
+// Deciding is human-only, and what a token can hold enforces it. A route decides when its access
+// needs a deciding scope, so a new one must be added here with what it decides.
+const decidingScopes: readonly string[] = ["drafts:approve", "workspace:admin"];
+const approveClass: Record<string, { decides: string; waitsFor?: number }> = {
+  "POST /v1/drafts/{id}/approve": {
+    decides: "approves a reply, the only way it reaches a customer",
+    waitsFor: 13,
+  },
+  "POST /v1/drafts/{id}/retry": {
+    decides: "sends an approved reply again after every attempt failed",
+    waitsFor: 13,
+  },
+  "POST /v1/drafts/{id}/resolve-send": {
+    decides: "marks an uncertain send as sent, or sends it again",
+  },
+  "POST /v1/tokens": { decides: "creates a credential" },
+  "PATCH /v1/workspace/shadow-mode": {
+    decides: "turns shadow mode off, a product default",
+  },
+};
+const keyOf = (op: Operation) => `${op.method} ${op.path}`;
+const needsDecidingScope = (op: Operation) => {
+  const a = op.access;
+  const required = a && "allScopes" in a ? a.allScopes : a && "anyScope" in a ? a.anyScope : [];
+  return required.some((scope) => decidingScopes.includes(scope));
+};
+
+describe("approve-class routes are human-only (G4)", () => {
+  it("the table lists exactly the write routes that need a deciding scope", () => {
+    const served = writes.filter(needsDecidingScope).map(keyOf).sort();
+    expect(
+      served,
+      "a route needing drafts:approve or workspace:admin decides: add it to approveClass with what it decides, and make it humansOnly",
+    ).toEqual(Object.keys(approveClass).sort());
+  });
+
+  it("revoking a token is not approve-class: an agent may revoke only its own", () => {
+    const revoke = ops.find((op) => keyOf(op) === selfRevoke.key);
+    expect(revoke?.access).toEqual(selfRevoke.access);
+    expect(revoke && needsDecidingScope(revoke)).toBe(false);
+  });
+
+  const settled = Object.entries(approveClass).filter(([, row]) => row.waitsFor === undefined);
+  it.each(settled)("%s is humansOnly", (key) => {
+    const access = ops.find((op) => keyOf(op) === key)?.access;
+    expect(access && "humansOnly" in access && access.humansOnly).toBe(true);
+  });
+
+  for (const [key, row] of Object.entries(approveClass)) {
+    if (row.waitsFor === undefined) continue;
+    waitsFor<Access | undefined>(row.waitsFor, `${key} is humansOnly`, async () => ({
+      observed: ops.find((op) => keyOf(op) === key)?.access,
+      today: { allScopes: ["drafts:approve"] },
+      promised: { allScopes: ["drafts:approve"], humansOnly: true },
+    }));
+  }
+
+  waitsFor<string[]>(13, "no deciding scope is one an agent token can hold", async () => ({
+    observed: schema.apiTokenScopes.filter((scope) => decidingScopes.includes(scope)),
+    today: ["drafts:approve"],
+    promised: [],
+  }));
 });
