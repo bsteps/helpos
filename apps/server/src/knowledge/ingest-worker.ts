@@ -84,7 +84,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
 
     const fail = (reason: schema.KnowledgeFailureReason) =>
       transaction(async (tx) => {
-        if (await failIngest(tx, job, reason)) {
+        if ((await failIngest(tx, job, reason)) === "written") {
           deps.logger.warn({ sourceId, reason }, "knowledge source could not be ingested");
         }
       });
@@ -98,7 +98,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       retryCount = source.retryCount,
     ) =>
       transaction(async (tx) => {
-        if (await waitToIngest(tx, job, { reason, startAfter, kind, retryCount })) {
+        if ((await waitToIngest(tx, job, { reason, startAfter, kind, retryCount })) === "written") {
           deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
         }
       });
@@ -200,7 +200,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       embedding: vectorAt(embeddings, position),
     }));
     await transaction(async (tx) => {
-      if (await storeIngested(tx, job, { passages, model: modelId, at: now() })) {
+      if ((await storeIngested(tx, job, { passages, model: modelId, at: now() })) === "written") {
         deps.logger.info({ sourceId, chunks: chunks.length }, "knowledge source ingested");
       }
     });

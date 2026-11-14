@@ -1,9 +1,5 @@
 language js
 
-// Knowledge sources and their passages are written only in
-// apps/server/src/knowledge/source-lifecycle.ts, whose sourceTransitions table lists every state
-// change. A hand-written write elsewhere is how a state gets handled in one caller and missed in
-// the next. Tests write fixture rows directly.
 or {
   `$db.update(knowledgeSources)`,
   `$db.update(schema.knowledgeSources)`,

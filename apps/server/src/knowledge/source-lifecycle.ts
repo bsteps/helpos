@@ -16,10 +16,6 @@ import { builtInActors } from "@helpos/db/actor";
 import { type AuditAction, type Auditor, nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { ingestSourceJob } from "./jobs.ts";
 
-// The one module that writes knowledge sources and their passages. Routes, the ingest worker and
-// the seed call the operations below; the knowledge-writes Biome plugin fails on a write anywhere
-// else, so a new state can't be handled in one caller and missed in another.
-
 const { knowledgeChunks, knowledgeSources } = schema;
 type SourceRow = typeof knowledgeSources.$inferSelect;
 type SourceValues = typeof knowledgeSources.$inferInsert;
@@ -28,23 +24,23 @@ type SourceStatus = SourceState["status"];
 type StateOf<S extends SourceStatus> = Extract<SourceState, { status: S }>;
 
 interface Transition {
-  /** The statuses a source may be in for this change. Anything else changes nothing. */
   readonly from: readonly SourceStatus[];
   readonly to: SourceStatus;
 }
 
-const anyStatus = ["pending", "ready", "failed", "waiting"] as const satisfies SourceStatus[];
+const everyStatus = {
+  pending: true,
+  ready: true,
+  failed: true,
+  waiting: true,
+} as const satisfies Record<SourceStatus, true>;
+export const sourceStatuses = Object.keys(everyStatus) as (keyof typeof everyStatus)[];
 const ingesting = ["pending", "waiting"] as const satisfies SourceStatus[];
 
-/** Every way a source's state changes, and nothing else. A new source is `pending`. */
 export const sourceTransitions = {
-  /** Someone asks for it to be read again. */
-  reingest: { from: anyStatus, to: "pending" },
-  /** The same, while it waits for the daily budget: it keeps waiting for the reset. */
+  reingest: { from: sourceStatuses, to: "pending" },
   reingestWhileOverBudget: { from: ["waiting"], to: "waiting" },
-  /** Its markdown changed: the old passages are gone and it is read again. */
-  editContent: { from: anyStatus, to: "pending" },
-  /** The ingest job hit a temporary problem or the daily budget, and runs again later. */
+  editContent: { from: sourceStatuses, to: "pending" },
   wait: { from: ingesting, to: "waiting" },
   fail: { from: ingesting, to: "failed" },
   ingested: { from: ingesting, to: "ready" },
@@ -59,7 +55,6 @@ function isIngesting(state: SourceState): boolean {
   return (ingesting as readonly SourceStatus[]).includes(state.status);
 }
 
-/** The state is typed by the operation, so a change can only write the status its row allows. */
 async function change<O extends SourceOperation>(
   tx: TenantTx,
   operation: O,
@@ -100,18 +95,15 @@ type IngestQueue =
   | { kind: "fresh" }
   | { kind: "retry" | "budget"; startAfter: Date };
 
-/** One ingest job: the source, and the request count it was queued for. */
+type IngestWrite = "written" | "stale";
+
 export interface IngestJob {
   tenantId: string;
   sourceId: string;
   requests: number;
 }
 
-export function queueIngest(
-  tx: TenantTx,
-  input: { tenantId: string; sourceId: string; requests: number },
-  queue: IngestQueue,
-): Promise<string> {
+export function queueIngest(tx: TenantTx, input: IngestJob, queue: IngestQueue): Promise<string> {
   const options =
     queue.kind === "reuse"
       ? { singletonKey: input.sourceId }
@@ -337,7 +329,6 @@ export async function deleteSource(
   return "deleted" as const;
 }
 
-/** Demo sources, kept as they are. Returns the ones that were new, to queue their ingest. */
 export function seedSources(
   tx: TenantTx,
   rows: SourceValues[],
@@ -349,11 +340,6 @@ export function seedSources(
     .returning({ id: knowledgeSources.id, requests: knowledgeSources.ingestRequests });
 }
 
-/**
- * Locks the source and says whether this job may still write its result: the source is still
- * being ingested and no newer request came in while the job was fetching. A newer request gets a
- * fresh job here.
- */
 export async function lockIfCurrent(tx: TenantTx, job: IngestJob): Promise<boolean> {
   const { tenantId, sourceId, requests } = job;
   const [current] = await tx
@@ -367,7 +353,6 @@ export async function lockIfCurrent(tx: TenantTx, job: IngestJob): Promise<boole
   return false;
 }
 
-/** The page is gone or can never be read, so its old passages must not be cited any more. */
 function supersedes(reason: schema.KnowledgeFailureReason): boolean {
   return reason.code === "http_error"
     ? [404, 410, 451].includes(reason.status)
@@ -384,13 +369,12 @@ function recordIngest(tx: TenantTx, job: IngestJob, action: AuditAction): Promis
   });
 }
 
-/** Returns false when the job's result no longer applies (see `lockIfCurrent`). */
 export async function failIngest(
   tx: TenantTx,
   job: IngestJob,
   reason: schema.KnowledgeFailureReason,
-): Promise<boolean> {
-  if (!(await lockIfCurrent(tx, job))) return false;
+): Promise<IngestWrite> {
+  if (!(await lockIfCurrent(tx, job))) return "stale";
   const gone = supersedes(reason);
   if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, job.sourceId));
   await change(
@@ -401,10 +385,9 @@ export async function failIngest(
     gone ? { chunkCount: 0, embeddingModel: null } : {},
   );
   await recordIngest(tx, job, "knowledge_source.failed");
-  return true;
+  return "written";
 }
 
-/** Returns false when the job's result no longer applies (see `lockIfCurrent`). */
 export async function waitToIngest(
   tx: TenantTx,
   job: IngestJob,
@@ -414,8 +397,8 @@ export async function waitToIngest(
     kind: "retry" | "budget";
     retryCount: number;
   },
-): Promise<boolean> {
-  if (!(await lockIfCurrent(tx, job))) return false;
+): Promise<IngestWrite> {
+  if (!(await lockIfCurrent(tx, job))) return "stale";
   const { reason, startAfter, kind, retryCount } = wait;
   await change(
     tx,
@@ -425,16 +408,15 @@ export async function waitToIngest(
     { retryCount },
   );
   await queueIngest(tx, job, { kind, startAfter });
-  return true;
+  return "written";
 }
 
-/** Replaces the source's passages. Returns false when the job's result no longer applies. */
 export async function storeIngested(
   tx: TenantTx,
   job: IngestJob,
   result: { passages: { content: string; embedding: number[] }[]; model: string; at: Date },
-): Promise<boolean> {
-  if (!(await lockIfCurrent(tx, job))) return false;
+): Promise<IngestWrite> {
+  if (!(await lockIfCurrent(tx, job))) return "stale";
   const { tenantId, sourceId } = job;
   await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
   await tx.insert(knowledgeChunks).values(
@@ -460,5 +442,5 @@ export async function storeIngested(
     },
   );
   await recordIngest(tx, job, "knowledge_source.ingested");
-  return true;
+  return "written";
 }

@@ -1,9 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { edges, reachable, walks } from "../testing/transitions.ts";
-import { sourceTransitions } from "./source-lifecycle.ts";
+import { sourceStatuses, sourceTransitions } from "./source-lifecycle.ts";
 
-const statuses = ["failed", "pending", "ready", "waiting"];
+const statuses = [...sourceStatuses].sort();
 const workerOperations: string[] = ["wait", "fail", "ingested"];
 
 describe("knowledge source lifecycle", () => {

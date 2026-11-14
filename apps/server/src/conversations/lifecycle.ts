@@ -5,15 +5,12 @@ const { conversations, messages } = schema;
 type ConversationStatus = (typeof schema.conversationStatuses)[number];
 
 interface Transition {
-  /** The statuses a conversation may be in for this change. Anything else changes nothing. */
   readonly from: readonly ConversationStatus[];
   readonly to: ConversationStatus;
 }
 
-/** Every way a conversation's status changes, and nothing else. A new conversation is `open`. */
 export const conversationTransitions = {
   close: { from: ["open"], to: "closed" },
-  /** A person wrote in. Machine-sent mail never reopens a conversation (see `recordInbound`). */
   personReplied: { from: ["open", "closed"], to: "open" },
 } as const satisfies Record<string, Transition>;
 
@@ -63,10 +60,6 @@ export async function closeConversation(
   return true;
 }
 
-/**
- * An inbound message on an existing conversation. A person writing reopens it and marks it as a
- * person's conversation; machine-sent mail, such as an auto-reply, only records the activity.
- */
 export async function recordInbound(
   tx: TenantTx,
   id: string,
