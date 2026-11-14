@@ -29,6 +29,7 @@ const invariants = [
 test("the gate model keeps every promise, each mutant breaks one, and a broken model fails", {
   // CI must never skip this silently: without Java there, the checker fails the test.
   skip: java.status !== 0 && !process.env.CI ? "Java is required for the TLC model check" : false,
+  // A full checker run takes about 70s on a CI runner (10s locally), so both timeouts leave room.
   timeout: 240_000,
 }, () => {
   const scratchParent = join(root, ".helpos");
