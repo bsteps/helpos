@@ -24,6 +24,7 @@
     "./biome-plugins/route-audit.grit",
     "./biome-plugins/draft-writes.grit",
     "./biome-plugins/conversation-writes.grit",
+    "./biome-plugins/knowledge-writes.grit",
     "./biome-plugins/ai-usage.grit",
     "./biome-plugins/paid-ai.grit",
     "./biome-plugins/empty-catch.grit",
