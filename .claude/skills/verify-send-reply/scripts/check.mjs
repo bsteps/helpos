@@ -384,7 +384,7 @@ function report(results) {
       );
     } else {
       problems.push(
-        `${r.property} is broken under ${r.group}. Read ${where}/tlc.out with /statechart before you decide whether the code or the model is wrong.`,
+        `${r.property} is broken under ${r.group}. Read the trace in ${where}/tlc.out ("Read every broken promise" in SKILL.md) before you decide whether the code or the model is wrong.`,
       );
     }
   }
