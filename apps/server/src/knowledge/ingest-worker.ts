@@ -7,17 +7,21 @@ import {
   tokenBound,
 } from "@helpos/ai";
 import { eq, type JobDeferral, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
-import { builtInActors } from "@helpos/db/actor";
 import type { Logger } from "pino";
 import { aiBudget, mapAiRefusal, nextUtcDay } from "../ai-budget/budget.ts";
-import { recordAudit } from "../audit/audit.ts";
 import type { Clock, ServerConfig } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
 import { tidyAuthored } from "./extract.ts";
 import { type Fetcher, fetchPageText, type PageText } from "./page-fetch.ts";
-import { queueIngest } from "./sources.ts";
+import {
+  failIngest,
+  type IngestJob,
+  lockIfCurrent,
+  storeIngested,
+  waitToIngest,
+} from "./source-lifecycle.ts";
 
-const { knowledgeChunks, knowledgeSources } = schema;
+const { knowledgeSources } = schema;
 
 export interface IngestWorkerDeps {
   embeddingModel: EmbeddingModel;
@@ -28,8 +32,6 @@ export interface IngestWorkerDeps {
   shutdown?: AbortSignal | undefined;
 }
 
-const ingestActor = builtInActors.ingestWorker;
-
 function isTemporary(
   reason: schema.KnowledgeFailureReason,
 ): reason is schema.KnowledgeWaitReason & schema.KnowledgeFailureReason {
@@ -39,12 +41,6 @@ function isTemporary(
     reason.code === "embedding_unavailable" ||
     (reason.code === "http_error" && [408, 425, 429, 500, 502, 503, 504].includes(reason.status))
   );
-}
-
-function supersedes(reason: schema.KnowledgeFailureReason): boolean {
-  return reason.code === "http_error"
-    ? [404, 410, 451].includes(reason.status)
-    : ["no_text", "too_long", "too_large", "unsupported_content_type"].includes(reason.code);
 }
 
 export const retryDelayMs = 15 * 60_000;
@@ -65,32 +61,8 @@ function vectorAt(embeddings: number[][], position: number): number[] {
   return vector;
 }
 
-export async function handleIngestGaveUp(
-  payload: { tenantId: string; sourceId: string; requests: number },
-  tx: TenantTx,
-): Promise<void> {
-  const { tenantId, sourceId, requests } = payload;
-  const [source] = await tx
-    .select({ state: knowledgeSources.state, requests: knowledgeSources.ingestRequests })
-    .from(knowledgeSources)
-    .where(eq(knowledgeSources.id, sourceId))
-    .for("update");
-  if (!source || (source.state.status !== "pending" && source.state.status !== "waiting")) return;
-  if (source.requests !== requests) {
-    await queueIngest(tx, { tenantId, sourceId, requests: source.requests }, { kind: "fresh" });
-    return;
-  }
-  await tx
-    .update(knowledgeSources)
-    .set({ state: { status: "failed", reason: { code: "ingest_error" } } })
-    .where(eq(knowledgeSources.id, sourceId));
-  await recordAudit(tx, {
-    tenantId,
-    actor: ingestActor,
-    action: "knowledge_source.failed",
-    target: { type: "knowledge_source", id: sourceId },
-    requestId: null,
-  });
+export async function handleIngestGaveUp(payload: IngestJob, tx: TenantTx): Promise<void> {
+  await failIngest(tx, payload, { code: "ingest_error" });
 }
 
 export function handleIngestSource(deps: IngestWorkerDeps) {
@@ -108,41 +80,13 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if (source.state.status !== "pending" && source.state.status !== "waiting") return;
     // Every request to ingest it again counts up. If one comes in while this run is fetching,
     // the result is from before it: see `lockIfCurrent`.
-    const requests = source.ingestRequests;
-
-    const lockIfCurrent = async (tx: TenantTx): Promise<boolean> => {
-      const [current] = await tx
-        .select({ state: knowledgeSources.state, requests: knowledgeSources.ingestRequests })
-        .from(knowledgeSources)
-        .where(eq(knowledgeSources.id, sourceId))
-        .for("update");
-      if (!current || (current.state.status !== "pending" && current.state.status !== "waiting"))
-        return false;
-      if (current.requests === requests) return true;
-      await queueIngest(tx, { tenantId, sourceId, requests: current.requests }, { kind: "fresh" });
-      return false;
-    };
+    const job: IngestJob = { tenantId, sourceId, requests: source.ingestRequests };
 
     const fail = (reason: schema.KnowledgeFailureReason) =>
       transaction(async (tx) => {
-        if (!(await lockIfCurrent(tx))) return;
-        const gone = supersedes(reason);
-        if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
-        await tx
-          .update(knowledgeSources)
-          .set({
-            state: { status: "failed", reason },
-            ...(gone ? { chunkCount: 0, embeddingModel: null } : {}),
-          })
-          .where(eq(knowledgeSources.id, sourceId));
-        await recordAudit(tx, {
-          tenantId,
-          actor: ingestActor,
-          action: "knowledge_source.failed",
-          target: { type: "knowledge_source", id: sourceId },
-          requestId: null,
-        });
-        deps.logger.warn({ sourceId, reason }, "knowledge source could not be ingested");
+        if (await failIngest(tx, job, reason)) {
+          deps.logger.warn({ sourceId, reason }, "knowledge source could not be ingested");
+        }
       });
 
     const started = now();
@@ -154,16 +98,9 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       retryCount = source.retryCount,
     ) =>
       transaction(async (tx) => {
-        if (!(await lockIfCurrent(tx))) return;
-        await tx
-          .update(knowledgeSources)
-          .set({
-            state: { status: "waiting", reason, retryAt: startAfter.toISOString() },
-            retryCount,
-          })
-          .where(eq(knowledgeSources.id, sourceId));
-        await queueIngest(tx, { tenantId, sourceId, requests }, { kind, startAfter });
-        deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
+        if (await waitToIngest(tx, job, { reason, startAfter, kind, retryCount })) {
+          deps.logger.warn({ sourceId, reason, startAfter }, "knowledge source waits to run again");
+        }
       });
 
     // A temporary problem gets one more try, 15 minutes later. A source already waiting on one
@@ -212,7 +149,7 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
     if ("refused" in reservation) {
       return mapAiRefusal<Promise<JobDeferral | undefined>>(reservation, {
         busy: async (deferUntil) => {
-          const current = await transaction(lockIfCurrent);
+          const current = await transaction((tx) => lockIfCurrent(tx, job));
           if (current) return { deferUntil };
         },
         over_budget: async (retryAt) => {
@@ -258,37 +195,14 @@ export function handleIngestSource(deps: IngestWorkerDeps) {
       return fail({ code: "embedding_failed" });
     }
 
+    const passages = chunks.map((content, position) => ({
+      content,
+      embedding: vectorAt(embeddings, position),
+    }));
     await transaction(async (tx) => {
-      if (!(await lockIfCurrent(tx))) return;
-      await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
-      await tx.insert(knowledgeChunks).values(
-        chunks.map((content, position) => ({
-          tenantId,
-          sourceId,
-          position,
-          content,
-          embedding: vectorAt(embeddings, position),
-          embeddingModel: modelId,
-        })),
-      );
-      await tx
-        .update(knowledgeSources)
-        .set({
-          state: { status: "ready" },
-          retryCount: 0,
-          chunkCount: chunks.length,
-          ingestedAt: now(),
-          embeddingModel: modelId,
-        })
-        .where(eq(knowledgeSources.id, sourceId));
-      await recordAudit(tx, {
-        tenantId,
-        actor: ingestActor,
-        action: "knowledge_source.ingested",
-        target: { type: "knowledge_source", id: sourceId },
-        requestId: null,
-      });
-      deps.logger.info({ sourceId, chunks: chunks.length }, "knowledge source ingested");
+      if (await storeIngested(tx, job, { passages, model: modelId, at: now() })) {
+        deps.logger.info({ sourceId, chunks: chunks.length }, "knowledge source ingested");
+      }
     });
   };
 }

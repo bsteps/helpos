@@ -35,7 +35,13 @@ import { handleIngestSource, retryDelayMs } from "./ingest-worker.ts";
 import { ingestSourceJob } from "./jobs.ts";
 import { type Fetcher, maxPageBytes } from "./page-fetch.ts";
 import { createVectorSearch, type SearchQuery } from "./search.ts";
-import { createSource, deleteSource, requestIngest, slugify, updateSource } from "./sources.ts";
+import {
+  createSource,
+  deleteSource,
+  requestIngest,
+  slugify,
+  updateSource,
+} from "./source-lifecycle.ts";
 
 /** Sends the API's reingest request. */
 const reingest = (id: string, as = "editor") =>

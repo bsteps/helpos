@@ -2,19 +2,85 @@ import {
   and,
   enqueue,
   eq,
+  inArray,
   isKnowledgeUrlTaken,
   isUniqueViolation,
   normalizeKnowledgeUrl,
+  type SQL,
   schema,
   sql,
   type TenantTx,
   uuidv7,
 } from "@helpos/db";
-import { type AuditAction, type Auditor, nothingToAudit } from "../audit/audit.ts";
+import { builtInActors } from "@helpos/db/actor";
+import { type AuditAction, type Auditor, nothingToAudit, recordAudit } from "../audit/audit.ts";
 import { ingestSourceJob } from "./jobs.ts";
+
+// The one module that writes knowledge sources and their passages. Routes, the ingest worker and
+// the seed call the operations below; the knowledge-writes Biome plugin fails on a write anywhere
+// else, so a new state can't be handled in one caller and missed in another.
 
 const { knowledgeChunks, knowledgeSources } = schema;
 type SourceRow = typeof knowledgeSources.$inferSelect;
+type SourceValues = typeof knowledgeSources.$inferInsert;
+type SourceState = schema.KnowledgeSourceState;
+type SourceStatus = SourceState["status"];
+type StateOf<S extends SourceStatus> = Extract<SourceState, { status: S }>;
+
+interface Transition {
+  /** The statuses a source may be in for this change. Anything else changes nothing. */
+  readonly from: readonly SourceStatus[];
+  readonly to: SourceStatus;
+}
+
+const anyStatus = ["pending", "ready", "failed", "waiting"] as const satisfies SourceStatus[];
+const ingesting = ["pending", "waiting"] as const satisfies SourceStatus[];
+
+/** Every way a source's state changes, and nothing else. A new source is `pending`. */
+export const sourceTransitions = {
+  /** Someone asks for it to be read again. */
+  reingest: { from: anyStatus, to: "pending" },
+  /** The same, while it waits for the daily budget: it keeps waiting for the reset. */
+  reingestWhileOverBudget: { from: ["waiting"], to: "waiting" },
+  /** Its markdown changed: the old passages are gone and it is read again. */
+  editContent: { from: anyStatus, to: "pending" },
+  /** The ingest job hit a temporary problem or the daily budget, and runs again later. */
+  wait: { from: ingesting, to: "waiting" },
+  fail: { from: ingesting, to: "failed" },
+  ingested: { from: ingesting, to: "ready" },
+} as const satisfies Record<string, Transition>;
+
+type SourceOperation = keyof typeof sourceTransitions;
+type SourceSet = {
+  [K in Exclude<keyof SourceValues, "state">]?: SourceValues[K] | SQL | undefined;
+};
+
+function isIngesting(state: SourceState): boolean {
+  return (ingesting as readonly SourceStatus[]).includes(state.status);
+}
+
+/** The state is typed by the operation, so a change can only write the status its row allows. */
+async function change<O extends SourceOperation>(
+  tx: TenantTx,
+  operation: O,
+  id: string,
+  state: StateOf<(typeof sourceTransitions)[O]["to"]>,
+  set: SourceSet = {},
+): Promise<SourceRow | undefined> {
+  const { from } = sourceTransitions[operation];
+  const [row] = await tx
+    .update(knowledgeSources)
+    .set({ ...set, state })
+    .where(
+      and(
+        eq(knowledgeSources.id, id),
+        inArray(sql`(${knowledgeSources.state}->>'status')`, [...from]),
+      ),
+    )
+    .returning();
+  return row;
+}
+
 type CreateSourceInput = Pick<SourceRow, "tenantId" | "title"> & {
   slug?: string | undefined;
   visibility?: SourceRow["visibility"] | undefined;
@@ -33,6 +99,13 @@ type IngestQueue =
   | { kind: "reuse" }
   | { kind: "fresh" }
   | { kind: "retry" | "budget"; startAfter: Date };
+
+/** One ingest job: the source, and the request count it was queued for. */
+export interface IngestJob {
+  tenantId: string;
+  sourceId: string;
+  requests: number;
+}
 
 export function queueIngest(
   tx: TenantTx,
@@ -154,18 +227,12 @@ export async function requestIngest(
     .for("update");
   if (!found) return "not_found" as const;
   if (found.managedBy === "git") return "managed_in_git" as const;
-  const [row] = await tx
-    .update(knowledgeSources)
-    .set({
-      state:
-        found.state.status === "waiting" && found.state.reason.code === "daily_budget_reached"
-          ? found.state
-          : { status: "pending" },
-      retryCount: 0,
-      ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
-    })
-    .where(eq(knowledgeSources.id, id))
-    .returning();
+  const { state } = found;
+  const set = { retryCount: 0, ingestRequests: sql`${knowledgeSources.ingestRequests} + 1` };
+  const row =
+    state.status === "waiting" && state.reason.code === "daily_budget_reached"
+      ? await change(tx, "reingestWhileOverBudget", id, state, set)
+      : await change(tx, "reingest", id, { status: "pending" }, set);
   if (!row) throw new Error("reingest: update returned no row");
   await audit(tx, "knowledge_source.reingest_requested", { type: "knowledge_source", id });
   // Already pending: reuse its job rather than queue two. If that job is already fetching,
@@ -176,9 +243,7 @@ export async function requestIngest(
   await queueIngest(
     tx,
     { tenantId, sourceId: id, requests: row.ingestRequests },
-    found.state.status === "pending" || found.state.status === "waiting"
-      ? { kind: "reuse" }
-      : { kind: "fresh" },
+    isIngesting(state) ? { kind: "reuse" } : { kind: "fresh" },
   );
   return row;
 }
@@ -207,24 +272,28 @@ export async function updateSource(
     return found;
   }
 
-  const [row] = await tx
-    .update(knowledgeSources)
-    .set({
-      ...(title ? { title: input.title } : {}),
-      ...(visibility ? { visibility: input.visibility } : {}),
-      ...(content
-        ? {
-            content: input.content,
-            state: { status: "pending" as const },
-            retryCount: 0,
-            chunkCount: 0,
-            embeddingModel: null,
-            ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
-          }
-        : {}),
-    })
-    .where(eq(knowledgeSources.id, id))
-    .returning();
+  const set = {
+    ...(title ? { title: input.title } : {}),
+    ...(visibility ? { visibility: input.visibility } : {}),
+  };
+  const row = content
+    ? await change(
+        tx,
+        "editContent",
+        id,
+        { status: "pending" },
+        {
+          ...set,
+          content: input.content,
+          retryCount: 0,
+          chunkCount: 0,
+          embeddingModel: null,
+          ingestRequests: sql`${knowledgeSources.ingestRequests} + 1`,
+        },
+      )
+    : (
+        await tx.update(knowledgeSources).set(set).where(eq(knowledgeSources.id, id)).returning()
+      )[0];
   if (!row) throw new Error("update knowledge source: update returned no row");
   if (content) {
     await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, id));
@@ -266,4 +335,130 @@ export async function deleteSource(
   await tx.delete(knowledgeSources).where(eq(knowledgeSources.id, id));
   await audit(tx, "knowledge_source.deleted", { type: "knowledge_source", id });
   return "deleted" as const;
+}
+
+/** Demo sources, kept as they are. Returns the ones that were new, to queue their ingest. */
+export function seedSources(
+  tx: TenantTx,
+  rows: SourceValues[],
+): Promise<{ id: string; requests: number }[]> {
+  return tx
+    .insert(knowledgeSources)
+    .values(rows)
+    .onConflictDoNothing()
+    .returning({ id: knowledgeSources.id, requests: knowledgeSources.ingestRequests });
+}
+
+/**
+ * Locks the source and says whether this job may still write its result: the source is still
+ * being ingested and no newer request came in while the job was fetching. A newer request gets a
+ * fresh job here.
+ */
+export async function lockIfCurrent(tx: TenantTx, job: IngestJob): Promise<boolean> {
+  const { tenantId, sourceId, requests } = job;
+  const [current] = await tx
+    .select({ state: knowledgeSources.state, requests: knowledgeSources.ingestRequests })
+    .from(knowledgeSources)
+    .where(eq(knowledgeSources.id, sourceId))
+    .for("update");
+  if (!current || !isIngesting(current.state)) return false;
+  if (current.requests === requests) return true;
+  await queueIngest(tx, { tenantId, sourceId, requests: current.requests }, { kind: "fresh" });
+  return false;
+}
+
+/** The page is gone or can never be read, so its old passages must not be cited any more. */
+function supersedes(reason: schema.KnowledgeFailureReason): boolean {
+  return reason.code === "http_error"
+    ? [404, 410, 451].includes(reason.status)
+    : ["no_text", "too_long", "too_large", "unsupported_content_type"].includes(reason.code);
+}
+
+function recordIngest(tx: TenantTx, job: IngestJob, action: AuditAction): Promise<void> {
+  return recordAudit(tx, {
+    tenantId: job.tenantId,
+    actor: builtInActors.ingestWorker,
+    action,
+    target: { type: "knowledge_source", id: job.sourceId },
+    requestId: null,
+  });
+}
+
+/** Returns false when the job's result no longer applies (see `lockIfCurrent`). */
+export async function failIngest(
+  tx: TenantTx,
+  job: IngestJob,
+  reason: schema.KnowledgeFailureReason,
+): Promise<boolean> {
+  if (!(await lockIfCurrent(tx, job))) return false;
+  const gone = supersedes(reason);
+  if (gone) await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, job.sourceId));
+  await change(
+    tx,
+    "fail",
+    job.sourceId,
+    { status: "failed", reason },
+    gone ? { chunkCount: 0, embeddingModel: null } : {},
+  );
+  await recordIngest(tx, job, "knowledge_source.failed");
+  return true;
+}
+
+/** Returns false when the job's result no longer applies (see `lockIfCurrent`). */
+export async function waitToIngest(
+  tx: TenantTx,
+  job: IngestJob,
+  wait: {
+    reason: schema.KnowledgeWaitReason;
+    startAfter: Date;
+    kind: "retry" | "budget";
+    retryCount: number;
+  },
+): Promise<boolean> {
+  if (!(await lockIfCurrent(tx, job))) return false;
+  const { reason, startAfter, kind, retryCount } = wait;
+  await change(
+    tx,
+    "wait",
+    job.sourceId,
+    { status: "waiting", reason, retryAt: startAfter.toISOString() },
+    { retryCount },
+  );
+  await queueIngest(tx, job, { kind, startAfter });
+  return true;
+}
+
+/** Replaces the source's passages. Returns false when the job's result no longer applies. */
+export async function storeIngested(
+  tx: TenantTx,
+  job: IngestJob,
+  result: { passages: { content: string; embedding: number[] }[]; model: string; at: Date },
+): Promise<boolean> {
+  if (!(await lockIfCurrent(tx, job))) return false;
+  const { tenantId, sourceId } = job;
+  await tx.delete(knowledgeChunks).where(eq(knowledgeChunks.sourceId, sourceId));
+  await tx.insert(knowledgeChunks).values(
+    result.passages.map(({ content, embedding }, position) => ({
+      tenantId,
+      sourceId,
+      position,
+      content,
+      embedding,
+      embeddingModel: result.model,
+    })),
+  );
+  await change(
+    tx,
+    "ingested",
+    sourceId,
+    { status: "ready" },
+    {
+      retryCount: 0,
+      chunkCount: result.passages.length,
+      ingestedAt: result.at,
+      embeddingModel: result.model,
+    },
+  );
+  await recordIngest(tx, job, "knowledge_source.ingested");
+  return true;
 }

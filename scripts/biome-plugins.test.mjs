@@ -333,3 +333,41 @@ test("conversation-writes.grit allows reads and unrelated table writes", () => {
     [],
   );
 });
+
+const knowledgeWriteMessage = /knowledge\/source-lifecycle\.ts/;
+for (const table of [
+  "knowledgeSources",
+  "knowledgeChunks",
+  "schema.knowledgeSources",
+  "schema.knowledgeChunks",
+]) {
+  for (const operation of ["insert", "update", "delete"]) {
+    test(`knowledge-writes.grit rejects ${operation}(${table}) in every caller`, () => {
+      const source = `export const f = (tx) => tx.${operation}(${table});\n`;
+      for (const file of [
+        "routes.ts",
+        "knowledge/ingest-worker.ts",
+        "knowledge/routes.ts",
+        "seed/seed.ts",
+        "drafts/lifecycle.ts",
+      ]) {
+        assert.ok(
+          pluginMessages(source, file).some((m) => knowledgeWriteMessage.test(m)),
+          file,
+        );
+      }
+      assert.deepEqual(pluginMessages(source, "knowledge/source-lifecycle.ts"), []);
+      assert.deepEqual(pluginMessages(source, "knowledge/knowledge.int.test.ts"), []);
+    });
+  }
+}
+
+test("knowledge-writes.grit allows reads", () => {
+  assert.deepEqual(
+    pluginMessages(
+      "export const f = (tx) => tx.select().from(knowledgeSources);\n",
+      "knowledge/ingest-worker.ts",
+    ),
+    [],
+  );
+});
