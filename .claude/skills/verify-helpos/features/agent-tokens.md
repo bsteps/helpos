@@ -25,7 +25,7 @@ Preconditions: baseline.
 - **Revoke.** `pnpm api owner DELETE v1/tokens/<id>` returns `204`. Then `pnpm api <hos_token> GET v1/knowledge/sources` returns `401 unauthorized`, and `GET v1/tokens` shows `revokedAt` set.
 - **Token can't mint.** `pnpm api northwind:triage-bot POST v1/tokens '{"name":"x","scopes":["conversations:read"]}'` returns `403 session_required`.
 - **No admin tokens.** `pnpm api owner POST v1/tokens '{"name":"x","scopes":["workspace:admin"]}'` is refused.
-- **Scopes.** `pnpm api northwind:stats-reader GET v1/conversations` returns `403 forbidden`.
+- **Scopes.** `pnpm api lumen:docs-sync GET v1/conversations` returns `403 forbidden`, because it has only knowledge scopes.
 - **Tenant.** `pnpm api lumen:support-agent GET v1/conversations/<northwind conversation id>` returns `404`.
 
 ## Gotchas

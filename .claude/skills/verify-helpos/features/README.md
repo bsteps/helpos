@@ -34,4 +34,4 @@ Each file has an H1 and one paragraph, then four H2s in order: `Sub-features`, `
 - [Drafts and approval](./drafts-and-approval.md): the AI draft, edit, approve and send, resolve uncertain delivery, discard, retry, redraft. 7 endpoints. The main journey.
 - [Knowledge](./knowledge.md): sources the AI drafts from. API only. 5 endpoints.
 - [Agent tokens](./agent-tokens.md): create, list, revoke, and scope enforcement. API only. 3 endpoints.
-- [Workspace controls](./workspace-controls.md): shadow mode, draft stats, AI budget. 4 endpoints.
+- [Workspace controls](./workspace-controls.md): shadow mode, AI budget. 3 endpoints.

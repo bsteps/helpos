@@ -221,16 +221,6 @@ function expectedReplies(caller: Caller): Record<string, ExpectedReply> {
     },
     "GET /v1/knowledge/sources": { status: 200, contains: a.ids.source },
     "POST /v1/knowledge/sources": { status: 201, body: { title: "Probe" } },
-    "GET /v1/stats/drafts": {
-      status: 200,
-      body: {
-        approvedUnchanged: 0,
-        approvedEdited: 0,
-        discarded: 0,
-        pending: 1,
-        unchangedRate: null,
-      },
-    },
     "GET /v1/workspace/shadow-mode": {
       status: 200,
       body: { enabled: true, recipient: `owner@${a.tag}.test` },

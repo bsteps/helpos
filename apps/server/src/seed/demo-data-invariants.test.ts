@@ -120,9 +120,9 @@ describe("demo draft lifecycle invariants", () => {
   );
 });
 
-it("keeps all 34 demo audit rows compatible without inventing unknown historical inputs", () => {
+it("keeps all 32 demo audit rows compatible without inventing unknown historical inputs", () => {
   const events = buildDemoData().tenants.flatMap((tenant) => tenant.audit);
-  expect(events).toHaveLength(34);
+  expect(events).toHaveLength(32);
   expect(events.filter((event) => event.details == null).map((event) => event.action)).toEqual([
     "draft.discarded",
     "draft.created",

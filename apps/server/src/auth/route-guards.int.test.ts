@@ -64,7 +64,7 @@ async function token() {
     "POST",
     "/v1/tokens",
     { cookie: ownerCookie },
-    JSON.stringify({ name: "guard-bot", scopes: ["stats:read"] }),
+    JSON.stringify({ name: "guard-bot", scopes: ["knowledge:read"] }),
   );
   expect(res.status).toBe(201);
   return (await res.json()) as { id: string; token: string };
