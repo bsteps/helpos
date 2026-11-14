@@ -73,7 +73,7 @@ beforeAll(async () => {
     },
   });
   await runner.start();
-  await ensureJobQueues(runner, services().config);
+  await ensureJobQueues(runner);
 });
 afterAll(async () => {
   await runner?.stop();

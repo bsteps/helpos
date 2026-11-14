@@ -24,7 +24,7 @@ export interface IngestWorkerDeps {
   fetch: Fetcher;
   logger: Pick<Logger, "info" | "warn">;
   clock: Clock;
-  config: Pick<ServerConfig, "dailyTokenBudget" | "fetchRetryDelaysMs">;
+  config: Pick<ServerConfig, "dailyTokenBudget">;
   shutdown?: AbortSignal | undefined;
 }
 
@@ -48,10 +48,11 @@ function supersedes(reason: schema.KnowledgeFailureReason): boolean {
 }
 
 export const retryDelayMs = 15 * 60_000;
+const quickRetryDelaysMs = [1_000, 3_000];
 
 async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<PageText> {
   let page = await fetchPageText(deps, url);
-  for (const delay of deps.config.fetchRetryDelaysMs) {
+  for (const delay of quickRetryDelaysMs) {
     if (page.ok || !isTemporary(page.reason) || page.reason.code === "timeout") return page;
     await new Promise((done) => setTimeout(done, delay));
     page = await fetchPageText(deps, url);

@@ -52,7 +52,7 @@ describe("liveness and readiness", () => {
     await server.runner.start();
     try {
       expect((await server.app().request("/readyz")).status).toBe(503);
-      await ensureJobQueues(server.runner, server.services.config);
+      await ensureJobQueues(server.runner);
       const ready = await server.app().request("/readyz");
       expect(ready.status).toBe(200);
       expect(await ready.json()).toEqual({ status: "ok" });

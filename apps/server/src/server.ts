@@ -68,7 +68,7 @@ export function composeServer(input: ServerInput): Server {
       ? {}
       : { pollingIntervalSeconds: input.pollingIntervalSeconds }),
   });
-  services.queueReady = () => runner.ready(jobs.map((job) => job.queue));
+  services.queueReady = () => runner.ready(jobs.map(({ job }) => job.queue));
   return {
     services,
     runner,
@@ -125,7 +125,6 @@ export function serverFromEnv(env: Env, logger: Logger): Server & { close(): Pro
       webDir: env.HELPOS_WEB_DIR,
       allowShadowModeOff: env.HELPOS_ALLOW_SHADOW_MODE_OFF,
       dailyTokenBudget: env.HELPOS_AI_DAILY_TOKEN_BUDGET,
-      noticeDelaySeconds: env.HELPOS_NOTICE_DELAY_SECONDS,
     },
     model: env.ai ? createModel(env.ai) : undefined,
     embeddingModel: env.embedding ? createEmbeddingModel(env.embedding) : undefined,

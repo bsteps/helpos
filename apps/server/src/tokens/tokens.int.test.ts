@@ -20,7 +20,7 @@ import { createApp } from "../app.ts";
 import { type Authenticate, authenticateRequest, type Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { agentTokens } from "./authenticate.ts";
 import { generateToken, hashToken } from "./token.ts";
@@ -131,7 +131,7 @@ beforeAll(async () => {
   // Every queue, so the routes can enqueue: no job is worked here.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

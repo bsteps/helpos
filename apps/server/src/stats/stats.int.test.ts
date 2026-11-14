@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { buildDemoData, seedToken } from "../seed/demo-data.ts";
 import { seedDemoData } from "../seed/seed.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 
 // Draft stats against real Postgres and RLS, on the demo data: each workspace counts only its
 // own drafts and its own `draft.edited` events.
@@ -30,7 +30,7 @@ beforeAll(async () => {
   auth = createAuthStore(testDb.authUrl);
   jobs = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await jobs.start();
-  const seeded = await seedDemoData({ db, auth, jobs, config: defaultConfig });
+  const seeded = await seedDemoData({ db, auth, jobs });
   if (!seeded.ok) throw new Error(seeded.reason);
   app = createApp(
     composeServices({

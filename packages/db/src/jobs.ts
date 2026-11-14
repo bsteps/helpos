@@ -9,7 +9,6 @@ import type { Database, TenantTx } from "./client.ts";
 // only ever see one tenant's data, through withTenant().
 
 const PGBOSS_SCHEMA = "pgboss";
-const SYSTEM_PREFIX = "system.";
 const queueNameSchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]*(\.[a-z0-9-]+)*$/)
@@ -34,7 +33,6 @@ export function defineTenantJob<const K extends string, const C extends string =
   counters?: Record<C, z.ZodNumber>,
 ): TenantJob<{ tenantId: string } & Record<K, string> & Record<C, number>> {
   const name = queueNameSchema.parse(queue);
-  if (name.startsWith(SYSTEM_PREFIX)) throw new Error(`tenant queue cannot use "${SYSTEM_PREFIX}"`);
   const shape: Record<string, z.ZodType> = { ...ids, ...counters, tenantId: z.uuid() };
   // The shape is UUIDs and whole numbers by construction, so the parsed object has this type.
   const payload = z.strictObject(shape) as unknown as z.ZodType<
@@ -323,9 +321,6 @@ DECLARE
   v_queue pgboss.queue%ROWTYPE;
   v_id uuid;
 BEGIN
-  IF p_queue IS NULL OR p_queue LIKE 'system.%' THEN
-    RAISE EXCEPTION 'app_enqueue: only tenant queues' USING ERRCODE = '42501';
-  END IF;
   IF jsonb_typeof(p_payload) IS DISTINCT FROM 'object' OR v_tenant IS NULL
      OR v_tenant IS DISTINCT FROM nullif(current_setting('app.tenant_id', true), '') THEN
     RAISE EXCEPTION 'app_enqueue: payload tenantId must be the current tenant' USING ERRCODE = '42501';

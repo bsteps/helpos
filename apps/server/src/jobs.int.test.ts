@@ -17,6 +17,7 @@ import { handleNoticeGaveUp } from "./drafts/notice-worker.ts";
 import { ingestEmail } from "./inbound-email/ingest.ts";
 import { handleIngestGaveUp } from "./knowledge/ingest-worker.ts";
 import { composeServer, type Server } from "./server.ts";
+import { retryJobsQuickly } from "./testing/quick-retries.ts";
 import { initWorkspace } from "./workspaces/init-workspace.ts";
 
 // Every job leaves a visible mark when it fails for good, instead of silently leaving its work
@@ -99,10 +100,10 @@ beforeAll(async () => {
     auth,
     config: {
       noticeDelaySeconds: 0,
-      jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
     },
   });
   await helpos.startWorker();
+  await retryJobsQuickly(helpos.runner);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

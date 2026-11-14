@@ -14,7 +14,7 @@ import { createMemoryFileStore } from "@helpos/files";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { ensureJobQueues } from "../jobs.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { ingestEmail } from "./ingest.ts";
 import { maxEmailBytes, secretMatches } from "./route.ts";
@@ -52,7 +52,7 @@ beforeAll(async () => {
   // Ingest queues a draft job, and enqueue() needs the queue to exist. Nothing works it here.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

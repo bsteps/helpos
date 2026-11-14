@@ -2,7 +2,6 @@ import { createAuthStore, createDatabase, createJobRunner } from "@helpos/db";
 import { z } from "zod";
 import { checkSeedTarget } from "../seed/guard.ts";
 import { seedDemoData } from "../seed/seed.ts";
-import { defaultConfig } from "../services.ts";
 
 import { type CliOutput, parseArguments } from "./arguments.ts";
 
@@ -47,7 +46,7 @@ export async function run(
   });
   try {
     await jobs.start();
-    const result = await seedDemoData({ db, auth, jobs, config: defaultConfig });
+    const result = await seedDemoData({ db, auth, jobs });
     if (!result.ok) {
       output.stderr.write(`The mailbox ${result.mailbox} belongs to another workspace.\n`);
       return 1;

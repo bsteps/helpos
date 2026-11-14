@@ -41,7 +41,6 @@ try {
     db,
     auth,
     jobs: server.runner,
-    config: server.services.config,
   });
   assert.ok(seeded.ok, "seed must succeed");
   assert.deepEqual(seeded.skipped, [], "benchmark must use a fresh database");

@@ -29,6 +29,7 @@ import { intendedToHeader } from "../outbound-email/shadow.ts";
 import { createSmtpTransport, type EmailTransport } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
 import { composeServices, defaultConfig, systemClock } from "../services.ts";
+import { retryJobsQuickly } from "../testing/quick-retries.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { handleDraftReply } from "./draft-worker.ts";
 import { handleDraftNotice } from "./notice-worker.ts";
@@ -180,12 +181,11 @@ beforeAll(async () => {
       // No wait in tests, so the Mailpit case doesn't take 5 minutes.
       noticeDelaySeconds: 0,
       dailyTokenBudget: 1_000_000,
-      // A send that fails once on a busy machine is retried in a second, not a minute.
-      jobRetry: { limit: 2, delaySeconds: 1, backoff: false },
     },
   });
   runner = helpos.runner;
   await helpos.startWorker();
+  await retryJobsQuickly(runner, { limit: 2, delaySeconds: 1, backoff: false });
 
   const a = await initWorkspace(
     { db, auth },
