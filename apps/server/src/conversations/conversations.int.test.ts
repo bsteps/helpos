@@ -15,7 +15,7 @@ import { createApp } from "../app.ts";
 import type { Principal, Scope } from "../auth/principal.ts";
 import { ingestEmail } from "../inbound-email/ingest.ts";
 import { ensureJobQueues } from "../jobs.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 
 // The conversation read API against real Postgres: what an agent or the inbox screen sees.
@@ -106,7 +106,7 @@ beforeAll(async () => {
   // Inbound mail queues a draft job; nothing works it here.
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

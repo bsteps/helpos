@@ -79,17 +79,18 @@ function rawEnqueueAsA(payload: object, options: object = {}) {
 }
 
 describe("enqueue", () => {
-  it("reserves system queues even when a caller bypasses the tenant helper", async () => {
-    expect(() => defineTenantJob("system.cleanup", {})).toThrow(/tenant queue cannot use/);
-    expect(
-      await failure(
-        db.withTenant(tenantA, (tx) =>
-          tx.execute(
-            sql`select jobs_api.app_enqueue('system.cleanup', ${JSON.stringify({ tenantId: tenantA })}::jsonb, '{}'::jsonb)`,
+  it("refuses a queue nobody created, even through the raw function", async () => {
+    for (const queue of [null, "never-created"]) {
+      expect(
+        await failure(
+          db.withTenant(tenantA, (tx) =>
+            tx.execute(
+              sql`select jobs_api.app_enqueue(${queue}, ${JSON.stringify({ tenantId: tenantA })}::jsonb, '{}'::jsonb)`,
+            ),
           ),
         ),
-      ),
-    ).toMatch(/only tenant queues/);
+      ).toMatch(/unknown queue/);
+    }
   });
 
   it("enqueue rejects a tenant job without tenantId", async () => {

@@ -81,7 +81,7 @@ beforeAll(async () => {
     pollingIntervalSeconds: 0.5,
   });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

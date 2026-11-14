@@ -21,6 +21,7 @@ import {
   SendRejected,
 } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
+import { retryJobsQuickly } from "../testing/quick-retries.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { sendReplyJob } from "./jobs.ts";
 import { approveDraft, createReply, retrySend } from "./lifecycle.ts";
@@ -108,10 +109,10 @@ beforeAll(async () => {
       publicUrl: "http://helpdesk.test",
       noticeDelaySeconds: 3600,
       dailyTokenBudget: 1_000_000,
-      jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
     },
   });
   await helpos.startWorker();
+  await retryJobsQuickly(helpos.runner);
   const a = await initWorkspace(
     { db, auth: createAuthStore(testDb.authUrl) },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },
@@ -306,6 +307,7 @@ it("a killed worker after SMTP acceptance never sends a second copy after lease 
     await stopped;
     await helpos.runner.stop();
     await helpos.startWorker();
+    await retryJobsQuickly(helpos.runner);
   }
 }, 60_000);
 

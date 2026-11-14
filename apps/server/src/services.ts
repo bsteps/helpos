@@ -1,5 +1,5 @@
 import type { EmbeddingModel, LanguageModel } from "@helpos/ai";
-import type { AuthStore, Database, RetryPolicy } from "@helpos/db";
+import type { AuthStore, Database } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
 import { safeFetch } from "@helpos/safe-fetch";
 import type { Logger } from "pino";
@@ -29,13 +29,6 @@ export interface ServerConfig {
   dailyTokenBudget: number;
   /** How long a new draft waits before its owner notice is sent. */
   noticeDelaySeconds: number;
-  /** Waits before each new try of a knowledge page that failed on a temporary error. */
-  fetchRetryDelaysMs: readonly number[];
-  /**
-   * For tests: one retry policy for every job queue, in place of each job's own, so a failing
-   * job gives up in seconds instead of hours.
-   */
-  jobRetry: RetryPolicy | undefined;
 }
 
 export const defaultConfig: ServerConfig = {
@@ -46,8 +39,6 @@ export const defaultConfig: ServerConfig = {
   dailyTokenBudget: defaultDailyTokenBudget,
   // A draft approved within 5 minutes never causes an email.
   noticeDelaySeconds: 300,
-  fetchRetryDelaysMs: [1_000, 3_000],
-  jobRetry: undefined,
 };
 
 /** The database calls the API makes outside a tenant (routing mail, tokens, sign-in). */

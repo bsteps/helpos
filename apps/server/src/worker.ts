@@ -8,7 +8,7 @@ import type { Services } from "./services.ts";
  * then wait in the queue until what it needs is configured).
  */
 export async function startWorker(services: Services, runner: JobRunner): Promise<void> {
-  await ensureJobQueues(runner, services.config);
+  await ensureJobQueues(runner);
   for (const job of jobs) {
     const waiting = await job.start(runner, services);
     if (waiting) services.logger.warn(waiting.waits);

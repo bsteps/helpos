@@ -32,7 +32,7 @@ Each item names the test that proves it. "Leak suite" means the cross-tenant sui
 - Every tenant job payload is validated by a Zod schema that **requires** `tenantId`. A shared `enqueue()` helper is the only way to send a job, and it refuses a payload without one.
 - A worker handler never receives a database client. The job runner calls `withTenant(job.tenantId, (tx) => handler(job, tx))`, so the handler can only see that tenant's rows.
 - Payloads carry **IDs only**, never message bodies, email addresses or other tenant content. The handler reloads the data inside `withTenant()`. That also keeps data that's later deleted from lingering in job history.
-- System jobs (with no tenant, e.g. cleanup) use a separate queue name prefix (`system.`) and a handler type that gets no tenant client.
+- Every queue is a tenant queue. A job with no tenant (e.g. cleanup) needs its own job kind, whose handler gets no tenant client, and a way to keep the app role from enqueueing it. Neither exists until such a job does.
 - Test: `leak: job for tenant A cannot read tenant B rows` and `enqueue rejects a tenant job without tenantId` (#44).
 
 ### 3. pg-boss's own tables
