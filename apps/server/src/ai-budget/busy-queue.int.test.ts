@@ -26,6 +26,8 @@ import { defaultConfig } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { aiBudget } from "./budget.ts";
 
+const noPause = async () => {};
+
 const budget = 200;
 const files = createMemoryFileStore();
 const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
@@ -219,6 +221,7 @@ it("defers busy ingestion without erasing its earlier temporary failure", async 
   try {
     await runner.work(ingestSourceJob, {
       steps: handleIngestSource({
+        pause: noPause,
         embeddingModel: mockEmbeddingModel(),
         fetch: safeFetch,
         logger,

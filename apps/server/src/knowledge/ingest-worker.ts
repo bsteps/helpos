@@ -9,7 +9,7 @@ import {
 import { eq, type JobDeferral, schema, type TenantTransaction, type TenantTx } from "@helpos/db";
 import type { Logger } from "pino";
 import { aiBudget, mapAiRefusal, nextUtcDay } from "../ai-budget/budget.ts";
-import type { Clock, ServerConfig } from "../services.ts";
+import type { Clock, ServerConfig, Services } from "../services.ts";
 import { chunkText, maxChunks } from "./chunk.ts";
 import { tidyAuthored } from "./extract.ts";
 import { type Fetcher, fetchPageText, type PageText } from "./page-fetch.ts";
@@ -29,6 +29,7 @@ export interface IngestWorkerDeps {
   logger: Pick<Logger, "info" | "warn">;
   clock: Clock;
   config: Pick<ServerConfig, "dailyTokenBudget">;
+  pause: Services["pause"];
   shutdown?: AbortSignal | undefined;
 }
 
@@ -50,7 +51,7 @@ async function fetchWithRetries(deps: IngestWorkerDeps, url: string): Promise<Pa
   let page = await fetchPageText(deps, url);
   for (const delay of quickRetryDelaysMs) {
     if (page.ok || !isTemporary(page.reason) || page.reason.code === "timeout") return page;
-    await new Promise((done) => setTimeout(done, delay));
+    await deps.pause(delay);
     page = await fetchPageText(deps, url);
   }
   return page;

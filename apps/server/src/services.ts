@@ -15,6 +15,8 @@ export interface Clock {
 
 export const systemClock: Clock = { now: () => new Date() };
 
+const realPause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
 /** Settings the API and the worker share. One object, so the two can never disagree. */
 export interface ServerConfig {
   /** HELPOS_PUBLIC_URL: where the dashboard runs. Links in emails point here. */
@@ -70,6 +72,8 @@ export interface Services {
   auth: Pick<AuthStore, "sessions" | "setPassword" | "emailsOf"> | undefined;
   /** Fetches knowledge URLs. The SSRF-safe fetch; tests point it at a local server. */
   fetch: Fetcher;
+  /** Waits between quick fetch retries. Tests pass one that returns at once. */
+  pause: (ms: number) => Promise<void>;
   /**
    * Aborted when the server starts shutting down (Server.stopAiCalls), so every AI call in
    * flight stops and settles its budget reservation before the database closes.
@@ -97,6 +101,7 @@ export function composeServices(input: ServicesInput): Services {
     transport: input.transport,
     auth: input.auth,
     fetch: input.fetch ?? safeFetch,
+    pause: input.pause ?? realPause,
     shutdown: input.shutdown ?? new AbortController().signal,
   };
 }
