@@ -12,12 +12,7 @@ import {
   uuidv7,
 } from "@helpos/db";
 import type { FileStore } from "@helpos/files";
-import {
-  addMessage,
-  createConversation,
-  recordActivity,
-  reopenConversation,
-} from "../conversations/lifecycle.ts";
+import { addMessage, createConversation, recordInbound } from "../conversations/lifecycle.ts";
 import { draftReplyJob } from "../drafts/jobs.ts";
 import { type ParsedEmail, parseEmail } from "./parse.ts";
 
@@ -110,8 +105,7 @@ async function store(
   let conversationId: string;
   if (threadConversationId) {
     conversationId = threadConversationId;
-    if (email.automated) await recordActivity(tx, conversationId, now);
-    else await reopenConversation(tx, conversationId, now);
+    await recordInbound(tx, conversationId, now, { automated: email.automated !== null });
   } else {
     conversationId = uuidv7();
     await createConversation(tx, {
