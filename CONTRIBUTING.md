@@ -49,6 +49,8 @@ git commit -m "fix: keep Outlook replies in the same thread"
 git push -u origin 42-short-description
 ```
 
+Every change also takes the four steps in [What every change needs](AGENTS.md#what-every-change-needs): pin current behaviour with a test before you reshape code, prove the change the way a user would, clean your diff, and write a clear PR description. They need no particular tool.
+
 Rules that matter most (full list in [AGENTS.md](AGENTS.md)):
 
 - **Every change ships with tests.** We don't rely on manual testing ([ADR 0005](docs/adr/0005-verification-over-manual-testing.md)).
