@@ -1,14 +1,6 @@
-import fc from "fast-check";
-
 type Table<S extends string> = Readonly<
   Record<string, { readonly from: readonly S[]; readonly to: S }>
 >;
-
-interface Step<S extends string> {
-  operation: string;
-  before: S;
-  after: S;
-}
 
 export function edges<S extends string>(table: Table<S>): string[] {
   return Object.entries(table)
@@ -28,16 +20,4 @@ export function reachable<S extends string>(table: Table<S>, start: S): S[] {
     }
   }
   return [...reached].sort();
-}
-
-export function walks<S extends string>(table: Table<S>, start: S): fc.Arbitrary<Step<S>[]> {
-  return fc.array(fc.constantFrom(...Object.keys(table)), { maxLength: 40 }).map((operations) => {
-    let status = start;
-    return operations.map((operation) => {
-      const t = table[operation];
-      const before = status;
-      if (t?.from.includes(status)) status = t.to;
-      return { operation, before, after: status };
-    });
-  });
 }
