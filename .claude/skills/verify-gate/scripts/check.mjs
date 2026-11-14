@@ -231,11 +231,11 @@ function report(results, elapsed) {
     if (ok) continue;
     if (r.expected === "holds") {
       problems.push(
-        `${r.violated} is broken in the base model. Read ${where}/tlc.out with /statechart before you decide whether the design or the model is wrong.`,
+        `${r.violated} is broken in the base model. Read the trace in ${where}/tlc.out ("Read every broken promise" in SKILL.md) before you decide whether the design or the model is wrong.`,
       );
     } else {
       problems.push(
-        `${r.group} broke ${r.violated}, not ${r.invariants[0]}. Read ${where}/tlc.out with /statechart: the mutant hits a different promise first.`,
+        `${r.group} broke ${r.violated}, not ${r.invariants[0]}. The mutant hits a different promise first. Read the trace in ${where}/tlc.out ("Read every broken promise" in SKILL.md).`,
       );
     }
   }

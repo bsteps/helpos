@@ -36,9 +36,17 @@ It runs the base model once with every promise, then each mutant in `model/mutan
 
 `node --test .claude/skills/verify-gate/scripts/check.test.mjs` tests the checker itself, and `pnpm test:scripts` runs it in CI. It runs the real checker on a scratch copy, requires every mutant to break its promise, then makes `SubmitGuard` always true and requires the run to fail. It skips when Java is missing, except under `CI`, where it fails.
 
-## Read every result with `/statechart`
+## Read every broken promise
 
-For any broken promise, read its folder with the pstack `/statechart` skill (where you can't start it yourself, read its `SKILL.md` and follow it). It tells the shortest path to the broken state in plain words. When everything holds, it draws how a proposal moves between states. Then decide:
+Read the trace of every broken promise before you decide anything. The runner prints the path under the result, as model actions in order. The full trace is in `tlc.out`, at `.helpos/verify-gate/base/` for the base model and `.helpos/verify-gate/<mutant>/<promise>/` for a mutant. Each `!!` line names its file:
+
+1. Find `Error: Invariant <promise> is violated.` The states after it are the path. TLC searches breadth-first, so no shorter path breaks the promise.
+2. Each `State N: <Action ...>` block names the model action that led to it, then lists every variable after that step. Compare each state with the one before it to see what the action changed.
+3. Look up each action in "Where each step lives" below and retell the path in the code's words, for example "an agent claims and reads, a person takes over, then the agent's late proposal is accepted".
+
+Optional tip: the pstack `/statechart` skill writes the same path in plain words, and draws how a proposal moves between states.
+
+Then decide:
 
 - **A real bug** replays on the real code. Replay the path one step at a time, using the table below to find the code for each step, as a race test in `apps/server/src/gate-promises.int.test.ts` against real Postgres. Report it with the path in the code's words. Never weaken a promise to make it pass.
 - **A modeling error** doesn't replay. Find the first step where the model and the code differ. Usually one model step is split by an `await` in the code, the model lacks a guard the code has, or the model has a guard the code lacks. Fix the model and say in the PR what was wrong.
