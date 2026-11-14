@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createVitest } from "vitest/node";
+import { workflowJobs } from "./required-checks.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
@@ -79,14 +80,19 @@ test("dashboard budget counts modulepreload chunks and rejects oversized initial
   }
 });
 
-test("quality commands run in the existing required check and failure artifacts include video output", () => {
+test("quality commands run unconditionally in jobs the required gate waits for, and failure artifacts include video output", () => {
   const ci = read(".github/workflows/ci.yml");
-  const check = ci.split("\n  check:")[1]?.split("\n  e2e:")[0];
-  assert.ok(check);
+  const jobs = workflowJobs(ci);
+  const gated = new Set(jobs.check?.needs);
+  assert.ok(gated.size > 0, "the check job waits for no jobs");
   for (const command of ["pnpm test:coverage", "pnpm test:performance"]) {
+    const owners = Object.entries(jobs).filter(([, job]) =>
+      job.text.includes(`- run: ${command}\n`),
+    );
+    assert.equal(owners.length, 1, `${command} must be an unconditional step in exactly one job`);
     assert.ok(
-      check.includes(`- run: ${command}\n`),
-      `${command} must be an unconditional required-check step`,
+      gated.has(owners[0]?.[0] ?? ""),
+      `${command} must run in a job the required check needs`,
     );
   }
   const config = read("apps/web/playwright.config.ts");
