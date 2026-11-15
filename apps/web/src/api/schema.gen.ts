@@ -452,26 +452,6 @@ export interface paths {
         patch: operations["knowledge.updateSource"];
         trace?: never;
     };
-    "/v1/stats/drafts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * How many drafts were approved unchanged
-         * @description Outcomes of the drafts created in a date range: approved unchanged, approved after an edit (by anyone), discarded, still pending, and the share of approved drafts that went out unchanged. The range is at most 400 days. Needs `stats:read`.
-         */
-        get: operations["stats.getDraftOutcomes"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/workspace/shadow-mode": {
         parameters: {
             query?: never;
@@ -502,7 +482,7 @@ export interface components {
     schemas: {
         Error: {
             /** @enum {string} */
-            error: "already_answered" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "daily_budget_reached" | "empty_range" | "forbidden" | "forbidden_origin" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_token" | "managed_in_git" | "missing_from" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "range_too_long" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
+            error: "already_answered" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "daily_budget_reached" | "forbidden" | "forbidden_origin" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_token" | "managed_in_git" | "missing_from" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
         } & {
             /** @constant */
             type: "about:blank";
@@ -529,13 +509,13 @@ export interface components {
                 id: string;
                 name: string;
             };
-            scopes: ("conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "stats:read" | "workspace:admin")[];
+            scopes: ("conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "workspace:admin")[];
         };
         CreatedApiToken: components["schemas"]["ApiToken"] & {
             token: string;
         };
         /** @enum {string} */
-        TokenScope: "conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write" | "stats:read";
+        TokenScope: "conversations:read" | "conversations:write" | "drafts:write" | "drafts:approve" | "knowledge:read" | "knowledge:write";
         ApiToken: {
             /** Format: uuid */
             id: string;
@@ -682,7 +662,7 @@ export interface components {
         };
         KnowledgeSourceConflict: {
             /** @enum {string} */
-            error: "already_answered" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "daily_budget_reached" | "empty_range" | "forbidden" | "forbidden_origin" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_token" | "managed_in_git" | "missing_from" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "range_too_long" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
+            error: "already_answered" | "bad_request" | "busy" | "content_not_editable" | "conversation_closed" | "daily_budget_reached" | "forbidden" | "forbidden_origin" | "idempotency_conflict" | "idempotency_expired" | "idempotency_not_supported" | "idempotency_pending" | "idempotency_unavailable" | "internal_error" | "invalid_credentials" | "invalid_idempotency_key" | "invalid_token" | "managed_in_git" | "missing_from" | "not_current_uncertain_send" | "not_found" | "not_pending" | "not_ready" | "not_send_failed" | "nothing_to_answer" | "scope_not_held" | "session_required" | "sessions_disabled" | "shadow_mode_locked" | "slug_taken" | "too_large" | "unauthorized" | "unknown_mailbox" | "unsupported_media_type" | "url_taken";
             /** Format: uuid */
             sourceId?: string;
         } & {
@@ -701,17 +681,6 @@ export interface components {
             visibility?: "public" | "internal";
             /** @description Markdown sources only. A URL source's text comes from its page. */
             content?: string;
-        };
-        DraftStats: {
-            /** Format: date-time */
-            from: string;
-            /** Format: date-time */
-            to: string;
-            approvedUnchanged: number;
-            approvedEdited: number;
-            discarded: number;
-            pending: number;
-            unchangedRate: number | null;
         };
         ShadowMode: {
             enabled: boolean;
@@ -2370,58 +2339,6 @@ export interface operations {
             };
             /** @description Idempotency storage or a required service is unavailable */
             503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "stats.getDraftOutcomes": {
-        parameters: {
-            query?: {
-                /** @description Start of the range. Defaults to 14 days before `to`. */
-                from?: string;
-                /** @description End of the range, exclusive. Defaults to now. */
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The counts */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftStats"];
-                };
-            };
-            /** @description `from` is not before `to`, or the range is too long */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No valid credentials */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The credentials lack the required scope */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -17,5 +17,5 @@ or {
   $filename <: r".*apps.server.src..*",
   $filename <: not r".*.conversations.lifecycle\.ts",
   $filename <: not r".*\.test\.ts",
-  register_diagnostic(span=$write, message="Write conversations and messages only through apps/server/src/conversations/lifecycle.ts (addMessage, closeConversation, reopenConversation, pauseAi, ...).", severity="error")
+  register_diagnostic(span=$write, message="Write conversations and messages only through apps/server/src/conversations/lifecycle.ts (addMessage, closeConversation, recordInbound, pauseAi, ...).", severity="error")
 }

@@ -22,7 +22,6 @@ import { registerInboundEmail } from "./inbound-email/route.ts";
 import { registerKnowledgeRoutes } from "./knowledge/routes.ts";
 import { withRequestId } from "./logger.ts";
 import type { Services } from "./services.ts";
-import { registerStatsRoutes } from "./stats/routes.ts";
 import { agentTokens } from "./tokens/authenticate.ts";
 import { registerTokenRoutes } from "./tokens/routes.ts";
 import { registerDashboard } from "./web/dashboard.ts";
@@ -90,7 +89,6 @@ export function createApp(services: AppServices, options: AppOptions = {}): Open
   registerDraftRoutes(app, { db, clock, config, logger });
   registerAiUsageRoute(app, { db, clock, config, logger });
   registerKnowledgeRoutes(app, { db });
-  registerStatsRoutes(app, { db, clock });
   registerShadowModeRoutes(app, { db, allowShadowModeOff: config.allowShadowModeOff });
 
   if (webDir) registerDashboard(app, webDir);
