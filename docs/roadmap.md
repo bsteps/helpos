@@ -1,13 +1,25 @@
 # Roadmap
 
-How we get from here to the [vision](vision.md). Each set is a GitHub milestone with one exit goal. Nothing lands before what it depends on. When this page disagrees with the vision, the vision wins. Accepted ADRs still bind: changing one takes a new ADR.
+How we get from here to the [vision](vision.md). Each milestone is one part of the product, and it ends with a checkpoint. When this page disagrees with the vision, the vision wins. Accepted ADRs still bind: changing one means updating that ADR.
+
+## How a milestone works
+
+A milestone is one capability you can see and try, not a list of tasks. It ends with a checkpoint issue (labelled `human-only`), and the next milestone starts only once that issue is closed. At the checkpoint we:
+
+1. **Understand** what was built and how it fits with the rest.
+2. **Test** it by hand, in the running app and through the API, failure cases included.
+3. **Change** what you don't like, file it in the same milestone and fix it.
+4. **Decide** open questions, and update the ADRs and docs.
+5. **Re-plan** the next milestones from what we learned.
+
+Only the next two or three milestones get detailed plans. Later ones are a direction, and they change at checkpoints.
 
 ## Principles
 
 - **Pipes, not features.** If an agent can do it in one prompt, it isn't on this list.
-- **Clean foundation first.** New work builds only on code that is clean and proven by tests, so set 0 comes before the gate.
-- **The gate first.** Every later pipe goes through it.
-- **Real replies early.** Trust is earned from outcomes, and outcomes exist only once real replies reach customers. So the first real reply comes right after the gate and shadow mode, before the improve loop.
+- **Understand before building on.** Milestones 1 to 6 are checkpoints over what already exists, so new work builds on parts that are understood and tested.
+- **Clean foundation first.** New work builds only on code that is clean and proven by tests, so the foundation milestone comes before milestone 7.
+- **The gate first.** Milestones 7 to 9 build the gate, and every later pipe goes through it.
 - **Prove the loop before widening the tool surface.** Outside tools connect only once fewer decisions without worse answers is shown (#185).
 - **Remove what the vision replaced, only once the replacement works.**
 
@@ -15,89 +27,60 @@ How we get from here to the [vision](vision.md). Each set is a GitHub milestone 
 
 Email comes in and becomes a conversation. The AI drafts a reply from the workspace's knowledge, with citations. A person approves it, and it is sent in shadow mode, so every reply goes to the workspace owner, never to a real customer. Agents do the same through the public API with scoped tokens, and every action is audit-logged.
 
-## The sets
+## Part 1: what we already have
 
-| Set                             | Exit goal                                                                                                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0. Clean foundation**         | The audit's architecture debt is fixed, every behaviour is proven by a test, and every judgment-only rule that can be a check is one                          |
-| **A. The gate**                 | Every action from any agent goes through one gate, and tests prove one writer at a time, no automatic resend, and agents can't approve                        |
-| **B. Shadow mode** (after #187) | Conversations imported from another helpdesk are replayed in shadow mode, a person reviews how the agent would have answered, and decision demand is measured |
-| **C. First real reply**         | One workspace sends real replies to real customers with every release-safety item in place, and customer outcomes are measured                                |
-| **D. Bring your agent**         | The improve loop runs, from the built-in agent on a schedule and from an outside agent (Claude Code, Codex) through MCP. Outside tools connect last           |
-| **E. Paid hosted**              | Hosted sign-up, onboarding, one-slider pricing and privacy work end to end                                                                                    |
-| **Later**                       | On demand                                                                                                                                                     |
+These milestones build nothing new. Each one is a checkpoint over a part that already works, plus the small fixes it turns up.
 
-## 0. Clean foundation
+| Milestone                                                                      | You'll understand and test                                                                                           |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| [1. Email in, conversation out](https://github.com/bsteps/helpos/milestone/16) | How a forwarded email becomes a conversation: threading, customers, attachments (#131), and what happens to bad mail |
+| [2. Knowledge](https://github.com/bsteps/helpos/milestone/17)                  | Adding sources, how pages are fetched and split, public vs internal content, and how the AI finds answers            |
+| [3. AI drafts](https://github.com/bsteps/helpos/milestone/18)                  | How a draft is written, its citations, cost limits, what happens when the AI fails, and how helpful drafts are       |
+| [4. Approve, edit and send](https://github.com/bsteps/helpos/milestone/19)     | The decision on each draft, shadow mode, failed and uncertain sends, and the formal model behind sending             |
+| [5. Agent access](https://github.com/bsteps/helpos/milestone/20)               | Tokens, scopes, the audit log, and safe retries (#346)                                                               |
+| [6. The dashboard and alerts](https://github.com/bsteps/helpos/milestone/21)   | What a person sees and does, and the email alerts                                                                    |
 
-The existing code is cleaned before new work builds on it. The [0: Clean foundation milestone](https://github.com/bsteps/helpos/milestone/15) is the full list, including every issue the code audit files there. It started with:
+## Foundation
 
-- #8 leak harness, before the new tables of A and B
-- #184 rename tickets to conversations, before MCP tools are generated (#19)
-- #130 no automatic resend · #139 send-failed replies under load
-- #85 audit records the reason and the inputs · #10 API conventions (idempotency)
-- #22 quality gates and performance budgets
+[0: Clean foundation](https://github.com/bsteps/helpos/milestone/15) runs alongside Part 1. It fixes the audit's architecture debt, proves every behaviour with a test, and turns every judgment-only rule that can be a check into one. Repo tooling issues go here too. It has to be done before milestone 7 starts.
 
-## A. The gate
+## Part 2: toward the vision
 
-- #28 threat model, first pass, before the gate is designed
-- #187 the one decision record. Set B starts once it lands
-- #165 one owner per conversation: expiring claims and versions
-- #13 the gate: an identity per agent (the built-in one too), permissions, and human-only approval
-- #188 caps and kill switch (only a person turns it off) · #189 approved means exactly that action
-- #166 trust ladder: state, demotion and caps now. Promotions open once real outcomes exist (after C)
-- #167 playbook: ask once, remember, recheck. It can never widen authority on its own
-- #168 AI disclosure, and "talk to a human" creates a decision for a person
+| Milestone                                                                        | You'll see and test                                                                                                                                                        |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [7. Every agent has an identity](https://github.com/bsteps/helpos/milestone/22)  | Each agent, the built-in one included, has its own permissions and an off switch, and no agent can approve. You try to approve as an agent and turn one off                |
+| [8. One place for decisions](https://github.com/bsteps/helpos/milestone/23)      | Everything an agent wants to do lands as a decision. You approve, edit or reject on one page, get alerts in Slack and email, and what you approved is exactly what happens |
+| [9. One owner per conversation](https://github.com/bsteps/helpos/milestone/24)   | Two agents work at once. Only one owns a conversation, stale proposals are rejected, and nothing is ever resent automatically                                              |
+| [10. Rules the desk remembers](https://github.com/bsteps/helpos/milestone/25)    | When the agent is unsure it asks you once. Your answer becomes a rule that is rechecked when things change. A rule can never widen an agent's authority on its own         |
+| [11. Undo](https://github.com/bsteps/helpos/milestone/26)                        | You revert any internal change from its history. Irreversible actions stay behind your approval                                                                            |
+| [12. Customers always know](https://github.com/bsteps/helpos/milestone/27)       | Every reply shows it is AI, and a customer can always reach a person                                                                                                       |
+| [13. Answers with sources](https://github.com/bsteps/helpos/milestone/28)        | The agent answers only from a source. Missing sources become knowledge gaps ranked by demand. AI output is cleaned, and personal data is masked before the AI sees it      |
+| [14. Bring your old helpdesk](https://github.com/bsteps/helpos/milestone/29)     | You import an export (Crisp first) and see how the agent would have answered your last 200 conversations, in shadow mode. Backups and data retention are in place first    |
+| [15. The one number](https://github.com/bsteps/helpos/milestone/30)              | You see how much human work it takes per 100 conversations, and whether customers stay happy                                                                               |
+| [16. Real email](https://github.com/bsteps/helpos/milestone/31)                  | Sender checks, your own sending domain, bounces, clean quoted replies, signed inbound mail, rate limits and encrypted secrets. You send real replies to real customers     |
+| [17. Trust from outcomes](https://github.com/bsteps/helpos/milestone/32)         | Real outcomes move each agent's actions up or down the trust ladder, and you accept every promotion                                                                        |
+| [18. Your own agent connects](https://github.com/bsteps/helpos/milestone/33)     | Your Claude Code or Codex works the desk through MCP and skills, with tokens that expire, an audit log it can read, and other tools connected through the gate             |
+| [19. The desk wakes agents](https://github.com/bsteps/helpos/milestone/34)       | Webhooks, an event feed and schedules start agents when something happens                                                                                                  |
+| [20. Shared work](https://github.com/bsteps/helpos/milestone/35)                 | Queues, handoffs between agents, and waiting lists: everyone waiting on one fix hears when it is done                                                                      |
+| [21. Knowledge stays fresh](https://github.com/bsteps/helpos/milestone/36)       | Releases and changes flag stale knowledge, and sources get rechecked                                                                                                       |
+| [22. Customers and search](https://github.com/bsteps/helpos/milestone/37)        | Agents and people find any customer or conversation, and work with tags and saved replies                                                                                  |
+| [23. Your agent sets up the desk](https://github.com/bsteps/helpos/milestone/38) | A new workspace is configured end to end by an agent, with the human-only settings refused                                                                                 |
+| [24. Hosted](https://github.com/bsteps/helpos/milestone/39)                      | A stranger signs up and gets value in 10 minutes, on one price slider that includes AI, with privacy and abuse protection                                                  |
 
-## B. Shadow mode
-
-- #169 bulk import · #170 Crisp migration skill (a versioned file the built-in agent runs on an export)
-- #179 replay without peeking at the real reply, then re-run after knowledge gaps close: the improve loop's first proof
-- #178 no source, no answer
-- Before real conversations are imported and sent to a model: #52 sanitising and PII masking · #29 rate limiting · #76 backup and restore · #78 retention and incident response
-- #171 approval page with Slack and email alerts · #124 tell the owners when a reply can't be sent · #131 inbound attachments
-- #172 knowledge gaps ranked by demand
-- #77 product events and decision demand
-
-## C. First real reply
-
-The remaining release-safety items from the [architecture overview](architecture/overview.md#shortcuts-before-the-first-real-reply), plus real email basics.
-
-- **Safety:** #31 SPF/DKIM/DMARC · #15 envelope encryption
-- **Email:** #74 sending domain and DKIM signing · #75 bounces and quote stripping
-- **Runs on** the existing image and demo compose. The production self-hosting release is #21 in E
-- **Outcomes:** #185 live outcomes, observation window, sampled quality checks · #186 trust promotions from real outcomes
-
-## D. Bring your agent
-
-- #19 MCP server and skills, with features that announce themselves
-- #17 wake-ups: signed webhooks, event feed, fallback
-- #176 freshness loop: knowledge revisions, change events, staleness flags
-- #173 queues and handoff
-- #71 waiting lists
-- #12 token rotation · #14 audit log query API
-- Last, once #185 shows fewer decisions without worse answers: #174 any MCP tool through the gate
-
-## E. Paid hosted
-
-- #180 sign-up to first replayed answer in minutes
-- #181 one slider by conversations with an AI allowance. Bring your own key always allowed
-- #182 export and deletion · #183 sign-up abuse protection
-- #11 invites, password reset, roles · #21 production Docker + Compose · #18 #6 separate worker
-
-Billing (with Dodo Payments), metering and hosted admin live in the private hosted-service repo (ADR 0007). Everything else stays here.
+Shadow mode stays on until milestone 16: every item in the [release-safety list](architecture/overview.md#shortcuts-before-the-first-real-reply) lands before the first real reply. Billing (with Dodo Payments), metering and hosted admin live in the private hosted-service repo (ADR 0007). Everything else stays here.
 
 ## Later (on demand)
 
-- **The dashboard step:** settings and stats you can read without paying for AI, with the layout shaped by the agent
+The [Later milestone](https://github.com/bsteps/helpos/milestone/7) holds what waits for demand:
+
+- More frontends: the chat widget (#399), headless help-center pages (#405), and teams' own dashboards on our API and MCP (#400)
 - **Rules, knowledge and settings in git** (ADR 0010, accepted). The sync waits, but new tables must keep it possible
-- #20 observability · #23 release automation
+- #20 observability · #23 release automation · #205 evals against a real model
 - #57 routing by envelope recipient · #90 #91 #92 knowledge re-ingest and vector recall
-- More channels: chat widget, Slack, Discord, WhatsApp, SMS, voice
+- More channels: Slack, Discord, WhatsApp, SMS, voice
 - Enterprise: SSO, SCIM, data residency, SOC 2
 - OAuth login (GitHub, Google)
 - #25 CLA lawyer review · #30 OpenSSF Scorecard
-
-Repo tooling issues (#113, #115, #126, #127) have no milestone. Pick them up any time.
 
 ## Not on the roadmap
 
