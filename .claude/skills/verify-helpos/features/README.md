@@ -12,7 +12,7 @@ The maintained source for verifying what HelpOS users can see and do. Read this 
 ## Driving conventions
 
 - API paths go without the leading slash (`v1/conversations`), because of Git Bash.
-- Make your own test data with a unique subject (`Verify <thing> <timestamp>`) instead of mutating seeded conversations that other checks count on (the inbox's "approved unchanged" line reads the seeded drafts).
+- Make your own test data with a unique subject (`Verify <thing> <timestamp>`) instead of mutating seeded conversations that other checks count on.
 - Dashboard: roles, labels and `data-testid`, never CSS or position.
 - New conversation IDs come back from the inbound call (`conversationId`). Draft IDs come from `GET v1/conversations/{id}/drafts`.
 
@@ -34,4 +34,4 @@ Each file has an H1 and one paragraph, then four H2s in order: `Sub-features`, `
 - [Drafts and approval](./drafts-and-approval.md): the AI draft, edit, approve and send, resolve uncertain delivery, discard, retry, redraft. 7 endpoints. The main journey.
 - [Knowledge](./knowledge.md): sources the AI drafts from. API only. 5 endpoints.
 - [Agent tokens](./agent-tokens.md): create, list, revoke, and scope enforcement. API only. 3 endpoints.
-- [Workspace controls](./workspace-controls.md): shadow mode, draft stats, AI budget. 4 endpoints.
+- [Workspace controls](./workspace-controls.md): shadow mode, AI budget. 3 endpoints.

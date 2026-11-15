@@ -43,6 +43,9 @@ function seedId(name: string, at: Date): string {
 /**
  * A fixed `hos_` token, so e2e tests and agents can use it without reading it back from the
  * database. It is public (it is in this repo), which is why the seed refuses production.
+ * `.claude/skills/verify-helpos/scripts/instance.mjs` imports it at runtime, out of knip's sight.
+ *
+ * @public
  */
 export function seedToken(name: string): string {
   return `hos_${createHash("sha256").update(`${seed}:token:${name}`).digest("base64url")}`;
@@ -117,7 +120,6 @@ const tenantSpecs: TenantSpec[] = [
       { name: "triage-bot", scopes: ["conversations:read", "drafts:write", "knowledge:read"] },
       { name: "approver-bot", scopes: ["conversations:read", "drafts:approve"] },
       { name: "old-import-script", scopes: ["knowledge:write"], revoked: true },
-      { name: "stats-reader", scopes: ["stats:read"] },
     ],
     sources: [
       {
@@ -366,7 +368,6 @@ const tenantSpecs: TenantSpec[] = [
         scopes: ["conversations:read", "drafts:write", "drafts:approve", "knowledge:read"],
       },
       { name: "docs-sync", scopes: ["knowledge:read", "knowledge:write"] },
-      { name: "stats-reader", scopes: ["stats:read"] },
     ],
     sources: [
       {

@@ -479,8 +479,7 @@ export const auditEvents = pgTable(
  *
  * `conversations:write` changes a conversation itself (closing it, #46). `drafts:approve` is separate so an
  * agent can draft without sending. `knowledge:write` is separate from reading, because what's in
- * the knowledge base shapes every draft. `stats:read` reads workspace numbers such as how many
- * drafts are approved unchanged (#116).
+ * the knowledge base shapes every draft.
  *
  * Workspace administration (`workspace:admin`: shadow mode, minting tokens) is deliberately
  * missing: that stays with humans signed in to a session.
@@ -492,7 +491,6 @@ export const apiTokenScopes = [
   "drafts:approve",
   "knowledge:read",
   "knowledge:write",
-  "stats:read",
 ] as const;
 export type ApiTokenScope = (typeof apiTokenScopes)[number];
 

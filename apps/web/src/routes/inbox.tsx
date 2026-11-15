@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { draftStatsQuery, openConversationsQuery } from "@/api/queries.ts";
+import { openConversationsQuery } from "@/api/queries.ts";
 import { Alert, AlertContent, AlertDescription, AlertIcon } from "@/components/ui/alert.tsx";
 import { AnimatedBadge } from "@/components/ui/animated-badge.tsx";
 import {
@@ -30,8 +30,6 @@ export function InboxPage() {
           </span>
         ) : null}
       </div>
-      <DraftStatsLine />
-
       {conversations.isPending ? (
         <div className="flex justify-center py-12">
           <Loader size={24} label="Loading conversations" />
@@ -105,27 +103,5 @@ export function InboxPage() {
         </ul>
       )}
     </section>
-  );
-}
-
-const statsDays = 14;
-
-/**
- * The MVP's yardstick: how often the AI's draft went out exactly as written. Says nothing while
- * loading or on error, so the inbox never waits on it.
- */
-function DraftStatsLine() {
-  const stats = useQuery(draftStatsQuery(statsDays));
-  if (!stats.data) return null;
-  const { approvedUnchanged, approvedEdited, unchangedRate } = stats.data;
-  const approved = approvedUnchanged + approvedEdited;
-  // Of approved drafts only: one still pending or discarded never reached a customer.
-  return (
-    <p className="text-muted-foreground text-sm tabular-nums">
-      Last {statsDays} days:{" "}
-      {unchangedRate === null
-        ? "no drafts approved yet"
-        : `${Math.round(unchangedRate * 100)}% of drafts approved unchanged (${approvedUnchanged} of ${approved})`}
-    </p>
   );
 }

@@ -45,7 +45,6 @@ Warnings (`warn`) name features that will not work: knowledge sources still `pen
 | `owner` | Maya, Northwind owner, session cookie | all, including `workspace:admin` |
 | `northwind:triage-bot` | agent | `conversations:read`, `drafts:write`, `knowledge:read` |
 | `northwind:approver-bot` | agent | `conversations:read`, `drafts:approve` |
-| `northwind:stats-reader` | agent | `stats:read` |
 | `lumen:support-agent` | agent in the *other* workspace | use it to prove tenant isolation |
 | `hos_…` | a token you minted with `owner POST v1/tokens` | what you gave it |
 | `inbound` | the email provider | body `@fixtures/email/<name>.eml`; `support@acme.test` is swapped for the Northwind mailbox |
