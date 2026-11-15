@@ -1,13 +1,42 @@
-import { and, eq, schema, type TenantTx } from "@helpos/db";
+import { and, eq, inArray, schema, type TenantTx } from "@helpos/db";
 import { type AuditAction, type AuditContext, recordAudit } from "../audit/audit.ts";
 
 const { conversations, messages } = schema;
+type ConversationStatus = (typeof schema.conversationStatuses)[number];
+
+interface Transition {
+  readonly from: readonly ConversationStatus[];
+  readonly to: ConversationStatus;
+}
+
+export const conversationTransitions = {
+  close: { from: ["open"], to: "closed" },
+  personReplied: { from: ["open", "closed"], to: "open" },
+} as const satisfies Record<string, Transition>;
+
+type ConversationOperation = keyof typeof conversationTransitions;
 const pauseAudit = {
   daily_budget: "ai.paused",
   draft_failed: "ai.draft_failed",
 } as const satisfies Record<schema.AiPausedReason, AuditAction>;
 type ConversationValues = typeof conversations.$inferInsert;
 type MessageValues = typeof messages.$inferInsert;
+type ConversationSet = Omit<Partial<ConversationValues>, "status">;
+
+async function changeStatus(
+  tx: TenantTx,
+  operation: ConversationOperation,
+  id: string,
+  set: ConversationSet = {},
+): Promise<boolean> {
+  const { from, to } = conversationTransitions[operation];
+  const [changed] = await tx
+    .update(conversations)
+    .set({ ...set, status: to })
+    .where(and(eq(conversations.id, id), inArray(conversations.status, [...from])))
+    .returning({ id: conversations.id });
+  return changed !== undefined;
+}
 
 export async function createConversation(tx: TenantTx, values: ConversationValues): Promise<void> {
   await tx.insert(conversations).values(values);
@@ -22,12 +51,7 @@ export async function closeConversation(
   context: AuditContext,
   id: string,
 ): Promise<boolean> {
-  const [closed] = await tx
-    .update(conversations)
-    .set({ status: "closed" })
-    .where(and(eq(conversations.id, id), eq(conversations.status, "open")))
-    .returning({ id: conversations.id });
-  if (!closed) return false;
+  if (!(await changeStatus(tx, "close", id))) return false;
   await recordAudit(tx, {
     ...context,
     action: "conversation.closed",
@@ -36,15 +60,14 @@ export async function closeConversation(
   return true;
 }
 
-export async function reopenConversation(
+export async function recordInbound(
   tx: TenantTx,
   id: string,
   receivedAt: Date,
+  from: { automated: boolean },
 ): Promise<void> {
-  await tx
-    .update(conversations)
-    .set({ lastMessageAt: receivedAt, status: "open", automated: false })
-    .where(eq(conversations.id, id));
+  if (from.automated) await recordActivity(tx, id, receivedAt);
+  else await changeStatus(tx, "personReplied", id, { lastMessageAt: receivedAt, automated: false });
 }
 
 export async function recordActivity(tx: TenantTx, id: string, at: Date): Promise<void> {
