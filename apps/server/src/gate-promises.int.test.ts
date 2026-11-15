@@ -9,9 +9,9 @@ import type { Principal, Scope } from "./auth/principal.ts";
 import { sendReplyJob } from "./drafts/jobs.ts";
 import { handleSendGaveUp, handleSendReply } from "./drafts/send-worker.ts";
 import { ingestEmail } from "./inbound-email/ingest.ts";
-import { ensureJobQueues } from "./jobs.ts";
 import type { EmailTransport } from "./outbound-email/transport.ts";
 import { composeServer } from "./server.ts";
+import { retryJobsQuickly } from "./testing/quick-retries.ts";
 import { waitsFor } from "./testing/waits-for.ts";
 import { initWorkspace } from "./workspaces/init-workspace.ts";
 
@@ -41,7 +41,7 @@ async function startGate() {
     config: { publicUrl: "http://helpdesk.test" },
   });
   await server.runner.start();
-  await ensureJobQueues(server.runner, { jobRetry: { limit: 0, delaySeconds: 0, backoff: false } });
+  await retryJobsQuickly(server.runner, { limit: 0, delaySeconds: 0, backoff: false });
   const workspace = await initWorkspace(
     { db, auth },
     { workspace: "Gate", mailbox: "support@gate.test", owner: "owner@gate.test" },
