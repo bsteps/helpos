@@ -43,6 +43,8 @@ import {
   updateSource,
 } from "./source-lifecycle.ts";
 
+const noPause = async () => {};
+
 /** Sends the API's reingest request. */
 const reingest = (id: string, as = "editor") =>
   call("POST", `/v1/knowledge/sources/${id}/reingest`, as);
@@ -305,8 +307,8 @@ beforeAll(async () => {
     model,
     embeddingModel,
     fetch: testFetch,
+    pause: noPause,
     config: {
-      fetchRetryDelaysMs: [20, 20],
       publicUrl: "http://helpdesk.test",
       dailyTokenBudget: 1_000_000,
     },
@@ -504,11 +506,12 @@ describe("re-ingesting", () => {
     const id = await insertUrlSource("down-a-while", "/down-a-while");
     // Started long enough ago that its one more try is due now: the worker runs it.
     await handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch: testFetch,
       logger,
       clock: { now: () => new Date(Date.now() - retryDelayMs - 60_000) },
-      config: { ...defaultConfig, dailyTokenBudget: 1_000_000, fetchRetryDelaysMs: [20, 20] },
+      config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
     })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     expect(served["/down-a-while"]).toBe(3);
     expect(await ingested(acme, id)).toMatchObject({ state: { status: "ready" } });
@@ -520,11 +523,12 @@ describe("re-ingesting", () => {
     const id = await insertUrlSource("down-for-good", "/down-for-good");
     const ingest = () =>
       handleIngestSource({
+        pause: noPause,
         embeddingModel,
         fetch: testFetch,
         logger,
         clock: systemClock,
-        config: { ...defaultConfig, dailyTokenBudget: 1_000_000, fetchRetryDelaysMs: [20, 20] },
+        config: { ...defaultConfig, dailyTokenBudget: 1_000_000 },
       })({ tenantId: acme, sourceId: id }, tenantTransactions(db, acme));
     await ingest();
     expect(await sourceOf(acme, id)).toMatchObject({
@@ -648,6 +652,7 @@ describe("re-ingesting", () => {
     const { fetch, started, release } = gatedFetch();
     const id = await insertUrlSource("held-fetch", "/refunds");
     const run = handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch,
       logger,
@@ -667,6 +672,7 @@ describe("re-ingesting", () => {
     const { fetch, started, release } = gatedFetch();
     const id = await insertUrlSource("asked-again", "/slow");
     const run = handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch,
       logger,
@@ -764,6 +770,7 @@ describe("embedding model changes", () => {
 describe("SSRF: every fetch goes through the safe fetch", () => {
   const ingestWith = (fetch: Fetcher, tenantId: string, sourceId: string) =>
     handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch,
       logger,
@@ -849,6 +856,7 @@ describe("limits", () => {
     const calls = embeddingModel.doEmbedCalls.length;
     const ingestAt = (now: Date) =>
       handleIngestSource({
+        pause: noPause,
         embeddingModel,
         fetch: testFetch,
         logger,
@@ -871,6 +879,7 @@ describe("limits", () => {
   it("doesn't fetch a page while its source waits for the budget", async () => {
     const id = await insertUrlSource("budget-url", "/budget-page");
     await handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch: testFetch,
       logger,
@@ -886,6 +895,7 @@ describe("limits", () => {
   it("asking again while it waits for the budget keeps the reason it waits", async () => {
     const id = await insertUrlSource("budget-reason", "/refunds");
     await handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch: testFetch,
       logger,
@@ -922,6 +932,7 @@ describe("limits", () => {
     };
     const ingestAt = (id: string, now: Date) =>
       handleIngestSource({
+        pause: noPause,
         embeddingModel: busy,
         fetch: testFetch,
         logger,
@@ -963,6 +974,7 @@ describe("limits", () => {
         .where(eq(knowledgeSources.id, id)),
     );
     await handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch: testFetch,
       logger,
@@ -989,6 +1001,7 @@ describe("limits", () => {
     expect(visible).not.toHaveProperty("error");
     expect(visible).not.toHaveProperty("status");
     await handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch: async () => {
         throw new SafeFetchError("timeout", "test timeout");
@@ -1034,6 +1047,7 @@ describe("limits", () => {
       },
     } as const;
     await handleIngestSource({
+      pause: noPause,
       embeddingModel: busy,
       fetch: testFetch,
       logger,
@@ -1052,6 +1066,7 @@ describe("limits", () => {
       throw new TypeError("a bug, not a fetch error");
     };
     await handleIngestSource({
+      pause: noPause,
       embeddingModel,
       fetch: broken,
       logger,
@@ -1082,6 +1097,7 @@ describe("limits", () => {
       },
     } as const;
     await handleIngestSource({
+      pause: noPause,
       embeddingModel: broken,
       fetch: testFetch,
       logger,
@@ -1129,6 +1145,7 @@ describe("limits", () => {
     } as const;
     const before = await usageOn(db, other);
     await handleIngestSource({
+      pause: noPause,
       embeddingModel: partial,
       fetch: testFetch,
       logger,
@@ -1167,6 +1184,7 @@ describe("limits", () => {
       doEmbed: async () => ({ embeddings: [], usage: { tokens: 3 }, warnings: [] }),
     } as const;
     await handleIngestSource({
+      pause: noPause,
       embeddingModel: short,
       fetch: testFetch,
       logger,
@@ -1724,6 +1742,7 @@ describe("editing sources", () => {
       return embed(options);
     };
     const run = handleIngestSource({
+      pause: noPause,
       embeddingModel: slow,
       fetch: testFetch,
       logger,

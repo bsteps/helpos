@@ -12,7 +12,7 @@ import { handleSendGaveUp, handleSendReply } from "./drafts/send-worker.ts";
 import { handleIngestGaveUp, handleIngestSource } from "./knowledge/ingest-worker.ts";
 import { ingestSourceJob } from "./knowledge/jobs.ts";
 import { createVectorSearch } from "./knowledge/search.ts";
-import type { ServerConfig, Services } from "./services.ts";
+import type { Services } from "./services.ts";
 
 // Every background job, declared once: its queue, how it's retried, what runs it and what
 // marks it failed for good. The worker works these, and every queue is created from this
@@ -40,18 +40,16 @@ interface JobSpec<P extends { tenantId: string }> {
 
 /** A registered job, with its payload type sealed inside. */
 export interface Job {
-  readonly queue: string;
-  ensureQueue(runner: Pick<JobRunner, "ensureQueue">, config: JobQueueConfig): Promise<void>;
+  readonly job: TenantJob<{ tenantId: string }>;
+  ensureQueue(runner: Pick<JobRunner, "ensureQueue">): Promise<void>;
   /** Starts working the queue, or returns why its jobs wait. */
   start(runner: JobRunner, services: Services): Promise<Waits | undefined>;
 }
 
-type JobQueueConfig = Pick<ServerConfig, "jobRetry">;
-
 function defineJob<P extends { tenantId: string }>(spec: JobSpec<P>): Job {
   return {
-    queue: spec.job.queue,
-    ensureQueue: (runner, config) => runner.ensureQueue(spec.job, config.jobRetry ?? spec.retry),
+    job: spec.job,
+    ensureQueue: (runner) => runner.ensureQueue(spec.job, spec.retry),
     start: async (runner, services) => {
       const run = spec.run(services);
       if ("waits" in run) return run;
@@ -158,9 +156,6 @@ export const jobs: readonly Job[] = [
  * Creates every job queue, with its retry policy. enqueue() refuses a queue that doesn't exist,
  * so anything that enqueues before a worker has started (the seed, tests) calls this first.
  */
-export async function ensureJobQueues(
-  runner: Pick<JobRunner, "ensureQueue">,
-  config: JobQueueConfig,
-): Promise<void> {
-  for (const job of jobs) await job.ensureQueue(runner, config);
+export async function ensureJobQueues(runner: Pick<JobRunner, "ensureQueue">): Promise<void> {
+  for (const job of jobs) await job.ensureQueue(runner);
 }

@@ -52,7 +52,7 @@ For #130: model its two-phase send (commit a `sending` marker, then SMTP, then `
 ## Coverage record
 
 <!-- coverage -->
-Last confirmed at commit `a52921fa6e35`.
+Last confirmed at commit `8679362c1d1c`.
 
 | Module | Function | Model steps | Fingerprint |
 | --- | --- | --- | --- |
@@ -80,7 +80,7 @@ Last confirmed at commit `a52921fa6e35`.
 | apps/server/src/drafts/lifecycle.ts | markSent | TransactionCommits | `97968274f48d` |
 | apps/server/src/drafts/lifecycle.ts | markSendFailed | GiveUpMarksFailed | `1ab4b0b08c2b` |
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `7be5a99e506d` |
-| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `313382219f6f` |
+| apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `8c21a025c58f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
 | packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
 | packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `13c7c8ab11d4` |

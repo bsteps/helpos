@@ -9,7 +9,7 @@ import PostalMime from "postal-mime";
 import { expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { ensureJobQueues } from "../jobs.ts";
-import { composeServices, defaultConfig } from "../services.ts";
+import { composeServices } from "../services.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { maxAttachments, maxFilenameLength, parseEmail } from "./parse.ts";
 
@@ -33,7 +33,7 @@ it("stores only the first 20 attachments, bounded names, and a visible note thro
   const runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   try {
     await runner.start();
-    await ensureJobQueues(runner, defaultConfig);
+    await ensureJobQueues(runner);
     const workspace = await initWorkspace(
       { db, auth },
       {
