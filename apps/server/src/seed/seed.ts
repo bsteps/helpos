@@ -1,7 +1,7 @@
 import { type AuthStore, type Database, type JobRunner, schema } from "@helpos/db";
 import { seedConversationHistory } from "../conversations/lifecycle.ts";
 import { ensureJobQueues } from "../jobs.ts";
-import { queueIngest } from "../knowledge/sources.ts";
+import { queueIngest, seedSources } from "../knowledge/source-lifecycle.ts";
 import type { ServerConfig } from "../services.ts";
 import { hashToken } from "../tokens/token.ts";
 import { buildDemoData, type DemoData } from "./demo-data.ts";
@@ -69,14 +69,7 @@ export async function seedDemoData(deps: {
       await seedConversationHistory(tx, t);
       await tx.insert(schema.drafts).values(t.drafts).onConflictDoNothing();
       // Inserted before the citations that point at them; only new ones are queued.
-      const added = await tx
-        .insert(schema.knowledgeSources)
-        .values(t.sources)
-        .onConflictDoNothing()
-        .returning({
-          id: schema.knowledgeSources.id,
-          requests: schema.knowledgeSources.ingestRequests,
-        });
+      const added = await seedSources(tx, t.sources);
       await tx.insert(schema.draftCitations).values(t.citations).onConflictDoNothing();
       for (const { id, requests } of added) {
         await queueIngest(tx, { tenantId: t.tenant.id, sourceId: id, requests }, { kind: "reuse" });

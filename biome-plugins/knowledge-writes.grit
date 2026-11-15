@@ -1,0 +1,21 @@
+language js
+
+or {
+  `$db.update(knowledgeSources)`,
+  `$db.update(schema.knowledgeSources)`,
+  `$db.insert(knowledgeSources)`,
+  `$db.insert(schema.knowledgeSources)`,
+  `$db.delete(knowledgeSources)`,
+  `$db.delete(schema.knowledgeSources)`,
+  `$db.update(knowledgeChunks)`,
+  `$db.update(schema.knowledgeChunks)`,
+  `$db.insert(knowledgeChunks)`,
+  `$db.insert(schema.knowledgeChunks)`,
+  `$db.delete(knowledgeChunks)`,
+  `$db.delete(schema.knowledgeChunks)`
+} as $write where {
+  $filename <: r".*apps.server.src..*",
+  $filename <: not r".*.knowledge.source-lifecycle\.ts",
+  $filename <: not r".*\.test\.ts",
+  register_diagnostic(span=$write, message="Write knowledge sources and passages only through apps/server/src/knowledge/source-lifecycle.ts (createSource, requestIngest, failIngest, storeIngested, ...). Add an operation and its row in sourceTransitions there if none fits.", severity="error")
+}

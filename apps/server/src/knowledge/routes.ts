@@ -11,7 +11,7 @@ import {
   notFound,
   notFoundResponse,
 } from "../http/route-kit.ts";
-import { createSource, deleteSource, requestIngest, updateSource } from "./sources.ts";
+import { createSource, deleteSource, requestIngest, updateSource } from "./source-lifecycle.ts";
 
 const { knowledgeSources } = schema;
 type SourceRow = typeof knowledgeSources.$inferSelect;
