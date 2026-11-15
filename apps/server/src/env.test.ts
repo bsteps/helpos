@@ -13,7 +13,6 @@ describe("envSchema", () => {
     expect(env.HELPOS_AI_DAILY_TOKEN_BUDGET).toBe(200_000);
     expect(env.HELPOS_DATABASE_AUTH_URL).toBeUndefined();
     expect(env.HELPOS_PUBLIC_URL).toBe("http://localhost:3000");
-    expect(env.HELPOS_NOTICE_DELAY_SECONDS).toBe(300);
     // Locked by default: shadow mode can't be turned off until this is set on purpose.
     expect(env.HELPOS_ALLOW_SHADOW_MODE_OFF).toBe(false);
   });

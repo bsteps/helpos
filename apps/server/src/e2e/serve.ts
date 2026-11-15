@@ -19,6 +19,7 @@ import {
 } from "../outbound-email/transport.ts";
 import { seedDemoData } from "../seed/seed.ts";
 import { composeServer } from "../server.ts";
+import { retryJobsQuickly } from "../testing/quick-retries.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { passwordSetupLink } from "../workspaces/password-link.ts";
 
@@ -137,8 +138,6 @@ const helpos = composeServer({
     dailyTokenBudget: e2eDailyTokenBudget,
     // Owner notices would land in Mailpit next to the replies the tests look for.
     noticeDelaySeconds: 3600,
-    // One retry a second later, so a failing job gives up in seconds, not hours.
-    jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
   },
   // Plays a model that obeyed the injection when an email asks for the note, so the dashboard's
   // warning can be tested. Every other email gets `e2eDraft`.
@@ -169,8 +168,9 @@ const setup = await auth.issueSetupToken(workspace.ownerId);
 
 // The demo workspaces too, for tests that need history (drafts sent weeks ago). The seed gives
 // nobody a password, so its owner and a member get one here.
-const seeded = await seedDemoData({ db, auth, jobs: runner, config: helpos.services.config });
+const seeded = await seedDemoData({ db, auth, jobs: runner });
 if (!seeded.ok) throw new Error(`e2e: seed failed: ${seeded.reason}`);
+await retryJobsQuickly(runner);
 const seedOwner = "maya.okafor@northwind-cycles.test";
 const seedPassword = "northwind demo password";
 await setUserPassword(seedOwner, seedPassword);

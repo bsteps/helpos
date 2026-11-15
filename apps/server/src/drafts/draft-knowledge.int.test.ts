@@ -112,7 +112,7 @@ beforeAll(async () => {
   auth = createAuthStore(testDb.authUrl);
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   const a = await initWorkspace(
     { db, auth },
     { workspace: "Acme", mailbox: "support@acme.test", owner: "owner@acme.test" },

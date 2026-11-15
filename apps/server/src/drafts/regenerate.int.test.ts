@@ -60,7 +60,7 @@ beforeAll(async () => {
   jobsDb = createDatabase(testDb.jobsUrl);
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError });
   await runner.start();
-  await ensureJobQueues(runner, { jobRetry: undefined });
+  await ensureJobQueues(runner);
   const auth = createAuthStore(testDb.authUrl);
   try {
     for (const slug of ["regenerate", "other"]) {

@@ -28,6 +28,7 @@ import {
   SendRejected,
 } from "../outbound-email/transport.ts";
 import { composeServer, type Server } from "../server.ts";
+import { retryJobsQuickly } from "../testing/quick-retries.ts";
 import { initWorkspace } from "../workspaces/init-workspace.ts";
 import { sendReplyJob } from "./jobs.ts";
 
@@ -173,12 +174,11 @@ beforeAll(async () => {
       publicUrl: "http://helpdesk.test",
       noticeDelaySeconds: 3600,
       dailyTokenBudget: 1_000_000,
-      // Two attempts a second apart, so giving up takes seconds, not hours.
-      jobRetry: { limit: 1, delaySeconds: 1, backoff: false },
     },
   });
   runner = helpos.runner;
   await helpos.startWorker();
+  await retryJobsQuickly(runner);
 
   const a = await initWorkspace(
     { db, auth },

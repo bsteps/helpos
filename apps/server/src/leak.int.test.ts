@@ -126,7 +126,7 @@ beforeAll(async () => {
   auth = createAuthStore(testDb.authUrl);
   runner = createJobRunner({ jobsUrl: testDb.jobsUrl, db, onError: () => {} });
   await runner.start();
-  await ensureJobQueues(runner, defaultConfig);
+  await ensureJobQueues(runner);
   a = await seedLeakTenant(db, auth, {
     tenantId: uuidv7(),
     tag: "leak-a",
