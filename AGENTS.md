@@ -132,7 +132,6 @@ apps/server/src/inbound-email/   parse inbound email and file it as a conversati
 apps/server/src/knowledge/       knowledge sources: fetch, extract, chunk, ingest and search
 apps/server/src/outbound-email/  compose and send email, shadow-mode routing, owner notices
 apps/server/src/seed/            demo data for pnpm db:seed, refused on non-local databases
-apps/server/src/stats/           draft outcome counts and their route
 apps/server/src/testing/         test setup that checks every response against its OpenAPI schema
 apps/server/src/tokens/          agent API tokens: create, authenticate, revoke
 apps/server/src/web/             serves the built dashboard on every path the API doesn't own
