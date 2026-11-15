@@ -82,7 +82,7 @@ Last confirmed at commit `8679362c1d1c`.
 | apps/server/src/jobs.ts | jobs | send-reply worker registration | `7be5a99e506d` |
 | apps/server/src/jobs.ts | defineJob | transaction wiring and give-up wrapper | `8c21a025c58f` |
 | apps/server/src/jobs.ts | sendReplyRetry | RetryLimit | `29d5382a4c16` |
-| packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `83e341f15885` |
+| packages/db/src/jobs.ts | APP_ENQUEUE_SQL | Enqueue (singleton key) | `1e14891501d5` |
 | packages/db/src/jobs.ts | createJobRunner.consume | Fail: onGiveUp only on the last attempt, after the rollback | `13c7c8ab11d4` |
 | packages/db/src/jobs.ts | createJobRunner.work | two committed transactions per send attempt (`steps`) | `0ac5978b52bb` |
 | pg-boss | version | WorkerClaimsJob, Settle (attempt fence), JobLeaseExpires | `12.38.1` |
