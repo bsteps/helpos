@@ -20,8 +20,8 @@ import {
   markMessageSent,
   pauseAi,
   recordActivity,
+  recordInbound,
   removeRejectedMessage,
-  reopenConversation,
 } from "./lifecycle.ts";
 
 let testDb: TestDatabase;
@@ -108,7 +108,7 @@ it.each([
     await db.withTenant(tenantId, async (tx) => {
       await pauseAi(tx, context, id, "draft_failed");
       await clearAiPause(tx, id, "draft_failed");
-      await reopenConversation(tx, id, new Date("2026-01-03T00:00:00Z"));
+      await recordInbound(tx, id, new Date("2026-01-03T00:00:00Z"), { automated: false });
     });
     expect(await read(id)).toMatchObject({
       status: "open",

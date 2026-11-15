@@ -345,6 +345,30 @@ describe("automated mail: out-of-office, bounces, lists", () => {
     expect(conversation?.status).toBe("closed");
   });
 
+  it("a person replying reopens a closed conversation", async () => {
+    const first = await ingestEmail({ db, files }, normal("<reopen-1@"));
+    if (first.kind !== "created") throw new Error(`expected created, got ${first.kind}`);
+    await db.withTenant(acme, (tx) =>
+      tx
+        .update(schema.conversations)
+        .set({ status: "closed" })
+        .where(eq(schema.conversations.id, first.conversationId)),
+    );
+    const followUp = fixture("plain.eml")
+      .toString()
+      .replace("<plain-1@", "<reopen-2@")
+      .replace("Subject:", "In-Reply-To: <reopen-1@customer.test>\nSubject:");
+    const reply = await ingestEmail({ db, files }, new Uint8Array(Buffer.from(followUp)));
+    expect(reply).toMatchObject({ kind: "created", threaded: true, draftReply: true });
+    const [conversation] = await db.withTenant(acme, (tx) =>
+      tx
+        .select()
+        .from(schema.conversations)
+        .where(eq(schema.conversations.id, first.conversationId)),
+    );
+    expect(conversation?.status).toBe("open");
+  });
+
   it("a person replying on an automated conversation makes it a normal conversation", async () => {
     const human = fixture("plain.eml")
       .toString()
