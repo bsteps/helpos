@@ -16,12 +16,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
-    name: Lint, typecheck, test
-    # Draft PRs skip CI. It runs once the PR is marked ready for review.
+  lint:
+    name: Lint and API contract
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       # Actions are pinned to commit SHAs (supply-chain safety). Dependabot keeps them updated.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +41,59 @@ jobs:
       - run: pnpm exec biome ci .
       # Unused files, exports and dependencies (knip.jsonc).
       - run: pnpm knip
+
+  typecheck:
+    name: Typecheck, build and smoke
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run typecheck build
+      - run: pnpm test:performance
+      - name: Upload read latency evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: read-budget
+          path: .helpos/read-budget.json
+          include-hidden-files: true
+          retention-days: 7
+      # Proves the one-command local setup works from a fresh clone (issue #5).
+      # Tests in the other jobs already use real Postgres via Testcontainers (ADR 0005).
+      - name: Smoke test `pnpm dev`
+        run: |
+          pnpm dev > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/readyz; then exit 0; fi
+            sleep 2
+          done
+          cat dev.log
+          exit 1
+
+  unit:
+    name: Unit tests and evals
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Unit tests with Docker stopped
         run: |
           sudo systemctl stop docker.socket docker.service
@@ -56,33 +108,67 @@ jobs:
             exit 1
           fi
           pnpm exec vitest run --project unit
-      - run: pnpm exec turbo run typecheck build
+      # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).
+      - run: pnpm eval
+
+  coverage:
+    name: Integration tests and coverage
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm test:coverage
-      - run: pnpm test:performance
-      - name: Upload coverage and read latency evidence
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: quality-gate-evidence
-          path: |
-            coverage/
-            .helpos/read-budget.json
-          include-hidden-files: true
+          name: coverage
+          path: coverage/
           retention-days: 7
+
+  scripts:
+    name: Script tests
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Provision pinned API comparison tool
+        run: node scripts/setup-oasdiff.mjs
       - run: pnpm test:scripts
-      # AI evals against the mock model. CI never calls a real provider (EVAL_LIVE is never set here).
-      - run: pnpm eval
-      # Proves the one-command local setup works from a fresh clone (issue #5).
-      # Tests above already use real Postgres via Testcontainers (ADR 0005).
-      - name: Smoke test `pnpm dev`
+
+  # The one required check (.github/required-checks.json). A skipped required check counts as
+  # passing, so this runs even when a job above failed or was cancelled and fails in both cases.
+  check:
+    name: Lint, typecheck, test
+    needs: [lint, typecheck, unit, coverage, scripts]
+    if: ${{ always() && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job above passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          pnpm dev > dev.log 2>&1 &
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000/readyz; then exit 0; fi
-            sleep 2
-          done
-          cat dev.log
-          exit 1
+          echo "$RESULTS"
+          for result in $RESULTS; do test "$result" = success; done
 
   e2e:
     name: End-to-end (Playwright)

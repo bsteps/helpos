@@ -1,0 +1,12 @@
+{
+  "branch": "main",
+  "checks": [
+    { "context": "Lint, typecheck, test", "workflow": "ci.yml", "job": "check" },
+    { "context": "review", "workflow": "dependency-review.yml", "job": "review" },
+    {
+      "context": "Analyze (javascript-typescript)",
+      "source": "CodeQL default setup (repository code security settings)"
+    },
+    { "context": "license/cla", "source": "CLA Assistant commit status" }
+  ]
+}

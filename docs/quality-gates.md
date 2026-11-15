@@ -1,6 +1,6 @@
 # Quality gates
 
-The `Lint, typecheck, test` CI job enforces coverage, bundle size and seeded API read latency. Playwright keeps a video of every failed test in the failure artifact.
+CI runs its checks as parallel jobs, so the first failure shows within minutes. The required `Lint, typecheck, test` check passes only when all of them pass, and together they enforce coverage, bundle size and seeded API read latency. Playwright keeps a video of every failed test in the failure artifact.
 
 ## Coverage
 
@@ -15,7 +15,7 @@ The `Lint, typecheck, test` CI job enforces coverage, bundle size and seeded API
 | Functions  |            70% |
 | Lines      |            77% |
 
-The floors are regression floors just below the measured baseline, rounded down to whole percentages. ADR 0005 sets no percentage. The aggregate includes untested React screens and CLI entry points. Browser execution does not contribute to V8's Node coverage, so the report describes source test coverage, not coverage of every user flow. CI uploads the HTML and JSON summary for seven days.
+The floors are regression floors just below the measured baseline, rounded down to whole percentages. ADR 0005 sets no percentage. The aggregate includes untested React screens and CLI entry points. Browser execution does not contribute to V8's Node coverage, so the report describes source test coverage, not coverage of every user flow. CI uploads the HTML and JSON summary as the `coverage` artifact for seven days.
 
 | Exclusion                                  | Reason                                                                                     |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------ |
@@ -45,7 +45,13 @@ The dataset has two tenants, 14 conversations, 22 messages and 11 drafts. Four w
 
 Each workload runs five rounds. Each round warms up with 20 reads and measures 100 sequential reads at concurrency one. Timing starts before `fetch` and ends after the complete response body arrives. Parsing and validation follow timing. The p95 is the sorted sample at `ceil(0.95 × 100)`, using one-based indexing. Every workload in every round must have p95 strictly below 100 ms, exactly 100 successful measured reads and zero errors. Warmup errors also fail. The gate never retries, discards slow samples or averages rounds to pass.
 
-Raw samples, response bytes, errors, dataset, host, Node version and Git head go to `.helpos/read-budget.json`. CI uploads that file for seven days. The disposable helper disables durability, so this is a read regression gate on its seeded environment, not a measure of production capacity, cold starts, write durability, large datasets or concurrent load. Windows load averages are always zero; capture CPU utilization separately when comparing local runs.
+Raw samples, response bytes, errors, dataset, host, Node version and Git head go to `.helpos/read-budget.json`. CI uploads that file as the `read-budget` artifact for seven days. The disposable helper disables durability, so this is a read regression gate on its seeded environment, not a measure of production capacity, cold starts, write durability, large datasets or concurrent load. Windows load averages are always zero; capture CPU utilization separately when comparing local runs.
+
+## Required checks
+
+The checks that must pass before a PR merges are listed in `.github/required-checks.json`, each with the job that produces it or the external source it comes from. `scripts/required-checks.test.mjs` proves each repo entry is a real job with that name, and that the `Lint, typecheck, test` gate waits for every CI job except e2e and demo. `.github/workflows/required-checks.yml` compares the list with the live ruleset every day and fails on a difference.
+
+To change a required check, change the JSON and the ruleset together, and label the PR `needs-human`.
 
 ## Failure videos
 
