@@ -33,16 +33,16 @@ The whole vision fits on one page: [docs/vision.md](docs/vision.md).
 
 Working today: email → conversation → AI draft → approve → send, in shadow mode.
 
-| Set                     | Goal                                                                                                   |         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------ | ------- |
-| **0. Clean foundation** | Clean the existing code and prove every behaviour with a test before new work builds on it             | 🚧 Now  |
-| **A. The gate**         | Every action from any agent goes through one gate; one writer at a time, no automatic resend           | ⏭️ Next |
-| **B. Shadow mode**      | Import conversations from another helpdesk and review how the agent would have answered                | ⏳      |
-| **C. First real reply** | Real replies to real customers, with every release-safety item in place and customer outcomes measured | ⏳      |
-| **D. Bring your agent** | The improve loop runs, from the built-in agent and from your own agent through MCP                     | ⏳      |
-| **E. Paid hosted**      | Hosted sign-up, onboarding and one-slider pricing                                                      | ⏳      |
+| Milestones         | Goal                                                                                       |         |
+| ------------------ | ------------------------------------------------------------------------------------------ | ------- |
+| **1–6**            | Understand and hand-test every part that already works, and fix what that turns up         | 🚧 Now  |
+| **0. Foundation**  | Clean the existing code and prove every behaviour with a test before new work builds on it | 🚧 Now  |
+| **7–12. The gate** | Every agent has an identity, every action is a decision, one owner per conversation, undo  | ⏭️ Next |
+| **13–17**          | Answers with sources, import and shadow replay, the one number, real email, earned trust   | ⏳      |
+| **18–23**          | Your own agent connects through MCP and works the desk alongside the built-in one          | ⏳      |
+| **24. Hosted**     | Hosted sign-up, onboarding and one-slider pricing                                          | ⏳      |
 
-Every set and exit goal is in [docs/roadmap.md](docs/roadmap.md).
+Every milestone and its checkpoint is in [docs/roadmap.md](docs/roadmap.md).
 
 ## Contributing
 

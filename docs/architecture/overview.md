@@ -116,7 +116,7 @@ The [threat model](../security/threat-model.md) maps every boundary, the threats
 
 ## Shortcuts before the first real reply
 
-HelpOS isn't released yet. To stay small, the code takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (set C, first real reply, in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the workspace owner, never to a real customer:
+HelpOS isn't released yet. To stay small, the code takes some shortcuts. ADR 0004 says its controls are required "from the first release", so all of these must land before shadow mode is turned off (milestone 16, real email, in the [roadmap](../roadmap.md)) and before any public release or hosted sign-up. Until then, shadow mode (#66) sends every reply to the workspace owner, never to a real customer:
 
 | Shortcut today                             | Required before release                   |
 | ------------------------------------------ | ----------------------------------------- |
@@ -130,6 +130,6 @@ HelpOS isn't released yet. To stay small, the code takes some shortcuts. ADR 000
 - Decisions: [`docs/adr/`](../adr/)
 - What is in the database and who may touch it: [`data-model.md`](data-model.md)
 - What PR reviews check, as checklists for authors and the AI checks: [`docs/checks/`](../checks/README.md)
-- What we build, in which order: [`docs/roadmap.md`](../roadmap.md) (one GitHub milestone per set)
+- What we build, in which order: [`docs/roadmap.md`](../roadmap.md) (one GitHub milestone per part of the product, each ending in a checkpoint)
 
 Migration 0020 preserves knowledge source content and passages. Historical waits use migration time for `retryAt` because sources did not record that time. Existing queued jobs keep their schedules. Unknown legacy reasons abort the migration rather than discard data.
