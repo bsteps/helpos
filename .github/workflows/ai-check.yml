@@ -133,7 +133,7 @@ jobs:
         if: steps.prep.outputs.run == 'true'
         continue-on-error: true # advisory for now: a failed run is reported, never blocks
         timeout-minutes: 10
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@f431adaf77e0fecf918431e75a2b5b45b85af002 # v1.0.283
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The job's own token (read code, write PR comments) instead of the Claude app's
